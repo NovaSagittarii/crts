@@ -18,4 +18,4 @@ services:
       # - ~/.gitconfig:/root/.gitconfig
     environment:
       - TZ=
-    entrypoint: ["sh", "-c", "while sleep 1000; do :; done"]
+    entrypoint: ['sh', '-c', 'while sleep 1000; do :; done']
