@@ -31,8 +31,7 @@
         min-height: 100vh;
         font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
         color: var(--text);
-        background: radial-gradient(circle at top, #1b2a49, var(--bg))
-          fixed;
+        background: radial-gradient(circle at top, #1b2a49, var(--bg)) fixed;
       }
 
       header {
@@ -120,6 +119,7 @@
         }
       }
     </style>
+    <script type="module" src="./client.ts"></script>
   </head>
   <body>
     <header>
@@ -149,7 +149,5 @@
     <footer>
       100x100 server-authoritative grid. Updates broadcast every 100ms.
     </footer>
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="/client.js"></script>
   </body>
 </html>
