@@ -1,0 +1,23 @@
+{
+  "name": "project-dev",
+  "dockerComposeFile": ["docker-compose.yml"],
+  "service": "vscode",
+  "runServices": ["vscode"],
+  "shutdownAction": "stopCompose",
+  "workspaceFolder": "/workspace",
+  "postCreateCommand": "cp -r /workspace-data/. /workspace",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "eamodio.gitlens",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        // General settings
+        "files.eol": "\n",
+        "editor.formatOnSave": true
+      }
+    }
+  }
+}
