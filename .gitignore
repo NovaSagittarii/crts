@@ -1,1 +1,4 @@
 opencode.jsonc
+
+.vscode/
+node_modules/
