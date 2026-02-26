@@ -6,7 +6,7 @@ services:
       # - ../:/workspace
       - ../:/workspace-data:ro
       # Docker socket to access Docker server
-      - /var/run/docker.sock:/var/run/docker.sock
+      # - /var/run/docker.sock:/var/run/docker.sock
       # SSH directory
       # - ~/.ssh:/root/.ssh
       # For Windows without WSL, a copy will be made
