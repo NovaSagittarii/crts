@@ -61,6 +61,27 @@ describe('match lifecycle helpers', () => {
     expect(allowed.allowed).toBe(true);
     expect(allowed.nextStatus).toBe('countdown');
   });
+
+  test('rejects invalid transitions when events do not match current status', () => {
+    const invalidStart = transitionMatchLifecycle(
+      'countdown',
+      'start-countdown',
+      READY_PRECONDITIONS,
+    );
+    expect(invalidStart.allowed).toBe(false);
+    expect(invalidStart.nextStatus).toBe('countdown');
+    expect(invalidStart.reason).toBe('invalid-transition');
+
+    const invalidCancel = transitionMatchLifecycle('lobby', 'cancel-countdown');
+    expect(invalidCancel.allowed).toBe(false);
+    expect(invalidCancel.nextStatus).toBe('lobby');
+    expect(invalidCancel.reason).toBe('invalid-transition');
+
+    const invalidFinish = transitionMatchLifecycle('countdown', 'finish');
+    expect(invalidFinish.allowed).toBe(false);
+    expect(invalidFinish.nextStatus).toBe('countdown');
+    expect(invalidFinish.reason).toBe('invalid-transition');
+  });
 });
 
 describe('canonical breach ranking', () => {
@@ -165,5 +186,41 @@ describe('canonical breach ranking', () => {
         rejectedBuildCount: 2,
       },
     ]);
+  });
+
+  test('returns null outcome for empty team snapshots', () => {
+    expect(determineMatchOutcome([])).toBeNull();
+  });
+
+  test('marks non-winner teams as defeated when their core is intact', () => {
+    const outcome = determineMatchOutcome([
+      {
+        teamId: 3,
+        coreHp: 2,
+        coreHpBeforeResolution: 2,
+        coreDestroyed: false,
+        territoryCellCount: 20,
+        queuedBuildCount: 4,
+        appliedBuildCount: 3,
+        rejectedBuildCount: 1,
+      },
+      {
+        teamId: 5,
+        coreHp: 1,
+        coreHpBeforeResolution: 1,
+        coreDestroyed: false,
+        territoryCellCount: 8,
+        queuedBuildCount: 4,
+        appliedBuildCount: 2,
+        rejectedBuildCount: 2,
+      },
+    ]);
+
+    expect(outcome).not.toBeNull();
+    expect(outcome?.ranked[1]).toMatchObject({
+      teamId: 5,
+      outcome: 'defeated',
+      coreState: 'intact',
+    });
   });
 });

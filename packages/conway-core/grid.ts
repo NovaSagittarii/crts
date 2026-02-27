@@ -56,19 +56,17 @@ export function stepGrid(
 
   for (let y = 0; y < height; y += 1) {
     const rowOffset = y * width;
-    const yMin = Math.max(0, y - 1);
-    const yMax = Math.min(height - 1, y + 1);
 
     for (let x = 0; x < width; x += 1) {
-      const xMin = Math.max(0, x - 1);
-      const xMax = Math.min(width - 1, x + 1);
       let neighbors = 0;
 
-      for (let ny = yMin; ny <= yMax; ny += 1) {
-        const neighborRow = ny * width;
-        for (let nx = xMin; nx <= xMax; nx += 1) {
-          if (nx === x && ny === y) continue;
-          neighbors += grid[neighborRow + nx];
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dx = -1; dx <= 1; dx += 1) {
+          if (dx === 0 && dy === 0) continue;
+
+          const nx = (x + dx + width) % width;
+          const ny = (y + dy + height) % height;
+          neighbors += grid[ny * width + nx];
         }
       }
 

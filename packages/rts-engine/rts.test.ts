@@ -3,9 +3,12 @@ import { describe, expect, test } from 'vitest';
 import { decodeGridBase64 } from '#conway-core';
 import {
   addPlayerToRoom,
+  createCanonicalMatchOutcome,
   createDefaultTemplates,
   createRoomState,
   createRoomStatePayload,
+  createTeamOutcomeSnapshots,
+  createTemplateSummaries,
   listRooms,
   queueBuildEvent,
   queueLegacyCellUpdate,
@@ -67,6 +70,27 @@ describe('rts', () => {
     expect(generator?.activationCost).toBe(6);
     expect(generator?.income).toBe(2);
     expect(generator?.checks).toHaveLength(4);
+  });
+
+  test('projects template summaries used by room payloads', () => {
+    const summaries = createTemplateSummaries(createDefaultTemplates());
+
+    expect(summaries.map(({ id }) => id)).toEqual([
+      'block',
+      'generator',
+      'glider',
+      'eater-1',
+    ]);
+
+    const generator = summaries.find(({ id }) => id === 'generator');
+    expect(generator).toMatchObject({
+      id: 'generator',
+      width: 2,
+      height: 2,
+      activationCost: 6,
+      income: 2,
+      buildArea: 2,
+    });
   });
 
   test('adds players, seeds base cells, and lists room occupancy', () => {
@@ -180,6 +204,18 @@ describe('rts', () => {
     });
     expect(outsideTerritory.accepted).toBe(false);
 
+    const invalidDelay = queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x: team.baseTopLeft.x + 2,
+      y: team.baseTopLeft.y + 2,
+      delayTicks: 1.5,
+    });
+    expect(invalidDelay.accepted).toBe(false);
+    expect(invalidDelay.error).toBe('delayTicks must be an integer');
+    const invalidDelayEvent =
+      room.timelineEvents[room.timelineEvents.length - 1];
+    expect(invalidDelayEvent?.metadata?.reason).toBe('invalid-delay');
+
     const delayLow = queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: team.baseTopLeft.x + 2,
@@ -200,6 +236,64 @@ describe('rts', () => {
 
     const queued = room.teams.get(team.id)?.pendingBuildEvents ?? [];
     expect(queued.map(({ executeTick }) => executeTick)).toEqual([1, 20]);
+  });
+
+  test('emits canonical outcome details only when a defeat occurs', () => {
+    const room = createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 40,
+      height: 40,
+    });
+    const teamOne = addPlayerToRoom(room, 'p1', 'Alice');
+    const teamTwo = addPlayerToRoom(room, 'p2', 'Bob');
+    const base = teamOne.baseTopLeft;
+
+    const baseCells = [
+      { x: base.x, y: base.y },
+      { x: base.x + 1, y: base.y },
+      { x: base.x, y: base.y + 1 },
+      { x: base.x + 1, y: base.y + 1 },
+    ];
+    const initialHp = getCoreStructure(teamOne).hp;
+
+    let result = tickRoom(room);
+    expect(result.outcome).toBeNull();
+
+    for (let cycle = 0; cycle < initialHp; cycle += 1) {
+      for (const cell of baseCells) {
+        queueLegacyCellUpdate(room, {
+          x: cell.x,
+          y: cell.y,
+          alive: 0,
+        });
+      }
+
+      result = tickRoom(room);
+    }
+
+    expect(result.defeatedTeams).toEqual([teamOne.id]);
+    expect(result.outcome).not.toBeNull();
+    expect(result.outcome?.winner.teamId).toBe(teamTwo.id);
+
+    const teamOneOutcome = result.outcome?.ranked.find(
+      ({ teamId }) => teamId === teamOne.id,
+    );
+    expect(teamOneOutcome?.outcome).toBe('eliminated');
+    expect(teamOneOutcome?.coreState).toBe('destroyed');
+
+    const payload = createRoomStatePayload(room);
+    const payloadTeamOne = payload.teams.find(({ id }) => id === teamOne.id);
+    const payloadTeamTwo = payload.teams.find(({ id }) => id === teamTwo.id);
+    expect(payloadTeamOne?.baseIntact).toBe(false);
+    expect(payloadTeamTwo?.baseIntact).toBe(true);
+
+    const snapshots = createTeamOutcomeSnapshots(room);
+    expect(snapshots).toHaveLength(2);
+
+    const canonical = createCanonicalMatchOutcome(room);
+    expect(canonical).not.toBeNull();
+    expect(canonical?.winner.teamId).toBe(teamTwo.id);
   });
 
   test('applies queued builds and charges build costs', () => {

@@ -10,6 +10,22 @@ import {
 } from './lobby.js';
 
 describe('lobby', () => {
+  test('validates required and unique slot IDs when creating a lobby', () => {
+    expect(() =>
+      createLobbyRoom({
+        roomId: 'room-invalid-empty',
+        slotIds: [],
+      }),
+    ).toThrow('Lobby room must define at least one slot');
+
+    expect(() =>
+      createLobbyRoom({
+        roomId: 'room-invalid-duplicate',
+        slotIds: ['team-1', 'team-1'],
+      }),
+    ).toThrow('Lobby room slot IDs must be unique');
+  });
+
   test('supports two player slots with spectator overflow', () => {
     const lobby = createLobbyRoom({
       roomId: 'room-1',
@@ -131,5 +147,34 @@ describe('lobby', () => {
     const missingParticipant = claimLobbySlot(lobby, 'missing', 'team-1');
     expect(missingParticipant.ok).toBe(false);
     expect(missingParticipant.reason).toBe('participant-not-found');
+  });
+
+  test('updates display names when an existing session rejoins', () => {
+    const lobby = createLobbyRoom({
+      roomId: 'room-7',
+      slotIds: ['team-1', 'team-2'],
+    });
+
+    joinLobby(lobby, { sessionId: 'p1', displayName: 'Alice' });
+    joinLobby(lobby, { sessionId: 'p1', displayName: 'Alicia' });
+
+    const snapshot = getLobbySnapshot(lobby);
+    expect(snapshot.participants).toHaveLength(1);
+    expect(snapshot.participants[0]?.displayName).toBe('Alicia');
+  });
+
+  test('returns participant-not-found for unknown ready and leave operations', () => {
+    const lobby = createLobbyRoom({
+      roomId: 'room-8',
+      slotIds: ['team-1', 'team-2'],
+    });
+
+    const readyMissing = setLobbyReady(lobby, 'missing', true);
+    expect(readyMissing.ok).toBe(false);
+    expect(readyMissing.reason).toBe('participant-not-found');
+
+    const leaveMissing = leaveLobby(lobby, 'missing');
+    expect(leaveMissing.ok).toBe(false);
+    expect(leaveMissing.reason).toBe('participant-not-found');
   });
 });

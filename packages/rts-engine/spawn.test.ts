@@ -160,4 +160,70 @@ describe('spawn', () => {
 
     expect(seen.size).toBeGreaterThan(60);
   });
+
+  test('rejects invalid spawn layout inputs with clear errors', () => {
+    expect(() =>
+      createTorusSpawnLayout({
+        width: 40,
+        height: 40,
+        teamCount: 0,
+        orientationSeed: 1,
+      }),
+    ).toThrow('teamCount must be a positive integer');
+
+    expect(() =>
+      createTorusSpawnLayout({
+        width: 1,
+        height: 40,
+        teamCount: 2,
+        orientationSeed: 1,
+      }),
+    ).toThrow('width must be an integer >= 2');
+
+    expect(() =>
+      createTorusSpawnLayout({
+        width: 40,
+        height: 1,
+        teamCount: 2,
+        orientationSeed: 1,
+      }),
+    ).toThrow('height must be an integer >= 2');
+
+    expect(() =>
+      createTorusSpawnLayout({
+        width: 40,
+        height: 40,
+        teamCount: 2,
+        orientationSeed: 1,
+        baseWidth: 0,
+        baseHeight: 2,
+      }),
+    ).toThrow('base dimensions must be positive');
+
+    expect(() =>
+      createTorusSpawnLayout({
+        width: 4,
+        height: 4,
+        teamCount: 2,
+        orientationSeed: 1,
+        baseWidth: 5,
+        baseHeight: 2,
+      }),
+    ).toThrow('base dimensions must fit inside map bounds');
+  });
+
+  test('throws when wrapped-distance constraint makes spawn overlap unavoidable', () => {
+    expect(() =>
+      createTorusSpawnLayout({
+        width: 8,
+        height: 8,
+        teamCount: 2,
+        orientationSeed: 12,
+        baseWidth: 2,
+        baseHeight: 2,
+        radius: 1,
+        minWrappedDistance: 100,
+      }),
+    ).toThrow('Spawn overlap detected');
+  });
 });

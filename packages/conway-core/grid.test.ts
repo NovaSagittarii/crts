@@ -129,6 +129,57 @@ describe('grid', () => {
     expect(hasCells(grid, width, gliderAfterFourTicks)).toBe(true);
   });
 
+  test('wraps neighbor checks across torus edges', () => {
+    const width = 5;
+    const height = 5;
+    const grid = createGrid({ width, height });
+    setCells(
+      grid,
+      width,
+      [
+        { x: 0, y: 0 },
+        { x: 0, y: 4 },
+        { x: 4, y: 0 },
+      ],
+      1,
+    );
+
+    const next = stepGrid(grid, width, height);
+
+    expect(
+      hasCells(next, width, [
+        { x: 0, y: 0 },
+        { x: 0, y: 4 },
+        { x: 4, y: 0 },
+        { x: 4, y: 4 },
+      ]),
+    ).toBe(true);
+  });
+
+  test('does not mutate the input grid when stepping generations', () => {
+    const width = 6;
+    const height = 6;
+    const grid = createGrid({ width, height });
+    setCells(
+      grid,
+      width,
+      [
+        { x: 2, y: 1 },
+        { x: 3, y: 2 },
+        { x: 1, y: 3 },
+        { x: 2, y: 3 },
+        { x: 3, y: 3 },
+      ],
+      1,
+    );
+
+    const before = [...grid];
+    const next = stepGrid(grid, width, height);
+
+    expect([...grid]).toEqual(before);
+    expect(next).not.toBe(grid);
+  });
+
   test('encodes and decodes base64 grid payloads', () => {
     const width = 6;
     const height = 4;
@@ -141,6 +192,28 @@ describe('grid', () => {
         { x: 5, y: 0 },
         { x: 1, y: 2 },
         { x: 4, y: 3 },
+      ],
+      1,
+    );
+
+    const encoded = encodeGridBase64(grid);
+    const decoded = decodeGridBase64(encoded, width * height);
+
+    expect([...decoded]).toEqual([...grid]);
+  });
+
+  test('preserves non-byte-aligned grids through base64 roundtrip', () => {
+    const width = 3;
+    const height = 3;
+    const grid = createGrid({ width, height });
+    setCells(
+      grid,
+      width,
+      [
+        { x: 0, y: 0 },
+        { x: 2, y: 0 },
+        { x: 1, y: 1 },
+        { x: 0, y: 2 },
       ],
       1,
     );
