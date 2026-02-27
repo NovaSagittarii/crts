@@ -6,23 +6,34 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 
 import type { CellUpdate } from '../../../packages/conway-core/src/grid.js';
 import {
+  claimLobbySlot,
+  createLobbyRoom,
+  getLobbySnapshot,
+  joinLobby,
+  leaveLobby,
+  setLobbyReady,
+  type LobbyRejectionReason,
+  type LobbyRoomState,
+} from '../../../packages/rts-engine/src/lobby.js';
+import {
   addPlayerToRoom,
   createDefaultTemplates,
   createRoomState,
   createRoomStatePayload,
   createTemplateSummaries,
-  listRooms,
   queueBuildEvent,
   queueLegacyCellUpdate,
   removePlayerFromRoom,
   renamePlayerInRoom,
-  RoomState,
-  RoomStatePayload,
+  type RoomState,
+  type RoomStatePayload,
   tickRoom,
 } from '../../../packages/rts-engine/src/rts.js';
 
 const DIST_CLIENT_DIR = path.join(process.cwd(), 'dist', 'client');
 const WEB_APP_DIR = path.join(process.cwd(), 'apps', 'web');
+const PLAYER_SLOT_IDS = ['team-1', 'team-2'] as const;
+const COUNTDOWN_SECONDS = 3;
 
 function getStaticDir(): string {
   return DIST_CLIENT_DIR;
@@ -50,7 +61,25 @@ interface RoomCreatePayload {
 }
 
 interface RoomJoinPayload {
-  roomId: string | number;
+  roomId?: string | number;
+  roomCode?: string | number;
+  slotId?: string;
+}
+
+interface SlotClaimPayload {
+  slotId?: string;
+}
+
+interface ReadyPayload {
+  ready?: unknown;
+}
+
+interface StartPayload {
+  force?: unknown;
+}
+
+interface ChatSendPayload {
+  message?: unknown;
 }
 
 interface BuildQueuedPayload {
@@ -58,11 +87,58 @@ interface BuildQueuedPayload {
   executeTick: number;
 }
 
+interface RoomErrorPayload {
+  message: string;
+  reason?: string;
+}
+
+type RoomStatus = 'lobby' | 'countdown' | 'active';
+
+interface RoomListPayloadEntry {
+  roomId: string;
+  roomCode: string;
+  name: string;
+  width: number;
+  height: number;
+  players: number;
+  spectators: number;
+  teams: number;
+  status: RoomStatus;
+}
+
+interface RoomMembershipPayload {
+  roomId: string;
+  roomCode: string;
+  roomName: string;
+  revision: number;
+  status: RoomStatus;
+  hostSessionId: string | null;
+  slots: Record<string, string | null>;
+  participants: {
+    sessionId: string;
+    displayName: string;
+    role: 'player' | 'spectator';
+    slotId: string | null;
+    ready: boolean;
+  }[];
+  countdownSecondsRemaining: number | null;
+}
+
 interface PlayerSession {
   id: string;
   name: string;
+  socketId: string;
   roomId: string | null;
-  teamId: number | null;
+}
+
+interface RuntimeRoom {
+  state: RoomState;
+  lobby: LobbyRoomState;
+  roomCode: string;
+  revision: number;
+  status: RoomStatus;
+  countdownSecondsRemaining: number | null;
+  countdownTimer: NodeJS.Timeout | null;
 }
 
 export interface GameServer {
@@ -96,7 +172,7 @@ function parseRoomDimension(value: unknown, fallback: number): number {
   return Math.max(24, Math.min(300, num));
 }
 
-function parseRoomId(value: unknown): string | null {
+function parseRoomIdentifier(value: unknown): string | null {
   if (typeof value === 'string' && value.trim()) {
     return value.trim();
   }
@@ -106,6 +182,15 @@ function parseRoomId(value: unknown): string | null {
   }
 
   return null;
+}
+
+function parseReadyPayload(payload: unknown): boolean | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const value = (payload as ReadyPayload).ready;
+  return typeof value === 'boolean' ? value : null;
 }
 
 function parseCellUpdate(payload: unknown): CellUpdate | null {
@@ -128,6 +213,54 @@ function parseCellUpdate(payload: unknown): CellUpdate | null {
   };
 }
 
+function sanitizeChatMessage(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  return trimmed.slice(0, 280);
+}
+
+function mapLobbyReasonToError(reason: LobbyRejectionReason): RoomErrorPayload {
+  if (reason === 'slot-full') {
+    return {
+      reason,
+      message: 'Selected team slot is already full',
+    };
+  }
+
+  if (reason === 'team-switch-locked') {
+    return {
+      reason,
+      message: 'Team switching is locked after a slot is claimed',
+    };
+  }
+
+  if (reason === 'not-player') {
+    return {
+      reason,
+      message: 'Only assigned players can toggle readiness',
+    };
+  }
+
+  if (reason === 'invalid-slot') {
+    return {
+      reason,
+      message: 'Selected team slot does not exist',
+    };
+  }
+
+  return {
+    reason,
+    message: 'Room request rejected',
+  };
+}
+
 export function createServer(options: ServerOptions = {}): GameServer {
   const port = options.port ?? 3000;
   const width = options.width ?? 100;
@@ -146,29 +279,117 @@ export function createServer(options: ServerOptions = {}): GameServer {
   let guestCounter = 1;
 
   const roomTemplates = createDefaultTemplates();
-  const rooms = new Map<string, RoomState>();
+  const rooms = new Map<string, RuntimeRoom>();
+
+  function buildRuntimeRoom(roomState: RoomState): RuntimeRoom {
+    return {
+      state: roomState,
+      lobby: createLobbyRoom({
+        roomId: roomState.id,
+        slotIds: [...PLAYER_SLOT_IDS],
+      }),
+      roomCode: roomState.id,
+      revision: 0,
+      status: 'lobby',
+      countdownSecondsRemaining: null,
+      countdownTimer: null,
+    };
+  }
+
   rooms.set(
     defaultRoomId,
-    createRoomState({
-      id: defaultRoomId,
-      name: 'Main Arena',
-      width,
-      height,
-      templates: roomTemplates,
-    }),
+    buildRuntimeRoom(
+      createRoomState({
+        id: defaultRoomId,
+        name: 'Main Arena',
+        width,
+        height,
+        templates: roomTemplates,
+      }),
+    ),
   );
 
   const sessions = new Map<string, PlayerSession>();
 
-  function getRoomOrNull(roomId: string | null): RoomState | null {
+  function getRoomOrNull(roomId: string | null): RuntimeRoom | null {
     if (!roomId) {
       return null;
     }
     return rooms.get(roomId) ?? null;
   }
 
+  function getRoomByIdentifier(payload: unknown): RuntimeRoom | null {
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+
+    const joinPayload = payload as RoomJoinPayload;
+    const identifier =
+      parseRoomIdentifier(joinPayload.roomId) ??
+      parseRoomIdentifier(joinPayload.roomCode);
+    if (!identifier) {
+      return null;
+    }
+
+    const byId = rooms.get(identifier);
+    if (byId) {
+      return byId;
+    }
+
+    for (const room of rooms.values()) {
+      if (room.roomCode === identifier) {
+        return room;
+      }
+    }
+
+    return null;
+  }
+
+  function buildMembershipPayload(room: RuntimeRoom): RoomMembershipPayload {
+    const snapshot = getLobbySnapshot(room.lobby);
+    return {
+      roomId: room.state.id,
+      roomCode: room.roomCode,
+      roomName: room.state.name,
+      revision: room.revision,
+      status: room.status,
+      hostSessionId: snapshot.hostSessionId,
+      slots: snapshot.slots,
+      participants: snapshot.participants.map((participant) => ({
+        sessionId: participant.sessionId,
+        displayName: participant.displayName,
+        role: participant.role,
+        slotId: participant.slotId,
+        ready: participant.ready,
+      })),
+      countdownSecondsRemaining: room.countdownSecondsRemaining,
+    };
+  }
+
   function emitRoomList(target?: Socket): void {
-    const payload = listRooms(rooms);
+    const payload = [...rooms.values()]
+      .map((room): RoomListPayloadEntry => {
+        const snapshot = getLobbySnapshot(room.lobby);
+        const players = snapshot.participants.filter(
+          ({ role }) => role === 'player',
+        ).length;
+
+        return {
+          roomId: room.state.id,
+          roomCode: room.roomCode,
+          name: room.state.name,
+          width: room.state.width,
+          height: room.state.height,
+          players,
+          spectators: snapshot.participants.length - players,
+          teams: room.state.teams.size,
+          status: room.status,
+        };
+      })
+      .sort((a, b) =>
+        a.roomId.localeCompare(b.roomId, undefined, { numeric: true }),
+      );
+
     if (target) {
       target.emit('room:list', payload);
       return;
@@ -176,87 +397,254 @@ export function createServer(options: ServerOptions = {}): GameServer {
     io.emit('room:list', payload);
   }
 
-  function emitRoomState(room: RoomState): void {
-    io.to(roomChannel(room.id)).emit('state', createRoomStatePayload(room));
+  function emitRoomState(room: RuntimeRoom): void {
+    io.to(roomChannel(room.state.id)).emit(
+      'state',
+      createRoomStatePayload(room.state),
+    );
   }
 
-  function leaveCurrentRoom(socket: Socket, session: PlayerSession): void {
+  function emitMembership(room: RuntimeRoom, bumpRevision = true): void {
+    if (bumpRevision) {
+      room.revision += 1;
+    }
+
+    io.to(roomChannel(room.state.id)).emit(
+      'room:membership',
+      buildMembershipPayload(room),
+    );
+  }
+
+  function stopCountdown(room: RuntimeRoom): void {
+    if (room.countdownTimer) {
+      clearInterval(room.countdownTimer);
+      room.countdownTimer = null;
+    }
+    room.countdownSecondsRemaining = null;
+  }
+
+  function deleteRoomIfEmpty(room: RuntimeRoom): boolean {
+    if (room.state.id === defaultRoomId) {
+      return false;
+    }
+
+    if (room.lobby.participants.size > 0) {
+      return false;
+    }
+
+    stopCountdown(room);
+    rooms.delete(room.state.id);
+    return true;
+  }
+
+  function roomError(socket: Socket, message: string, reason?: string): void {
+    const payload: RoomErrorPayload = { message };
+    if (reason) {
+      payload.reason = reason;
+    }
+    socket.emit('room:error', payload);
+  }
+
+  function leaveCurrentRoom(
+    socket: Socket,
+    session: PlayerSession,
+    emitLeft: boolean,
+  ): void {
     const room = getRoomOrNull(session.roomId);
     if (!room) {
       session.roomId = null;
-      session.teamId = null;
+      if (emitLeft) {
+        socket.emit('room:left', { roomId: null });
+      }
       return;
     }
 
-    socket.leave(roomChannel(room.id));
-    removePlayerFromRoom(room, session.id);
+    const previousRoomId = room.state.id;
 
-    const previousRoomId = room.id;
-    session.roomId = null;
-    session.teamId = null;
+    socket.leave(roomChannel(room.state.id));
 
-    if (room.players.size === 0 && room.id !== defaultRoomId) {
-      rooms.delete(room.id);
-    } else {
-      emitRoomState(room);
+    const existingParticipant = room.lobby.participants.get(session.id);
+    const wasPlayer = Boolean(existingParticipant?.role === 'player');
+
+    leaveLobby(room.lobby, session.id);
+    if (wasPlayer) {
+      removePlayerFromRoom(room.state, session.id);
     }
 
-    socket.emit('room:left', {
-      roomId: previousRoomId,
-    });
+    session.roomId = null;
+
+    if (emitLeft) {
+      socket.emit('room:left', {
+        roomId: previousRoomId,
+      });
+    }
+
+    const deleted = deleteRoomIfEmpty(room);
+    if (!deleted) {
+      emitMembership(room);
+      if (wasPlayer) {
+        emitRoomState(room);
+      }
+    }
+
     emitRoomList();
   }
 
   function joinRoom(
     socket: Socket,
     session: PlayerSession,
-    room: RoomState,
+    room: RuntimeRoom,
   ): void {
-    if (session.roomId) {
-      leaveCurrentRoom(socket, session);
+    if (session.roomId && session.roomId !== room.state.id) {
+      leaveCurrentRoom(socket, session, true);
     }
 
-    const team = addPlayerToRoom(room, session.id, session.name);
-    session.roomId = room.id;
-    session.teamId = team.id;
-
-    socket.join(roomChannel(room.id));
-    socket.emit('room:joined', {
-      roomId: room.id,
-      roomName: room.name,
-      playerId: session.id,
-      playerName: session.name,
-      teamId: team.id,
-      templates: createTemplateSummaries(room.templates),
-      state: createRoomStatePayload(room),
+    socket.join(roomChannel(room.state.id));
+    joinLobby(room.lobby, {
+      sessionId: session.id,
+      displayName: session.name,
     });
 
+    session.roomId = room.state.id;
+
+    const teamId = room.state.players.get(session.id)?.teamId ?? null;
+    socket.emit('room:joined', {
+      roomId: room.state.id,
+      roomCode: room.roomCode,
+      roomName: room.state.name,
+      playerId: session.id,
+      playerName: session.name,
+      teamId,
+      templates: createTemplateSummaries(room.state.templates),
+      state: createRoomStatePayload(room.state),
+    });
+
+    emitMembership(room);
+    emitRoomList();
+  }
+
+  function tryClaimSlot(
+    socket: Socket,
+    session: PlayerSession,
+    payload: unknown,
+  ): void {
+    const room = getRoomOrNull(session.roomId);
+    if (!room) {
+      roomError(socket, 'Join a room first', 'not-in-room');
+      return;
+    }
+
+    if (room.status !== 'lobby') {
+      roomError(
+        socket,
+        'Slot claims are only available before match start',
+        'match-started',
+      );
+      return;
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      roomError(socket, 'Invalid slot claim payload', 'invalid-slot');
+      return;
+    }
+
+    const slotId = (payload as SlotClaimPayload).slotId;
+    if (typeof slotId !== 'string' || !slotId.trim()) {
+      roomError(socket, 'Invalid slot id', 'invalid-slot');
+      return;
+    }
+
+    const result = claimLobbySlot(room.lobby, session.id, slotId.trim());
+    if (!result.ok) {
+      const mapped = mapLobbyReasonToError(
+        result.reason ?? 'participant-not-found',
+      );
+      roomError(socket, mapped.message, mapped.reason);
+      return;
+    }
+
+    if (!room.state.players.has(session.id)) {
+      addPlayerToRoom(room.state, session.id, session.name);
+    }
+
+    socket.emit('room:slot-claimed', {
+      roomId: room.state.id,
+      slotId: slotId.trim(),
+      teamId: room.state.players.get(session.id)?.teamId ?? null,
+    });
+
+    emitMembership(room);
     emitRoomState(room);
     emitRoomList();
   }
 
-  function createRoomFromPayload(payload: unknown): RoomState {
-    const roomPayload = (payload ?? {}) as RoomCreatePayload;
-    const roomId = roomCounter.toString();
-    roomCounter += 1;
+  function allSlotsReady(room: RuntimeRoom): boolean {
+    const snapshot = getLobbySnapshot(room.lobby);
+    const bySession = new Map(
+      snapshot.participants.map((participant) => [
+        participant.sessionId,
+        participant,
+      ]),
+    );
 
-    const room = createRoomState({
-      id: roomId,
-      name:
-        typeof roomPayload.name === 'string' && roomPayload.name.trim()
-          ? roomPayload.name.trim().slice(0, 32)
-          : `Room ${roomId}`,
-      width: parseRoomDimension(roomPayload.width, width),
-      height: parseRoomDimension(roomPayload.height, height),
-      templates: roomTemplates,
+    for (const slotId of room.lobby.slotIds) {
+      const sessionId = snapshot.slots[slotId];
+      if (!sessionId) {
+        return false;
+      }
+
+      const participant = bySession.get(sessionId);
+      if (!participant || participant.role !== 'player' || !participant.ready) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function startCountdown(room: RuntimeRoom): void {
+    if (room.countdownTimer) {
+      return;
+    }
+
+    room.status = 'countdown';
+    room.countdownSecondsRemaining = COUNTDOWN_SECONDS;
+    emitMembership(room);
+    emitRoomList();
+    io.to(roomChannel(room.state.id)).emit('room:countdown', {
+      roomId: room.state.id,
+      secondsRemaining: room.countdownSecondsRemaining,
     });
-    rooms.set(room.id, room);
-    return room;
+
+    room.countdownTimer = setInterval(() => {
+      const next = (room.countdownSecondsRemaining ?? 1) - 1;
+      if (next <= 0) {
+        stopCountdown(room);
+        room.status = 'active';
+        emitMembership(room);
+        emitRoomList();
+        io.to(roomChannel(room.state.id)).emit('room:match-started', {
+          roomId: room.state.id,
+        });
+        return;
+      }
+
+      room.countdownSecondsRemaining = next;
+      emitMembership(room);
+      io.to(roomChannel(room.state.id)).emit('room:countdown', {
+        roomId: room.state.id,
+        secondsRemaining: next,
+      });
+    }, 1000);
   }
 
   function handleCellUpdate(session: PlayerSession, payload: unknown): void {
     const room = getRoomOrNull(session.roomId);
     if (!room) {
+      return;
+    }
+
+    if (!room.state.players.has(session.id)) {
       return;
     }
 
@@ -268,24 +656,45 @@ export function createServer(options: ServerOptions = {}): GameServer {
     if (
       update.x < 0 ||
       update.y < 0 ||
-      update.x >= room.width ||
-      update.y >= room.height
+      update.x >= room.state.width ||
+      update.y >= room.state.height
     ) {
       return;
     }
 
-    queueLegacyCellUpdate(room, update);
+    queueLegacyCellUpdate(room.state, update);
+  }
+
+  function createRoomFromPayload(payload: unknown): RuntimeRoom {
+    const roomPayload = (payload ?? {}) as RoomCreatePayload;
+    const roomId = roomCounter.toString();
+    roomCounter += 1;
+
+    const roomState = createRoomState({
+      id: roomId,
+      name:
+        typeof roomPayload.name === 'string' && roomPayload.name.trim()
+          ? roomPayload.name.trim().slice(0, 32)
+          : `Room ${roomId}`,
+      width: parseRoomDimension(roomPayload.width, width),
+      height: parseRoomDimension(roomPayload.height, height),
+      templates: roomTemplates,
+    });
+
+    const room = buildRuntimeRoom(roomState);
+    rooms.set(room.state.id, room);
+    return room;
   }
 
   io.on('connection', (socket: Socket) => {
     const session: PlayerSession = {
       id: socket.id,
+      socketId: socket.id,
       name: `Player-${guestCounter}`,
       roomId: null,
-      teamId: null,
     };
     guestCounter += 1;
-    sessions.set(socket.id, session);
+    sessions.set(session.socketId, session);
 
     const defaultRoom = rooms.get(defaultRoomId);
     if (defaultRoom) {
@@ -301,11 +710,20 @@ export function createServer(options: ServerOptions = {}): GameServer {
           : fallback;
 
       session.name = nextName;
+
       const room = getRoomOrNull(session.roomId);
       if (room) {
-        renamePlayerInRoom(room, session.id, nextName);
-        emitRoomState(room);
+        joinLobby(room.lobby, {
+          sessionId: session.id,
+          displayName: nextName,
+        });
+        if (room.state.players.has(session.id)) {
+          renamePlayerInRoom(room.state, session.id, nextName);
+          emitRoomState(room);
+        }
+        emitMembership(room);
       }
+
       socket.emit('player:profile', {
         playerId: session.id,
         name: session.name,
@@ -322,41 +740,153 @@ export function createServer(options: ServerOptions = {}): GameServer {
     });
 
     socket.on('room:join', (payload: unknown) => {
-      const roomId =
-        payload && typeof payload === 'object'
-          ? parseRoomId((payload as RoomJoinPayload).roomId)
-          : null;
-      if (!roomId) {
-        socket.emit('room:error', { message: 'Invalid room id' });
-        return;
-      }
-
-      const room = rooms.get(roomId);
+      const room = getRoomByIdentifier(payload);
       if (!room) {
-        socket.emit('room:error', { message: 'Room not found' });
+        roomError(socket, 'Room not found', 'room-not-found');
         return;
       }
 
       joinRoom(socket, session, room);
+
+      if (payload && typeof payload === 'object') {
+        const slotId = (payload as RoomJoinPayload).slotId;
+        if (typeof slotId === 'string' && slotId.trim()) {
+          tryClaimSlot(socket, session, { slotId });
+        }
+      }
     });
 
     socket.on('room:leave', () => {
-      leaveCurrentRoom(socket, session);
+      leaveCurrentRoom(socket, session, true);
+    });
+
+    socket.on('room:claim-slot', (payload: unknown) => {
+      tryClaimSlot(socket, session, payload);
+    });
+
+    socket.on('room:set-ready', (payload: unknown) => {
+      const room = getRoomOrNull(session.roomId);
+      if (!room) {
+        roomError(socket, 'Join a room first', 'not-in-room');
+        return;
+      }
+
+      const ready = parseReadyPayload(payload);
+      if (ready === null) {
+        roomError(socket, 'Invalid ready payload', 'invalid-ready');
+        return;
+      }
+
+      if (room.status === 'countdown' && !ready) {
+        roomError(
+          socket,
+          'Cannot toggle Not Ready while countdown is running',
+          'countdown-locked',
+        );
+        return;
+      }
+
+      if (room.status === 'active') {
+        roomError(
+          socket,
+          'Ready toggle is unavailable after match start',
+          'match-started',
+        );
+        return;
+      }
+
+      const result = setLobbyReady(room.lobby, session.id, ready);
+      if (!result.ok) {
+        const mapped = mapLobbyReasonToError(
+          result.reason ?? 'participant-not-found',
+        );
+        roomError(socket, mapped.message, mapped.reason);
+        return;
+      }
+
+      emitMembership(room);
+    });
+
+    socket.on('room:start', (payload: unknown) => {
+      const room = getRoomOrNull(session.roomId);
+      if (!room) {
+        roomError(socket, 'Join a room first', 'not-in-room');
+        return;
+      }
+
+      if (room.status !== 'lobby') {
+        roomError(
+          socket,
+          'Match is already starting or active',
+          'invalid-state',
+        );
+        return;
+      }
+
+      const hostSessionId = getLobbySnapshot(room.lobby).hostSessionId;
+      if (hostSessionId !== session.id) {
+        roomError(socket, 'Only the host can start the match', 'not-host');
+        return;
+      }
+
+      const forceRequested =
+        payload && typeof payload === 'object'
+          ? Boolean((payload as StartPayload).force)
+          : false;
+
+      if (!allSlotsReady(room)) {
+        roomError(
+          socket,
+          forceRequested
+            ? 'Force start is disabled when players are not ready'
+            : 'Both player slots must be ready before starting',
+          'not-ready',
+        );
+        return;
+      }
+
+      startCountdown(room);
+    });
+
+    socket.on('chat:send', (payload: unknown) => {
+      const room = getRoomOrNull(session.roomId);
+      if (!room) {
+        roomError(socket, 'Join a room first', 'not-in-room');
+        return;
+      }
+
+      const message =
+        payload && typeof payload === 'object'
+          ? sanitizeChatMessage((payload as ChatSendPayload).message)
+          : null;
+
+      if (!message) {
+        roomError(socket, 'Chat message cannot be empty', 'invalid-chat');
+        return;
+      }
+
+      io.to(roomChannel(room.state.id)).emit('chat:message', {
+        roomId: room.state.id,
+        senderSessionId: session.id,
+        senderName: session.name,
+        message,
+        timestamp: Date.now(),
+      });
     });
 
     socket.on('build:queue', (payload: unknown) => {
       const room = getRoomOrNull(session.roomId);
       if (!room) {
-        socket.emit('room:error', { message: 'Join a room first' });
+        roomError(socket, 'Join a room first', 'not-in-room');
         return;
       }
 
       if (!payload || typeof payload !== 'object') {
-        socket.emit('room:error', { message: 'Invalid build payload' });
+        roomError(socket, 'Invalid build payload', 'invalid-build');
         return;
       }
 
-      const result = queueBuildEvent(room, session.id, {
+      const result = queueBuildEvent(room.state, session.id, {
         templateId: String(
           (payload as { templateId?: unknown }).templateId ?? '',
         ),
@@ -369,15 +899,13 @@ export function createServer(options: ServerOptions = {}): GameServer {
       });
 
       if (!result.accepted) {
-        socket.emit('room:error', {
-          message: result.error ?? 'Build rejected',
-        });
+        roomError(socket, result.error ?? 'Build rejected', 'build-rejected');
         return;
       }
 
       const queued: BuildQueuedPayload = {
         eventId: result.eventId ?? -1,
-        executeTick: result.executeTick ?? room.tick,
+        executeTick: result.executeTick ?? room.state.tick,
       };
       socket.emit('build:queued', queued);
     });
@@ -387,8 +915,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
     });
 
     socket.on('disconnect', () => {
-      leaveCurrentRoom(socket, session);
-      sessions.delete(socket.id);
+      leaveCurrentRoom(socket, session, false);
+      sessions.delete(session.socketId);
     });
   });
 
@@ -397,7 +925,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   function getStatePayload(): StatePayload {
     const room = rooms.get(defaultRoomId);
     if (room) {
-      return createRoomStatePayload(room);
+      return createRoomStatePayload(room.state);
     }
 
     return {
@@ -414,9 +942,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   function tick(): void {
     for (const room of rooms.values()) {
-      tickRoom(room);
-      if (room.players.size > 0) {
+      tickRoom(room.state);
+      if (room.lobby.participants.size > 0) {
         emitRoomState(room);
+        // Re-emit authoritative membership snapshots so late listeners can resync.
+        emitMembership(room, false);
       }
     }
   }
@@ -437,6 +967,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
     if (interval) {
       clearInterval(interval);
       interval = null;
+    }
+
+    for (const room of rooms.values()) {
+      stopCountdown(room);
     }
 
     return new Promise((resolve) => {
