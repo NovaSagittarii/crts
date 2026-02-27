@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-27)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 1 - Lobby & Team Reliability
+**Current focus:** Phase 2 - Match Lifecycle & Breach Outcomes
 
 ## Current Position
 
-Phase: 1 of 5 (Lobby & Team Reliability)
-Plan: 5 of 5 in current phase
-Status: Complete
-Last activity: 2026-02-27 - Completed 01-04 lobby/reconnect client controls, authoritative roster status, and reconnect identity persistence.
+Phase: 2 of 5 (Match Lifecycle & Breach Outcomes)
+Plan: 1 of 3 in current phase
+Status: In Progress
+Last activity: 2026-02-27 - Completed 02-01 deterministic lifecycle guards, canonical breach ranking, and HP-based core outcomes in rts-engine.
 
-Progress: [██████████] 100%
+Progress: [███████░░░] 70%
 
 ## Performance Metrics
 
@@ -40,6 +40,7 @@ _Updated after each plan completion_
 | Phase 01-lobby-team-reliability P03 | 15 min | 3 tasks | 3 files |
 | Phase 01-lobby-team-reliability P05 | 10 min | 3 tasks | 3 files |
 | Phase 01-lobby-team-reliability P04 | 35 min | 3 tasks | 3 files |
+| Phase 02-match-lifecycle-breach-outcomes P01 | 8 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -65,6 +66,9 @@ Recent decisions affecting current work:
 - [Phase 01-lobby-team-reliability]: Render team slot rows directly from room:membership snapshots with explicit team labels and held/disconnect badges.
 - [Phase 01-lobby-team-reliability]: Persist localStorage session IDs and send them in Socket.IO auth to keep reconnect ownership stable.
 - [Phase 01-lobby-team-reliability]: Surface claim and reconnect race failures through both inline status and toast messages for clear user feedback.
+- [Phase 02-match-lifecycle-breach-outcomes]: Use explicit transitionMatchLifecycle guards as the single lifecycle authority path.
+- [Phase 02-match-lifecycle-breach-outcomes]: Lock same-tick breach ordering to coreHpBeforeResolution desc, territoryCellCount desc, appliedBuildCount desc, then teamId asc.
+- [Phase 02-match-lifecycle-breach-outcomes]: Resolve defeat only when core HP reaches zero after restore checks, then emit winner-first ranked outcomes.
 
 ### Pending Todos
 
@@ -79,6 +83,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-27 08:58
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-match-lifecycle-breach-outcomes/02-CONTEXT.md
+Last session: 2026-02-27 10:22
+Stopped at: Completed 02-01-PLAN.md
+Resume file: .planning/phases/02-match-lifecycle-breach-outcomes/02-02-PLAN.md

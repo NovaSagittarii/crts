@@ -16,8 +16,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Match Lifecycle
 
-- [ ] **MATCH-01**: Host can start a match only when lifecycle preconditions are met, and room state transitions through `lobby -> countdown -> active -> finished`.
-- [ ] **MATCH-02**: Match uses one canonical breach rule and ends with explicit winner/loser outcomes.
+- [x] **MATCH-01**: Host can start a match only when lifecycle preconditions are met, and room state transitions through `lobby -> countdown -> active -> finished`.
+- [x] **MATCH-02**: Match uses one canonical breach rule and ends with explicit winner/loser outcomes.
 - [ ] **MATCH-03**: Defeated user is locked out of gameplay actions and sees clear defeat status.
 
 ### Build Queue & Validation
@@ -74,8 +74,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LOBBY-02    | Phase 1 | Complete |
 | LOBBY-03    | Phase 1 | Complete |
 | LOBBY-04    | Phase 1 | Complete |
-| MATCH-01    | Phase 2 | Pending |
-| MATCH-02    | Phase 2 | Pending |
+| MATCH-01    | Phase 2 | Complete |
+| MATCH-02    | Phase 2 | Complete |
 | MATCH-03    | Phase 2 | Pending |
 | BUILD-01    | Phase 3 | Pending |
 | BUILD-02    | Phase 3 | Pending |

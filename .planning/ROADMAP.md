@@ -47,7 +47,13 @@ Plans:
 2. Match ends using one canonical breach rule with explicit winner and loser outcomes.
 3. Defeated user is blocked from gameplay actions and sees clear defeat state.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+
+- [ ] 02-01-PLAN.md — Define deterministic engine lifecycle/outcome primitives, including core HP and structure build-radius semantics.
+- [ ] 02-02-PLAN.md — Enforce authoritative server lifecycle transitions, breach-finish outcomes, restart guards, and defeat lockout rejections.
+- [ ] 02-03-PLAN.md — Ship countdown/finished/defeat client UX with host-gated restart controls and ranked post-match stats.
 
 ### Phase 3: Deterministic Build Queue Validation
 
@@ -94,7 +100,7 @@ Plans:
 | Phase                                   | Plans Complete | Status      | Completed  |
 | --------------------------------------- | -------------- | ----------- | ---------- |
 | 1. Lobby & Team Reliability             | 5/5            | Complete    | 2026-02-27 |
-| 2. Match Lifecycle & Breach Outcomes    | 0/TBD          | Not started | -          |
+| 2. Match Lifecycle & Breach Outcomes    | 1/3            | In Progress | -          |
 | 3. Deterministic Build Queue Validation | 0/TBD          | Not started | -          |
 | 4. Economy HUD & Queue Visibility       | 0/TBD          | Not started | -          |
 | 5. Quality Gate Validation              | 0/TBD          | Not started | -          |
