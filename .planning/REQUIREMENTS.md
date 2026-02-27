@@ -68,17 +68,33 @@ Explicitly excluded. Documented to prevent scope creep.
 
 Which phases cover which requirements. Updated during roadmap creation.
 
-| Requirement                            | Phase | Status  |
-| -------------------------------------- | ----- | ------- |
-| _To be mapped during roadmap creation_ | _TBD_ | Pending |
+| Requirement | Phase   | Status  |
+| ----------- | ------- | ------- |
+| LOBBY-01    | Phase 1 | Pending |
+| LOBBY-02    | Phase 1 | Pending |
+| LOBBY-03    | Phase 1 | Pending |
+| LOBBY-04    | Phase 1 | Pending |
+| MATCH-01    | Phase 2 | Pending |
+| MATCH-02    | Phase 2 | Pending |
+| MATCH-03    | Phase 2 | Pending |
+| BUILD-01    | Phase 3 | Pending |
+| BUILD-02    | Phase 3 | Pending |
+| BUILD-03    | Phase 3 | Pending |
+| BUILD-04    | Phase 3 | Pending |
+| ECON-01     | Phase 4 | Pending |
+| ECON-02     | Phase 4 | Pending |
+| ECON-03     | Phase 4 | Pending |
+| UX-01       | Phase 4 | Pending |
+| QUAL-01     | Phase 5 | Pending |
+| QUAL-02     | Phase 5 | Pending |
 
 **Coverage:**
 
 - v1 requirements: 17 total
-- Mapped to phases: 0
-- Unmapped: 17 ⚠️
+- Mapped to phases: 17
+- Unmapped: 0 ✓
 
 ---
 
 _Requirements defined: 2026-02-27_
-_Last updated: 2026-02-27 after initial definition_
+_Last updated: 2026-02-27 after roadmap creation_
