@@ -856,6 +856,51 @@ export function createServer(options: ServerOptions = {}): GameServer {
     return room.state.teams.get(player.teamId) ?? null;
   }
 
+  interface GameplayMutationGateResult {
+    allowed: boolean;
+    team: TeamState | null;
+    reason?: 'not-player' | 'invalid-state' | 'defeated';
+    message?: string;
+  }
+
+  function assertGameplayMutationAllowed(
+    room: RuntimeRoom,
+    sessionId: string,
+  ): GameplayMutationGateResult {
+    const team = getTeamForSession(room, sessionId);
+    if (!team) {
+      return {
+        allowed: false,
+        team: null,
+        reason: 'not-player',
+        message: 'Only assigned players can issue gameplay mutations',
+      };
+    }
+
+    if (team.defeated) {
+      return {
+        allowed: false,
+        team,
+        reason: 'defeated',
+        message: 'Defeated players are locked out of gameplay mutations',
+      };
+    }
+
+    if (room.status !== 'active') {
+      return {
+        allowed: false,
+        team,
+        reason: 'invalid-state',
+        message: 'Gameplay mutations are only allowed during active matches',
+      };
+    }
+
+    return {
+      allowed: true,
+      team,
+    };
+  }
+
   function handleCellUpdate(
     socket: GameSocket,
     session: PlayerSession,
@@ -866,25 +911,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
       return;
     }
 
-    const team = getTeamForSession(room, session.id);
-    if (!team) {
-      return;
-    }
-
-    if (team.defeated) {
+    const gate = assertGameplayMutationAllowed(room, session.id);
+    if (!gate.allowed) {
       roomError(
         socket,
-        'Defeated players are locked out of gameplay mutations',
-        'defeated',
-      );
-      return;
-    }
-
-    if (room.status !== 'active') {
-      roomError(
-        socket,
-        'Gameplay mutations are only allowed during active matches',
-        'invalid-state',
+        gate.message ?? 'Gameplay mutation rejected',
+        gate.reason,
       );
       return;
     }
@@ -1247,30 +1279,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      const team = getTeamForSession(room, session.id);
-      if (!team) {
+      const gate = assertGameplayMutationAllowed(room, session.id);
+      if (!gate.allowed) {
         roomError(
           socket,
-          'Only assigned players can queue builds',
-          'not-player',
-        );
-        return;
-      }
-
-      if (team.defeated) {
-        roomError(
-          socket,
-          'Defeated players are locked out of gameplay mutations',
-          'defeated',
-        );
-        return;
-      }
-
-      if (room.status !== 'active') {
-        roomError(
-          socket,
-          'Gameplay mutations are only allowed during active matches',
-          'invalid-state',
+          gate.message ?? 'Gameplay mutation rejected',
+          gate.reason,
         );
         return;
       }

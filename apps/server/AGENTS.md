@@ -19,6 +19,7 @@ Server receives:
 - `room:claim-slot` `{ slotId }`
 - `room:set-ready` `{ ready }`
 - `room:start` `{ force? }`
+- `room:cancel-countdown` `{}` (or no payload)
 - `chat:send` `{ message }`
 - `build:queue` `{ templateId, x, y, delayTicks? }`
 - `cell:update` `{ x, y, alive }`
@@ -33,10 +34,26 @@ Server emits:
 - `room:slot-claimed` `{ roomId, slotId, teamId }`
 - `room:countdown` `{ roomId, secondsRemaining }`
 - `room:match-started` `{ roomId }`
+- `room:match-finished` `{ roomId, winner, ranked, comparator }` (winner-first standings; non-winners are `defeated`/`eliminated`)
 - `room:error` `{ message, reason? }`
 - `chat:message` `{ roomId, senderSessionId, senderName, message, timestamp }`
 - `build:queued` `{ eventId, executeTick }`
 - `player:profile` `{ playerId, name }`
+
+Lifecycle/status contract:
+
+- Room status is authoritative and only transitions `lobby -> countdown -> active -> finished`.
+- `room:start` is host-only and serves both initial start and restart from `finished`.
+- `room:cancel-countdown` is host-only and only legal while status is `countdown`.
+
+Common `room:error.reason` values:
+
+- `not-host`: host-only action attempted by non-host session.
+- `start-preconditions-not-met`: missing slot occupancy, disconnected required player, or pending reconnect hold.
+- `invalid-transition`: lifecycle action rejected for current room status.
+- `invalid-state`: gameplay mutation attempted outside `active`.
+- `defeated`: defeated player attempted gameplay mutation.
+- `not-ready`: lobby start attempted before both slotted players are ready.
 
 ## Rules
 
