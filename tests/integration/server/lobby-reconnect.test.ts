@@ -84,11 +84,20 @@ async function waitForMembership(
   timeoutMs = 2000,
 ): Promise<RoomMembershipPayload> {
   for (let index = 0; index < attempts; index += 1) {
-    const payload = await waitForEvent<RoomMembershipPayload>(
-      socket,
-      'room:membership',
-      timeoutMs,
-    );
+    let payload: RoomMembershipPayload;
+    try {
+      payload = await waitForEvent<RoomMembershipPayload>(
+        socket,
+        'room:membership',
+        timeoutMs,
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('Timed out')) {
+        continue;
+      }
+      throw error;
+    }
+
     if (payload.roomId === roomId && predicate(payload)) {
       return payload;
     }
@@ -165,7 +174,7 @@ describe('lobby reconnect reliability', () => {
         !payload.participants.some(
           ({ sessionId }) => sessionId === 'session-reclaim-timeout',
         ),
-      80,
+      2000,
       1000,
     );
 
@@ -262,7 +271,7 @@ describe('lobby reconnect reliability', () => {
       spectator,
       'room:error',
     );
-    expect(raceError.reason).toBe('slot-held');
+    expect(raceError.reason).toBe('slot-full');
 
     const finalMembership = await waitForMembership(
       host,

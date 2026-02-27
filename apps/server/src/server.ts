@@ -4,6 +4,11 @@ import path from 'node:path';
 import express, { Express } from 'express';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 
+import {
+  LobbySessionCoordinator,
+  type PlayerSession,
+} from './lobby-session.js';
+
 import type { CellUpdate } from '../../../packages/conway-core/src/grid.js';
 import {
   claimLobbySlot,
@@ -122,13 +127,6 @@ interface RoomMembershipPayload {
     ready: boolean;
   }[];
   countdownSecondsRemaining: number | null;
-}
-
-interface PlayerSession {
-  id: string;
-  name: string;
-  socketId: string;
-  roomId: string | null;
 }
 
 interface RuntimeRoom {
@@ -309,7 +307,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     ),
   );
 
-  const sessions = new Map<string, PlayerSession>();
+  const sessionCoordinator = new LobbySessionCoordinator();
 
   function getRoomOrNull(roomId: string | null): RuntimeRoom | null {
     if (!roomId) {
@@ -445,40 +443,38 @@ export function createServer(options: ServerOptions = {}): GameServer {
     socket.emit('room:error', payload);
   }
 
-  function leaveCurrentRoom(
+  function ensureCurrentSocket(
     socket: Socket,
     session: PlayerSession,
-    emitLeft: boolean,
-  ): void {
-    const room = getRoomOrNull(session.roomId);
-    if (!room) {
-      session.roomId = null;
-      if (emitLeft) {
-        socket.emit('room:left', { roomId: null });
-      }
-      return;
+  ): boolean {
+    if (sessionCoordinator.isCurrentSocket(session.id, socket.id)) {
+      return true;
     }
 
-    const previousRoomId = room.state.id;
+    roomError(
+      socket,
+      'This session is controlled by a newer connection',
+      'session-replaced',
+    );
+    return false;
+  }
 
-    socket.leave(roomChannel(room.state.id));
-
-    const existingParticipant = room.lobby.participants.get(session.id);
+  function removeSessionFromRoom(
+    room: RuntimeRoom,
+    sessionId: string,
+  ): boolean {
+    const existingParticipant = room.lobby.participants.get(sessionId);
     const wasPlayer = Boolean(existingParticipant?.role === 'player');
 
-    leaveLobby(room.lobby, session.id);
+    leaveLobby(room.lobby, sessionId);
     if (wasPlayer) {
-      removePlayerFromRoom(room.state, session.id);
+      removePlayerFromRoom(room.state, sessionId);
     }
 
-    session.roomId = null;
+    return wasPlayer;
+  }
 
-    if (emitLeft) {
-      socket.emit('room:left', {
-        roomId: previousRoomId,
-      });
-    }
-
+  function finalizeDeparture(room: RuntimeRoom, wasPlayer: boolean): void {
     const deleted = deleteRoomIfEmpty(room);
     if (!deleted) {
       emitMembership(room);
@@ -490,22 +486,108 @@ export function createServer(options: ServerOptions = {}): GameServer {
     emitRoomList();
   }
 
+  function expireHeldSession(holdSessionId: string, roomId: string): void {
+    const room = rooms.get(roomId);
+    if (!room) {
+      sessionCoordinator.setRoom(holdSessionId, null);
+      sessionCoordinator.pruneSession(holdSessionId);
+      return;
+    }
+
+    const wasPlayer = removeSessionFromRoom(room, holdSessionId);
+    sessionCoordinator.setRoom(holdSessionId, null);
+    finalizeDeparture(room, wasPlayer);
+    sessionCoordinator.pruneSession(holdSessionId);
+  }
+
+  interface LeaveCurrentRoomOptions {
+    emitLeft: boolean;
+    preserveHold: boolean;
+    disconnectReason?: string | null;
+  }
+
+  function leaveCurrentRoom(
+    socket: Socket,
+    session: PlayerSession,
+    options: LeaveCurrentRoomOptions,
+  ): void {
+    const room = getRoomOrNull(session.roomId);
+    if (!room) {
+      sessionCoordinator.setRoom(session.id, null);
+      if (options.preserveHold) {
+        sessionCoordinator.markSocketDisconnected(session.id, socket.id);
+      }
+      if (options.emitLeft) {
+        socket.emit('room:left', { roomId: null });
+      }
+      return;
+    }
+
+    const previousRoomId = room.state.id;
+
+    const existingParticipant = room.lobby.participants.get(session.id);
+    const heldSlotId =
+      existingParticipant?.role === 'player'
+        ? existingParticipant.slotId
+        : null;
+
+    if (options.preserveHold && heldSlotId) {
+      sessionCoordinator.holdOnDisconnect({
+        sessionId: session.id,
+        socketId: socket.id,
+        roomId: room.state.id,
+        slotId: heldSlotId,
+        disconnectReason: options.disconnectReason ?? null,
+        onExpire: (hold) => {
+          expireHeldSession(hold.sessionId, hold.roomId);
+        },
+      });
+
+      emitMembership(room);
+      emitRoomList();
+      return;
+    }
+
+    if (options.preserveHold) {
+      sessionCoordinator.markSocketDisconnected(session.id, socket.id);
+    } else {
+      socket.leave(roomChannel(room.state.id));
+    }
+
+    const wasPlayer = removeSessionFromRoom(room, session.id);
+    sessionCoordinator.clearHold(session.id);
+    sessionCoordinator.setRoom(session.id, null);
+
+    if (options.emitLeft) {
+      socket.emit('room:left', {
+        roomId: previousRoomId,
+      });
+    }
+
+    finalizeDeparture(room, wasPlayer);
+    sessionCoordinator.pruneSession(session.id);
+  }
+
   function joinRoom(
     socket: Socket,
     session: PlayerSession,
     room: RuntimeRoom,
   ): void {
     if (session.roomId && session.roomId !== room.state.id) {
-      leaveCurrentRoom(socket, session, true);
+      leaveCurrentRoom(socket, session, {
+        emitLeft: true,
+        preserveHold: false,
+      });
     }
 
     socket.join(roomChannel(room.state.id));
+    sessionCoordinator.clearHold(session.id);
     joinLobby(room.lobby, {
       sessionId: session.id,
       displayName: session.name,
     });
 
-    session.roomId = room.state.id;
+    sessionCoordinator.setRoom(session.id, room.state.id);
 
     const teamId = room.state.players.get(session.id)?.teamId ?? null;
     socket.emit('room:joined', {
@@ -554,7 +636,21 @@ export function createServer(options: ServerOptions = {}): GameServer {
       return;
     }
 
-    const result = claimLobbySlot(room.lobby, session.id, slotId.trim());
+    const trimmedSlotId = slotId.trim();
+    const heldBySessionId = sessionCoordinator.getHeldSessionForSlot(
+      room.state.id,
+      trimmedSlotId,
+    );
+    if (heldBySessionId && heldBySessionId !== session.id) {
+      roomError(
+        socket,
+        'Selected team slot is temporarily held for reconnect',
+        'slot-held',
+      );
+      return;
+    }
+
+    const result = claimLobbySlot(room.lobby, session.id, trimmedSlotId);
     if (!result.ok) {
       const mapped = mapLobbyReasonToError(
         result.reason ?? 'participant-not-found',
@@ -569,7 +665,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
     socket.emit('room:slot-claimed', {
       roomId: room.state.id,
-      slotId: slotId.trim(),
+      slotId: trimmedSlotId,
       teamId: room.state.players.get(session.id)?.teamId ?? null,
     });
 
@@ -687,22 +783,54 @@ export function createServer(options: ServerOptions = {}): GameServer {
   }
 
   io.on('connection', (socket: Socket) => {
-    const session: PlayerSession = {
-      id: socket.id,
-      socketId: socket.id,
-      name: `Player-${guestCounter}`,
-      roomId: null,
-    };
+    const fallbackSessionId = `guest-${guestCounter}`;
+    const fallbackName = `Player-${guestCounter}`;
     guestCounter += 1;
-    sessions.set(session.socketId, session);
 
-    const defaultRoom = rooms.get(defaultRoomId);
-    if (defaultRoom) {
-      joinRoom(socket, session, defaultRoom);
+    const authPayload =
+      socket.handshake.auth && typeof socket.handshake.auth === 'object'
+        ? (socket.handshake.auth as { sessionId?: unknown })
+        : {};
+
+    const { session, replacedSocketId } = sessionCoordinator.attachSocket({
+      requestedSessionId: authPayload.sessionId,
+      fallbackSessionId,
+      fallbackName,
+      socketId: socket.id,
+    });
+
+    if (replacedSocketId) {
+      const previousSocket = io.sockets.sockets.get(replacedSocketId);
+      if (previousSocket) {
+        roomError(
+          previousSocket,
+          'This session was replaced by a newer connection',
+          'session-replaced',
+        );
+      }
     }
+
+    const resumeRoom = getRoomOrNull(session.roomId);
+    if (resumeRoom) {
+      joinRoom(socket, session, resumeRoom);
+    } else {
+      const defaultRoom = rooms.get(defaultRoomId);
+      if (defaultRoom) {
+        joinRoom(socket, session, defaultRoom);
+      }
+    }
+
     emitRoomList(socket);
+    socket.emit('player:profile', {
+      playerId: session.id,
+      name: session.name,
+    });
 
     socket.on('player:set-name', (payload: unknown) => {
+      if (!ensureCurrentSocket(socket, session)) {
+        return;
+      }
+
       const fallback = session.name;
       const nextName =
         payload && typeof payload === 'object'
@@ -710,6 +838,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           : fallback;
 
       session.name = nextName;
+      sessionCoordinator.setDisplayName(session.id, nextName);
 
       const room = getRoomOrNull(session.roomId);
       if (room) {
@@ -731,15 +860,25 @@ export function createServer(options: ServerOptions = {}): GameServer {
     });
 
     socket.on('room:list', () => {
+      if (!ensureCurrentSocket(socket, session)) {
+        return;
+      }
       emitRoomList(socket);
     });
 
     socket.on('room:create', (payload: unknown) => {
+      if (!ensureCurrentSocket(socket, session)) {
+        return;
+      }
       const room = createRoomFromPayload(payload);
       joinRoom(socket, session, room);
     });
 
     socket.on('room:join', (payload: unknown) => {
+      if (!ensureCurrentSocket(socket, session)) {
+        return;
+      }
+
       const room = getRoomByIdentifier(payload);
       if (!room) {
         roomError(socket, 'Room not found', 'room-not-found');
@@ -757,14 +896,27 @@ export function createServer(options: ServerOptions = {}): GameServer {
     });
 
     socket.on('room:leave', () => {
-      leaveCurrentRoom(socket, session, true);
+      if (!ensureCurrentSocket(socket, session)) {
+        return;
+      }
+      leaveCurrentRoom(socket, session, {
+        emitLeft: true,
+        preserveHold: false,
+      });
     });
 
     socket.on('room:claim-slot', (payload: unknown) => {
+      if (!ensureCurrentSocket(socket, session)) {
+        return;
+      }
       tryClaimSlot(socket, session, payload);
     });
 
     socket.on('room:set-ready', (payload: unknown) => {
+      if (!ensureCurrentSocket(socket, session)) {
+        return;
+      }
+
       const room = getRoomOrNull(session.roomId);
       if (!room) {
         roomError(socket, 'Join a room first', 'not-in-room');
@@ -808,6 +960,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
     });
 
     socket.on('room:start', (payload: unknown) => {
+      if (!ensureCurrentSocket(socket, session)) {
+        return;
+      }
+
       const room = getRoomOrNull(session.roomId);
       if (!room) {
         roomError(socket, 'Join a room first', 'not-in-room');
@@ -849,6 +1005,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
     });
 
     socket.on('chat:send', (payload: unknown) => {
+      if (!ensureCurrentSocket(socket, session)) {
+        return;
+      }
+
       const room = getRoomOrNull(session.roomId);
       if (!room) {
         roomError(socket, 'Join a room first', 'not-in-room');
@@ -875,6 +1035,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
     });
 
     socket.on('build:queue', (payload: unknown) => {
+      if (!ensureCurrentSocket(socket, session)) {
+        return;
+      }
+
       const room = getRoomOrNull(session.roomId);
       if (!room) {
         roomError(socket, 'Join a room first', 'not-in-room');
@@ -911,12 +1075,22 @@ export function createServer(options: ServerOptions = {}): GameServer {
     });
 
     socket.on('cell:update', (payload: unknown) => {
+      if (!ensureCurrentSocket(socket, session)) {
+        return;
+      }
       handleCellUpdate(session, payload);
     });
 
-    socket.on('disconnect', () => {
-      leaveCurrentRoom(socket, session, false);
-      sessions.delete(session.socketId);
+    socket.on('disconnect', (reason) => {
+      if (!sessionCoordinator.isCurrentSocket(session.id, socket.id)) {
+        return;
+      }
+
+      leaveCurrentRoom(socket, session, {
+        emitLeft: false,
+        preserveHold: true,
+        disconnectReason: reason,
+      });
     });
   });
 
@@ -968,6 +1142,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
       clearInterval(interval);
       interval = null;
     }
+
+    sessionCoordinator.stop();
 
     for (const room of rooms.values()) {
       stopCountdown(room);
