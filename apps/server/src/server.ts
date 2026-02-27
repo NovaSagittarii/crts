@@ -9,7 +9,6 @@ import {
   type PlayerSession,
 } from './lobby-session.js';
 
-import type { CellUpdate } from '#conway-core';
 import {
   claimLobbySlot,
   createLobbyRoom,
@@ -34,12 +33,12 @@ import {
   transitionMatchLifecycle,
   type PlayerProfilePayload,
   queueBuildEvent,
-  queueLegacyCellUpdate,
   removePlayerFromRoom,
   renamePlayerInRoom,
   type RoomClaimSlotPayload,
   type RoomCreatePayload,
   type BuildQueuedPayload,
+  type BuildOutcomePayload,
   type RoomErrorPayload,
   type RoomJoinPayload,
   type RoomListEntryPayload,
@@ -137,26 +136,6 @@ function parseReadyPayload(payload: unknown): boolean | null {
 
   const value = (payload as Partial<RoomSetReadyPayload>).ready;
   return typeof value === 'boolean' ? value : null;
-}
-
-function parseCellUpdate(payload: unknown): CellUpdate | null {
-  if (!payload || typeof payload !== 'object') {
-    return null;
-  }
-
-  const update = payload as CellUpdatePayload;
-  const x = Number(update.x);
-  const y = Number(update.y);
-
-  if (!Number.isInteger(x) || !Number.isInteger(y)) {
-    return null;
-  }
-
-  return {
-    x,
-    y,
-    alive: update.alive ? 1 : 0,
-  };
 }
 
 function sanitizeChatMessage(value: unknown): string | null {
@@ -392,6 +371,15 @@ export function createServer(options: ServerOptions = {}): GameServer {
       'state',
       createRoomStatePayload(room.state),
     );
+  }
+
+  function emitBuildOutcomes(
+    room: RuntimeRoom,
+    outcomes: BuildOutcomePayload[],
+  ): void {
+    for (const outcome of outcomes) {
+      io.to(roomChannel(room.state.id)).emit('build:outcome', outcome);
+    }
   }
 
   function emitMembership(room: RuntimeRoom, bumpRevision = true): void {
@@ -921,21 +909,48 @@ export function createServer(options: ServerOptions = {}): GameServer {
       return;
     }
 
-    const update = parseCellUpdate(payload);
-    if (!update) {
+    if (!payload || typeof payload !== 'object') {
+      roomError(socket, 'Invalid cell update payload', 'invalid-build');
       return;
     }
 
+    const update = payload as CellUpdatePayload;
     if (
-      update.x < 0 ||
-      update.y < 0 ||
-      update.x >= room.state.width ||
-      update.y >= room.state.height
+      !Number.isInteger(Number(update.x)) ||
+      !Number.isInteger(Number(update.y))
     ) {
+      roomError(socket, 'Invalid cell update payload', 'invalid-build');
       return;
     }
 
-    queueLegacyCellUpdate(room.state, update);
+    roomError(
+      socket,
+      'Direct cell updates are disabled; use build:queue',
+      'queue-only-mutation-path',
+    );
+  }
+
+  function mapQueueBuildErrorReason(error?: string): string {
+    switch (error) {
+      case 'Unknown template':
+        return 'unknown-template';
+      case 'x and y must be integers':
+        return 'invalid-coordinates';
+      case 'Placement is out of bounds':
+        return 'out-of-bounds';
+      case 'Placement is outside team territory':
+        return 'outside-territory';
+      case 'delayTicks must be an integer':
+        return 'invalid-delay';
+      case 'Team is defeated':
+        return 'team-defeated';
+      case 'Player is not in this room':
+        return 'not-player';
+      case 'Team is not available':
+        return 'team-unavailable';
+      default:
+        return 'build-rejected';
+    }
   }
 
   function createRoomFromPayload(payload: unknown): RuntimeRoom {
@@ -1308,7 +1323,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
       });
 
       if (!result.accepted) {
-        roomError(socket, result.error ?? 'Build rejected', 'build-rejected');
+        roomError(
+          socket,
+          result.error ?? 'Build rejected',
+          mapQueueBuildErrorReason(result.error),
+        );
         return;
       }
 
@@ -1363,6 +1382,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
     for (const room of rooms.values()) {
       if (room.status === 'active') {
         const tickResult = tickRoom(room.state);
+        const buildOutcomes: BuildOutcomePayload[] =
+          tickResult.buildOutcomes.map((outcome) => ({
+            ...outcome,
+            roomId: room.state.id,
+          }));
+        emitBuildOutcomes(room, buildOutcomes);
 
         if (tickResult.outcome) {
           const transition = transitionMatchLifecycle(room.status, 'finish');
