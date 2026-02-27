@@ -1169,7 +1169,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           roomError(
             socket,
             'Match start preconditions are not met',
-            'start-preconditions-not-met',
+            'not-ready',
           );
           return;
         }
