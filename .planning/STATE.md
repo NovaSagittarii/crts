@@ -10,34 +10,35 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 ## Current Position
 
 Phase: 1 of 5 (Lobby & Team Reliability)
-Plan: 3 of 5 in current phase
+Plan: 4 of 5 in current phase
 Status: In progress
-Last activity: 2026-02-27 - Completed 01-03 reconnect hold/reclaim reliability and session ownership recovery.
+Last activity: 2026-02-27 - Completed 01-05 reliability regression suites for lobby/spawn/reconnect invariants.
 
-Progress: [██████░░░░] 60%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 3
-- Average duration: 11.3 min
-- Total execution time: 0.6 hours
+- Total plans completed: 4
+- Average duration: 11.0 min
+- Total execution time: 0.7 hours
 
 **By Phase:**
 
 | Phase | Plans | Total  | Avg/Plan |
 | ----- | ----- | ------ | -------- |
-| 1     | 3     | 34 min | 11.3 min |
+| 1     | 4     | 44 min | 11.0 min |
 
 **Recent Trend:**
 
-- Last 5 plans: 01-01 (7 min), 01-02 (12 min), 01-03 (15 min)
+- Last 5 plans: 01-01 (7 min), 01-02 (12 min), 01-03 (15 min), 01-05 (10 min)
 - Trend: Stable execution velocity
 
 _Updated after each plan completion_
 | Phase 01-lobby-team-reliability P02 | 12 min | 3 tasks | 4 files |
 | Phase 01-lobby-team-reliability P03 | 15 min | 3 tasks | 3 files |
+| Phase 01-lobby-team-reliability P05 | 10 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -58,6 +59,8 @@ Recent decisions affecting current work:
 - [Phase 01-lobby-team-reliability]: Use durable session IDs from handshake auth instead of ephemeral socket IDs for ownership.
 - [Phase 01-lobby-team-reliability]: Keep disconnected player slots locked for 30 seconds and reclaim before spectator slot claims.
 - [Phase 01-lobby-team-reliability]: Expose reconnect state inline in membership payloads for quiet UI indicators and deterministic assertions.
+- [Phase 01-lobby-team-reliability]: Model timeout fallback in-lobby before countdown so replacement slot claims remain valid and deterministic
+- [Phase 01-lobby-team-reliability]: Register room:error listeners before emits in reliability tests to avoid event-order race flakes
 
 ### Pending Todos
 
@@ -72,6 +75,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-27 05:23
-Stopped at: Completed 01-lobby-team-reliability-03-PLAN.md
+Last session: 2026-02-27 05:38
+Stopped at: Completed 01-lobby-team-reliability-05-PLAN.md
 Resume file: None

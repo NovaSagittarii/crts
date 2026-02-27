@@ -30,11 +30,11 @@ This roadmap delivers a reliable 1v1 Conway RTS loop in dependency order: player
 
 Plans:
 
-- [ ] 01-01-PLAN.md — Build deterministic lobby and torus spawn domain primitives with unit tests.
-- [ ] 01-02-PLAN.md — Implement authoritative room/team lifecycle, host/start guardrails, and spectator chat on server.
-- [ ] 01-03-PLAN.md — Add 30-second reconnect hold and reclaim-priority session recovery flow.
+- [x] 01-01-PLAN.md — Build deterministic lobby and torus spawn domain primitives with unit tests.
+- [x] 01-02-PLAN.md — Implement authoritative room/team lifecycle, host/start guardrails, and spectator chat on server.
+- [x] 01-03-PLAN.md — Add 30-second reconnect hold and reclaim-priority session recovery flow.
 - [ ] 01-04-PLAN.md — Ship lobby/reconnect UI controls and status rendering in the web client.
-- [ ] 01-05-PLAN.md — Add phase reliability regression suites covering lobby, spawn fairness, and reconnect races.
+- [x] 01-05-PLAN.md — Add phase reliability regression suites covering lobby, spawn fairness, and reconnect races.
 
 ### Phase 2: Match Lifecycle & Breach Outcomes
 
@@ -93,7 +93,7 @@ Plans:
 
 | Phase                                   | Plans Complete | Status      | Completed |
 | --------------------------------------- | -------------- | ----------- | --------- |
-| 1. Lobby & Team Reliability             | 3/5            | In Progress | -         |
+| 1. Lobby & Team Reliability             | 4/5            | In Progress | -         |
 | 2. Match Lifecycle & Breach Outcomes    | 0/TBD          | Not started | -         |
 | 3. Deterministic Build Queue Validation | 0/TBD          | Not started | -         |
 | 4. Economy HUD & Queue Visibility       | 0/TBD          | Not started | -         |
