@@ -67,7 +67,12 @@ Plans:
 3. Out-of-bounds or invalid-territory build attempts are rejected with explicit reasons.
 4. Gameplay mutations are accepted only through validated queue paths; direct bypass mutation attempts are rejected.
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+
+- [ ] 03-01-PLAN.md — Add deterministic engine terminal-outcome primitives and shared build outcome contract typing.
+- [ ] 03-02-PLAN.md — Enforce queue-only server mutation flow with queue ack/outcome integration coverage and explicit rejection reasons.
 
 ### Phase 4: Economy HUD & Queue Visibility
 
@@ -100,7 +105,7 @@ Plans:
 | Phase                                   | Plans Complete | Status      | Completed  |
 | --------------------------------------- | -------------- | ----------- | ---------- |
 | 1. Lobby & Team Reliability             | 5/5            | Complete    | 2026-02-27 |
-| 2. Match Lifecycle & Breach Outcomes    | 3/3 | Complete    | 2026-02-27 |
-| 3. Deterministic Build Queue Validation | 0/TBD          | Not started | -          |
+| 2. Match Lifecycle & Breach Outcomes    | 3/3            | Complete    | 2026-02-27 |
+| 3. Deterministic Build Queue Validation | 0/2            | Not started | -          |
 | 4. Economy HUD & Queue Visibility       | 0/TBD          | Not started | -          |
 | 5. Quality Gate Validation              | 0/TBD          | Not started | -          |
