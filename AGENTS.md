@@ -71,6 +71,9 @@ npm run test:watch
 
 npm run format
 npm run format:check
+
+npm run lint
+npm run lint:fix
 ```
 
 ## Baseline TypeScript / Style Expectations
@@ -80,3 +83,4 @@ npm run format:check
 - Prefer explicit return types for exported functions
 - Use interfaces for object shapes (type aliases are fine for unions)
 - Validate network payloads at runtime boundaries
+- Keep `npm run lint` passing (ESLint + `typescript-eslint` `recommendedTypeChecked`)
