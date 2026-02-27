@@ -4,7 +4,11 @@ import { io, type Socket } from 'socket.io-client';
 import { createServer } from '../../../apps/server/src/server.js';
 import { decodeGridBase64 } from '#conway-core';
 import type {
+  BuildOutcomePayload,
+  BuildQueuedPayload,
   RoomJoinedPayload,
+  RoomMembershipPayload,
+  RoomErrorPayload,
   RoomLeftPayload,
   RoomListEntryPayload,
   RoomSlotClaimedPayload,
@@ -15,16 +19,29 @@ import type {
 type StatePayload = RoomStatePayload;
 type SlotClaimedPayload = RoomSlotClaimedPayload;
 type RoomListEntry = RoomListEntryPayload;
+type BuildQueued = BuildQueuedPayload;
+type BuildOutcome = BuildOutcomePayload;
+type RoomError = RoomErrorPayload;
 
 interface Cell {
   x: number;
   y: number;
 }
 
+interface ActiveMatchSetup {
+  host: Socket;
+  guest: Socket;
+  roomId: string;
+  hostJoined: RoomJoinedPayload;
+  guestJoined: RoomJoinedPayload;
+  hostTeam: TeamPayload;
+  guestTeam: TeamPayload;
+}
+
 function waitForEvent(
   emitter: Socket,
   event: string,
-  timeoutMs = 1000,
+  timeoutMs = 2500,
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -61,36 +78,6 @@ function getTeam(state: StatePayload, teamId: number): TeamPayload {
     throw new Error(`Unable to find team ${teamId}`);
   }
   return team;
-}
-
-function findIsolatedBlock(state: StatePayload): Cell[] {
-  const grid = decodeGridBase64(state.grid, state.width * state.height);
-
-  for (let y = 1; y < state.height - 2; y += 1) {
-    for (let x = 1; x < state.width - 2; x += 1) {
-      let isolated = true;
-      for (let dy = -1; dy <= 2; dy += 1) {
-        for (let dx = -1; dx <= 2; dx += 1) {
-          const gx = x + dx;
-          const gy = y + dy;
-          if (grid[gy * state.width + gx] === 1) {
-            isolated = false;
-          }
-        }
-      }
-
-      if (isolated) {
-        return [
-          { x, y },
-          { x: x + 1, y },
-          { x, y: y + 1 },
-          { x: x + 1, y: y + 1 },
-        ];
-      }
-    }
-  }
-
-  throw new Error('Unable to locate an isolated 2x2 block area');
 }
 
 async function waitForCondition(
@@ -132,109 +119,334 @@ async function waitForRoomList(
   throw new Error('Room list condition not met in allotted attempts');
 }
 
+async function waitForMembership(
+  socket: Socket,
+  predicate: (membership: RoomMembershipPayload) => boolean,
+  attempts = 20,
+): Promise<RoomMembershipPayload> {
+  for (let i = 0; i < attempts; i += 1) {
+    const membership = (await waitForEvent(
+      socket,
+      'room:membership',
+    )) as RoomMembershipPayload;
+    if (predicate(membership)) {
+      return membership;
+    }
+  }
+
+  throw new Error('Membership condition not met in allotted attempts');
+}
+
+function waitForBuildQueueResponse(
+  socket: Socket,
+  timeoutMs = 2000,
+): Promise<{ queued: BuildQueued } | { error: RoomError }> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timed out waiting for build queue response'));
+    }, timeoutMs);
+
+    function cleanup(): void {
+      clearTimeout(timer);
+      socket.off('build:queued', onQueued);
+      socket.off('room:error', onError);
+    }
+
+    function onQueued(payload: BuildQueued): void {
+      cleanup();
+      resolve({ queued: payload });
+    }
+
+    function onError(payload: RoomError): void {
+      cleanup();
+      resolve({ error: payload });
+    }
+
+    socket.once('build:queued', onQueued);
+    socket.once('room:error', onError);
+  });
+}
+
+function getTeamByPlayerId(state: StatePayload, playerId: string): TeamPayload {
+  const team = state.teams.find(({ playerIds }) =>
+    playerIds.includes(playerId),
+  );
+  if (!team) {
+    throw new Error(`Unable to resolve team for player ${playerId}`);
+  }
+  return team;
+}
+
+async function setupActiveMatch(port: number): Promise<ActiveMatchSetup> {
+  const host = createClient(port);
+  await waitForEvent(host, 'room:joined');
+
+  host.emit('room:create', {
+    name: 'Build Queue Contract Room',
+    width: 52,
+    height: 52,
+  });
+
+  const hostJoined = (await waitForEvent(
+    host,
+    'room:joined',
+  )) as RoomJoinedPayload;
+
+  const guest = createClient(port);
+  await waitForEvent(guest, 'room:joined');
+  guest.emit('room:join', { roomId: hostJoined.roomId });
+  const guestJoined = (await waitForEvent(
+    guest,
+    'room:joined',
+  )) as RoomJoinedPayload;
+
+  await claimSlot(host, 'team-1');
+  await claimSlot(guest, 'team-2');
+
+  host.emit('room:set-ready', { ready: true });
+  guest.emit('room:set-ready', { ready: true });
+
+  await waitForMembership(
+    host,
+    (membership) =>
+      membership.roomId === hostJoined.roomId &&
+      membership.participants.filter(
+        ({ role, ready }) => role === 'player' && ready,
+      ).length === 2,
+  );
+
+  host.emit('room:start');
+  await waitForEvent(host, 'room:match-started', 7000);
+
+  const activeState = await waitForCondition(
+    host,
+    (state) =>
+      state.roomId === hostJoined.roomId &&
+      state.teams.some(({ playerIds }) =>
+        playerIds.includes(hostJoined.playerId),
+      ) &&
+      state.teams.some(({ playerIds }) =>
+        playerIds.includes(guestJoined.playerId),
+      ),
+    40,
+  );
+
+  return {
+    host,
+    guest,
+    roomId: hostJoined.roomId,
+    hostJoined,
+    guestJoined,
+    hostTeam: getTeamByPlayerId(activeState, hostJoined.playerId),
+    guestTeam: getTeamByPlayerId(activeState, guestJoined.playerId),
+  };
+}
+
 describe('GameServer', () => {
-  test('broadcasts generations on a cadence', async () => {
-    const server = createServer({ port: 0, width: 10, height: 10, tickMs: 40 });
+  test('broadcasts generations on a cadence during active matches', async () => {
+    const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
     const port = await server.start();
 
-    const socket = createClient(port);
+    const setup = await setupActiveMatch(port);
 
-    const first = (await waitForEvent(socket, 'state')) as StatePayload;
-    const second = (await waitForEvent(socket, 'state')) as StatePayload;
+    const first = (await waitForEvent(setup.host, 'state')) as StatePayload;
+    const second = (await waitForEvent(setup.host, 'state')) as StatePayload;
 
     expect(second.generation).toBeGreaterThan(first.generation);
+    expect(second.tick).toBeGreaterThan(first.tick);
 
-    socket.close();
+    setup.host.close();
+    setup.guest.close();
     await server.stop();
-  });
+  }, 20_000);
 
-  test('applies client updates before broadcast', async () => {
-    const server = createServer({ port: 0, width: 10, height: 10, tickMs: 40 });
+  test('acknowledges queued builds and emits one terminal outcome per acknowledged event', async () => {
+    const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
     const port = await server.start();
 
-    const socket = createClient(port);
+    const setup = await setupActiveMatch(port);
 
-    await waitForEvent(socket, 'state');
-    await claimSlot(socket, 'team-1');
-    const setupState = (await waitForEvent(socket, 'state')) as StatePayload;
-
-    const block = findIsolatedBlock(setupState);
-
-    for (const cell of block) {
-      socket.emit('cell:update', { ...cell, alive: true });
+    const generatorTemplate = setup.hostJoined.templates.find(
+      ({ id }) => id === 'generator',
+    );
+    if (!generatorTemplate) {
+      throw new Error('Expected generator template to be available');
     }
 
-    const state = await waitForCondition(
-      socket,
-      (payload) => blockAlive(payload, block),
-      12,
+    const candidatePlacements: Cell[] = [];
+    for (let y = -10; y <= 10; y += 2) {
+      for (let x = -10; x <= 10; x += 2) {
+        const buildX = setup.hostTeam.baseTopLeft.x + x;
+        const buildY = setup.hostTeam.baseTopLeft.y + y;
+        if (buildX < 0 || buildY < 0) {
+          continue;
+        }
+        if (
+          buildX + generatorTemplate.width > 52 ||
+          buildY + generatorTemplate.height > 52
+        ) {
+          continue;
+        }
+        if (
+          buildX === setup.hostTeam.baseTopLeft.x &&
+          buildY === setup.hostTeam.baseTopLeft.y
+        ) {
+          continue;
+        }
+
+        candidatePlacements.push({ x: buildX, y: buildY });
+      }
+    }
+
+    const queuedEvents: BuildQueued[] = [];
+    for (const placement of candidatePlacements) {
+      setup.host.emit('build:queue', {
+        templateId: generatorTemplate.id,
+        x: placement.x,
+        y: placement.y,
+        delayTicks: 1,
+      });
+
+      const response = await waitForBuildQueueResponse(setup.host);
+      if ('queued' in response) {
+        queuedEvents.push(response.queued);
+      }
+
+      if (queuedEvents.length === 8) {
+        break;
+      }
+    }
+
+    expect(queuedEvents.length).toBe(8);
+    expect(
+      queuedEvents.every(
+        ({ eventId, executeTick }) =>
+          Number.isInteger(eventId) &&
+          eventId > 0 &&
+          Number.isInteger(executeTick) &&
+          executeTick > 0,
+      ),
+    ).toBe(true);
+
+    const queuedById = new Map(
+      queuedEvents.map((queued) => [queued.eventId, queued]),
+    );
+    const outcomesById = new Map<number, BuildOutcome[]>();
+
+    while (outcomesById.size < queuedById.size) {
+      const outcome = (await waitForEvent(
+        setup.host,
+        'build:outcome',
+        4000,
+      )) as BuildOutcome;
+
+      if (!queuedById.has(outcome.eventId)) {
+        continue;
+      }
+
+      const existing = outcomesById.get(outcome.eventId) ?? [];
+      existing.push(outcome);
+      outcomesById.set(outcome.eventId, existing);
+    }
+
+    expect(outcomesById.size).toBe(queuedById.size);
+
+    const observedOutcomes: BuildOutcome[] = [];
+    for (const [eventId, outcomes] of outcomesById.entries()) {
+      expect(outcomes).toHaveLength(1);
+
+      const outcome = outcomes[0];
+      const queued = queuedById.get(eventId);
+      if (!queued) {
+        throw new Error(`Missing queued payload for event ${eventId}`);
+      }
+
+      expect(outcome.executeTick).toBe(queued.executeTick);
+      expect(outcome.resolvedTick).toBeGreaterThanOrEqual(outcome.executeTick);
+      if (outcome.outcome === 'rejected') {
+        expect(outcome.reason).toBeDefined();
+      }
+
+      observedOutcomes.push(outcome);
+    }
+
+    expect(observedOutcomes.some(({ outcome }) => outcome === 'applied')).toBe(
+      true,
+    );
+    expect(observedOutcomes.some(({ outcome }) => outcome === 'rejected')).toBe(
+      true,
     );
 
-    expect(blockAlive(state, block)).toBe(true);
-
-    socket.close();
+    setup.host.close();
+    setup.guest.close();
     await server.stop();
-  });
+  }, 25_000);
 
-  test('broadcasts updates to multiple clients', async () => {
-    const server = createServer({ port: 0, width: 10, height: 10, tickMs: 40 });
+  test('returns explicit rejection reasons for out-of-bounds and outside-territory builds', async () => {
+    const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
     const port = await server.start();
 
-    const sender = createClient(port);
-    const listener = createClient(port);
+    const setup = await setupActiveMatch(port);
 
-    await waitForEvent(sender, 'state');
-    await waitForEvent(listener, 'state');
-    await claimSlot(sender, 'team-1');
-    const setupState = (await waitForEvent(sender, 'state')) as StatePayload;
+    setup.host.emit('build:queue', {
+      templateId: 'block',
+      x: -1,
+      y: 0,
+      delayTicks: 1,
+    });
+    const outOfBounds = (await waitForEvent(
+      setup.host,
+      'room:error',
+    )) as RoomError;
+    expect(outOfBounds.reason).toBe('out-of-bounds');
 
-    const block = findIsolatedBlock(setupState);
+    setup.host.emit('build:queue', {
+      templateId: 'block',
+      x: setup.guestTeam.baseTopLeft.x,
+      y: setup.guestTeam.baseTopLeft.y,
+      delayTicks: 1,
+    });
+    const outsideTerritory = (await waitForEvent(
+      setup.host,
+      'room:error',
+    )) as RoomError;
+    expect(outsideTerritory.reason).toBe('outside-territory');
 
-    for (const cell of block) {
-      sender.emit('cell:update', { ...cell, alive: true });
-    }
-
-    const state = await waitForCondition(
-      listener,
-      (payload) => blockAlive(payload, block),
-      12,
-    );
-
-    expect(blockAlive(state, block)).toBe(true);
-
-    sender.close();
-    listener.close();
+    setup.host.close();
+    setup.guest.close();
     await server.stop();
-  });
+  }, 20_000);
 
   test('queues template builds and charges resources', async () => {
-    const server = createServer({ port: 0, width: 40, height: 40, tickMs: 40 });
+    const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
     const port = await server.start();
 
-    const socket = createClient(port);
-    const joined = (await waitForEvent(
-      socket,
-      'room:joined',
-    )) as RoomJoinedPayload;
-    const claimed = await claimSlot(socket, 'team-1');
-    const teamId = claimed.teamId as number;
-    const teamReadyState = await waitForCondition(
-      socket,
-      (state) => state.teams.some(({ id }) => id === teamId),
-      12,
+    const setup = await setupActiveMatch(port);
+
+    const teamId = setup.hostTeam.id;
+    const initialTeamState = await waitForCondition(
+      setup.host,
+      (state) =>
+        state.roomId === setup.roomId &&
+        state.teams.some(({ id }) => id === teamId),
+      20,
     );
-    const initialTeam = getTeam(teamReadyState, teamId);
-    const blockTemplate = joined.templates.find(({ id }) => id === 'block');
+    const initialTeam = getTeam(initialTeamState, teamId);
+
+    const blockTemplate = setup.hostJoined.templates.find(
+      ({ id }) => id === 'block',
+    );
     if (!blockTemplate) {
       throw new Error('Expected block template to be available');
     }
 
     const buildX = Math.min(
-      joined.state.width - blockTemplate.width,
+      52 - blockTemplate.width,
       initialTeam.baseTopLeft.x + 4,
     );
     const buildY = Math.min(
-      joined.state.height - blockTemplate.height,
+      52 - blockTemplate.height,
       initialTeam.baseTopLeft.y + 4,
     );
 
@@ -245,15 +457,22 @@ describe('GameServer', () => {
       { x: buildX + 1, y: buildY + 1 },
     ];
 
-    socket.emit('build:queue', {
+    setup.host.emit('build:queue', {
       templateId: blockTemplate.id,
       x: buildX,
       y: buildY,
       delayTicks: 1,
     });
 
+    const queued = (await waitForEvent(
+      setup.host,
+      'build:queued',
+    )) as BuildQueued;
+    expect(queued.eventId).toBeGreaterThan(0);
+    expect(queued.executeTick).toBeGreaterThan(0);
+
     const builtState = await waitForCondition(
-      socket,
+      setup.host,
       (state) =>
         blockAlive(state, blockCells) &&
         getTeam(state, teamId).resources < initialTeam.resources,
@@ -265,47 +484,46 @@ describe('GameServer', () => {
       initialTeam.resources,
     );
 
-    socket.close();
+    setup.host.close();
+    setup.guest.close();
     await server.stop();
-  });
+  }, 20_000);
 
-  test('marks team defeated when base integrity is breached', async () => {
-    const server = createServer({ port: 0, width: 30, height: 30, tickMs: 40 });
+  test('rejects direct cell:update bypass attempts with queue-only reason and no defeat side effects', async () => {
+    const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
     const port = await server.start();
 
-    const socket = createClient(port);
-    await waitForEvent(socket, 'room:joined');
-    const claimed = await claimSlot(socket, 'team-1');
-    const teamId = claimed.teamId as number;
-    const teamReadyState = await waitForCondition(
-      socket,
-      (state) => state.teams.some(({ id }) => id === teamId),
-      12,
-    );
-    const team = getTeam(teamReadyState, teamId);
+    const setup = await setupActiveMatch(port);
+    const teamId = setup.hostTeam.id;
 
-    const baseCells: Cell[] = [
-      { x: team.baseTopLeft.x, y: team.baseTopLeft.y },
-      { x: team.baseTopLeft.x + 1, y: team.baseTopLeft.y },
-      { x: team.baseTopLeft.x, y: team.baseTopLeft.y + 1 },
-      { x: team.baseTopLeft.x + 1, y: team.baseTopLeft.y + 1 },
-    ];
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      setup.host.emit('cell:update', {
+        x: setup.hostTeam.baseTopLeft.x,
+        y: setup.hostTeam.baseTopLeft.y,
+        alive: false,
+      });
 
-    for (const cell of baseCells) {
-      socket.emit('cell:update', { ...cell, alive: false });
+      const rejection = (await waitForEvent(
+        setup.host,
+        'room:error',
+      )) as RoomError;
+      expect(rejection.reason).toBe('queue-only-mutation-path');
     }
 
-    const defeatedState = await waitForCondition(
-      socket,
-      (state) => getTeam(state, teamId).defeated,
-      12,
+    const stableState = await waitForCondition(
+      setup.host,
+      (state) => state.roomId === setup.roomId && state.tick > 8,
+      40,
     );
 
-    expect(getTeam(defeatedState, teamId).defeated).toBe(true);
+    const hostTeamState = getTeam(stableState, teamId);
+    expect(hostTeamState.defeated).toBe(false);
+    expect(hostTeamState.baseIntact).toBe(true);
 
-    socket.close();
+    setup.host.close();
+    setup.guest.close();
     await server.stop();
-  });
+  }, 20_000);
 
   test('creates and joins a custom room', async () => {
     const server = createServer({ port: 0, width: 30, height: 30, tickMs: 40 });

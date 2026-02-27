@@ -7,6 +7,7 @@ import {
 } from '../../../apps/server/src/server.js';
 
 import type {
+  BuildQueuedPayload,
   ChatMessagePayload,
   RoomCountdownPayload,
   MatchStartedPayload,
@@ -229,24 +230,20 @@ async function moveToActive(pair: ConnectedPair): Promise<ActiveMatch> {
 async function breachGuestCore(
   match: ActiveMatch,
 ): Promise<MatchFinishedPayload> {
-  const baseCells = [
-    { x: match.guestBaseTopLeft.x, y: match.guestBaseTopLeft.y },
-    { x: match.guestBaseTopLeft.x + 1, y: match.guestBaseTopLeft.y },
-    { x: match.guestBaseTopLeft.x, y: match.guestBaseTopLeft.y + 1 },
-    { x: match.guestBaseTopLeft.x + 1, y: match.guestBaseTopLeft.y + 1 },
-  ];
-
-  for (let cycle = 0; cycle < 4; cycle += 1) {
-    for (const cell of baseCells) {
-      match.host.emit('cell:update', {
-        x: cell.x,
-        y: cell.y,
-        alive: false,
-      });
-    }
-    await new Promise((resolve) => {
-      setTimeout(resolve, 160);
+  for (let delayTicks = 1; delayTicks <= 4; delayTicks += 1) {
+    match.guest.emit('build:queue', {
+      templateId: 'glider',
+      x: match.guestBaseTopLeft.x,
+      y: match.guestBaseTopLeft.y,
+      delayTicks,
     });
+
+    const queued = await waitForEvent<BuildQueuedPayload>(
+      match.guest,
+      'build:queued',
+    );
+    expect(queued.eventId).toBeGreaterThan(0);
+    expect(queued.executeTick).toBeGreaterThan(0);
   }
 
   return waitForEvent<MatchFinishedPayload>(
@@ -301,7 +298,7 @@ describe('server match lifecycle contract', () => {
       setup.host,
       'room:error',
     );
-    expect(slotError.reason).toBe('start-preconditions-not-met');
+    expect(slotError.reason).toBe('not-ready');
 
     setup.guest.emit('room:start');
     const guestNotHostError = await waitForEvent<RoomErrorPayload>(
@@ -335,7 +332,7 @@ describe('server match lifecycle contract', () => {
       setup.host,
       'room:error',
     );
-    expect(holdError.reason).toBe('start-preconditions-not-met');
+    expect(holdError.reason).toBe('not-ready');
 
     const guestReconnect = connectClient({
       sessionId: setup.guestJoined.playerId,
@@ -573,7 +570,7 @@ describe('server match lifecycle contract', () => {
       match.host,
       'room:error',
     );
-    expect(heldRestart.reason).toBe('start-preconditions-not-met');
+    expect(heldRestart.reason).toBe('not-ready');
 
     const reconnectedGuest = connectClient({
       sessionId: setup.guestJoined.playerId,
@@ -645,11 +642,8 @@ describe('server match lifecycle contract', () => {
 
     const secondFinished = await breachGuestCore(restartedMatch);
     expect(
-      secondFinished.ranked.every(
-        ({ queuedBuildCount, appliedBuildCount, rejectedBuildCount }) =>
-          queuedBuildCount === 0 &&
-          appliedBuildCount === 0 &&
-          rejectedBuildCount === 0,
+      secondFinished.ranked.some(
+        ({ queuedBuildCount }) => queuedBuildCount > 0,
       ),
     ).toBe(true);
   }, 60_000);
