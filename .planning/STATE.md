@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 ## Current Position
 
 Phase: 2 of 5 (Match Lifecycle & Breach Outcomes)
-Plan: 1 of 3 in current phase
+Plan: 2 of 3 in current phase
 Status: In Progress
-Last activity: 2026-02-27 - Completed 02-01 deterministic lifecycle guards, canonical breach ranking, and HP-based core outcomes in rts-engine.
+Last activity: 2026-02-27 - Completed 02-02 authoritative server lifecycle transitions, breach-finish outcomes, and restart lockout guardrails.
 
-Progress: [███████░░░] 70%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -41,6 +41,7 @@ _Updated after each plan completion_
 | Phase 01-lobby-team-reliability P05 | 10 min | 3 tasks | 3 files |
 | Phase 01-lobby-team-reliability P04 | 35 min | 3 tasks | 3 files |
 | Phase 02-match-lifecycle-breach-outcomes P01 | 8 min | 3 tasks | 5 files |
+| Phase 02-match-lifecycle-breach-outcomes P02 | 9 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,9 @@ Recent decisions affecting current work:
 - [Phase 02-match-lifecycle-breach-outcomes]: Use explicit transitionMatchLifecycle guards as the single lifecycle authority path.
 - [Phase 02-match-lifecycle-breach-outcomes]: Lock same-tick breach ordering to coreHpBeforeResolution desc, territoryCellCount desc, appliedBuildCount desc, then teamId asc.
 - [Phase 02-match-lifecycle-breach-outcomes]: Resolve defeat only when core HP reaches zero after restore checks, then emit winner-first ranked outcomes.
+- [Phase 02-match-lifecycle-breach-outcomes]: Use room:start as the host-only action for both initial start and restart from finished via lifecycle guards.
+- [Phase 02-match-lifecycle-breach-outcomes]: Keep active disconnect expiry non-terminal by preserving team/session membership until breach determines outcomes.
+- [Phase 02-match-lifecycle-breach-outcomes]: Re-broadcast room:match-finished snapshots during finished state to keep reconnecting and late listeners synchronized.
 
 ### Pending Todos
 
@@ -83,6 +87,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-27 10:22
-Stopped at: Completed 02-01-PLAN.md
-Resume file: .planning/phases/02-match-lifecycle-breach-outcomes/02-02-PLAN.md
+Last session: 2026-02-27 10:44
+Stopped at: Completed 02-02-PLAN.md
+Resume file: .planning/phases/02-match-lifecycle-breach-outcomes/02-03-PLAN.md
