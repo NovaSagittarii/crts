@@ -1,0 +1,84 @@
+# Requirements: Conway RTS TypeScript Prototype
+
+**Defined:** 2026-02-27
+**Core Value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
+
+## v1 Requirements
+
+Requirements for initial release. Each maps to roadmap phases.
+
+### Lobby & Teams
+
+- [ ] **LOBBY-01**: User can list, create, join, and leave rooms with deterministic membership updates.
+- [ ] **LOBBY-02**: User can join a team and receive deterministic base assignment for that team.
+- [ ] **LOBBY-03**: Team spawn locations are equally spaced on the torus map to ensure fair starts and avoid overlap.
+- [ ] **LOBBY-04**: Reconnecting user can rejoin their room and receive authoritative state resync.
+
+### Match Lifecycle
+
+- [ ] **MATCH-01**: Host can start a match only when lifecycle preconditions are met, and room state transitions through `lobby -> countdown -> active -> finished`.
+- [ ] **MATCH-02**: Match uses one canonical breach rule and ends with explicit winner/loser outcomes.
+- [ ] **MATCH-03**: Defeated user is locked out of gameplay actions and sees clear defeat status.
+
+### Build Queue & Validation
+
+- [ ] **BUILD-01**: User can queue a template build and receives queued acknowledgement with execute tick.
+- [ ] **BUILD-02**: Every queued build reaches a terminal outcome: `applied` or `rejected(reason)`.
+- [ ] **BUILD-03**: Gameplay mutations are accepted only through validated queue paths (no direct bypass mutation path).
+- [ ] **BUILD-04**: Build validation enforces bounds and territory constraints with explicit rejection messages.
+
+### Economy
+
+- [ ] **ECON-01**: User can see current resources and per-tick income in the match HUD.
+- [ ] **ECON-02**: User can only queue affordable builds; unaffordable requests are rejected with reason.
+- [ ] **ECON-03**: Resource income updates dynamically based on owned structures/territory state.
+
+### UX
+
+- [ ] **UX-01**: User can inspect pending builds in a queue timeline organized by execute tick.
+
+### Quality Gates
+
+- [ ] **QUAL-01**: Developers can run unit tests covering lobby/team invariants, queue validation, queue terminal outcomes, and economy rules.
+- [ ] **QUAL-02**: Developers can run integration tests covering end-to-end flow: join -> build -> tick -> breach -> defeat.
+
+## v2 Requirements
+
+Deferred to future release. Tracked but not in current roadmap.
+
+### Gameplay Expansion
+
+- **GAME-01**: User can plan ghost-cell edits in a single-batch draft/commit workflow.
+- **GAME-02**: User can use expanded offense/defense/support template catalog beyond baseline set.
+- **GAME-03**: User can view near-safe-cell threat indicators for faster defensive reaction.
+
+## Out of Scope
+
+Explicitly excluded. Documented to prevent scope creep.
+
+| Feature                                    | Reason                                                                       |
+| ------------------------------------------ | ---------------------------------------------------------------------------- |
+| WebAssembly simulation pipeline            | This milestone optimizes for TypeScript iteration speed and rapid validation |
+| Protobuf networking                        | Socket.IO JSON contracts are enough for prototype scope                      |
+| Accounts and persistent profiles           | Session-level identity is sufficient for v1 validation                       |
+| Large-scale map/performance program        | Defer until core gameplay loop is validated and measured                     |
+| Ranked matchmaking and progression systems | Adds backend/product complexity not required for prototype proof             |
+
+## Traceability
+
+Which phases cover which requirements. Updated during roadmap creation.
+
+| Requirement                            | Phase | Status  |
+| -------------------------------------- | ----- | ------- |
+| _To be mapped during roadmap creation_ | _TBD_ | Pending |
+
+**Coverage:**
+
+- v1 requirements: 17 total
+- Mapped to phases: 0
+- Unmapped: 17 ⚠️
+
+---
+
+_Requirements defined: 2026-02-27_
+_Last updated: 2026-02-27 after initial definition_
