@@ -3,13 +3,14 @@ import type {
   RoomStatePayload,
   StructureTemplateSummary,
 } from './rts.js';
+import type { RankedTeamOutcome } from './match-lifecycle.js';
 
 // Shared Socket.IO payload contracts.
 //
 // Goal: keep server, web client, and integration tests aligned on the wire
 // shapes without re-declaring ad-hoc interfaces in each runtime.
 
-export type RoomStatus = 'lobby' | 'countdown' | 'active';
+export type RoomStatus = 'lobby' | 'countdown' | 'active' | 'finished';
 export type ConnectionStatus = 'connected' | 'held';
 
 export interface BuildQueuedPayload {
@@ -62,6 +63,13 @@ export interface RoomCountdownPayload {
 
 export interface MatchStartedPayload {
   roomId: string;
+}
+
+export interface MatchFinishedPayload {
+  roomId: string;
+  winner: RankedTeamOutcome;
+  ranked: RankedTeamOutcome[];
+  comparator: string;
 }
 
 export interface ChatMessagePayload {
@@ -155,6 +163,7 @@ export interface ClientToServerEvents {
   'room:claim-slot': (payload: RoomClaimSlotPayload) => void;
   'room:set-ready': (payload: RoomSetReadyPayload) => void;
   'room:start': (payload?: RoomStartPayload) => void;
+  'room:cancel-countdown': () => void;
   'chat:send': (payload: ChatSendPayload) => void;
   'build:queue': (payload: BuildQueuePayload) => void;
   'cell:update': (payload: CellUpdatePayload) => void;
@@ -169,6 +178,7 @@ export interface ServerToClientEvents {
   'room:slot-claimed': (payload: RoomSlotClaimedPayload) => void;
   'room:countdown': (payload: RoomCountdownPayload) => void;
   'room:match-started': (payload: MatchStartedPayload) => void;
+  'room:match-finished': (payload: MatchFinishedPayload) => void;
   'room:error': (payload: RoomErrorPayload) => void;
   'chat:message': (payload: ChatMessagePayload) => void;
   'build:queued': (payload: BuildQueuedPayload) => void;

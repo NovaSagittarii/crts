@@ -211,7 +211,11 @@ export class LobbySessionCoordinator {
     return hold;
   }
 
-  public markSocketDisconnected(sessionId: string, socketId: string): void {
+  public markSocketDisconnected(
+    sessionId: string,
+    socketId: string,
+    disconnectReason: string | null = null,
+  ): void {
     const session = this.sessions.get(sessionId);
     if (!session || session.socketId !== socketId) {
       return;
@@ -221,7 +225,11 @@ export class LobbySessionCoordinator {
     session.socketId = null;
     session.connected = false;
     session.disconnectedAt = this.now();
-    session.disconnectReason = null;
+    session.disconnectReason = disconnectReason;
+  }
+
+  public isSessionConnected(sessionId: string): boolean {
+    return this.sessions.get(sessionId)?.connected ?? false;
   }
 
   public clearHold(sessionId: string): SessionHold | null {
@@ -250,6 +258,16 @@ export class LobbySessionCoordinator {
 
   public getHeldSessionForSlot(roomId: string, slotId: string): string | null {
     return this.heldSlots.get(this.slotKey(roomId, slotId)) ?? null;
+  }
+
+  public hasPendingHoldForRoom(roomId: string): boolean {
+    for (const { hold } of this.holdsBySession.values()) {
+      if (hold.roomId === roomId) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   public releaseSession(sessionId: string): void {

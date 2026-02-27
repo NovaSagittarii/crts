@@ -25,10 +25,13 @@ import {
   type CellUpdatePayload as SocketCellUpdatePayload,
   type ChatSendPayload,
   type ClientToServerEvents,
+  type LifecyclePreconditions,
+  type MatchFinishedPayload,
   createDefaultTemplates,
   createRoomState,
   createRoomStatePayload,
   createTemplateSummaries,
+  transitionMatchLifecycle,
   type PlayerProfilePayload,
   queueBuildEvent,
   queueLegacyCellUpdate,
@@ -47,6 +50,7 @@ import {
   type RoomStatePayload,
   type RoomStatus,
   type ServerToClientEvents,
+  type TeamState,
   tickRoom,
 } from '#rts-engine';
 
@@ -80,6 +84,7 @@ interface RuntimeRoom {
   status: RoomStatus;
   countdownSecondsRemaining: number | null;
   countdownTimer: NodeJS.Timeout | null;
+  matchOutcome: MatchFinishedPayload | null;
 }
 
 export interface GameServer {
@@ -236,6 +241,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       status: 'lobby',
       countdownSecondsRemaining: null,
       countdownTimer: null,
+      matchOutcome: null,
     };
   }
 
@@ -325,9 +331,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
           participant.sessionId,
         );
         const hold = sessionCoordinator.getHold(participant.sessionId);
+        const disconnected =
+          participantSession !== null && !participantSession.connected;
         const held =
-          Boolean(hold && hold.roomId === room.state.id) &&
-          !participantSession?.connected;
+          disconnected && Boolean(hold && hold.roomId === room.state.id);
 
         return {
           sessionId: participant.sessionId,
@@ -335,9 +342,13 @@ export function createServer(options: ServerOptions = {}): GameServer {
           role: participant.role,
           slotId: participant.slotId,
           ready: participant.ready,
-          connectionStatus: held ? 'held' : 'connected',
-          holdExpiresAt: held ? (hold?.expiresAt ?? null) : null,
-          disconnectReason: held ? (hold?.disconnectReason ?? null) : null,
+          connectionStatus: disconnected ? 'held' : 'connected',
+          holdExpiresAt: disconnected ? (hold?.expiresAt ?? null) : null,
+          disconnectReason: disconnected
+            ? (participantSession?.disconnectReason ??
+              hold?.disconnectReason ??
+              null)
+            : null,
         };
       }),
       heldSlots,
@@ -479,6 +490,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
       return;
     }
 
+    if (room.status === 'active') {
+      emitMembership(room);
+      emitRoomList();
+      return;
+    }
+
     const wasPlayer = removeSessionFromRoom(room, holdSessionId);
     sessionCoordinator.setRoom(holdSessionId, null);
     finalizeDeparture(room, wasPlayer);
@@ -517,6 +534,17 @@ export function createServer(options: ServerOptions = {}): GameServer {
         : null;
 
     if (options.preserveHold && heldSlotId) {
+      if (room.status === 'active') {
+        sessionCoordinator.markSocketDisconnected(
+          session.id,
+          socket.id,
+          options.disconnectReason ?? null,
+        );
+        emitMembership(room);
+        emitRoomList();
+        return;
+      }
+
       sessionCoordinator.holdOnDisconnect({
         sessionId: session.id,
         socketId: socket.id,
@@ -534,7 +562,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
     }
 
     if (options.preserveHold) {
-      sessionCoordinator.markSocketDisconnected(session.id, socket.id);
+      sessionCoordinator.markSocketDisconnected(
+        session.id,
+        socket.id,
+        options.disconnectReason ?? null,
+      );
     } else {
       void socket.leave(roomChannel(room.state.id));
     }
@@ -683,12 +715,97 @@ export function createServer(options: ServerOptions = {}): GameServer {
     return true;
   }
 
+  function getLifecyclePreconditions(
+    room: RuntimeRoom,
+  ): LifecyclePreconditions {
+    const snapshot = getLobbySnapshot(room.lobby);
+    const assignedSessionIds = room.lobby.slotIds
+      .map((slotId) => snapshot.slots[slotId])
+      .filter(
+        (sessionId): sessionId is string => typeof sessionId === 'string',
+      );
+
+    const hasRequiredPlayers =
+      assignedSessionIds.length === room.lobby.slotIds.length &&
+      new Set(assignedSessionIds).size === room.lobby.slotIds.length &&
+      assignedSessionIds.every((sessionId) =>
+        snapshot.participants.some(
+          (participant) =>
+            participant.sessionId === sessionId &&
+            participant.role === 'player',
+        ),
+      );
+
+    const allPlayersConnected =
+      assignedSessionIds.length === room.lobby.slotIds.length &&
+      assignedSessionIds.every((sessionId) =>
+        sessionCoordinator.isSessionConnected(sessionId),
+      );
+
+    return {
+      hasRequiredPlayers,
+      allPlayersConnected,
+      reconnectHoldPending: sessionCoordinator.hasPendingHoldForRoom(
+        room.state.id,
+      ),
+    };
+  }
+
+  function resetRoomStateForRestart(room: RuntimeRoom): void {
+    const previousState = room.state;
+    const snapshot = getLobbySnapshot(room.lobby);
+    const participantBySession = new Map(
+      snapshot.participants.map((participant) => [
+        participant.sessionId,
+        participant,
+      ]),
+    );
+
+    const nextState = createRoomState({
+      id: previousState.id,
+      name: previousState.name,
+      width: previousState.width,
+      height: previousState.height,
+      templates: previousState.templates,
+    });
+
+    for (const slotId of room.lobby.slotIds) {
+      const sessionId = snapshot.slots[slotId];
+      if (!sessionId) {
+        continue;
+      }
+
+      const displayName =
+        sessionCoordinator.getSession(sessionId)?.name ??
+        participantBySession.get(sessionId)?.displayName ??
+        sessionId;
+      addPlayerToRoom(nextState, sessionId, displayName);
+    }
+
+    room.state = nextState;
+    room.matchOutcome = null;
+  }
+
+  function emitMatchFinished(room: RuntimeRoom): void {
+    if (!room.matchOutcome) {
+      return;
+    }
+
+    io.to(roomChannel(room.state.id)).emit('room:match-finished', {
+      roomId: room.state.id,
+      winner: room.matchOutcome.winner,
+      ranked: room.matchOutcome.ranked,
+      comparator: room.matchOutcome.comparator,
+    });
+  }
+
   function startCountdown(room: RuntimeRoom): void {
     if (room.countdownTimer) {
       return;
     }
 
     room.status = 'countdown';
+    room.matchOutcome = null;
     room.countdownSecondsRemaining = COUNTDOWN_SECONDS;
     emitMembership(room);
     emitRoomList();
@@ -701,7 +818,15 @@ export function createServer(options: ServerOptions = {}): GameServer {
       const next = (room.countdownSecondsRemaining ?? 1) - 1;
       if (next <= 0) {
         stopCountdown(room);
-        room.status = 'active';
+        const transition = transitionMatchLifecycle(
+          room.status,
+          'countdown-complete',
+        );
+        if (!transition.allowed) {
+          return;
+        }
+
+        room.status = transition.nextStatus;
         emitMembership(room);
         emitRoomList();
         io.to(roomChannel(room.state.id)).emit('room:match-started', {
@@ -719,13 +844,48 @@ export function createServer(options: ServerOptions = {}): GameServer {
     }, 1000);
   }
 
-  function handleCellUpdate(session: PlayerSession, payload: unknown): void {
+  function getTeamForSession(
+    room: RuntimeRoom,
+    sessionId: string,
+  ): TeamState | null {
+    const player = room.state.players.get(sessionId);
+    if (!player) {
+      return null;
+    }
+
+    return room.state.teams.get(player.teamId) ?? null;
+  }
+
+  function handleCellUpdate(
+    socket: GameSocket,
+    session: PlayerSession,
+    payload: unknown,
+  ): void {
     const room = getRoomOrNull(session.roomId);
     if (!room) {
       return;
     }
 
-    if (!room.state.players.has(session.id)) {
+    const team = getTeamForSession(room, session.id);
+    if (!team) {
+      return;
+    }
+
+    if (team.defeated) {
+      roomError(
+        socket,
+        'Defeated players are locked out of gameplay mutations',
+        'defeated',
+      );
+      return;
+    }
+
+    if (room.status !== 'active') {
+      roomError(
+        socket,
+        'Gameplay mutations are only allowed during active matches',
+        'invalid-state',
+      );
       return;
     }
 
@@ -925,7 +1085,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      if (room.status === 'active') {
+      if (room.status === 'active' || room.status === 'finished') {
         roomError(
           socket,
           'Ready toggle is unavailable after match start',
@@ -957,15 +1117,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      if (room.status !== 'lobby') {
-        roomError(
-          socket,
-          'Match is already starting or active',
-          'invalid-state',
-        );
-        return;
-      }
-
       const hostSessionId = getLobbySnapshot(room.lobby).hostSessionId;
       if (hostSessionId !== session.id) {
         roomError(socket, 'Only the host can start the match', 'not-host');
@@ -973,8 +1124,33 @@ export function createServer(options: ServerOptions = {}): GameServer {
       }
 
       const forceRequested = Boolean(payload?.force);
+      const lifecycleEvent =
+        room.status === 'finished' ? 'restart-countdown' : 'start-countdown';
+      const transition = transitionMatchLifecycle(
+        room.status,
+        lifecycleEvent,
+        getLifecyclePreconditions(room),
+      );
 
-      if (!allSlotsReady(room)) {
+      if (!transition.allowed) {
+        if (transition.reason === 'start-preconditions-not-met') {
+          roomError(
+            socket,
+            'Match start preconditions are not met',
+            'start-preconditions-not-met',
+          );
+          return;
+        }
+
+        roomError(
+          socket,
+          'Match cannot transition from the current lifecycle state',
+          'invalid-transition',
+        );
+        return;
+      }
+
+      if (lifecycleEvent === 'start-countdown' && !allSlotsReady(room)) {
         roomError(
           socket,
           forceRequested
@@ -985,7 +1161,49 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
+      if (lifecycleEvent === 'restart-countdown') {
+        resetRoomStateForRestart(room);
+        emitRoomState(room);
+      }
+
+      room.status = transition.nextStatus;
       startCountdown(room);
+    });
+
+    socket.on('room:cancel-countdown', () => {
+      if (!ensureCurrentSocket(socket, session)) {
+        return;
+      }
+
+      const room = getRoomOrNull(session.roomId);
+      if (!room) {
+        roomError(socket, 'Join a room first', 'not-in-room');
+        return;
+      }
+
+      const hostSessionId = getLobbySnapshot(room.lobby).hostSessionId;
+      if (hostSessionId !== session.id) {
+        roomError(socket, 'Only the host can cancel countdown', 'not-host');
+        return;
+      }
+
+      const transition = transitionMatchLifecycle(
+        room.status,
+        'cancel-countdown',
+      );
+      if (!transition.allowed) {
+        roomError(
+          socket,
+          'Countdown can only be canceled while countdown is running',
+          'invalid-transition',
+        );
+        return;
+      }
+
+      stopCountdown(room);
+      room.status = transition.nextStatus;
+      emitMembership(room);
+      emitRoomList();
     });
 
     socket.on('chat:send', (payload: unknown) => {
@@ -1029,6 +1247,34 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
+      const team = getTeamForSession(room, session.id);
+      if (!team) {
+        roomError(
+          socket,
+          'Only assigned players can queue builds',
+          'not-player',
+        );
+        return;
+      }
+
+      if (team.defeated) {
+        roomError(
+          socket,
+          'Defeated players are locked out of gameplay mutations',
+          'defeated',
+        );
+        return;
+      }
+
+      if (room.status !== 'active') {
+        roomError(
+          socket,
+          'Gameplay mutations are only allowed during active matches',
+          'invalid-state',
+        );
+        return;
+      }
+
       if (!payload || typeof payload !== 'object') {
         roomError(socket, 'Invalid build payload', 'invalid-build');
         return;
@@ -1063,7 +1309,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       if (!ensureCurrentSocket(socket, session)) {
         return;
       }
-      handleCellUpdate(session, payload);
+      handleCellUpdate(socket, session, payload);
     });
 
     socket.on('disconnect', (reason) => {
@@ -1101,11 +1347,35 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   function tick(): void {
     for (const room of rooms.values()) {
-      tickRoom(room.state);
+      if (room.status === 'active') {
+        const tickResult = tickRoom(room.state);
+
+        if (tickResult.outcome) {
+          const transition = transitionMatchLifecycle(room.status, 'finish');
+          if (transition.allowed) {
+            room.status = transition.nextStatus;
+            room.matchOutcome = {
+              roomId: room.state.id,
+              winner: tickResult.outcome.winner,
+              ranked: tickResult.outcome.ranked,
+              comparator: tickResult.outcome.comparator,
+            };
+            emitMembership(room);
+            emitRoomList();
+            emitMatchFinished(room);
+          }
+        }
+      }
+
       if (room.lobby.participants.size > 0) {
-        emitRoomState(room);
+        if (room.status === 'active' || room.status === 'finished') {
+          emitRoomState(room);
+        }
         // Re-emit authoritative membership snapshots so late listeners can resync.
         emitMembership(room, false);
+        if (room.status === 'finished') {
+          emitMatchFinished(room);
+        }
       }
     }
   }
