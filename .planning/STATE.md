@@ -10,35 +10,36 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 ## Current Position
 
 Phase: 1 of 5 (Lobby & Team Reliability)
-Plan: 4 of 5 in current phase
-Status: In progress
-Last activity: 2026-02-27 - Completed 01-05 reliability regression suites for lobby/spawn/reconnect invariants.
+Plan: 5 of 5 in current phase
+Status: Complete
+Last activity: 2026-02-27 - Completed 01-04 lobby/reconnect client controls, authoritative roster status, and reconnect identity persistence.
 
-Progress: [████████░░] 80%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 4
-- Average duration: 11.0 min
-- Total execution time: 0.7 hours
+- Total plans completed: 5
+- Average duration: 15.8 min
+- Total execution time: 1.3 hours
 
 **By Phase:**
 
 | Phase | Plans | Total  | Avg/Plan |
 | ----- | ----- | ------ | -------- |
-| 1     | 4     | 44 min | 11.0 min |
+| 1     | 5     | 79 min | 15.8 min |
 
 **Recent Trend:**
 
-- Last 5 plans: 01-01 (7 min), 01-02 (12 min), 01-03 (15 min), 01-05 (10 min)
+- Last 5 plans: 01-01 (7 min), 01-02 (12 min), 01-03 (15 min), 01-04 (35 min), 01-05 (10 min)
 - Trend: Stable execution velocity
 
 _Updated after each plan completion_
 | Phase 01-lobby-team-reliability P02 | 12 min | 3 tasks | 4 files |
 | Phase 01-lobby-team-reliability P03 | 15 min | 3 tasks | 3 files |
 | Phase 01-lobby-team-reliability P05 | 10 min | 3 tasks | 3 files |
+| Phase 01-lobby-team-reliability P04 | 35 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -61,6 +62,9 @@ Recent decisions affecting current work:
 - [Phase 01-lobby-team-reliability]: Expose reconnect state inline in membership payloads for quiet UI indicators and deterministic assertions.
 - [Phase 01-lobby-team-reliability]: Model timeout fallback in-lobby before countdown so replacement slot claims remain valid and deterministic
 - [Phase 01-lobby-team-reliability]: Register room:error listeners before emits in reliability tests to avoid event-order race flakes
+- [Phase 01-lobby-team-reliability]: Render team slot rows directly from room:membership snapshots with explicit team labels and held/disconnect badges.
+- [Phase 01-lobby-team-reliability]: Persist localStorage session IDs and send them in Socket.IO auth to keep reconnect ownership stable.
+- [Phase 01-lobby-team-reliability]: Surface claim and reconnect race failures through both inline status and toast messages for clear user feedback.
 
 ### Pending Todos
 
@@ -75,6 +79,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-27 05:38
-Stopped at: Completed 01-lobby-team-reliability-05-PLAN.md
+Last session: 2026-02-27 06:03
+Stopped at: Completed 01-lobby-team-reliability-04-PLAN.md
 Resume file: None

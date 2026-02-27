@@ -33,7 +33,7 @@ Plans:
 - [x] 01-01-PLAN.md — Build deterministic lobby and torus spawn domain primitives with unit tests.
 - [x] 01-02-PLAN.md — Implement authoritative room/team lifecycle, host/start guardrails, and spectator chat on server.
 - [x] 01-03-PLAN.md — Add 30-second reconnect hold and reclaim-priority session recovery flow.
-- [ ] 01-04-PLAN.md — Ship lobby/reconnect UI controls and status rendering in the web client.
+- [x] 01-04-PLAN.md — Ship lobby/reconnect UI controls and status rendering in the web client.
 - [x] 01-05-PLAN.md — Add phase reliability regression suites covering lobby, spawn fairness, and reconnect races.
 
 ### Phase 2: Match Lifecycle & Breach Outcomes
@@ -91,10 +91,10 @@ Plans:
 
 ## Progress
 
-| Phase                                   | Plans Complete | Status      | Completed |
-| --------------------------------------- | -------------- | ----------- | --------- |
-| 1. Lobby & Team Reliability             | 4/5            | In Progress | -         |
-| 2. Match Lifecycle & Breach Outcomes    | 0/TBD          | Not started | -         |
-| 3. Deterministic Build Queue Validation | 0/TBD          | Not started | -         |
-| 4. Economy HUD & Queue Visibility       | 0/TBD          | Not started | -         |
-| 5. Quality Gate Validation              | 0/TBD          | Not started | -         |
+| Phase                                   | Plans Complete | Status      | Completed  |
+| --------------------------------------- | -------------- | ----------- | ---------- |
+| 1. Lobby & Team Reliability             | 5/5            | Complete    | 2026-02-27 |
+| 2. Match Lifecycle & Breach Outcomes    | 0/TBD          | Not started | -          |
+| 3. Deterministic Build Queue Validation | 0/TBD          | Not started | -          |
+| 4. Economy HUD & Queue Visibility       | 0/TBD          | Not started | -          |
+| 5. Quality Gate Validation              | 0/TBD          | Not started | -          |
