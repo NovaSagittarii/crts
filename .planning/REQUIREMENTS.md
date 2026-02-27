@@ -23,9 +23,9 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Build Queue & Validation
 
 - [ ] **BUILD-01**: User can queue a template build and receives queued acknowledgement with execute tick.
-- [ ] **BUILD-02**: Every queued build reaches a terminal outcome: `applied` or `rejected(reason)`.
+- [x] **BUILD-02**: Every queued build reaches a terminal outcome: `applied` or `rejected(reason)`.
 - [ ] **BUILD-03**: Gameplay mutations are accepted only through validated queue paths (no direct bypass mutation path).
-- [ ] **BUILD-04**: Build validation enforces bounds and territory constraints with explicit rejection messages.
+- [x] **BUILD-04**: Build validation enforces bounds and territory constraints with explicit rejection messages.
 
 ### Economy
 
@@ -78,9 +78,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MATCH-02    | Phase 2 | Complete |
 | MATCH-03    | Phase 2 | Complete |
 | BUILD-01    | Phase 3 | Pending |
-| BUILD-02    | Phase 3 | Pending |
+| BUILD-02    | Phase 3 | Complete |
 | BUILD-03    | Phase 3 | Pending |
-| BUILD-04    | Phase 3 | Pending |
+| BUILD-04    | Phase 3 | Complete |
 | ECON-01     | Phase 4 | Pending |
 | ECON-02     | Phase 4 | Pending |
 | ECON-03     | Phase 4 | Pending |
