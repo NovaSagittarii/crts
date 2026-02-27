@@ -5,6 +5,7 @@ import type {
   ChatMessagePayload,
   ClientToServerEvents,
   MembershipParticipant,
+  MatchFinishedPayload,
   PlayerProfilePayload,
   RoomCountdownPayload,
   RoomErrorPayload,
@@ -12,6 +13,7 @@ import type {
   RoomLeftPayload,
   RoomListEntryPayload,
   RoomMembershipPayload,
+  RoomStatus,
   RoomSlotClaimedPayload,
   RoomStatePayload,
   ServerToClientEvents,
@@ -83,11 +85,32 @@ const baseEl = getRequiredElement<HTMLElement>('base');
 const messageEl = getRequiredElement<HTMLElement>('message');
 const lobbyStatusEl = getRequiredElement<HTMLElement>('lobby-status');
 const lobbyCountdownEl = getRequiredElement<HTMLElement>('lobby-countdown');
+const lifecycleStatusLineEl = getRequiredElement<HTMLElement>(
+  'lifecycle-status-line',
+);
 const lobbyPlayerSlotsEl =
   getRequiredElement<HTMLDivElement>('lobby-player-slots');
 const lobbySpectatorsEl =
   getRequiredElement<HTMLDivElement>('lobby-spectators');
 const spawnMarkersEl = getRequiredElement<HTMLDivElement>('spawn-markers');
+const countdownOverlayEl =
+  getRequiredElement<HTMLDivElement>('countdown-overlay');
+const countdownSecondsEl = getRequiredElement<HTMLElement>('countdown-seconds');
+const countdownDetailEl = getRequiredElement<HTMLElement>('countdown-detail');
+const finishedPanelEl = getRequiredElement<HTMLElement>('finished-panel');
+const finishedSummaryEl = getRequiredElement<HTMLElement>('finished-summary');
+const finishedResultsEl = getRequiredElement<HTMLElement>('finished-results');
+const finishedComparatorEl = getRequiredElement<HTMLElement>(
+  'finished-comparator',
+);
+const restartStatusEl = getRequiredElement<HTMLElement>('restart-status');
+const finishedMinimizeButton =
+  getRequiredElement<HTMLButtonElement>('finished-minimize');
+const finishedToggleViewButton = getRequiredElement<HTMLButtonElement>(
+  'finished-toggle-view',
+);
+const restartMatchButton =
+  getRequiredElement<HTMLButtonElement>('restart-match');
 
 const playerNameEl = getRequiredElement<HTMLInputElement>('player-name');
 const setNameButton = getRequiredElement<HTMLButtonElement>('set-name');
@@ -156,11 +179,16 @@ let currentRoomId = '-';
 let currentRoomCode = '-';
 let currentRoomName = '-';
 let currentTeamId: number | null = null;
+let currentRoomStatus: RoomStatus = 'lobby';
 let currentMembership: RoomMembershipPayload | null = null;
 let currentSessionId: string | null = persistedSessionId;
 let availableTemplates: TemplateSummary[] = [];
 let selectedTemplateId = '';
 let templateMode = false;
+let countdownSecondsRemaining: number | null = null;
+let currentMatchFinished: MatchFinishedPayload | null = null;
+let isFinishedPanelMinimized = false;
+let isFinishedLobbyView = false;
 
 function addToast(message: string, isError = false): void {
   const toast = document.createElement('div');
@@ -228,6 +256,7 @@ function updateLobbyControls(): void {
     claimTeamTwoButton.disabled = false;
     toggleReadyButton.disabled = true;
     startMatchButton.disabled = true;
+    startMatchButton.textContent = 'Host Start';
     return;
   }
 
@@ -237,12 +266,17 @@ function updateLobbyControls(): void {
   const isPlayer = self?.role === 'player';
   const isHost = currentMembership.hostSessionId === currentSessionId;
   const ready = Boolean(self?.ready);
-  const activeStatus = currentMembership.status !== 'lobby';
+  const lifecycleLocked = currentMembership.status !== 'lobby';
+  const canHostStartOrRestart =
+    currentMembership.status === 'lobby' ||
+    currentMembership.status === 'finished';
 
-  claimTeamOneButton.disabled = isPlayer || activeStatus;
-  claimTeamTwoButton.disabled = isPlayer || activeStatus;
-  toggleReadyButton.disabled = !isPlayer || activeStatus;
-  startMatchButton.disabled = !isHost || currentMembership.status !== 'lobby';
+  claimTeamOneButton.disabled = isPlayer || lifecycleLocked;
+  claimTeamTwoButton.disabled = isPlayer || lifecycleLocked;
+  toggleReadyButton.disabled = !isPlayer || lifecycleLocked;
+  startMatchButton.disabled = !isHost || !canHostStartOrRestart;
+  startMatchButton.textContent =
+    currentMembership.status === 'finished' ? 'Host Restart' : 'Host Start';
   toggleReadyButton.textContent = ready ? 'Set Not Ready' : 'Set Ready';
 }
 
@@ -292,6 +326,164 @@ function updateTemplateOptions(): void {
     selectedTemplateId = availableTemplates[0].id;
   }
   templateSelectEl.value = selectedTemplateId;
+}
+
+function getSelfParticipant(): MembershipParticipant | null {
+  if (!currentMembership || !currentSessionId) {
+    return null;
+  }
+  return (
+    currentMembership.participants.find(
+      (participant) => participant.sessionId === currentSessionId,
+    ) ?? null
+  );
+}
+
+function isCurrentUserHost(): boolean {
+  if (!currentMembership || !currentSessionId) {
+    return false;
+  }
+  return currentMembership.hostSessionId === currentSessionId;
+}
+
+function getLifecycleLabel(status: RoomStatus): string {
+  if (status === 'countdown') {
+    return `Countdown ${countdownSecondsRemaining ?? '?'}s`;
+  }
+  if (status === 'active') {
+    return 'Active';
+  }
+  if (status === 'finished') {
+    return 'Finished';
+  }
+  return 'Lobby';
+}
+
+function syncCurrentTeamIdFromState(payload: StatePayload): void {
+  if (!currentSessionId) {
+    currentTeamId = null;
+    return;
+  }
+
+  const sessionId = currentSessionId;
+
+  const nextTeam = payload.teams.find(({ playerIds }) =>
+    playerIds.includes(sessionId),
+  );
+  currentTeamId = nextTeam?.id ?? null;
+}
+
+function renderFinishedResults(): void {
+  finishedResultsEl.innerHTML = '';
+
+  if (!currentMatchFinished) {
+    finishedSummaryEl.textContent =
+      'Match finished. Waiting for final ranked results payload.';
+    finishedComparatorEl.textContent = '';
+    return;
+  }
+
+  finishedSummaryEl.textContent = `Winner: Team ${currentMatchFinished.winner.teamId}.`;
+  finishedComparatorEl.textContent = `Ranking comparator: ${currentMatchFinished.comparator}`;
+
+  for (const rankedTeam of currentMatchFinished.ranked) {
+    const row = document.createElement('article');
+    row.className = 'finished-row';
+
+    const head = document.createElement('div');
+    head.className = 'finished-row__head';
+
+    const title = document.createElement('h3');
+    title.className = 'finished-row__title';
+    title.textContent = `${rankedTeam.rank}. Team ${rankedTeam.teamId}`;
+
+    const outcome = document.createElement('p');
+    outcome.className = 'finished-row__outcome';
+    outcome.textContent = rankedTeam.outcome;
+
+    head.append(title, outcome);
+
+    const stats = document.createElement('div');
+    stats.className = 'finished-row__stats';
+    stats.innerHTML = [
+      `Core: ${rankedTeam.coreState} (${rankedTeam.finalCoreHp} HP)`,
+      `Territory: ${rankedTeam.territoryCellCount} cells`,
+      `Queued builds: ${rankedTeam.queuedBuildCount}`,
+      `Applied/rejected: ${rankedTeam.appliedBuildCount}/${rankedTeam.rejectedBuildCount}`,
+    ]
+      .map((line) => `<div>${line}</div>`)
+      .join('');
+
+    row.append(head, stats);
+    finishedResultsEl.append(row);
+  }
+}
+
+function updateCountdownOverlay(): void {
+  if (currentRoomStatus !== 'countdown') {
+    countdownOverlayEl.classList.add('is-hidden');
+    return;
+  }
+
+  countdownOverlayEl.classList.remove('is-hidden');
+  countdownSecondsEl.textContent = String(countdownSecondsRemaining ?? 0);
+  countdownDetailEl.textContent =
+    'Match is about to start. Board view is read-only until countdown completes.';
+}
+
+function updateFinishedPanelState(): void {
+  const finishedVisible =
+    currentRoomStatus === 'finished' && !isFinishedLobbyView;
+
+  finishedPanelEl.classList.toggle('is-hidden', !finishedVisible);
+  finishedPanelEl.classList.toggle(
+    'finished-panel--minimized',
+    isFinishedPanelMinimized,
+  );
+  finishedPanelEl.classList.toggle(
+    'finished-panel--lobby-view',
+    isFinishedLobbyView,
+  );
+
+  finishedMinimizeButton.textContent = isFinishedPanelMinimized
+    ? 'Expand'
+    : 'Minimize';
+  finishedToggleViewButton.textContent = isFinishedLobbyView
+    ? 'Back to Results'
+    : 'Return to Lobby View';
+
+  const isHost = isCurrentUserHost();
+  restartMatchButton.disabled = !isHost;
+  restartStatusEl.textContent = isHost
+    ? 'Host controls restart. Countdown starts immediately when pressed.'
+    : 'Waiting for host to restart this finished match.';
+}
+
+function updateLifecycleStatusLine(): void {
+  lifecycleStatusLineEl.textContent = `Lifecycle: ${getLifecycleLabel(currentRoomStatus)}`;
+}
+
+function updateLifecycleUi(): void {
+  updateLifecycleStatusLine();
+  updateCountdownOverlay();
+  updateFinishedPanelState();
+}
+
+function applyRoomStatus(nextStatus: RoomStatus): void {
+  const previousStatus = currentRoomStatus;
+  currentRoomStatus = nextStatus;
+
+  if (nextStatus !== 'finished') {
+    isFinishedLobbyView = false;
+    isFinishedPanelMinimized = false;
+  }
+
+  if (previousStatus === 'finished' && nextStatus === 'countdown') {
+    currentMatchFinished = null;
+    renderFinishedResults();
+  }
+
+  updateLifecycleUi();
 }
 
 function renderRoomList(rooms: RoomListEntry[]): void {
@@ -431,6 +623,8 @@ function queueTemplateAt(cell: Cell): void {
 }
 
 function updateTeamStats(payload: StatePayload): void {
+  syncCurrentTeamIdFromState(payload);
+
   roomEl.textContent = `${payload.roomName} (#${payload.roomId})`;
   roomCodeEl.textContent = currentRoomCode;
 
@@ -468,6 +662,7 @@ function renderLobbyStatus(payload: RoomMembershipPayload): void {
     ? `Host: ${payload.hostSessionId}`
     : 'Host: none';
   lobbyStatusEl.textContent = `${hostText} | rev ${payload.revision} | ${payload.status}`;
+  countdownSecondsRemaining = payload.countdownSecondsRemaining;
 
   if (payload.status === 'countdown') {
     const seconds = payload.countdownSecondsRemaining ?? 0;
@@ -477,6 +672,11 @@ function renderLobbyStatus(payload: RoomMembershipPayload): void {
 
   if (payload.status === 'active') {
     lobbyCountdownEl.textContent = 'Match active';
+    return;
+  }
+
+  if (payload.status === 'finished') {
+    lobbyCountdownEl.textContent = 'Match finished';
     return;
   }
 
@@ -515,6 +715,7 @@ function renderLobbyMembership(payload: RoomMembershipPayload): void {
   currentMembership = payload;
   currentRoomCode = payload.roomCode;
   roomCodeEl.textContent = payload.roomCode;
+  applyRoomStatus(payload.status);
 
   renderLobbyStatus(payload);
 
@@ -612,6 +813,7 @@ function renderLobbyMembership(payload: RoomMembershipPayload): void {
   }
 
   updateLobbyControls();
+  updateLifecycleUi();
 }
 
 function renderSpawnMarkers(payload: StatePayload): void {
@@ -721,12 +923,18 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   currentRoomCode = payload.roomCode;
   currentRoomName = payload.roomName;
   currentTeamId = payload.teamId;
+  countdownSecondsRemaining = null;
+  currentMatchFinished = null;
+  isFinishedPanelMinimized = false;
+  isFinishedLobbyView = false;
   currentMembership = null;
   availableTemplates = payload.templates;
   selectedTemplateId = payload.templates[0]?.id ?? '';
   updateTemplateOptions();
   playerNameEl.value = payload.playerName;
   chatLogEl.innerHTML = '';
+  applyRoomStatus('lobby');
+  renderFinishedResults();
 
   setMessage(
     payload.teamId === null
@@ -743,6 +951,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   resizeCanvas();
   render();
   updateLobbyControls();
+  updateLifecycleUi();
 });
 
 socket.on('room:left', (_payload: RoomLeftPayload) => {
@@ -750,7 +959,13 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   currentRoomCode = '-';
   currentRoomName = '-';
   currentTeamId = null;
+  countdownSecondsRemaining = null;
+  currentMatchFinished = null;
+  isFinishedPanelMinimized = false;
+  isFinishedLobbyView = false;
   currentMembership = null;
+  applyRoomStatus('lobby');
+  renderFinishedResults();
 
   roomEl.textContent = '-';
   roomCodeEl.textContent = '-';
@@ -768,6 +983,7 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
 
   setMessage('You left the room.');
   updateLobbyControls();
+  updateLifecycleUi();
 });
 
 socket.on('room:error', (payload: RoomErrorPayload) => {
@@ -781,20 +997,37 @@ socket.on('room:membership', (payload: RoomMembershipPayload) => {
 });
 
 socket.on('room:countdown', (payload: RoomCountdownPayload) => {
-  if (!currentMembership || payload.roomId !== currentMembership.roomId) {
+  if (payload.roomId !== currentRoomId) {
     return;
   }
 
+  countdownSecondsRemaining = payload.secondsRemaining;
+  applyRoomStatus('countdown');
   lobbyCountdownEl.textContent = `Match starts in ${payload.secondsRemaining}s`;
+  updateLifecycleUi();
 });
 
 socket.on('room:match-started', () => {
+  countdownSecondsRemaining = null;
+  applyRoomStatus('active');
   lobbyCountdownEl.textContent = 'Match active';
   addToast('Match started. Good luck.');
 });
 
+socket.on('room:match-finished', (payload: MatchFinishedPayload) => {
+  if (payload.roomId !== currentRoomId) {
+    return;
+  }
+
+  currentMatchFinished = payload;
+  applyRoomStatus('finished');
+  renderFinishedResults();
+  updateLifecycleUi();
+});
+
 socket.on('room:slot-claimed', (payload: RoomSlotClaimedPayload) => {
   const label = getTeamLabel(payload.slotId);
+  currentTeamId = payload.teamId;
   setMessage(`Slot claimed: ${label}.`);
   addToast(`Slot claimed successfully: ${label}.`);
 });
@@ -815,6 +1048,7 @@ socket.on('player:profile', (payload: PlayerProfilePayload) => {
   }
   playerNameEl.value = payload.name;
   updateLobbyControls();
+  updateLifecycleUi();
 });
 
 socket.on('build:queued', (payload: BuildQueuedPayload) => {
@@ -839,6 +1073,7 @@ socket.on('state', (payload: StatePayload) => {
   renderSpawnMarkers(payload);
   resizeCanvas();
   render();
+  updateLifecycleUi();
 });
 
 setNameButton.addEventListener('click', () => {
@@ -915,6 +1150,26 @@ startMatchButton.addEventListener('click', () => {
   socket.emit('room:start');
 });
 
+finishedMinimizeButton.addEventListener('click', () => {
+  isFinishedPanelMinimized = !isFinishedPanelMinimized;
+  updateFinishedPanelState();
+});
+
+finishedToggleViewButton.addEventListener('click', () => {
+  isFinishedLobbyView = !isFinishedLobbyView;
+  updateFinishedPanelState();
+  if (isFinishedLobbyView) {
+    addToast('Local lobby view enabled. You remain in the room for restart.');
+  }
+});
+
+restartMatchButton.addEventListener('click', () => {
+  if (currentRoomStatus !== 'finished') {
+    return;
+  }
+  socket.emit('room:start');
+});
+
 chatSendButton.addEventListener('click', () => {
   const message = chatInputEl.value.trim();
   if (!message) {
@@ -941,3 +1196,5 @@ refreshRoomsButton.addEventListener('click', () => {
 
 updateTemplateOptions();
 updateLobbyControls();
+renderFinishedResults();
+updateLifecycleUi();

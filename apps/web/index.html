@@ -277,6 +277,14 @@
         min-height: 1.3em;
       }
 
+      .lifecycle-status-line {
+        margin-top: 12px;
+        font-family: 'IBM Plex Mono', 'Courier New', monospace;
+        color: var(--warn);
+        font-size: 13px;
+        letter-spacing: 0.03em;
+      }
+
       .message {
         margin: 12px 0 0;
         color: var(--accent);
@@ -329,6 +337,198 @@
         border-left-color: var(--danger);
       }
 
+      .countdown-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        display: grid;
+        place-items: center;
+        pointer-events: none;
+        opacity: 1;
+        transition: opacity 180ms ease;
+      }
+
+      .countdown-overlay.is-hidden {
+        opacity: 0;
+        visibility: hidden;
+      }
+
+      .countdown-card {
+        width: min(420px, calc(100vw - 32px));
+        border-radius: 18px;
+        border: 1px solid rgba(248, 192, 108, 0.5);
+        background: rgba(7, 12, 23, 0.92);
+        box-shadow: 0 24px 60px rgba(5, 7, 13, 0.55);
+        padding: 22px 20px;
+        text-align: center;
+      }
+
+      .countdown-label {
+        margin: 0;
+        font-size: 12px;
+        color: var(--warn);
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+      }
+
+      .countdown-seconds {
+        margin: 10px 0 8px;
+        font-size: clamp(52px, 10vw, 84px);
+        font-weight: 600;
+        line-height: 0.95;
+      }
+
+      .countdown-detail {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .finished-panel {
+        position: fixed;
+        left: 50%;
+        bottom: 16px;
+        transform: translateX(-50%);
+        width: min(760px, calc(100vw - 20px));
+        z-index: 28;
+        transition:
+          opacity 180ms ease,
+          transform 180ms ease;
+      }
+
+      .finished-panel.is-hidden {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      .finished-panel__shell {
+        border: 1px solid var(--panel-border);
+        border-radius: 16px;
+        background: rgba(8, 12, 22, 0.97);
+        box-shadow: 0 24px 64px rgba(4, 6, 12, 0.6);
+        overflow: hidden;
+      }
+
+      .finished-panel__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--panel-border);
+      }
+
+      .finished-panel__title {
+        margin: 0;
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--warn);
+      }
+
+      .finished-panel__header button,
+      .finished-panel__actions button {
+        border-radius: 10px;
+        border: 1px solid var(--panel-border);
+        background: #0d1321;
+        color: var(--text);
+        font: inherit;
+        padding: 7px 10px;
+        cursor: pointer;
+      }
+
+      .finished-panel__header button:disabled,
+      .finished-panel__actions button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .finished-panel__body {
+        padding: 12px 14px;
+        display: grid;
+        gap: 10px;
+        max-height: min(54vh, 420px);
+        overflow: auto;
+      }
+
+      .finished-panel--minimized .finished-panel__body,
+      .finished-panel--lobby-view .finished-panel__body {
+        display: none;
+      }
+
+      .finished-summary {
+        margin: 0;
+        color: var(--text);
+      }
+
+      .finished-results {
+        display: grid;
+        gap: 8px;
+      }
+
+      .finished-row {
+        border: 1px solid var(--panel-border);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.03);
+        padding: 10px;
+        display: grid;
+        gap: 6px;
+      }
+
+      .finished-row__head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 8px;
+      }
+
+      .finished-row__title {
+        margin: 0;
+        font-size: 15px;
+      }
+
+      .finished-row__outcome {
+        margin: 0;
+        font-size: 12px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .finished-row__stats {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        font-family: 'IBM Plex Mono', 'Courier New', monospace;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .finished-comparator {
+        margin: 0;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .finished-panel__actions {
+        border-top: 1px solid var(--panel-border);
+        padding: 10px 14px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .finished-panel__action-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .finished-panel__status {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
       footer {
         padding: 16px clamp(20px, 4vw, 48px) 32px;
         color: var(--muted);
@@ -372,6 +572,15 @@
           bottom: 10px;
           max-width: none;
         }
+
+        .finished-row__stats {
+          grid-template-columns: 1fr;
+        }
+
+        .finished-panel {
+          width: calc(100vw - 12px);
+          bottom: 8px;
+        }
       }
     </style>
     <script type="module" src="./src/client.ts"></script>
@@ -384,6 +593,9 @@
           Server-authoritative lobby and match flow. Claim a slot, ready up,
           confirm countdown, and watch spawn markers before the match starts.
         </p>
+        <div id="lifecycle-status-line" class="lifecycle-status-line">
+          Lifecycle: waiting for room membership...
+        </div>
       </div>
       <div class="stats">
         <div class="stat">
@@ -528,6 +740,45 @@
       </div>
       <p id="message" class="message"></p>
     </main>
+
+    <div id="countdown-overlay" class="countdown-overlay is-hidden">
+      <div class="countdown-card">
+        <p class="countdown-label">Match Countdown</p>
+        <p id="countdown-seconds" class="countdown-seconds">3</p>
+        <p id="countdown-detail" class="countdown-detail">
+          Waiting for host confirmation.
+        </p>
+      </div>
+    </div>
+
+    <aside
+      id="finished-panel"
+      class="finished-panel is-hidden"
+      aria-live="polite"
+    >
+      <div class="finished-panel__shell">
+        <div class="finished-panel__header">
+          <h2 class="finished-panel__title">Match Results</h2>
+          <button id="finished-minimize" type="button">Minimize</button>
+        </div>
+        <div id="finished-body" class="finished-panel__body">
+          <p id="finished-summary" class="finished-summary"></p>
+          <div id="finished-results" class="finished-results"></div>
+          <p id="finished-comparator" class="finished-comparator"></p>
+        </div>
+        <div class="finished-panel__actions">
+          <div class="finished-panel__action-row">
+            <button id="finished-toggle-view" type="button">
+              Return to Lobby View
+            </button>
+            <button id="restart-match" type="button">Restart Match</button>
+          </div>
+          <p id="restart-status" class="finished-panel__status">
+            Waiting for final results...
+          </p>
+        </div>
+      </div>
+    </aside>
 
     <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
 
