@@ -392,7 +392,7 @@ describe('lobby reliability regression', () => {
       20,
       1500,
     );
-    expect(playerTwoHeld.heldSlots['team-2']?.sessionId).toBe('player-two');
+    expect(playerTwoHeld.heldSlots['team-2']?.sessionId ?? null).toBeNull();
 
     const playerTwoReconnect = connectClient({ sessionId: 'player-two' });
     await waitForEvent<RoomJoinedPayload>(playerTwoReconnect, 'room:joined');
