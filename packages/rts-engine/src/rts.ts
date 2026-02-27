@@ -5,6 +5,7 @@ import {
   encodeGridBase64,
   stepGrid,
 } from '../../conway-core/src/grid.js';
+import { createTorusSpawnLayout } from './spawn.js';
 
 export interface Vector2 {
   x: number;
@@ -92,6 +93,7 @@ export interface RoomState {
   templates: StructureTemplate[];
   teams: Map<number, TeamState>;
   players: Map<string, RoomPlayerState>;
+  spawnOrientationSeed: number;
   pendingLegacyUpdates: CellUpdate[];
 }
 
@@ -160,7 +162,18 @@ const BASE_BLOCK_WIDTH = 2;
 const BASE_BLOCK_HEIGHT = 2;
 const DEFAULT_STARTING_RESOURCES = 40;
 const DEFAULT_TEAM_TERRITORY_RADIUS = 12;
+const DEFAULT_SPAWN_CAPACITY = 2;
 const MAX_DELAY_TICKS = 20;
+
+function hashSpawnSeed(roomId: string, width: number, height: number): number {
+  let hash = 2166136261;
+  const input = `${roomId}:${width}x${height}`;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
 
 function parseTemplateRows(rows: string[]): {
   width: number;
@@ -402,55 +415,40 @@ function seedBase(room: RoomState, baseTopLeft: Vector2): void {
   }
 }
 
-function pickSpawnPosition(room: RoomState): Vector2 {
-  const margin = 3;
-  const right = Math.max(margin, room.width - margin - BASE_BLOCK_WIDTH);
-  const bottom = Math.max(margin, room.height - margin - BASE_BLOCK_HEIGHT);
-  const centerX = Math.max(margin, Math.floor(room.width / 2) - 1);
-  const centerY = Math.max(margin, Math.floor(room.height / 2) - 1);
-
-  const candidates: Vector2[] = [
-    { x: margin, y: margin },
-    { x: right, y: bottom },
-    { x: margin, y: bottom },
-    { x: right, y: margin },
-    { x: centerX, y: margin },
-    { x: centerX, y: bottom },
-    { x: margin, y: centerY },
-    { x: right, y: centerY },
-  ];
-
+function pickSpawnPosition(room: RoomState, teamId: number): Vector2 {
   const occupied = new Set<string>();
   for (const team of room.teams.values()) {
     occupied.add(`${team.baseTopLeft.x},${team.baseTopLeft.y}`);
   }
 
-  for (const candidate of candidates) {
-    if (
-      !inBounds(
-        room,
-        candidate.x,
-        candidate.y,
-        BASE_BLOCK_WIDTH,
-        BASE_BLOCK_HEIGHT,
-      )
-    ) {
-      continue;
-    }
-    if (!occupied.has(`${candidate.x},${candidate.y}`)) {
+  const preferredCapacity = Math.max(
+    DEFAULT_SPAWN_CAPACITY,
+    room.teams.size + 1,
+    teamId,
+  );
+
+  for (let expansion = 0; expansion <= 6; expansion += 1) {
+    const layout = createTorusSpawnLayout({
+      width: room.width,
+      height: room.height,
+      teamCount: preferredCapacity + expansion,
+      orientationSeed: room.spawnOrientationSeed,
+      baseWidth: BASE_BLOCK_WIDTH,
+      baseHeight: BASE_BLOCK_HEIGHT,
+      minWrappedDistance: BASE_BLOCK_WIDTH + 1,
+    });
+
+    const startIndex = (teamId - 1) % layout.length;
+    for (let offset = 0; offset < layout.length; offset += 1) {
+      const candidate = layout[(startIndex + offset) % layout.length].topLeft;
+      if (occupied.has(`${candidate.x},${candidate.y}`)) {
+        continue;
+      }
       return candidate;
     }
   }
 
-  for (let y = margin; y <= room.height - BASE_BLOCK_HEIGHT - margin; y += 4) {
-    for (let x = margin; x <= room.width - BASE_BLOCK_WIDTH - margin; x += 4) {
-      if (!occupied.has(`${x},${y}`)) {
-        return { x, y };
-      }
-    }
-  }
-
-  return { x: 0, y: 0 };
+  throw new Error('Unable to allocate deterministic spawn position');
 }
 
 function applyTeamEconomyAndQueue(
@@ -622,6 +620,11 @@ export function createRoomState(options: CreateRoomOptions): RoomState {
     templates,
     teams: new Map<number, TeamState>(),
     players: new Map<string, RoomPlayerState>(),
+    spawnOrientationSeed: hashSpawnSeed(
+      options.id,
+      options.width,
+      options.height,
+    ),
     pendingLegacyUpdates: [],
   };
 }
@@ -657,7 +660,7 @@ export function addPlayerToRoom(
   const teamId = room.nextTeamId;
   room.nextTeamId += 1;
 
-  const baseTopLeft = pickSpawnPosition(room);
+  const baseTopLeft = pickSpawnPosition(room, teamId);
   const team: TeamState = {
     id: teamId,
     name: `${playerName}'s Team`,
