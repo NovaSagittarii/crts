@@ -8,6 +8,7 @@ import {
 
 import type {
   ChatMessagePayload,
+  RoomCountdownPayload,
   MatchStartedPayload,
   RoomErrorPayload,
   RoomJoinedPayload,
@@ -302,6 +303,13 @@ describe('server match lifecycle contract', () => {
     );
     expect(slotError.reason).toBe('start-preconditions-not-met');
 
+    setup.guest.emit('room:start');
+    const guestNotHostError = await waitForEvent<RoomErrorPayload>(
+      setup.guest,
+      'room:error',
+    );
+    expect(guestNotHostError.reason).toBe('not-host');
+
     setup.guest.emit('room:claim-slot', { slotId: 'team-2' });
     setup.guest.emit('room:set-ready', { ready: true });
     await waitForMembership(
@@ -343,6 +351,13 @@ describe('server match lifecycle contract', () => {
     );
 
     setup.host.emit('room:start');
+    const openingCountdown = await waitForEvent<RoomCountdownPayload>(
+      setup.host,
+      'room:countdown',
+      3500,
+    );
+    expect(openingCountdown.secondsRemaining).toBe(3);
+
     await waitForMembership(
       setup.host,
       setup.room.roomId,
@@ -393,6 +408,11 @@ describe('server match lifecycle contract', () => {
     );
 
     setup.host.emit('room:start');
+    await waitForEvent<RoomCountdownPayload>(
+      setup.host,
+      'room:countdown',
+      3500,
+    );
     await waitForMembership(
       setup.host,
       setup.room.roomId,
@@ -400,6 +420,13 @@ describe('server match lifecycle contract', () => {
     );
 
     setup.guest.disconnect();
+
+    const countdownAfterDisconnect = await waitForEvent<RoomCountdownPayload>(
+      setup.host,
+      'room:countdown',
+      3500,
+    );
+    expect(countdownAfterDisconnect.secondsRemaining).toBeLessThan(3);
 
     await waitForEvent<MatchStartedPayload>(
       setup.host,
@@ -506,6 +533,13 @@ describe('server match lifecycle contract', () => {
     const setup = await setupConnectedPair(() => connectClient());
     const match = await moveToActive(setup);
 
+    match.host.emit('room:start');
+    const restartWhileActive = await waitForEvent<RoomErrorPayload>(
+      match.host,
+      'room:error',
+    );
+    expect(restartWhileActive.reason).toBe('invalid-transition');
+
     match.host.emit('build:queue', {
       templateId: 'block',
       x: match.hostBaseTopLeft.x + 4,
@@ -574,7 +608,13 @@ describe('server match lifecycle contract', () => {
     );
     expect(restartedState.grid).toBe(match.initialGrid);
     expect(restartedState.tick).toBeLessThan(4);
+    expect(
+      restartedState.teams.every(({ resources }) => resources === 40),
+    ).toBe(true);
     expect(restartedState.teams.every(({ defeated }) => !defeated)).toBe(true);
+    expect(restartedState.teams.every(({ baseIntact }) => baseIntact)).toBe(
+      true,
+    );
 
     const restartedHostTeam = restartedState.teams.find(({ playerIds }) =>
       playerIds.includes(setup.room.playerId),
