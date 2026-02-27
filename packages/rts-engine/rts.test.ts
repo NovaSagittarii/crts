@@ -19,6 +19,26 @@ interface Cell {
   y: number;
 }
 
+function getCoreStructure(team: ReturnType<typeof addPlayerToRoom>): {
+  key: string;
+  hp: number;
+  active: boolean;
+  isCore: boolean;
+  buildRadius: number;
+} {
+  const core = [...team.structures.values()].find(
+    (structure) => structure.isCore,
+  );
+  expect(core).toBeDefined();
+  return core as {
+    key: string;
+    hp: number;
+    active: boolean;
+    isCore: boolean;
+    buildRadius: number;
+  };
+}
+
 function getCellAlive(
   encodedGrid: string,
   width: number,
@@ -276,6 +296,121 @@ describe('rts', () => {
     tickRoom(room);
 
     expect(team.income).toBe(0);
+
+    const generator = [...team.structures.values()].find(
+      (structure) => structure.templateId === 'generator',
+    );
+    expect(generator).toBeDefined();
+    expect(generator?.buildRadius).toBe(0);
+  });
+
+  test('projects structure buildRadius from template buildArea when active', () => {
+    const room = createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 60,
+      height: 60,
+    });
+    const team = addPlayerToRoom(room, 'p1', 'Alice');
+
+    const position = {
+      x: team.baseTopLeft.x + 6,
+      y: team.baseTopLeft.y + 6,
+    };
+    const queued = queueBuildEvent(room, 'p1', {
+      templateId: 'generator',
+      x: position.x,
+      y: position.y,
+      delayTicks: 1,
+    });
+    expect(queued.accepted).toBe(true);
+
+    tickRoom(room);
+    tickRoom(room);
+    tickRoom(room);
+
+    const generator = [...team.structures.values()].find(
+      (structure) => structure.templateId === 'generator',
+    );
+    expect(generator).toBeDefined();
+    expect(generator?.active).toBe(true);
+    expect(generator?.buildRadius).toBe(2);
+
+    const generatorCells = [
+      { x: position.x, y: position.y },
+      { x: position.x + 1, y: position.y },
+      { x: position.x, y: position.y + 1 },
+      { x: position.x + 1, y: position.y + 1 },
+    ];
+    for (const cell of generatorCells) {
+      queueLegacyCellUpdate(room, {
+        x: cell.x,
+        y: cell.y,
+        alive: 0,
+      });
+    }
+
+    tickRoom(room);
+    tickRoom(room);
+
+    expect(generator?.active).toBe(false);
+    expect(generator?.buildRadius).toBe(0);
+  });
+
+  test('consumes core hp on breach checks and defeats team when hp reaches zero', () => {
+    const room = createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 30,
+      height: 30,
+    });
+    const team = addPlayerToRoom(room, 'p1', 'Alice');
+    const core = getCoreStructure(team);
+    const base = team.baseTopLeft;
+
+    expect(core.hp).toBeGreaterThan(1);
+    const initialHp = core.hp;
+
+    const baseCells = [
+      { x: base.x, y: base.y },
+      { x: base.x + 1, y: base.y },
+      { x: base.x, y: base.y + 1 },
+      { x: base.x + 1, y: base.y + 1 },
+    ];
+
+    for (let cycle = 0; cycle < initialHp - 1; cycle += 1) {
+      for (const cell of baseCells) {
+        queueLegacyCellUpdate(room, {
+          x: cell.x,
+          y: cell.y,
+          alive: 0,
+        });
+      }
+
+      const tickResult = tickRoom(room);
+      const updatedCore = getCoreStructure(team);
+
+      expect(tickResult.defeatedTeams).toHaveLength(0);
+      expect(updatedCore.hp).toBe(initialHp - (cycle + 1));
+      expect(updatedCore.active).toBe(true);
+      expect(team.defeated).toBe(false);
+    }
+
+    for (const cell of baseCells) {
+      queueLegacyCellUpdate(room, {
+        x: cell.x,
+        y: cell.y,
+        alive: 0,
+      });
+    }
+
+    const finalTick = tickRoom(room);
+    const finalCore = getCoreStructure(team);
+
+    expect(finalTick.defeatedTeams).toEqual([team.id]);
+    expect(finalCore.hp).toBe(0);
+    expect(finalCore.active).toBe(false);
+    expect(team.defeated).toBe(true);
   });
 
   test('marks team defeated when base integrity is breached', () => {
