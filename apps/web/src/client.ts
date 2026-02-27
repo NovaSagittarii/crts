@@ -109,6 +109,20 @@ interface RoomErrorPayload {
   reason?: string;
 }
 
+interface RoomSlotClaimedPayload {
+  roomId: string;
+  slotId: string;
+  teamId: number | null;
+}
+
+interface ChatMessagePayload {
+  roomId: string;
+  senderSessionId: string;
+  senderName: string;
+  message: string;
+  timestamp: number;
+}
+
 function getRequiredElement<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
   if (!el) {
@@ -172,9 +186,26 @@ const buildDelayEl = getRequiredElement<HTMLInputElement>('build-delay');
 const newRoomNameEl = getRequiredElement<HTMLInputElement>('new-room-name');
 const newRoomSizeEl = getRequiredElement<HTMLInputElement>('new-room-size');
 const createRoomButton = getRequiredElement<HTMLButtonElement>('create-room');
+const joinRoomCodeEl = getRequiredElement<HTMLInputElement>('join-room-code');
+const joinRoomCodeButton = getRequiredElement<HTMLButtonElement>(
+  'join-room-code-button',
+);
+const leaveRoomButton = getRequiredElement<HTMLButtonElement>('leave-room');
 const refreshRoomsButton =
   getRequiredElement<HTMLButtonElement>('refresh-rooms');
 const roomListEl = getRequiredElement<HTMLDivElement>('room-list');
+
+const claimTeamOneButton =
+  getRequiredElement<HTMLButtonElement>('claim-team-1');
+const claimTeamTwoButton =
+  getRequiredElement<HTMLButtonElement>('claim-team-2');
+const toggleReadyButton = getRequiredElement<HTMLButtonElement>('toggle-ready');
+const startMatchButton = getRequiredElement<HTMLButtonElement>('start-match');
+
+const chatLogEl = getRequiredElement<HTMLDivElement>('chat-log');
+const chatInputEl = getRequiredElement<HTMLInputElement>('chat-input');
+const chatSendButton = getRequiredElement<HTMLButtonElement>('chat-send');
+const toastStackEl = getRequiredElement<HTMLDivElement>('toast-stack');
 
 const socket = io();
 
@@ -191,13 +222,93 @@ let currentRoomCode = '-';
 let currentRoomName = '-';
 let currentTeamId: number | null = null;
 let currentMembership: RoomMembershipPayload | null = null;
+let currentSessionId: string | null = null;
 let availableTemplates: TemplateSummary[] = [];
 let selectedTemplateId = '';
 let templateMode = false;
 
+function addToast(message: string, isError = false): void {
+  const toast = document.createElement('div');
+  toast.className = isError ? 'toast toast--error' : 'toast';
+  toast.textContent = message;
+  toastStackEl.append(toast);
+
+  const timeoutId = window.setTimeout(() => {
+    if (toast.parentElement) {
+      toast.remove();
+    }
+  }, 4200);
+
+  toast.addEventListener('click', () => {
+    window.clearTimeout(timeoutId);
+    toast.remove();
+  });
+}
+
 function setMessage(message: string, isError = false): void {
   messageEl.textContent = message;
   messageEl.classList.toggle('message--error', isError);
+}
+
+function getClaimFailureMessage(payload: RoomErrorPayload): string {
+  if (payload.reason === 'slot-held') {
+    return 'Slot is temporarily held for reconnect priority.';
+  }
+  if (payload.reason === 'slot-full') {
+    return 'Slot claim failed: that team slot is already occupied.';
+  }
+  if (payload.reason === 'team-switch-locked') {
+    return 'Team switch is locked after a slot is claimed.';
+  }
+  if (payload.reason === 'countdown-locked') {
+    return 'Ready changes are locked while countdown is running.';
+  }
+  return payload.message ?? 'Room request failed.';
+}
+
+function appendChatMessage(payload: ChatMessagePayload): void {
+  const item = document.createElement('div');
+  item.className = 'chat-item';
+
+  const sender = document.createElement('div');
+  sender.textContent = payload.senderName;
+
+  const body = document.createElement('div');
+  body.className = 'chat-meta';
+  body.textContent = payload.message;
+
+  const meta = document.createElement('div');
+  meta.className = 'chat-meta';
+  const timestamp = new Date(payload.timestamp);
+  meta.textContent = `${timestamp.toLocaleTimeString()} | ${payload.senderSessionId}`;
+
+  item.append(sender, body, meta);
+  chatLogEl.append(item);
+  chatLogEl.scrollTop = chatLogEl.scrollHeight;
+}
+
+function updateLobbyControls(): void {
+  if (!currentMembership || !currentSessionId) {
+    claimTeamOneButton.disabled = false;
+    claimTeamTwoButton.disabled = false;
+    toggleReadyButton.disabled = true;
+    startMatchButton.disabled = true;
+    return;
+  }
+
+  const self = currentMembership.participants.find(
+    (participant) => participant.sessionId === currentSessionId,
+  );
+  const isPlayer = self?.role === 'player';
+  const isHost = currentMembership.hostSessionId === currentSessionId;
+  const ready = Boolean(self?.ready);
+  const activeStatus = currentMembership.status !== 'lobby';
+
+  claimTeamOneButton.disabled = isPlayer || activeStatus;
+  claimTeamTwoButton.disabled = isPlayer || activeStatus;
+  toggleReadyButton.disabled = !isPlayer || activeStatus;
+  startMatchButton.disabled = !isHost || currentMembership.status !== 'lobby';
+  toggleReadyButton.textContent = ready ? 'Set Not Ready' : 'Set Ready';
 }
 
 function getSelectedTemplate(): TemplateSummary | null {
@@ -490,7 +601,8 @@ function renderLobbyMembership(payload: RoomMembershipPayload): void {
     }
 
     const participant = participantBySession.get(occupantSessionId);
-    occupant.textContent = participant?.displayName ?? occupantSessionId;
+    const displayName = participant?.displayName ?? occupantSessionId;
+    occupant.textContent = `${displayName} (${getTeamLabel(slotId)})`;
     head.append(teamInfo, occupant);
 
     const meta = document.createElement('div');
@@ -544,6 +656,8 @@ function renderLobbyMembership(payload: RoomMembershipPayload): void {
       lobbySpectatorsEl.append(item);
     }
   }
+
+  updateLobbyControls();
 }
 
 function renderSpawnMarkers(payload: StatePayload): void {
@@ -653,10 +767,12 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   currentRoomCode = payload.roomCode;
   currentRoomName = payload.roomName;
   currentTeamId = payload.teamId;
+  currentMembership = null;
   availableTemplates = payload.templates;
   selectedTemplateId = payload.templates[0]?.id ?? '';
   updateTemplateOptions();
   playerNameEl.value = payload.playerName;
+  chatLogEl.innerHTML = '';
 
   setMessage(
     payload.teamId === null
@@ -672,6 +788,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   renderSpawnMarkers(payload.state);
   resizeCanvas();
   render();
+  updateLobbyControls();
 });
 
 socket.on('room:left', () => {
@@ -693,12 +810,16 @@ socket.on('room:left', () => {
   lobbyPlayerSlotsEl.innerHTML = '';
   lobbySpectatorsEl.innerHTML = '';
   spawnMarkersEl.innerHTML = '';
+  chatLogEl.innerHTML = '';
 
   setMessage('You left the room.');
+  updateLobbyControls();
 });
 
 socket.on('room:error', (payload: RoomErrorPayload) => {
-  setMessage(payload.message ?? 'Room request failed.', true);
+  const message = getClaimFailureMessage(payload);
+  setMessage(message, true);
+  addToast(message, true);
 });
 
 socket.on('room:membership', (payload: RoomMembershipPayload) => {
@@ -715,6 +836,23 @@ socket.on('room:countdown', (payload: RoomCountdownPayload) => {
 
 socket.on('room:match-started', () => {
   lobbyCountdownEl.textContent = 'Match active';
+  addToast('Match started. Good luck.');
+});
+
+socket.on('room:slot-claimed', (payload: RoomSlotClaimedPayload) => {
+  const label = getTeamLabel(payload.slotId);
+  setMessage(`Slot claimed: ${label}.`);
+  addToast(`Slot claimed successfully: ${label}.`);
+});
+
+socket.on('chat:message', (payload: ChatMessagePayload) => {
+  appendChatMessage(payload);
+});
+
+socket.on('player:profile', (payload: { playerId: string; name: string }) => {
+  currentSessionId = payload.playerId;
+  playerNameEl.value = payload.name;
+  updateLobbyControls();
 });
 
 socket.on('build:queued', (payload: BuildQueuedPayload) => {
@@ -769,8 +907,72 @@ createRoomButton.addEventListener('click', () => {
   });
 });
 
+joinRoomCodeButton.addEventListener('click', () => {
+  const roomCode = joinRoomCodeEl.value.trim();
+  if (!roomCode) {
+    setMessage('Enter a room code before joining.', true);
+    return;
+  }
+
+  socket.emit('room:join', {
+    roomCode,
+  });
+});
+
+leaveRoomButton.addEventListener('click', () => {
+  socket.emit('room:leave');
+});
+
+claimTeamOneButton.addEventListener('click', () => {
+  socket.emit('room:claim-slot', { slotId: 'team-1' });
+});
+
+claimTeamTwoButton.addEventListener('click', () => {
+  socket.emit('room:claim-slot', { slotId: 'team-2' });
+});
+
+toggleReadyButton.addEventListener('click', () => {
+  if (!currentMembership || !currentSessionId) {
+    return;
+  }
+
+  const self = currentMembership.participants.find(
+    (participant) => participant.sessionId === currentSessionId,
+  );
+  if (!self) {
+    return;
+  }
+
+  socket.emit('room:set-ready', { ready: !self.ready });
+});
+
+startMatchButton.addEventListener('click', () => {
+  socket.emit('room:start');
+});
+
+chatSendButton.addEventListener('click', () => {
+  const message = chatInputEl.value.trim();
+  if (!message) {
+    setMessage('Chat message cannot be empty.', true);
+    return;
+  }
+
+  socket.emit('chat:send', { message });
+  chatInputEl.value = '';
+});
+
+chatInputEl.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter') {
+    return;
+  }
+
+  event.preventDefault();
+  chatSendButton.click();
+});
+
 refreshRoomsButton.addEventListener('click', () => {
   socket.emit('room:list');
 });
 
 updateTemplateOptions();
+updateLobbyControls();
