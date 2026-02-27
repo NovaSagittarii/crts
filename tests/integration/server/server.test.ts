@@ -168,6 +168,57 @@ function waitForBuildQueueResponse(
   });
 }
 
+function collectBuildOutcomes(
+  socket: Socket,
+  eventIds: number[],
+  timeoutMs = 8000,
+): Promise<Map<number, BuildOutcome[]>> {
+  return new Promise((resolve, reject) => {
+    const expected = new Set(eventIds);
+    const outcomesById = new Map<number, BuildOutcome[]>();
+    let settleTimer: NodeJS.Timeout | null = null;
+
+    function cleanup(): void {
+      clearTimeout(timeout);
+      if (settleTimer) {
+        clearTimeout(settleTimer);
+      }
+      socket.off('build:outcome', onOutcome);
+    }
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timed out collecting expected build outcomes'));
+    }, timeoutMs);
+
+    function maybeScheduleResolve(): void {
+      if (expected.size === 0 && !settleTimer) {
+        settleTimer = setTimeout(() => {
+          cleanup();
+          resolve(outcomesById);
+        }, 200);
+      }
+    }
+
+    function onOutcome(payload: BuildOutcome): void {
+      if (
+        !expected.has(payload.eventId) &&
+        !outcomesById.has(payload.eventId)
+      ) {
+        return;
+      }
+
+      const current = outcomesById.get(payload.eventId) ?? [];
+      current.push(payload);
+      outcomesById.set(payload.eventId, current);
+      expected.delete(payload.eventId);
+      maybeScheduleResolve();
+    }
+
+    socket.on('build:outcome', onOutcome);
+  });
+}
+
 function getTeamByPlayerId(state: StatePayload, playerId: string): TeamPayload {
   const team = state.teams.find(({ playerIds }) =>
     playerIds.includes(playerId),
@@ -305,7 +356,7 @@ describe('GameServer', () => {
         templateId: generatorTemplate.id,
         x: placement.x,
         y: placement.y,
-        delayTicks: 1,
+        delayTicks: 12,
       });
 
       const response = await waitForBuildQueueResponse(setup.host);
@@ -332,23 +383,11 @@ describe('GameServer', () => {
     const queuedById = new Map(
       queuedEvents.map((queued) => [queued.eventId, queued]),
     );
-    const outcomesById = new Map<number, BuildOutcome[]>();
-
-    while (outcomesById.size < queuedById.size) {
-      const outcome = (await waitForEvent(
-        setup.host,
-        'build:outcome',
-        4000,
-      )) as BuildOutcome;
-
-      if (!queuedById.has(outcome.eventId)) {
-        continue;
-      }
-
-      const existing = outcomesById.get(outcome.eventId) ?? [];
-      existing.push(outcome);
-      outcomesById.set(outcome.eventId, existing);
-    }
+    const outcomesById = await collectBuildOutcomes(
+      setup.host,
+      [...queuedById.keys()],
+      10_000,
+    );
 
     expect(outcomesById.size).toBe(queuedById.size);
 
