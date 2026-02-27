@@ -10,32 +10,33 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 ## Current Position
 
 Phase: 1 of 5 (Lobby & Team Reliability)
-Plan: 1 of 5 in current phase
+Plan: 2 of 5 in current phase
 Status: In progress
-Last activity: 2026-02-27 - Completed 01-01 deterministic lobby + torus spawn primitives.
+Last activity: 2026-02-27 - Completed 01-02 authoritative lobby lifecycle + spectator chat guardrails.
 
-Progress: [██░░░░░░░░] 20%
+Progress: [████░░░░░░] 40%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 1
-- Average duration: 7 min
-- Total execution time: 0.1 hours
+- Total plans completed: 2
+- Average duration: 9.5 min
+- Total execution time: 0.3 hours
 
 **By Phase:**
 
-| Phase | Plans | Total | Avg/Plan |
-| ----- | ----- | ----- | -------- |
-| 1     | 1     | 7 min | 7 min    |
+| Phase | Plans | Total  | Avg/Plan |
+| ----- | ----- | ------ | -------- |
+| 1     | 2     | 19 min | 9.5 min  |
 
 **Recent Trend:**
 
-- Last 5 plans: 01-01 (7 min)
-- Trend: Baseline established
+- Last 5 plans: 01-01 (7 min), 01-02 (12 min)
+- Trend: Stable execution velocity
 
 _Updated after each plan completion_
+| Phase 01-lobby-team-reliability P02 | 12 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -50,6 +51,9 @@ Recent decisions affecting current work:
 - [Phase 01-lobby-team-reliability]: Players always join as spectators and explicitly claim one of two player slots.
 - [Phase 01-lobby-team-reliability]: Spawn orientation seed is derived from room identity for deterministic base placement.
 - [Phase 01-lobby-team-reliability]: Default torus spawn radius is constrained to quarter-span to preserve wrapped-distance separation.
+- [Phase 01-lobby-team-reliability]: Expose room:membership snapshots with monotonic revision numbers as the authoritative lobby visibility stream.
+- [Phase 01-lobby-team-reliability]: Disallow force-start when required players are not ready and enforce host-only countdown initiation.
+- [Phase 01-lobby-team-reliability]: Broadcast room-scoped chat to all participants (players and spectators) with server-attached sender metadata.
 
 ### Pending Todos
 
@@ -64,6 +68,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-27 04:47
-Stopped at: Completed 01-lobby-team-reliability-01-PLAN.md
+Last session: 2026-02-27 05:04
+Stopped at: Completed 01-lobby-team-reliability-02-PLAN.md
 Resume file: None
