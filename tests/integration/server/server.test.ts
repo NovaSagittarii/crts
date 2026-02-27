@@ -35,9 +35,15 @@ interface TemplateSummary {
 interface RoomJoinedPayload {
   roomId: string;
   roomName: string;
-  teamId: number;
+  teamId: number | null;
   templates: TemplateSummary[];
   state: StatePayload;
+}
+
+interface SlotClaimedPayload {
+  roomId: string;
+  slotId: string;
+  teamId: number | null;
 }
 
 interface RoomListEntry {
@@ -96,6 +102,36 @@ function getTeam(state: StatePayload, teamId: number): TeamPayload {
   return team;
 }
 
+function findIsolatedBlock(state: StatePayload): Cell[] {
+  const grid = decodeGridBase64(state.grid, state.width * state.height);
+
+  for (let y = 1; y < state.height - 2; y += 1) {
+    for (let x = 1; x < state.width - 2; x += 1) {
+      let isolated = true;
+      for (let dy = -1; dy <= 2; dy += 1) {
+        for (let dx = -1; dx <= 2; dx += 1) {
+          const gx = x + dx;
+          const gy = y + dy;
+          if (grid[gy * state.width + gx] === 1) {
+            isolated = false;
+          }
+        }
+      }
+
+      if (isolated) {
+        return [
+          { x, y },
+          { x: x + 1, y },
+          { x, y: y + 1 },
+          { x: x + 1, y: y + 1 },
+        ];
+      }
+    }
+  }
+
+  throw new Error('Unable to locate an isolated 2x2 block area');
+}
+
 async function waitForCondition(
   socket: Socket,
   predicate: (state: StatePayload) => boolean,
@@ -106,6 +142,21 @@ async function waitForCondition(
     if (predicate(state)) return state;
   }
   throw new Error('Condition not met in allotted attempts');
+}
+
+async function claimSlot(
+  socket: Socket,
+  slotId: string,
+): Promise<SlotClaimedPayload> {
+  socket.emit('room:claim-slot', { slotId });
+  const claimed = (await waitForEvent(
+    socket,
+    'room:slot-claimed',
+  )) as SlotClaimedPayload;
+  if (claimed.teamId === null) {
+    throw new Error(`Expected slot claim for ${slotId} to assign a team`);
+  }
+  return claimed;
 }
 
 async function waitForRoomList(
@@ -143,20 +194,19 @@ describe('GameServer', () => {
     const socket = createClient(port);
 
     await waitForEvent(socket, 'state');
+    await claimSlot(socket, 'team-1');
+    const setupState = (await waitForEvent(socket, 'state')) as StatePayload;
 
-    const block: Cell[] = [
-      { x: 1, y: 1 },
-      { x: 1, y: 2 },
-      { x: 2, y: 1 },
-      { x: 2, y: 2 },
-    ];
+    const block = findIsolatedBlock(setupState);
 
     for (const cell of block) {
       socket.emit('cell:update', { ...cell, alive: true });
     }
 
-    const state = await waitForCondition(socket, (payload) =>
-      blockAlive(payload, block),
+    const state = await waitForCondition(
+      socket,
+      (payload) => blockAlive(payload, block),
+      12,
     );
 
     expect(blockAlive(state, block)).toBe(true);
@@ -174,20 +224,19 @@ describe('GameServer', () => {
 
     await waitForEvent(sender, 'state');
     await waitForEvent(listener, 'state');
+    await claimSlot(sender, 'team-1');
+    const setupState = (await waitForEvent(sender, 'state')) as StatePayload;
 
-    const block: Cell[] = [
-      { x: 1, y: 7 },
-      { x: 1, y: 8 },
-      { x: 2, y: 7 },
-      { x: 2, y: 8 },
-    ];
+    const block = findIsolatedBlock(setupState);
 
     for (const cell of block) {
       sender.emit('cell:update', { ...cell, alive: true });
     }
 
-    const state = await waitForCondition(listener, (payload) =>
-      blockAlive(payload, block),
+    const state = await waitForCondition(
+      listener,
+      (payload) => blockAlive(payload, block),
+      12,
     );
 
     expect(blockAlive(state, block)).toBe(true);
@@ -206,8 +255,14 @@ describe('GameServer', () => {
       socket,
       'room:joined',
     )) as RoomJoinedPayload;
-    const teamId = joined.teamId;
-    const initialTeam = getTeam(joined.state, teamId);
+    const claimed = await claimSlot(socket, 'team-1');
+    const teamId = claimed.teamId as number;
+    const teamReadyState = await waitForCondition(
+      socket,
+      (state) => (state.teams ?? []).some(({ id }) => id === teamId),
+      12,
+    );
+    const initialTeam = getTeam(teamReadyState, teamId);
     const blockTemplate = joined.templates.find(({ id }) => id === 'block');
     if (!blockTemplate) {
       throw new Error('Expected block template to be available');
@@ -258,12 +313,15 @@ describe('GameServer', () => {
     const port = await server.start();
 
     const socket = createClient(port);
-    const joined = (await waitForEvent(
+    await waitForEvent(socket, 'room:joined');
+    const claimed = await claimSlot(socket, 'team-1');
+    const teamId = claimed.teamId as number;
+    const teamReadyState = await waitForCondition(
       socket,
-      'room:joined',
-    )) as RoomJoinedPayload;
-    const teamId = joined.teamId;
-    const team = getTeam(joined.state, teamId);
+      (state) => (state.teams ?? []).some(({ id }) => id === teamId),
+      12,
+    );
+    const team = getTeam(teamReadyState, teamId);
 
     const baseCells: Cell[] = [
       { x: team.baseTopLeft.x, y: team.baseTopLeft.y },
@@ -337,6 +395,7 @@ describe('GameServer', () => {
       owner,
       'room:joined',
     )) as RoomJoinedPayload;
+    await claimSlot(owner, 'team-1');
 
     const guest = createClient(port);
     await waitForEvent(guest, 'room:joined');
@@ -347,6 +406,7 @@ describe('GameServer', () => {
       'room:joined',
     )) as RoomJoinedPayload;
     expect(guestRoom.roomId).toBe(ownerRoom.roomId);
+    await claimSlot(guest, 'team-2');
 
     const withTwoTeams = await waitForCondition(
       owner,
