@@ -199,6 +199,7 @@ let isFinishedPanelMinimized = false;
 let isFinishedLobbyView = false;
 let currentTeamDefeated = false;
 let persistentDefeatReason: string | null = null;
+let latestOutcomeTimelineMetadata: unknown = null;
 
 function addToast(message: string, isError = false): void {
   const toast = document.createElement('div');
@@ -472,6 +473,27 @@ function syncCurrentTeamIdFromState(payload: StatePayload): void {
   currentTeamId = nextTeam?.id ?? null;
 }
 
+function formatOutcomeLabel(
+  outcome: MatchFinishedPayload['winner']['outcome'],
+): string {
+  if (outcome === 'winner') {
+    return 'Winner';
+  }
+  if (outcome === 'eliminated') {
+    return 'Eliminated';
+  }
+  return 'Defeated';
+}
+
+function formatLeaderDelta(value: number, leader: number): string {
+  const delta = value - leader;
+  if (delta === 0) {
+    return '= leader';
+  }
+  const prefix = delta > 0 ? '+' : '';
+  return `${prefix}${delta} vs leader`;
+}
+
 function renderFinishedResults(): void {
   finishedResultsEl.innerHTML = '';
 
@@ -482,8 +504,10 @@ function renderFinishedResults(): void {
     return;
   }
 
-  finishedSummaryEl.textContent = `Winner: Team ${currentMatchFinished.winner.teamId}.`;
+  finishedSummaryEl.textContent = `Winner: Team ${currentMatchFinished.winner.teamId}. Ranked standings use winner/defeated/eliminated outcomes for multi-team-safe copy.`;
   finishedComparatorEl.textContent = `Ranking comparator: ${currentMatchFinished.comparator}`;
+
+  const leader = currentMatchFinished.ranked[0];
 
   for (const rankedTeam of currentMatchFinished.ranked) {
     const row = document.createElement('article');
@@ -498,17 +522,17 @@ function renderFinishedResults(): void {
 
     const outcome = document.createElement('p');
     outcome.className = 'finished-row__outcome';
-    outcome.textContent = rankedTeam.outcome;
+    outcome.textContent = formatOutcomeLabel(rankedTeam.outcome);
 
     head.append(title, outcome);
 
     const stats = document.createElement('div');
     stats.className = 'finished-row__stats';
     stats.innerHTML = [
-      `Core: ${rankedTeam.coreState} (${rankedTeam.finalCoreHp} HP)`,
-      `Territory: ${rankedTeam.territoryCellCount} cells`,
-      `Queued builds: ${rankedTeam.queuedBuildCount}`,
-      `Applied/rejected: ${rankedTeam.appliedBuildCount}/${rankedTeam.rejectedBuildCount}`,
+      `Core: ${rankedTeam.coreState} | ${rankedTeam.finalCoreHp} HP (${formatLeaderDelta(rankedTeam.finalCoreHp, leader.finalCoreHp)})`,
+      `Territory: ${rankedTeam.territoryCellCount} cells (${formatLeaderDelta(rankedTeam.territoryCellCount, leader.territoryCellCount)})`,
+      `Queued builds: ${rankedTeam.queuedBuildCount} (${formatLeaderDelta(rankedTeam.queuedBuildCount, leader.queuedBuildCount)})`,
+      `Applied/rejected: ${rankedTeam.appliedBuildCount}/${rankedTeam.rejectedBuildCount} (applied ${formatLeaderDelta(rankedTeam.appliedBuildCount, leader.appliedBuildCount)} | rejected ${formatLeaderDelta(rankedTeam.rejectedBuildCount, leader.rejectedBuildCount)})`,
     ]
       .map((line) => `<div>${line}</div>`)
       .join('');
@@ -543,6 +567,9 @@ function updateFinishedPanelState(): void {
     'finished-panel--lobby-view',
     isFinishedLobbyView,
   );
+  finishedPanelEl.dataset.timelineMetadata = latestOutcomeTimelineMetadata
+    ? 'available'
+    : 'none';
 
   finishedMinimizeButton.textContent = isFinishedPanelMinimized
     ? 'Expand'
@@ -582,6 +609,7 @@ function applyRoomStatus(nextStatus: RoomStatus): void {
     currentMatchFinished = null;
     currentTeamDefeated = false;
     persistentDefeatReason = null;
+    latestOutcomeTimelineMetadata = null;
     renderFinishedResults();
   }
 
@@ -1059,6 +1087,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   isFinishedLobbyView = false;
   currentTeamDefeated = false;
   persistentDefeatReason = null;
+  latestOutcomeTimelineMetadata = null;
   currentMembership = null;
   availableTemplates = payload.templates;
   selectedTemplateId = payload.templates[0]?.id ?? '';
@@ -1097,6 +1126,7 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   isFinishedLobbyView = false;
   currentTeamDefeated = false;
   persistentDefeatReason = null;
+  latestOutcomeTimelineMetadata = null;
   currentMembership = null;
   applyRoomStatus('lobby');
   renderFinishedResults();
@@ -1162,6 +1192,16 @@ socket.on('room:match-finished', (payload: MatchFinishedPayload) => {
     return;
   }
 
+  const payloadWithTimeline = payload as MatchFinishedPayload & {
+    timeline?: unknown;
+    timelineMetadata?: unknown;
+  };
+
+  // Track optional timeline metadata now, but defer timeline UI/zoom rendering.
+  latestOutcomeTimelineMetadata =
+    payloadWithTimeline.timelineMetadata ??
+    payloadWithTimeline.timeline ??
+    null;
   currentMatchFinished = payload;
   applyRoomStatus('finished');
   renderFinishedResults();

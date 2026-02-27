@@ -27,6 +27,7 @@ Client emits:
 - `room:claim-slot`
 - `room:set-ready`
 - `room:start`
+- `room:cancel-countdown`
 - `chat:send`
 - `build:queue`
 - `cell:update`
@@ -41,7 +42,14 @@ Client listens for:
 - `room:slot-claimed`
 - `room:countdown`
 - `room:match-started`
+- `room:match-finished`
 - `room:error`
 - `chat:message`
 - `build:queued`
 - `player:profile`
+
+Finished/restart expectations:
+
+- Treat `room:match-finished` as authoritative standings data (winner-first ranked outcomes).
+- Keep defeated players in persistent read-only spectating mode; do not attempt client-side mutations.
+- Use host-only `room:start` as the restart action from `finished`; non-host users should see waiting messaging.
