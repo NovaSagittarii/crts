@@ -1,7 +1,4 @@
-export interface Vector2 {
-  x: number;
-  y: number;
-}
+import type { Vector2 } from './geometry.js';
 
 export interface TorusSpawnPoint {
   teamIndex: number;

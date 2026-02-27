@@ -10,12 +10,8 @@ import {
   type MatchOutcome,
   type TeamOutcomeSnapshot,
 } from './match-lifecycle.js';
+import type { Vector2 } from './geometry.js';
 import { createTorusSpawnLayout } from './spawn.js';
-
-export interface Vector2 {
-  x: number;
-  y: number;
-}
 
 export interface StructureTemplate {
   id: string;
