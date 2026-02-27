@@ -82,17 +82,27 @@ export interface TimelineEvent {
   metadata?: Record<string, number | string | boolean>;
 }
 
-type BuildRejectionReason =
+export type BuildRejectionReason =
   | 'apply-failed'
   | 'insufficient-resources'
   | 'invalid-coordinates'
   | 'invalid-delay'
+  | 'match-finished'
   | 'occupied-site'
   | 'out-of-bounds'
   | 'outside-territory'
   | 'team-defeated'
   | 'template-compare-failed'
   | 'unknown-template';
+
+export interface BuildOutcome {
+  eventId: number;
+  teamId: number;
+  outcome: 'applied' | 'rejected';
+  reason?: BuildRejectionReason;
+  executeTick: number;
+  resolvedTick: number;
+}
 
 export interface TeamState {
   id: number;
@@ -176,6 +186,7 @@ export interface RoomTickResult {
   appliedBuilds: number;
   defeatedTeams: number[];
   outcome: MatchOutcome | null;
+  buildOutcomes: BuildOutcome[];
 }
 
 export interface CreateRoomOptions {
@@ -315,15 +326,66 @@ function rejectBuild(
 }
 
 function insertBuildEventSorted(queue: BuildEvent[], event: BuildEvent): void {
+  const compare = compareBuildEvents;
   let insertIndex = queue.length;
   for (let index = queue.length - 1; index >= 0; index -= 1) {
-    if (queue[index].executeTick <= event.executeTick) {
+    if (compare(queue[index], event) <= 0) {
       break;
     }
     insertIndex = index;
   }
 
   queue.splice(insertIndex, 0, event);
+}
+
+function compareBuildEvents(a: BuildEvent, b: BuildEvent): number {
+  return a.executeTick - b.executeTick || a.id - b.id;
+}
+
+function compareBuildOutcomes(a: BuildOutcome, b: BuildOutcome): number {
+  return a.executeTick - b.executeTick || a.eventId - b.eventId;
+}
+
+function recordRejectedBuildOutcome(
+  buildOutcomes: BuildOutcome[],
+  event: BuildEvent,
+  reason: BuildRejectionReason,
+  resolvedTick: number,
+): void {
+  buildOutcomes.push({
+    eventId: event.id,
+    teamId: event.teamId,
+    outcome: 'rejected',
+    reason,
+    executeTick: event.executeTick,
+    resolvedTick,
+  });
+}
+
+function drainPendingBuildEvents(
+  room: RoomState,
+  teams: TeamState[],
+  reason: BuildRejectionReason,
+  resolvedTick: number,
+  buildOutcomes: BuildOutcome[],
+): void {
+  const pendingEvents: BuildEvent[] = [];
+  for (const team of teams) {
+    pendingEvents.push(...team.pendingBuildEvents);
+    team.pendingBuildEvents = [];
+  }
+
+  pendingEvents.sort(compareBuildEvents);
+
+  for (const event of pendingEvents) {
+    const team = room.teams.get(event.teamId);
+    if (!team) {
+      continue;
+    }
+
+    rejectBuild(room, team, reason, event.id);
+    recordRejectedBuildOutcome(buildOutcomes, event, reason, resolvedTick);
+  }
 }
 
 function getStructureTemplate(
@@ -592,6 +654,7 @@ function applyTeamEconomyAndQueue(
   room: RoomState,
   team: TeamState,
   acceptedEvents: BuildEvent[],
+  buildOutcomes: BuildOutcome[],
 ): void {
   if (team.defeated) {
     return;
@@ -638,34 +701,70 @@ function applyTeamEconomyAndQueue(
     const template = room.templateMap.get(event.templateId);
     if (!template) {
       rejectBuild(room, team, 'unknown-template', event.id);
+      recordRejectedBuildOutcome(
+        buildOutcomes,
+        event,
+        'unknown-template',
+        room.tick,
+      );
       continue;
     }
 
     if (!inBounds(room, event.x, event.y, template.width, template.height)) {
       rejectBuild(room, team, 'out-of-bounds', event.id);
+      recordRejectedBuildOutcome(
+        buildOutcomes,
+        event,
+        'out-of-bounds',
+        room.tick,
+      );
       continue;
     }
 
     if (!isTeamTerritoryPlacementValid(team, template, event.x, event.y)) {
       rejectBuild(room, team, 'outside-territory', event.id);
+      recordRejectedBuildOutcome(
+        buildOutcomes,
+        event,
+        'outside-territory',
+        room.tick,
+      );
       continue;
     }
 
     const key = createStructureKey(template, event.x, event.y);
     if (team.structures.has(key)) {
       rejectBuild(room, team, 'occupied-site', event.id);
+      recordRejectedBuildOutcome(
+        buildOutcomes,
+        event,
+        'occupied-site',
+        room.tick,
+      );
       continue;
     }
 
     const diffCells = compareTemplate(room, template, event.x, event.y);
     if (diffCells < 0) {
       rejectBuild(room, team, 'template-compare-failed', event.id);
+      recordRejectedBuildOutcome(
+        buildOutcomes,
+        event,
+        'template-compare-failed',
+        room.tick,
+      );
       continue;
     }
 
     const buildCost = diffCells + template.activationCost;
     if (team.resources < buildCost) {
       rejectBuild(room, team, 'insufficient-resources', event.id);
+      recordRejectedBuildOutcome(
+        buildOutcomes,
+        event,
+        'insufficient-resources',
+        room.tick,
+      );
       continue;
     }
 
@@ -1133,10 +1232,13 @@ export function createCanonicalMatchOutcome(
 
 export function tickRoom(room: RoomState): RoomTickResult {
   const acceptedEvents: BuildEvent[] = [];
+  const buildOutcomes: BuildOutcome[] = [];
 
   for (const team of room.teams.values()) {
-    applyTeamEconomyAndQueue(room, team, acceptedEvents);
+    applyTeamEconomyAndQueue(room, team, acceptedEvents, buildOutcomes);
   }
+
+  acceptedEvents.sort(compareBuildEvents);
 
   let appliedBuilds = 0;
   for (const event of acceptedEvents) {
@@ -1154,10 +1256,18 @@ export function tickRoom(room: RoomState): RoomTickResult {
         type: 'build-applied',
         metadata: { eventId: event.id },
       });
+      buildOutcomes.push({
+        eventId: event.id,
+        teamId: team.id,
+        outcome: 'applied',
+        executeTick: event.executeTick,
+        resolvedTick: room.tick,
+      });
       continue;
     }
 
     rejectBuild(room, team, 'apply-failed', event.id);
+    recordRejectedBuildOutcome(buildOutcomes, event, 'apply-failed', room.tick);
   }
 
   if (room.pendingLegacyUpdates.length > 0) {
@@ -1176,7 +1286,13 @@ export function tickRoom(room: RoomState): RoomTickResult {
     const defeated = !core || core.hp <= 0;
     if (defeated && !team.defeated) {
       team.defeated = true;
-      team.pendingBuildEvents = [];
+      drainPendingBuildEvents(
+        room,
+        [team],
+        'team-defeated',
+        room.tick,
+        buildOutcomes,
+      );
       defeatedTeams.push(team.id);
       appendTimelineEvent(room, {
         teamId: team.id,
@@ -1190,9 +1306,25 @@ export function tickRoom(room: RoomState): RoomTickResult {
       ? createCanonicalMatchOutcome(room, coreHpBeforeResolution)
       : null;
 
+  if (outcome) {
+    const teamsWithPending = [...room.teams.values()].filter(
+      ({ pendingBuildEvents }) => pendingBuildEvents.length > 0,
+    );
+    drainPendingBuildEvents(
+      room,
+      teamsWithPending,
+      'match-finished',
+      room.tick,
+      buildOutcomes,
+    );
+  }
+
+  buildOutcomes.sort(compareBuildOutcomes);
+
   return {
     appliedBuilds,
     defeatedTeams,
     outcome,
+    buildOutcomes,
   };
 }
