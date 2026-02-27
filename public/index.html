@@ -57,7 +57,7 @@
 
       .stats {
         display: grid;
-        grid-auto-flow: column;
+        grid-template-columns: repeat(4, minmax(120px, 1fr));
         gap: 16px;
         font-family: 'IBM Plex Mono', 'Courier New', monospace;
         font-size: 14px;
@@ -89,6 +89,80 @@
         padding: 0 clamp(20px, 4vw, 48px) 40px;
       }
 
+      .controls {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(220px, 1fr));
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+
+      .control {
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 14px;
+        padding: 14px;
+      }
+
+      .control h2 {
+        margin: 0 0 10px;
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+
+      .control label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .control input,
+      .control select,
+      .control button {
+        width: 100%;
+        border-radius: 10px;
+        border: 1px solid var(--panel-border);
+        background: #0d1321;
+        color: var(--text);
+        padding: 8px 10px;
+        font: inherit;
+      }
+
+      .control button {
+        margin-top: 6px;
+        cursor: pointer;
+      }
+
+      .control button:hover {
+        border-color: var(--accent);
+      }
+
+      .room-list {
+        display: grid;
+        gap: 8px;
+        max-height: 180px;
+        overflow: auto;
+      }
+
+      .room-item {
+        border: 1px solid var(--panel-border);
+        border-radius: 10px;
+        padding: 8px;
+      }
+
+      .room-item button {
+        margin-top: 8px;
+      }
+
+      .message {
+        margin: 12px 0 0;
+        color: var(--accent-strong);
+        font-family: 'IBM Plex Mono', 'Courier New', monospace;
+        min-height: 1.4em;
+      }
+
       .board {
         background: linear-gradient(135deg, #121826, #0f1524);
         border: 1px solid var(--panel-border);
@@ -115,7 +189,11 @@
 
       @media (max-width: 720px) {
         .stats {
-          grid-auto-flow: row;
+          grid-template-columns: repeat(2, minmax(120px, 1fr));
+        }
+
+        .controls {
+          grid-template-columns: 1fr;
         }
       }
     </style>
@@ -139,15 +217,88 @@
           <span>Status</span>
           <strong id="status">Connecting</strong>
         </div>
+        <div class="stat">
+          <span>Room</span>
+          <strong id="room">-</strong>
+        </div>
+        <div class="stat">
+          <span>Team</span>
+          <strong id="team">-</strong>
+        </div>
+        <div class="stat">
+          <span>Resources</span>
+          <strong id="resources">-</strong>
+        </div>
+        <div class="stat">
+          <span>Income</span>
+          <strong id="income">-</strong>
+        </div>
+        <div class="stat">
+          <span>Base</span>
+          <strong id="base">Unknown</strong>
+        </div>
       </div>
     </header>
     <main>
+      <section class="controls">
+        <div class="control">
+          <h2>Player</h2>
+          <label>
+            Name
+            <input id="player-name" maxlength="24" value="Commander" />
+          </label>
+          <button id="set-name" type="button">Set Name</button>
+        </div>
+
+        <div class="control">
+          <h2>Build</h2>
+          <label>
+            Mode
+            <select id="build-mode">
+              <option value="paint">Paint Cells</option>
+              <option value="template">Template Queue</option>
+            </select>
+          </label>
+          <label>
+            Template
+            <select id="template-select"></select>
+          </label>
+          <label>
+            Delay (ticks)
+            <input id="build-delay" type="number" min="1" max="20" value="2" />
+          </label>
+        </div>
+
+        <div class="control">
+          <h2>Rooms</h2>
+          <label>
+            New room name
+            <input id="new-room-name" maxlength="32" value="Skirmish" />
+          </label>
+          <label>
+            Room size
+            <input
+              id="new-room-size"
+              type="number"
+              min="24"
+              max="300"
+              value="100"
+            />
+          </label>
+          <button id="create-room" type="button">Create & Join</button>
+          <button id="refresh-rooms" type="button">Refresh List</button>
+          <div id="room-list" class="room-list"></div>
+        </div>
+      </section>
+
       <div class="board">
         <canvas id="grid"></canvas>
       </div>
+      <p id="message" class="message"></p>
     </main>
     <footer>
-      100x100 server-authoritative grid. Updates broadcast every 100ms.
+      Server-authoritative multiplayer Life RTS. Build mode supports queued
+      templates.
     </footer>
   </body>
 </html>

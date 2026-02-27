@@ -1,10 +1,14 @@
 import { io } from 'socket.io-client';
 
 interface StatePayload {
+  roomId: string;
+  roomName: string;
   width: number;
   height: number;
   generation: number;
+  tick: number;
   grid: string;
+  teams: TeamPayload[];
 }
 
 interface Cell {
@@ -12,10 +16,88 @@ interface Cell {
   y: number;
 }
 
-const canvas = document.getElementById('grid') as HTMLCanvasElement;
-const ctx = canvas.getContext('2d')!;
-const generationEl = document.getElementById('generation')!;
-const statusEl = document.getElementById('status')!;
+interface TeamPayload {
+  id: number;
+  name: string;
+  resources: number;
+  income: number;
+  defeated: boolean;
+  baseTopLeft: Cell;
+  baseIntact: boolean;
+}
+
+interface RoomListEntry {
+  roomId: string;
+  name: string;
+  width: number;
+  height: number;
+  players: number;
+  teams: number;
+}
+
+interface TemplateSummary {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  activationCost: number;
+  income: number;
+  buildArea: number;
+}
+
+interface RoomJoinedPayload {
+  roomId: string;
+  roomName: string;
+  playerId: string;
+  playerName: string;
+  teamId: number;
+  templates: TemplateSummary[];
+  state: StatePayload;
+}
+
+interface BuildQueuedPayload {
+  eventId: number;
+  executeTick: number;
+}
+
+function getRequiredElement<T extends HTMLElement>(id: string): T {
+  const el = document.getElementById(id);
+  if (!el) {
+    throw new Error(`Missing #${id}`);
+  }
+  return el as T;
+}
+
+const canvas = getRequiredElement<HTMLCanvasElement>('grid');
+const ctxRaw = canvas.getContext('2d');
+if (!ctxRaw) {
+  throw new Error('Failed to initialize canvas 2d context');
+}
+const ctx: CanvasRenderingContext2D = ctxRaw;
+
+const generationEl = getRequiredElement<HTMLElement>('generation');
+const statusEl = getRequiredElement<HTMLElement>('status');
+const roomEl = getRequiredElement<HTMLElement>('room');
+const teamEl = getRequiredElement<HTMLElement>('team');
+const resourcesEl = getRequiredElement<HTMLElement>('resources');
+const incomeEl = getRequiredElement<HTMLElement>('income');
+const baseEl = getRequiredElement<HTMLElement>('base');
+const messageEl = getRequiredElement<HTMLElement>('message');
+
+const playerNameEl = getRequiredElement<HTMLInputElement>('player-name');
+const setNameButton = getRequiredElement<HTMLButtonElement>('set-name');
+
+const templateSelectEl =
+  getRequiredElement<HTMLSelectElement>('template-select');
+const buildModeEl = getRequiredElement<HTMLSelectElement>('build-mode');
+const buildDelayEl = getRequiredElement<HTMLInputElement>('build-delay');
+
+const newRoomNameEl = getRequiredElement<HTMLInputElement>('new-room-name');
+const newRoomSizeEl = getRequiredElement<HTMLInputElement>('new-room-size');
+const createRoomButton = getRequiredElement<HTMLButtonElement>('create-room');
+const refreshRoomsButton =
+  getRequiredElement<HTMLButtonElement>('refresh-rooms');
+const roomListEl = getRequiredElement<HTMLDivElement>('room-list');
 
 const socket = io();
 
@@ -26,6 +108,72 @@ let cellSize = 6;
 let isDrawing = false;
 let drawValue = 1;
 let lastCell: Cell | null = null;
+
+let currentRoomId = '-';
+let currentRoomName = '-';
+let currentTeamId: number | null = null;
+let availableTemplates: TemplateSummary[] = [];
+let selectedTemplateId = '';
+let templateMode = false;
+
+function setMessage(message: string): void {
+  messageEl.textContent = message;
+}
+
+function getSelectedTemplate(): TemplateSummary | null {
+  if (!selectedTemplateId) return null;
+  return availableTemplates.find(({ id }) => id === selectedTemplateId) ?? null;
+}
+
+function updateTemplateOptions(): void {
+  templateSelectEl.innerHTML = '';
+
+  if (availableTemplates.length === 0) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'No templates';
+    templateSelectEl.append(option);
+    selectedTemplateId = '';
+    return;
+  }
+
+  for (const template of availableTemplates) {
+    const option = document.createElement('option');
+    option.value = template.id;
+    option.textContent = `${template.name} (${template.width}x${template.height})`;
+    templateSelectEl.append(option);
+  }
+
+  if (!selectedTemplateId || !getSelectedTemplate()) {
+    selectedTemplateId = availableTemplates[0].id;
+  }
+  templateSelectEl.value = selectedTemplateId;
+}
+
+function renderRoomList(rooms: RoomListEntry[]): void {
+  roomListEl.innerHTML = '';
+
+  for (const room of rooms) {
+    const item = document.createElement('div');
+    item.className = 'room-item';
+
+    const title = document.createElement('div');
+    title.textContent = `${room.name} (#${room.roomId})`;
+
+    const details = document.createElement('div');
+    details.textContent = `${room.width}x${room.height} • ${room.players} players`;
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = 'Join';
+    button.addEventListener('click', () => {
+      socket.emit('room:join', { roomId: room.roomId });
+    });
+
+    item.append(title, details, button);
+    roomListEl.append(item);
+  }
+}
 
 function decodeBase64ToBytes(encoded: string): Uint8Array {
   const binary = atob(encoded);
@@ -84,6 +232,20 @@ function render(): void {
       ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
     }
   }
+
+  if (templateMode) {
+    const template = getSelectedTemplate();
+    if (template) {
+      ctx.strokeStyle = 'rgba(70, 213, 182, 0.75)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(
+        0.5,
+        0.5,
+        template.width * cellSize,
+        template.height * cellSize,
+      );
+    }
+  }
 }
 
 function pointerToCell(event: PointerEvent): Cell | null {
@@ -96,6 +258,62 @@ function pointerToCell(event: PointerEvent): Cell | null {
 
 function sendUpdate(x: number, y: number, alive: number): void {
   socket.emit('cell:update', { x, y, alive });
+}
+
+function queueTemplateAt(cell: Cell): void {
+  if (!currentRoomId || currentRoomId === '-') {
+    setMessage('Join a room before queuing templates.');
+    return;
+  }
+
+  const template = getSelectedTemplate();
+  if (!template) {
+    setMessage('No template selected.');
+    return;
+  }
+
+  const x = cell.x - Math.floor(template.width / 2);
+  const y = cell.y - Math.floor(template.height / 2);
+  const delayTicks = Number(buildDelayEl.value);
+
+  socket.emit('build:queue', {
+    templateId: template.id,
+    x,
+    y,
+    delayTicks,
+  });
+}
+
+function updateTeamStats(payload: StatePayload): void {
+  roomEl.textContent = `${payload.roomName} (#${payload.roomId})`;
+
+  if (currentTeamId === null) {
+    teamEl.textContent = '-';
+    resourcesEl.textContent = '-';
+    incomeEl.textContent = '-';
+    baseEl.textContent = 'Unknown';
+    return;
+  }
+
+  const team = payload.teams.find(({ id }) => id === currentTeamId);
+  if (!team) {
+    teamEl.textContent = '#?';
+    resourcesEl.textContent = '-';
+    incomeEl.textContent = '-';
+    baseEl.textContent = 'Unknown';
+    return;
+  }
+
+  teamEl.textContent = `#${team.id}`;
+  resourcesEl.textContent = `${team.resources}`;
+  incomeEl.textContent = `${team.income}/tick`;
+  if (team.defeated) {
+    baseEl.textContent = 'Breached';
+  } else if (team.baseIntact) {
+    baseEl.textContent = 'Intact';
+  } else {
+    baseEl.textContent = 'Critical';
+  }
 }
 
 function handleDraw(event: PointerEvent): void {
@@ -111,11 +329,16 @@ function handleDraw(event: PointerEvent): void {
 canvas.addEventListener('pointerdown', (event) => {
   if (!gridBytes) return;
 
-  canvas.setPointerCapture(event.pointerId);
-  isDrawing = true;
   const cell = pointerToCell(event);
   if (!cell) return;
 
+  if (templateMode) {
+    queueTemplateAt(cell);
+    return;
+  }
+
+  canvas.setPointerCapture(event.pointerId);
+  isDrawing = true;
   drawValue = getCell(cell.x, cell.y) ? 0 : 1;
   lastCell = null;
   handleDraw(event);
@@ -147,10 +370,56 @@ window.addEventListener('resize', () => {
 
 socket.on('connect', () => {
   statusEl.textContent = 'Connected';
+  socket.emit('room:list');
 });
 
 socket.on('disconnect', () => {
   statusEl.textContent = 'Disconnected';
+});
+
+socket.on('room:list', (rooms: RoomListEntry[]) => {
+  renderRoomList(rooms);
+});
+
+socket.on('room:joined', (payload: RoomJoinedPayload) => {
+  currentRoomId = payload.roomId;
+  currentRoomName = payload.roomName;
+  currentTeamId = payload.teamId;
+  availableTemplates = payload.templates;
+  selectedTemplateId = payload.templates[0]?.id ?? '';
+  updateTemplateOptions();
+  playerNameEl.value = payload.playerName;
+  setMessage(`Joined ${payload.roomName} as team #${payload.teamId}.`);
+
+  gridWidth = payload.state.width;
+  gridHeight = payload.state.height;
+  gridBytes = decodeBase64ToBytes(payload.state.grid);
+  generationEl.textContent = payload.state.generation.toString();
+  updateTeamStats(payload.state);
+  resizeCanvas();
+  render();
+});
+
+socket.on('room:left', () => {
+  currentRoomId = '-';
+  currentRoomName = '-';
+  currentTeamId = null;
+  roomEl.textContent = '-';
+  teamEl.textContent = '-';
+  resourcesEl.textContent = '-';
+  incomeEl.textContent = '-';
+  baseEl.textContent = 'Unknown';
+  setMessage('You left the room.');
+});
+
+socket.on('room:error', (payload: { message?: string }) => {
+  setMessage(payload.message ?? 'Room request failed.');
+});
+
+socket.on('build:queued', (payload: BuildQueuedPayload) => {
+  setMessage(
+    `Build queued (#${payload.eventId}) for tick ${payload.executeTick}.`,
+  );
 });
 
 socket.on('state', (payload: StatePayload) => {
@@ -158,7 +427,48 @@ socket.on('state', (payload: StatePayload) => {
   gridHeight = payload.height;
   gridBytes = decodeBase64ToBytes(payload.grid);
   generationEl.textContent = payload.generation.toString();
+  if (payload.roomId !== currentRoomId) {
+    currentRoomId = payload.roomId;
+  }
+  if (payload.roomName !== currentRoomName) {
+    currentRoomName = payload.roomName;
+  }
+  updateTeamStats(payload);
 
   resizeCanvas();
   render();
 });
+
+setNameButton.addEventListener('click', () => {
+  socket.emit('player:set-name', {
+    name: playerNameEl.value,
+  });
+});
+
+buildModeEl.addEventListener('change', () => {
+  templateMode = buildModeEl.value === 'template';
+  setMessage(
+    templateMode
+      ? 'Template mode: click on the board to queue a structure.'
+      : 'Paint mode: click and drag to toggle cells.',
+  );
+});
+
+templateSelectEl.addEventListener('change', () => {
+  selectedTemplateId = templateSelectEl.value;
+});
+
+createRoomButton.addEventListener('click', () => {
+  const size = Number(newRoomSizeEl.value);
+  socket.emit('room:create', {
+    name: newRoomNameEl.value,
+    width: size,
+    height: size,
+  });
+});
+
+refreshRoomsButton.addEventListener('click', () => {
+  socket.emit('room:list');
+});
+
+updateTemplateOptions();
