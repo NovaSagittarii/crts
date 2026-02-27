@@ -229,6 +229,37 @@ function getTeamByPlayerId(state: StatePayload, playerId: string): TeamPayload {
   return team;
 }
 
+function collectCandidatePlacements(
+  team: TeamPayload,
+  template: RoomJoinedPayload['templates'][number],
+  roomWidth: number,
+  roomHeight: number,
+): Cell[] {
+  const placements: Cell[] = [];
+  for (let y = -10; y <= 10; y += 2) {
+    for (let x = -10; x <= 10; x += 2) {
+      const buildX = team.baseTopLeft.x + x;
+      const buildY = team.baseTopLeft.y + y;
+      if (buildX < 0 || buildY < 0) {
+        continue;
+      }
+      if (
+        buildX + template.width > roomWidth ||
+        buildY + template.height > roomHeight
+      ) {
+        continue;
+      }
+      if (buildX === team.baseTopLeft.x && buildY === team.baseTopLeft.y) {
+        continue;
+      }
+
+      placements.push({ x: buildX, y: buildY });
+    }
+  }
+
+  return placements;
+}
+
 async function setupActiveMatch(port: number): Promise<ActiveMatchSetup> {
   const host = createClient(port);
   await waitForEvent(host, 'room:joined');
@@ -325,30 +356,12 @@ describe('GameServer', () => {
       throw new Error('Expected generator template to be available');
     }
 
-    const candidatePlacements: Cell[] = [];
-    for (let y = -10; y <= 10; y += 2) {
-      for (let x = -10; x <= 10; x += 2) {
-        const buildX = setup.hostTeam.baseTopLeft.x + x;
-        const buildY = setup.hostTeam.baseTopLeft.y + y;
-        if (buildX < 0 || buildY < 0) {
-          continue;
-        }
-        if (
-          buildX + generatorTemplate.width > 52 ||
-          buildY + generatorTemplate.height > 52
-        ) {
-          continue;
-        }
-        if (
-          buildX === setup.hostTeam.baseTopLeft.x &&
-          buildY === setup.hostTeam.baseTopLeft.y
-        ) {
-          continue;
-        }
-
-        candidatePlacements.push({ x: buildX, y: buildY });
-      }
-    }
+    const candidatePlacements = collectCandidatePlacements(
+      setup.hostTeam,
+      generatorTemplate,
+      setup.hostJoined.state.width,
+      setup.hostJoined.state.height,
+    );
 
     const queuedEvents: BuildQueued[] = [];
     for (const placement of candidatePlacements) {
@@ -421,6 +434,117 @@ describe('GameServer', () => {
     setup.guest.close();
     await server.stop();
   }, 25_000);
+
+  test('emits one terminal outcome to both clients for overlapping queued builds', async () => {
+    const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
+    const port = await server.start();
+
+    const setup = await setupActiveMatch(port);
+
+    const blockTemplate = setup.hostJoined.templates.find(
+      ({ id }) => id === 'block',
+    );
+    if (!blockTemplate) {
+      throw new Error('Expected block template to be available');
+    }
+
+    const hostPlacements = collectCandidatePlacements(
+      setup.hostTeam,
+      blockTemplate,
+      setup.hostJoined.state.width,
+      setup.hostJoined.state.height,
+    ).slice(0, 2);
+    const guestPlacements = collectCandidatePlacements(
+      setup.guestTeam,
+      blockTemplate,
+      setup.hostJoined.state.width,
+      setup.hostJoined.state.height,
+    ).slice(0, 2);
+
+    expect(hostPlacements).toHaveLength(2);
+    expect(guestPlacements).toHaveLength(2);
+
+    const queuedEvents: Array<BuildQueued & { source: 'host' | 'guest' }> = [];
+    for (let index = 0; index < hostPlacements.length; index += 1) {
+      const hostResponsePromise = waitForBuildQueueResponse(setup.host);
+      const guestResponsePromise = waitForBuildQueueResponse(setup.guest);
+
+      setup.host.emit('build:queue', {
+        templateId: blockTemplate.id,
+        x: hostPlacements[index].x,
+        y: hostPlacements[index].y,
+        delayTicks: 40,
+      });
+      setup.guest.emit('build:queue', {
+        templateId: blockTemplate.id,
+        x: guestPlacements[index].x,
+        y: guestPlacements[index].y,
+        delayTicks: 40,
+      });
+
+      const [hostResponse, guestResponse] = await Promise.all([
+        hostResponsePromise,
+        guestResponsePromise,
+      ]);
+
+      if ('error' in hostResponse) {
+        throw new Error(
+          `Host queue request unexpectedly failed: ${hostResponse.error.reason}`,
+        );
+      }
+      if ('error' in guestResponse) {
+        throw new Error(
+          `Guest queue request unexpectedly failed: ${guestResponse.error.reason}`,
+        );
+      }
+
+      queuedEvents.push({ ...hostResponse.queued, source: 'host' });
+      queuedEvents.push({ ...guestResponse.queued, source: 'guest' });
+    }
+
+    const eventIds = queuedEvents.map(({ eventId }) => eventId);
+    expect(new Set(eventIds).size).toBe(eventIds.length);
+
+    const queuedById = new Map(
+      queuedEvents.map((queued) => [queued.eventId, queued]),
+    );
+    const [hostOutcomesById, guestOutcomesById] = await Promise.all([
+      collectBuildOutcomes(setup.host, eventIds, 12_000),
+      collectBuildOutcomes(setup.guest, eventIds, 12_000),
+    ]);
+
+    for (const eventId of eventIds) {
+      const hostOutcomes = hostOutcomesById.get(eventId) ?? [];
+      const guestOutcomes = guestOutcomesById.get(eventId) ?? [];
+      expect(hostOutcomes).toHaveLength(1);
+      expect(guestOutcomes).toHaveLength(1);
+
+      const hostOutcome = hostOutcomes[0];
+      const guestOutcome = guestOutcomes[0];
+      const queued = queuedById.get(eventId);
+      if (!queued) {
+        throw new Error(`Missing queued payload for event ${eventId}`);
+      }
+
+      expect(hostOutcome.executeTick).toBe(queued.executeTick);
+      expect(hostOutcome.resolvedTick).toBeGreaterThanOrEqual(
+        hostOutcome.executeTick,
+      );
+      expect(guestOutcome).toEqual(hostOutcome);
+
+      if (hostOutcome.outcome === 'rejected') {
+        expect(hostOutcome.reason).toBeDefined();
+      }
+
+      const expectedTeamId =
+        queued.source === 'host' ? setup.hostTeam.id : setup.guestTeam.id;
+      expect(hostOutcome.teamId).toBe(expectedTeamId);
+    }
+
+    setup.host.close();
+    setup.guest.close();
+    await server.stop();
+  }, 30_000);
 
   test('returns explicit rejection reasons for out-of-bounds and outside-territory builds', async () => {
     const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
