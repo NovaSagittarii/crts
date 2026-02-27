@@ -100,4 +100,67 @@ describe('spawn', () => {
 
     expect(rematchLayout).not.toEqual(firstLayout);
   });
+
+  test('supports edge geometry on compact torus maps', () => {
+    const compact = createTorusSpawnLayout({
+      width: 6,
+      height: 6,
+      teamCount: 2,
+      orientationSeed: 7,
+      baseWidth: 2,
+      baseHeight: 2,
+      radius: 1,
+      minWrappedDistance: 2,
+    });
+
+    expect(compact).toHaveLength(2);
+    expect(compact[0].topLeft).not.toEqual(compact[1].topLeft);
+    for (const { topLeft } of compact) {
+      expect(topLeft.x).toBeGreaterThanOrEqual(0);
+      expect(topLeft.y).toBeGreaterThanOrEqual(0);
+      expect(topLeft.x).toBeLessThan(6);
+      expect(topLeft.y).toBeLessThan(6);
+    }
+  });
+
+  test('keeps large-map torus spawn coordinates bounded and unique', () => {
+    const large = createTorusSpawnLayout({
+      width: 300,
+      height: 260,
+      teamCount: 8,
+      orientationSeed: 2027,
+      baseWidth: 2,
+      baseHeight: 2,
+      radius: 40,
+      minWrappedDistance: 12,
+    });
+
+    expect(large).toHaveLength(8);
+    const uniqueTopLefts = new Set(
+      large.map(({ topLeft }) => `${topLeft.x},${topLeft.y}`),
+    );
+    expect(uniqueTopLefts.size).toBe(8);
+
+    for (const { topLeft } of large) {
+      expect(topLeft.x).toBeGreaterThanOrEqual(0);
+      expect(topLeft.y).toBeGreaterThanOrEqual(0);
+      expect(topLeft.x).toBeLessThan(300);
+      expect(topLeft.y).toBeLessThan(260);
+    }
+  });
+
+  test('keeps rematch orientation seeds inside uint32 bounds', () => {
+    const seen = new Set<number>();
+    let seed = 123456;
+
+    for (let index = 0; index < 64; index += 1) {
+      seed = nextSpawnOrientationSeed(seed);
+      seen.add(seed);
+      expect(Number.isInteger(seed)).toBe(true);
+      expect(seed).toBeGreaterThanOrEqual(0);
+      expect(seed).toBeLessThanOrEqual(0xffff_ffff);
+    }
+
+    expect(seen.size).toBeGreaterThan(60);
+  });
 });

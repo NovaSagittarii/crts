@@ -93,4 +93,43 @@ describe('lobby', () => {
     expect(leaveLobby(lobby, 'p2').ok).toBe(true);
     expect(getLobbySnapshot(lobby).hostSessionId).toBe('p3');
   });
+
+  test('resolves slot claim contention deterministically', () => {
+    const lobby = createLobbyRoom({
+      roomId: 'room-5',
+      slotIds: ['team-1', 'team-2'],
+    });
+
+    joinLobby(lobby, { sessionId: 'p1', displayName: 'Alice' });
+    joinLobby(lobby, { sessionId: 'p2', displayName: 'Bob' });
+
+    expect(claimLobbySlot(lobby, 'p1', 'team-1').ok).toBe(true);
+
+    const contested = claimLobbySlot(lobby, 'p2', 'team-1');
+    expect(contested.ok).toBe(false);
+    expect(contested.reason).toBe('slot-full');
+
+    const idempotent = claimLobbySlot(lobby, 'p1', 'team-1');
+    expect(idempotent.ok).toBe(true);
+
+    expect(leaveLobby(lobby, 'p1').ok).toBe(true);
+    expect(claimLobbySlot(lobby, 'p2', 'team-1').ok).toBe(true);
+  });
+
+  test('returns explicit slot rejections for invalid inputs', () => {
+    const lobby = createLobbyRoom({
+      roomId: 'room-6',
+      slotIds: ['team-1', 'team-2'],
+    });
+
+    joinLobby(lobby, { sessionId: 'p1', displayName: 'Alice' });
+
+    const invalidSlot = claimLobbySlot(lobby, 'p1', 'team-9');
+    expect(invalidSlot.ok).toBe(false);
+    expect(invalidSlot.reason).toBe('invalid-slot');
+
+    const missingParticipant = claimLobbySlot(lobby, 'missing', 'team-1');
+    expect(missingParticipant.ok).toBe(false);
+    expect(missingParticipant.reason).toBe('participant-not-found');
+  });
 });
