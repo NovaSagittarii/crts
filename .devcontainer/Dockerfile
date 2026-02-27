@@ -9,6 +9,7 @@ RUN chsh -s /usr/bin/fish node
 WORKDIR /workspace
 
 RUN chown node:node /workspace
+RUN npm i -g gsd-opencode
 
 USER node
 
