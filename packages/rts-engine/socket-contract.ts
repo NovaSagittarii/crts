@@ -1,4 +1,6 @@
 import type {
+  BuildOutcome,
+  BuildRejectionReason,
   BuildQueuePayload,
   RoomStatePayload,
   StructureTemplateSummary,
@@ -16,6 +18,12 @@ export type ConnectionStatus = 'connected' | 'held';
 export interface BuildQueuedPayload {
   eventId: number;
   executeTick: number;
+}
+
+export type BuildOutcomeRejectionReason = BuildRejectionReason;
+
+export interface BuildOutcomePayload extends BuildOutcome {
+  roomId: string;
 }
 
 export interface RoomErrorPayload {
@@ -182,5 +190,6 @@ export interface ServerToClientEvents {
   'room:error': (payload: RoomErrorPayload) => void;
   'chat:message': (payload: ChatMessagePayload) => void;
   'build:queued': (payload: BuildQueuedPayload) => void;
+  'build:outcome': (payload: BuildOutcomePayload) => void;
   'player:profile': (payload: PlayerProfilePayload) => void;
 }
