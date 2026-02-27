@@ -7,7 +7,7 @@ import {
   encodeGridBase64,
   stepGrid,
   type CellUpdate,
-} from '../src/grid.js';
+} from './grid.js';
 
 interface Cell {
   x: number;

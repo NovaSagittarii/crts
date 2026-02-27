@@ -24,3 +24,7 @@ These rules apply to `packages/rts-engine/*`.
 - Keep room payload builders stable and explicitly typed.
 - Prefer deterministic behavior over convenience randomness.
 - Add/adjust unit tests for every rule change in room/team/economy logic.
+
+## Testing
+
+- Prefer co-located unit tests under `packages/rts-engine/src` as `*.test.ts`.

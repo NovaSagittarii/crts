@@ -18,3 +18,7 @@ These rules apply to `packages/conway-core/*`.
 - Keep this package independent from RTS/team/socket concepts.
 - Avoid runtime side effects and non-deterministic behavior.
 - Maintain unit coverage for stable patterns (`block`) and moving patterns (`glider`).
+
+## Testing
+
+- Prefer co-located unit tests under `packages/conway-core/src` as `*.test.ts`.

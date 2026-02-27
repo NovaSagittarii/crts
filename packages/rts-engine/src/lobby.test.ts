@@ -7,7 +7,7 @@ import {
   joinLobby,
   leaveLobby,
   setLobbyReady,
-} from '../src/lobby.js';
+} from './lobby.js';
 
 describe('lobby', () => {
   test('supports two player slots with spectator overflow', () => {

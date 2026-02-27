@@ -12,9 +12,11 @@ apps/
 
 packages/
   conway-core/src/grid.ts
-  conway-core/test/grid.test.ts
+  conway-core/src/grid.test.ts   (preferred)
+  conway-core/test/grid.test.ts  (legacy)
   rts-engine/src/rts.ts
-  rts-engine/test/rts.test.ts
+  rts-engine/src/rts.test.ts     (preferred)
+  rts-engine/test/rts.test.ts    (legacy)
 
 tests/
   integration/server/server.test.ts
@@ -42,7 +44,7 @@ When editing a file, follow the nearest AGENTS.md plus this root file.
   - `packages/*` must not import from `apps/*`
 - Keep reusable deterministic logic in `packages/*/src`
 - Keep runtime bootstrapping and socket lifecycle in `apps/*`
-- Co-locate unit tests with each package under `packages/*/test`
+- Prefer co-located unit tests in `packages/*/src` as `*.test.ts` (legacy: `packages/*/test`)
 - Keep cross-runtime behavior tests in `tests/integration`
 
 ## Build / Test Commands

@@ -10,5 +10,12 @@
     "sourceMap": true
   },
   "include": ["apps/server/src/**/*", "packages/**/*"],
-  "exclude": ["node_modules", "dist", "conway-rts", "apps/web", "tests"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "conway-rts",
+    "apps/web",
+    "tests",
+    "**/*.test.ts"
+  ]
 }

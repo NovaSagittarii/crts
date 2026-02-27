@@ -12,7 +12,7 @@ import {
   removePlayerFromRoom,
   renamePlayerInRoom,
   tickRoom,
-} from '../src/rts.js';
+} from './rts.js';
 
 interface Cell {
   x: number;

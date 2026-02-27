@@ -4,6 +4,13 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['packages/**/test/**/*.test.ts', 'tests/**/*.test.ts'],
+    // Keep the default include simple so `--root` can scope unit vs integration.
+    include: ['**/*.test.ts'],
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '.planning/**',
+      'conway-rts/**',
+    ],
   },
 });

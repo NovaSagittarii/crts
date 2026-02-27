@@ -1,9 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import {
-  createTorusSpawnLayout,
-  nextSpawnOrientationSeed,
-} from '../src/spawn.js';
+import { createTorusSpawnLayout, nextSpawnOrientationSeed } from './spawn.js';
 
 function wrappedDelta(a: number, b: number, size: number): number {
   const delta = Math.abs(a - b);

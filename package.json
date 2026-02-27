@@ -13,9 +13,9 @@
     "preview": "vite preview",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "test": "vitest run",
-    "test:unit": "vitest run packages/**/test/**/*.test.ts",
-    "test:integration": "vitest run tests/integration/**/*.test.ts",
+    "test": "vitest run --config vitest.config.ts",
+    "test:unit": "vitest run --config vitest.config.ts --dir packages",
+    "test:integration": "vitest run --config vitest.config.ts --dir tests/integration",
     "test:watch": "vitest"
   },
   "dependencies": {
