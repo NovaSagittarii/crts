@@ -151,6 +151,16 @@ function getTeamColor(slotId: string): string {
   return 'var(--accent)';
 }
 
+function generateStableIdFragment(): string {
+  if (
+    typeof crypto !== 'undefined' &&
+    typeof crypto.randomUUID === 'function'
+  ) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 const canvas = getRequiredElement<HTMLCanvasElement>('grid');
 const ctxRaw = canvas.getContext('2d');
 if (!ctxRaw) {
@@ -207,7 +217,28 @@ const chatInputEl = getRequiredElement<HTMLInputElement>('chat-input');
 const chatSendButton = getRequiredElement<HTMLButtonElement>('chat-send');
 const toastStackEl = getRequiredElement<HTMLDivElement>('toast-stack');
 
-const socket = io();
+const SESSION_STORAGE_KEY = 'life-rts.session-id';
+
+function getOrCreateSessionId(): string {
+  const fallback = `session-${generateStableIdFragment()}`;
+  try {
+    const existing = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (existing && existing.trim()) {
+      return existing;
+    }
+    localStorage.setItem(SESSION_STORAGE_KEY, fallback);
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+const persistedSessionId = getOrCreateSessionId();
+const socket = io({
+  auth: {
+    sessionId: persistedSessionId,
+  },
+});
 
 let gridWidth = 0;
 let gridHeight = 0;
@@ -222,7 +253,7 @@ let currentRoomCode = '-';
 let currentRoomName = '-';
 let currentTeamId: number | null = null;
 let currentMembership: RoomMembershipPayload | null = null;
-let currentSessionId: string | null = null;
+let currentSessionId: string | null = persistedSessionId;
 let availableTemplates: TemplateSummary[] = [];
 let selectedTemplateId = '';
 let templateMode = false;
@@ -311,6 +342,24 @@ function updateLobbyControls(): void {
   toggleReadyButton.textContent = ready ? 'Set Not Ready' : 'Set Ready';
 }
 
+function resolveJoinDisplayName(): string {
+  const trimmed = playerNameEl.value.trim();
+  if (trimmed) {
+    const normalized = trimmed.slice(0, 24);
+    playerNameEl.value = normalized;
+    return normalized;
+  }
+
+  const fallback = `guest-${generateStableIdFragment().slice(0, 8)}`;
+  playerNameEl.value = fallback;
+  return fallback;
+}
+
+function syncPlayerNameBeforeJoin(): void {
+  const name = resolveJoinDisplayName();
+  socket.emit('player:set-name', { name });
+}
+
 function getSelectedTemplate(): TemplateSummary | null {
   if (!selectedTemplateId) return null;
   return availableTemplates.find(({ id }) => id === selectedTemplateId) ?? null;
@@ -359,6 +408,7 @@ function renderRoomList(rooms: RoomListEntry[]): void {
     button.type = 'button';
     button.textContent = 'Join';
     button.addEventListener('click', () => {
+      syncPlayerNameBeforeJoin();
       socket.emit('room:join', { roomId: room.roomId });
     });
 
@@ -851,6 +901,14 @@ socket.on('chat:message', (payload: ChatMessagePayload) => {
 
 socket.on('player:profile', (payload: { playerId: string; name: string }) => {
   currentSessionId = payload.playerId;
+  socket.auth = {
+    sessionId: payload.playerId,
+  };
+  try {
+    localStorage.setItem(SESSION_STORAGE_KEY, payload.playerId);
+  } catch {
+    // Ignore storage failures; reconnect auth still uses in-memory value.
+  }
   playerNameEl.value = payload.name;
   updateLobbyControls();
 });
@@ -880,8 +938,9 @@ socket.on('state', (payload: StatePayload) => {
 });
 
 setNameButton.addEventListener('click', () => {
+  const name = resolveJoinDisplayName();
   socket.emit('player:set-name', {
-    name: playerNameEl.value,
+    name,
   });
 });
 
@@ -900,6 +959,7 @@ templateSelectEl.addEventListener('change', () => {
 
 createRoomButton.addEventListener('click', () => {
   const size = Number(newRoomSizeEl.value);
+  syncPlayerNameBeforeJoin();
   socket.emit('room:create', {
     name: newRoomNameEl.value,
     width: size,
@@ -914,6 +974,7 @@ joinRoomCodeButton.addEventListener('click', () => {
     return;
   }
 
+  syncPlayerNameBeforeJoin();
   socket.emit('room:join', {
     roomCode,
   });

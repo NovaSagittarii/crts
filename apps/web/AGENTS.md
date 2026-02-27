@@ -24,6 +24,10 @@ Client emits:
 - `room:create`
 - `room:join`
 - `room:leave`
+- `room:claim-slot`
+- `room:set-ready`
+- `room:start`
+- `chat:send`
 - `build:queue`
 - `cell:update`
 
@@ -33,6 +37,11 @@ Client listens for:
 - `room:list`
 - `room:joined`
 - `room:left`
+- `room:membership`
+- `room:slot-claimed`
+- `room:countdown`
+- `room:match-started`
 - `room:error`
+- `chat:message`
 - `build:queued`
 - `player:profile`
