@@ -13,13 +13,16 @@
     <style>
       :root {
         --bg: #0b0f1a;
-        --bg-accent: #14213d;
         --panel: #121826;
         --panel-border: #22304a;
         --text: #eef1f7;
         --muted: #9aa7bd;
         --accent: #46d5b6;
-        --accent-strong: #73f0d2;
+        --accent-soft: rgba(70, 213, 182, 0.22);
+        --warn: #f8c06c;
+        --danger: #e07a7a;
+        --team-a: #5ec9ff;
+        --team-b: #ff8a5e;
       }
 
       * {
@@ -52,13 +55,13 @@
       p {
         margin: 0;
         color: var(--muted);
-        max-width: 480px;
+        max-width: 560px;
       }
 
       .stats {
         display: grid;
         grid-template-columns: repeat(4, minmax(120px, 1fr));
-        gap: 16px;
+        gap: 12px;
         font-family: 'IBM Plex Mono', 'Courier New', monospace;
         font-size: 14px;
       }
@@ -68,21 +71,21 @@
         border: 1px solid var(--panel-border);
         border-radius: 12px;
         padding: 12px 16px;
-        min-width: 140px;
+        min-width: 132px;
       }
 
       .stat span {
         display: block;
         color: var(--muted);
-        font-size: 12px;
+        font-size: 11px;
         text-transform: uppercase;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.09em;
       }
 
       .stat strong {
         display: block;
         margin-top: 6px;
-        font-size: 18px;
+        font-size: 17px;
       }
 
       main {
@@ -91,9 +94,10 @@
 
       .controls {
         display: grid;
-        grid-template-columns: repeat(3, minmax(220px, 1fr));
+        grid-template-columns: repeat(4, minmax(220px, 1fr));
         gap: 16px;
         margin-bottom: 16px;
+        align-items: start;
       }
 
       .control {
@@ -101,11 +105,24 @@
         border: 1px solid var(--panel-border);
         border-radius: 14px;
         padding: 14px;
+        min-height: 100%;
+      }
+
+      .control--wide {
+        grid-column: span 2;
       }
 
       .control h2 {
         margin: 0 0 10px;
         font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+
+      .control h3 {
+        margin: 14px 0 8px;
+        font-size: 12px;
         text-transform: uppercase;
         letter-spacing: 0.08em;
         color: var(--muted);
@@ -139,28 +156,136 @@
         border-color: var(--accent);
       }
 
-      .room-list {
+      .control button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .button-row {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .room-list,
+      .slot-list,
+      .spectator-list,
+      .spawn-list,
+      .chat-log {
         display: grid;
         gap: 8px;
-        max-height: 180px;
+        max-height: 170px;
         overflow: auto;
       }
 
-      .room-item {
+      .room-item,
+      .slot-item,
+      .spectator-item,
+      .spawn-item,
+      .chat-item {
         border: 1px solid var(--panel-border);
         border-radius: 10px;
         padding: 8px;
       }
 
-      .room-item button {
-        margin-top: 8px;
+      .slot-item {
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .slot-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .slot-team {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+      }
+
+      .team-chip {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+      }
+
+      .slot-meta,
+      .spectator-meta,
+      .spawn-meta,
+      .chat-meta {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .badge-row {
+        margin-top: 6px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        border-radius: 999px;
+        border: 1px solid var(--panel-border);
+        padding: 2px 8px;
+        font-size: 11px;
+        letter-spacing: 0.03em;
+      }
+
+      .badge--ready {
+        border-color: rgba(70, 213, 182, 0.5);
+        color: var(--accent);
+      }
+
+      .badge--host {
+        border-color: rgba(248, 192, 108, 0.5);
+        color: var(--warn);
+      }
+
+      .badge--held {
+        border-color: rgba(154, 167, 189, 0.55);
+        color: var(--muted);
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+      }
+
+      .status-dot--held {
+        background: var(--muted);
+      }
+
+      .status-dot--ready {
+        background: var(--accent);
+      }
+
+      .lobby-status {
+        margin-bottom: 8px;
+        font-family: 'IBM Plex Mono', 'Courier New', monospace;
+        color: var(--accent);
+        min-height: 1.3em;
       }
 
       .message {
         margin: 12px 0 0;
-        color: var(--accent-strong);
+        color: var(--accent);
         font-family: 'IBM Plex Mono', 'Courier New', monospace;
         min-height: 1.4em;
+      }
+
+      .message--error {
+        color: var(--danger);
       }
 
       .board {
@@ -181,10 +306,47 @@
         touch-action: none;
       }
 
+      .toast-stack {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        display: grid;
+        gap: 8px;
+        z-index: 20;
+        max-width: min(360px, calc(100vw - 32px));
+      }
+
+      .toast {
+        background: rgba(8, 13, 24, 0.95);
+        border: 1px solid var(--panel-border);
+        border-left: 4px solid var(--accent);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 13px;
+      }
+
+      .toast--error {
+        border-left-color: var(--danger);
+      }
+
       footer {
         padding: 16px clamp(20px, 4vw, 48px) 32px;
         color: var(--muted);
         font-size: 14px;
+      }
+
+      @media (max-width: 980px) {
+        .stats {
+          grid-template-columns: repeat(3, minmax(120px, 1fr));
+        }
+
+        .controls {
+          grid-template-columns: repeat(2, minmax(220px, 1fr));
+        }
+
+        .control--wide {
+          grid-column: span 2;
+        }
       }
 
       @media (max-width: 720px) {
@@ -195,6 +357,21 @@
         .controls {
           grid-template-columns: 1fr;
         }
+
+        .control--wide {
+          grid-column: auto;
+        }
+
+        .button-row {
+          grid-template-columns: 1fr;
+        }
+
+        .toast-stack {
+          right: 10px;
+          left: 10px;
+          bottom: 10px;
+          max-width: none;
+        }
       }
     </style>
     <script type="module" src="./src/client.ts"></script>
@@ -204,8 +381,8 @@
       <div>
         <h1>Multiplayer Life Grid</h1>
         <p>
-          Click to toggle cells. Drag to paint. The server owns the truth and
-          evolves the grid every 100ms.
+          Server-authoritative lobby and match flow. Claim a slot, ready up,
+          confirm countdown, and watch spawn markers before the match starts.
         </p>
       </div>
       <div class="stats">
@@ -220,6 +397,10 @@
         <div class="stat">
           <span>Room</span>
           <strong id="room">-</strong>
+        </div>
+        <div class="stat">
+          <span>Room Code</span>
+          <strong id="room-code">-</strong>
         </div>
         <div class="stat">
           <span>Team</span>
@@ -244,10 +425,11 @@
         <div class="control">
           <h2>Player</h2>
           <label>
-            Name
+            Display name
             <input id="player-name" maxlength="24" value="Commander" />
           </label>
           <button id="set-name" type="button">Set Name</button>
+          <div id="lobby-status" class="lobby-status"></div>
         </div>
 
         <div class="control">
@@ -286,8 +468,58 @@
             />
           </label>
           <button id="create-room" type="button">Create & Join</button>
+          <label>
+            Join by room code
+            <input
+              id="join-room-code"
+              maxlength="24"
+              placeholder="Enter code"
+            />
+          </label>
+          <div class="button-row">
+            <button id="join-room-code-button" type="button">Join Code</button>
+            <button id="leave-room" type="button">Leave Room</button>
+          </div>
           <button id="refresh-rooms" type="button">Refresh List</button>
           <div id="room-list" class="room-list"></div>
+        </div>
+
+        <div class="control control--wide">
+          <h2>Lobby</h2>
+          <div class="button-row">
+            <button id="claim-team-1" type="button">Claim Team A</button>
+            <button id="claim-team-2" type="button">Claim Team B</button>
+          </div>
+          <div class="button-row">
+            <button id="toggle-ready" type="button">Set Ready</button>
+            <button id="start-match" type="button">Host Start</button>
+          </div>
+
+          <h3>Countdown</h3>
+          <div id="lobby-countdown" class="lobby-status">Waiting for host</div>
+
+          <h3>Player Slots</h3>
+          <div id="lobby-player-slots" class="slot-list"></div>
+
+          <h3>Spectators</h3>
+          <div id="lobby-spectators" class="spectator-list"></div>
+
+          <h3>Spawn Markers</h3>
+          <div id="spawn-markers" class="spawn-list"></div>
+        </div>
+
+        <div class="control control--wide">
+          <h2>Room Chat</h2>
+          <div id="chat-log" class="chat-log"></div>
+          <label>
+            Message
+            <input
+              id="chat-input"
+              maxlength="280"
+              placeholder="Type a room message"
+            />
+          </label>
+          <button id="chat-send" type="button">Send Chat</button>
         </div>
       </section>
 
@@ -296,9 +528,12 @@
       </div>
       <p id="message" class="message"></p>
     </main>
+
+    <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+
     <footer>
-      Server-authoritative multiplayer Life RTS. Build mode supports queued
-      templates.
+      Server-authoritative multiplayer Life RTS. Players and spectators share
+      lobby visibility and room chat.
     </footer>
   </body>
 </html>

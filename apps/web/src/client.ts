@@ -1,5 +1,24 @@
 import { io } from 'socket.io-client';
 
+type RoomStatus = 'lobby' | 'countdown' | 'active';
+type ConnectionStatus = 'connected' | 'held';
+
+interface Cell {
+  x: number;
+  y: number;
+}
+
+interface TeamPayload {
+  id: number;
+  name: string;
+  playerIds: string[];
+  resources: number;
+  income: number;
+  defeated: boolean;
+  baseTopLeft: Cell;
+  baseIntact: boolean;
+}
+
 interface StatePayload {
   roomId: string;
   roomName: string;
@@ -11,28 +30,16 @@ interface StatePayload {
   teams: TeamPayload[];
 }
 
-interface Cell {
-  x: number;
-  y: number;
-}
-
-interface TeamPayload {
-  id: number;
-  name: string;
-  resources: number;
-  income: number;
-  defeated: boolean;
-  baseTopLeft: Cell;
-  baseIntact: boolean;
-}
-
 interface RoomListEntry {
   roomId: string;
+  roomCode: string;
   name: string;
   width: number;
   height: number;
   players: number;
+  spectators: number;
   teams: number;
+  status: RoomStatus;
 }
 
 interface TemplateSummary {
@@ -47,10 +54,11 @@ interface TemplateSummary {
 
 interface RoomJoinedPayload {
   roomId: string;
+  roomCode: string;
   roomName: string;
   playerId: string;
   playerName: string;
-  teamId: number;
+  teamId: number | null;
   templates: TemplateSummary[];
   state: StatePayload;
 }
@@ -60,12 +68,73 @@ interface BuildQueuedPayload {
   executeTick: number;
 }
 
+interface MembershipParticipant {
+  sessionId: string;
+  displayName: string;
+  role: 'player' | 'spectator';
+  slotId: string | null;
+  ready: boolean;
+  connectionStatus: ConnectionStatus;
+  holdExpiresAt: number | null;
+  disconnectReason: string | null;
+}
+
+interface RoomMembershipPayload {
+  roomId: string;
+  roomCode: string;
+  roomName: string;
+  revision: number;
+  status: RoomStatus;
+  hostSessionId: string | null;
+  slots: Record<string, string | null>;
+  participants: MembershipParticipant[];
+  heldSlots: Record<
+    string,
+    {
+      sessionId: string;
+      holdExpiresAt: number;
+      disconnectReason: string | null;
+    } | null
+  >;
+  countdownSecondsRemaining: number | null;
+}
+
+interface RoomCountdownPayload {
+  roomId: string;
+  secondsRemaining: number;
+}
+
+interface RoomErrorPayload {
+  message?: string;
+  reason?: string;
+}
+
 function getRequiredElement<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
   if (!el) {
     throw new Error(`Missing #${id}`);
   }
   return el as T;
+}
+
+function getTeamLabel(slotId: string): string {
+  if (slotId === 'team-1') {
+    return 'Team A';
+  }
+  if (slotId === 'team-2') {
+    return 'Team B';
+  }
+  return slotId;
+}
+
+function getTeamColor(slotId: string): string {
+  if (slotId === 'team-1') {
+    return 'var(--team-a)';
+  }
+  if (slotId === 'team-2') {
+    return 'var(--team-b)';
+  }
+  return 'var(--accent)';
 }
 
 const canvas = getRequiredElement<HTMLCanvasElement>('grid');
@@ -78,11 +147,19 @@ const ctx: CanvasRenderingContext2D = ctxRaw;
 const generationEl = getRequiredElement<HTMLElement>('generation');
 const statusEl = getRequiredElement<HTMLElement>('status');
 const roomEl = getRequiredElement<HTMLElement>('room');
+const roomCodeEl = getRequiredElement<HTMLElement>('room-code');
 const teamEl = getRequiredElement<HTMLElement>('team');
 const resourcesEl = getRequiredElement<HTMLElement>('resources');
 const incomeEl = getRequiredElement<HTMLElement>('income');
 const baseEl = getRequiredElement<HTMLElement>('base');
 const messageEl = getRequiredElement<HTMLElement>('message');
+const lobbyStatusEl = getRequiredElement<HTMLElement>('lobby-status');
+const lobbyCountdownEl = getRequiredElement<HTMLElement>('lobby-countdown');
+const lobbyPlayerSlotsEl =
+  getRequiredElement<HTMLDivElement>('lobby-player-slots');
+const lobbySpectatorsEl =
+  getRequiredElement<HTMLDivElement>('lobby-spectators');
+const spawnMarkersEl = getRequiredElement<HTMLDivElement>('spawn-markers');
 
 const playerNameEl = getRequiredElement<HTMLInputElement>('player-name');
 const setNameButton = getRequiredElement<HTMLButtonElement>('set-name');
@@ -110,14 +187,17 @@ let drawValue = 1;
 let lastCell: Cell | null = null;
 
 let currentRoomId = '-';
+let currentRoomCode = '-';
 let currentRoomName = '-';
 let currentTeamId: number | null = null;
+let currentMembership: RoomMembershipPayload | null = null;
 let availableTemplates: TemplateSummary[] = [];
 let selectedTemplateId = '';
 let templateMode = false;
 
-function setMessage(message: string): void {
+function setMessage(message: string, isError = false): void {
   messageEl.textContent = message;
+  messageEl.classList.toggle('message--error', isError);
 }
 
 function getSelectedTemplate(): TemplateSummary | null {
@@ -158,10 +238,11 @@ function renderRoomList(rooms: RoomListEntry[]): void {
     item.className = 'room-item';
 
     const title = document.createElement('div');
-    title.textContent = `${room.name} (#${room.roomId})`;
+    title.textContent = `${room.name} (#${room.roomId}, code ${room.roomCode})`;
 
     const details = document.createElement('div');
-    details.textContent = `${room.width}x${room.height} • ${room.players} players`;
+    details.className = 'slot-meta';
+    details.textContent = `${room.width}x${room.height} | ${room.players} players | ${room.spectators} spectators | ${room.status}`;
 
     const button = document.createElement('button');
     button.type = 'button';
@@ -262,13 +343,13 @@ function sendUpdate(x: number, y: number, alive: number): void {
 
 function queueTemplateAt(cell: Cell): void {
   if (!currentRoomId || currentRoomId === '-') {
-    setMessage('Join a room before queuing templates.');
+    setMessage('Join a room before queuing templates.', true);
     return;
   }
 
   const template = getSelectedTemplate();
   if (!template) {
-    setMessage('No template selected.');
+    setMessage('No template selected.', true);
     return;
   }
 
@@ -286,9 +367,10 @@ function queueTemplateAt(cell: Cell): void {
 
 function updateTeamStats(payload: StatePayload): void {
   roomEl.textContent = `${payload.roomName} (#${payload.roomId})`;
+  roomCodeEl.textContent = currentRoomCode;
 
   if (currentTeamId === null) {
-    teamEl.textContent = '-';
+    teamEl.textContent = 'Spectator';
     resourcesEl.textContent = '-';
     incomeEl.textContent = '-';
     baseEl.textContent = 'Unknown';
@@ -313,6 +395,191 @@ function updateTeamStats(payload: StatePayload): void {
     baseEl.textContent = 'Intact';
   } else {
     baseEl.textContent = 'Critical';
+  }
+}
+
+function renderLobbyStatus(payload: RoomMembershipPayload): void {
+  const hostText = payload.hostSessionId
+    ? `Host: ${payload.hostSessionId}`
+    : 'Host: none';
+  lobbyStatusEl.textContent = `${hostText} | rev ${payload.revision} | ${payload.status}`;
+
+  if (payload.status === 'countdown') {
+    const seconds = payload.countdownSecondsRemaining ?? 0;
+    lobbyCountdownEl.textContent = `Match starts in ${seconds}s`;
+    return;
+  }
+
+  if (payload.status === 'active') {
+    lobbyCountdownEl.textContent = 'Match active';
+    return;
+  }
+
+  lobbyCountdownEl.textContent = 'Waiting for both players to ready up';
+}
+
+function createBadge(label: string, className: string): HTMLElement {
+  const badge = document.createElement('span');
+  badge.className = `badge ${className}`;
+  badge.textContent = label;
+  return badge;
+}
+
+function createHeldBadge(participant: MembershipParticipant): HTMLElement {
+  const badge = document.createElement('span');
+  badge.className = 'badge badge--held';
+
+  const dot = document.createElement('span');
+  dot.className = 'status-dot status-dot--held';
+  badge.append(dot);
+
+  const heldRemainingMs =
+    participant.holdExpiresAt === null
+      ? 0
+      : Math.max(0, participant.holdExpiresAt - Date.now());
+  const heldRemainingSec = Math.ceil(heldRemainingMs / 1000);
+
+  const text = document.createElement('span');
+  text.textContent = `Disconnected (${heldRemainingSec}s hold)`;
+  badge.append(text);
+
+  return badge;
+}
+
+function renderLobbyMembership(payload: RoomMembershipPayload): void {
+  currentMembership = payload;
+  currentRoomCode = payload.roomCode;
+  roomCodeEl.textContent = payload.roomCode;
+
+  renderLobbyStatus(payload);
+
+  lobbyPlayerSlotsEl.innerHTML = '';
+  const participantBySession = new Map(
+    payload.participants.map((participant) => [
+      participant.sessionId,
+      participant,
+    ]),
+  );
+
+  for (const [slotId, occupantSessionId] of Object.entries(payload.slots)) {
+    const row = document.createElement('div');
+    row.className = 'slot-item';
+
+    const head = document.createElement('div');
+    head.className = 'slot-head';
+
+    const teamInfo = document.createElement('div');
+    teamInfo.className = 'slot-team';
+
+    const chip = document.createElement('span');
+    chip.className = 'team-chip';
+    chip.style.backgroundColor = getTeamColor(slotId);
+
+    const label = document.createElement('strong');
+    label.textContent = getTeamLabel(slotId);
+    teamInfo.append(chip, label);
+
+    const occupant = document.createElement('div');
+    if (!occupantSessionId) {
+      occupant.textContent = 'Open slot';
+      occupant.className = 'slot-meta';
+      head.append(teamInfo, occupant);
+      row.append(head);
+      lobbyPlayerSlotsEl.append(row);
+      continue;
+    }
+
+    const participant = participantBySession.get(occupantSessionId);
+    occupant.textContent = participant?.displayName ?? occupantSessionId;
+    head.append(teamInfo, occupant);
+
+    const meta = document.createElement('div');
+    meta.className = 'slot-meta';
+    meta.textContent = `session: ${occupantSessionId}`;
+
+    const badges = document.createElement('div');
+    badges.className = 'badge-row';
+
+    if (payload.hostSessionId === occupantSessionId) {
+      badges.append(createBadge('Host', 'badge--host'));
+    }
+
+    if (participant?.ready) {
+      badges.append(createBadge('Ready', 'badge--ready'));
+    } else {
+      badges.append(createBadge('Not Ready', 'badge--held'));
+    }
+
+    if (participant?.connectionStatus === 'held') {
+      badges.append(createHeldBadge(participant));
+    }
+
+    row.append(head, meta, badges);
+    lobbyPlayerSlotsEl.append(row);
+  }
+
+  lobbySpectatorsEl.innerHTML = '';
+  const spectators = payload.participants.filter(
+    (participant) => participant.role === 'spectator',
+  );
+
+  if (spectators.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'spectator-item';
+    empty.textContent = 'No spectators in room.';
+    lobbySpectatorsEl.append(empty);
+  } else {
+    for (const spectator of spectators) {
+      const item = document.createElement('div');
+      item.className = 'spectator-item';
+
+      const title = document.createElement('div');
+      title.textContent = spectator.displayName;
+
+      const meta = document.createElement('div');
+      meta.className = 'spectator-meta';
+      meta.textContent = `session: ${spectator.sessionId}`;
+
+      item.append(title, meta);
+      lobbySpectatorsEl.append(item);
+    }
+  }
+}
+
+function renderSpawnMarkers(payload: StatePayload): void {
+  spawnMarkersEl.innerHTML = '';
+
+  if (payload.teams.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'spawn-item';
+    empty.textContent = 'Spawn markers appear after player slots are claimed.';
+    spawnMarkersEl.append(empty);
+    return;
+  }
+
+  const sortedTeams = [...payload.teams].sort((a, b) => a.id - b.id);
+  for (const team of sortedTeams) {
+    const item = document.createElement('div');
+    item.className = 'spawn-item';
+
+    const title = document.createElement('div');
+    title.className = 'slot-team';
+
+    const chip = document.createElement('span');
+    chip.className = 'team-chip';
+    chip.style.backgroundColor =
+      team.id === 1 ? 'var(--team-a)' : 'var(--team-b)';
+
+    const label = document.createElement('strong');
+    label.textContent = `Team ${team.id}`;
+    title.append(chip, label);
+
+    const meta = document.createElement('div');
+    meta.className = 'spawn-meta';
+    meta.textContent = `base top-left: (${team.baseTopLeft.x}, ${team.baseTopLeft.y})`;
+
+    item.append(title, meta);
+    spawnMarkersEl.append(item);
   }
 }
 
@@ -383,37 +650,71 @@ socket.on('room:list', (rooms: RoomListEntry[]) => {
 
 socket.on('room:joined', (payload: RoomJoinedPayload) => {
   currentRoomId = payload.roomId;
+  currentRoomCode = payload.roomCode;
   currentRoomName = payload.roomName;
   currentTeamId = payload.teamId;
   availableTemplates = payload.templates;
   selectedTemplateId = payload.templates[0]?.id ?? '';
   updateTemplateOptions();
   playerNameEl.value = payload.playerName;
-  setMessage(`Joined ${payload.roomName} as team #${payload.teamId}.`);
+
+  setMessage(
+    payload.teamId === null
+      ? `Joined ${payload.roomName} as spectator.`
+      : `Joined ${payload.roomName} as team #${payload.teamId}.`,
+  );
 
   gridWidth = payload.state.width;
   gridHeight = payload.state.height;
   gridBytes = decodeBase64ToBytes(payload.state.grid);
   generationEl.textContent = payload.state.generation.toString();
   updateTeamStats(payload.state);
+  renderSpawnMarkers(payload.state);
   resizeCanvas();
   render();
 });
 
 socket.on('room:left', () => {
   currentRoomId = '-';
+  currentRoomCode = '-';
   currentRoomName = '-';
   currentTeamId = null;
+  currentMembership = null;
+
   roomEl.textContent = '-';
+  roomCodeEl.textContent = '-';
   teamEl.textContent = '-';
   resourcesEl.textContent = '-';
   incomeEl.textContent = '-';
   baseEl.textContent = 'Unknown';
+
+  lobbyStatusEl.textContent = '';
+  lobbyCountdownEl.textContent = 'Waiting for host';
+  lobbyPlayerSlotsEl.innerHTML = '';
+  lobbySpectatorsEl.innerHTML = '';
+  spawnMarkersEl.innerHTML = '';
+
   setMessage('You left the room.');
 });
 
-socket.on('room:error', (payload: { message?: string }) => {
-  setMessage(payload.message ?? 'Room request failed.');
+socket.on('room:error', (payload: RoomErrorPayload) => {
+  setMessage(payload.message ?? 'Room request failed.', true);
+});
+
+socket.on('room:membership', (payload: RoomMembershipPayload) => {
+  renderLobbyMembership(payload);
+});
+
+socket.on('room:countdown', (payload: RoomCountdownPayload) => {
+  if (!currentMembership || payload.roomId !== currentMembership.roomId) {
+    return;
+  }
+
+  lobbyCountdownEl.textContent = `Match starts in ${payload.secondsRemaining}s`;
+});
+
+socket.on('room:match-started', () => {
+  lobbyCountdownEl.textContent = 'Match active';
 });
 
 socket.on('build:queued', (payload: BuildQueuedPayload) => {
@@ -433,8 +734,9 @@ socket.on('state', (payload: StatePayload) => {
   if (payload.roomName !== currentRoomName) {
     currentRoomName = payload.roomName;
   }
-  updateTeamStats(payload);
 
+  updateTeamStats(payload);
+  renderSpawnMarkers(payload);
   resizeCanvas();
   render();
 });
