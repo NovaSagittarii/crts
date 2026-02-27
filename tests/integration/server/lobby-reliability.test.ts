@@ -6,78 +6,20 @@ import {
   type GameServer,
 } from '../../../apps/server/src/server.js';
 
+import type {
+  ChatMessagePayload,
+  MatchStartedPayload,
+  RoomErrorPayload,
+  RoomJoinedPayload,
+  RoomListEntryPayload,
+  RoomMembershipPayload,
+} from '#rts-engine';
+
 interface ClientOptions {
   sessionId?: string;
 }
 
-interface RoomListEntry {
-  roomId: string;
-  roomCode: string;
-  name: string;
-  width: number;
-  height: number;
-  players: number;
-  spectators: number;
-  teams: number;
-  status: 'lobby' | 'countdown' | 'active';
-}
-
-interface RoomJoinedPayload {
-  roomId: string;
-  roomCode: string;
-  roomName: string;
-  playerId: string;
-  playerName: string;
-  teamId: number | null;
-}
-
-interface RoomErrorPayload {
-  message: string;
-  reason?: string;
-}
-
-interface MembershipParticipant {
-  sessionId: string;
-  displayName: string;
-  role: 'player' | 'spectator';
-  slotId: string | null;
-  ready: boolean;
-  connectionStatus: 'connected' | 'held';
-  holdExpiresAt: number | null;
-  disconnectReason: string | null;
-}
-
-interface RoomMembershipPayload {
-  roomId: string;
-  roomCode: string;
-  roomName: string;
-  revision: number;
-  status: 'lobby' | 'countdown' | 'active';
-  hostSessionId: string | null;
-  slots: Record<string, string | null>;
-  participants: MembershipParticipant[];
-  heldSlots: Record<
-    string,
-    {
-      sessionId: string;
-      holdExpiresAt: number;
-      disconnectReason: string | null;
-    } | null
-  >;
-  countdownSecondsRemaining: number | null;
-}
-
-interface MatchStartedPayload {
-  roomId: string;
-}
-
-interface ChatMessagePayload {
-  roomId: string;
-  senderSessionId: string;
-  senderName: string;
-  message: string;
-  timestamp: number;
-}
+type RoomListEntry = RoomListEntryPayload;
 
 function createClient(port: number, options: ClientOptions = {}): Socket {
   const socket = io(`http://localhost:${port}`, {
@@ -189,7 +131,7 @@ async function waitForConsistentMembership(
   const converged = await Promise.all(
     snapshots.map((snapshot, index) => {
       if (snapshot.revision === targetRevision) {
-        return snapshot;
+        return Promise.resolve(snapshot);
       }
 
       return waitForMembership(

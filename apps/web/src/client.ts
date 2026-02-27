@@ -1,126 +1,30 @@
-import { io } from 'socket.io-client';
+import { io, type Socket } from 'socket.io-client';
 
-type RoomStatus = 'lobby' | 'countdown' | 'active';
-type ConnectionStatus = 'connected' | 'held';
+import type {
+  BuildQueuedPayload,
+  ChatMessagePayload,
+  ClientToServerEvents,
+  MembershipParticipant,
+  PlayerProfilePayload,
+  RoomCountdownPayload,
+  RoomErrorPayload,
+  RoomJoinedPayload,
+  RoomLeftPayload,
+  RoomListEntryPayload,
+  RoomMembershipPayload,
+  RoomSlotClaimedPayload,
+  RoomStatePayload,
+  ServerToClientEvents,
+  StructureTemplateSummary,
+} from '#rts-engine';
+
+type RoomListEntry = RoomListEntryPayload;
+type StatePayload = RoomStatePayload;
+type TemplateSummary = StructureTemplateSummary;
 
 interface Cell {
   x: number;
   y: number;
-}
-
-interface TeamPayload {
-  id: number;
-  name: string;
-  playerIds: string[];
-  resources: number;
-  income: number;
-  defeated: boolean;
-  baseTopLeft: Cell;
-  baseIntact: boolean;
-}
-
-interface StatePayload {
-  roomId: string;
-  roomName: string;
-  width: number;
-  height: number;
-  generation: number;
-  tick: number;
-  grid: string;
-  teams: TeamPayload[];
-}
-
-interface RoomListEntry {
-  roomId: string;
-  roomCode: string;
-  name: string;
-  width: number;
-  height: number;
-  players: number;
-  spectators: number;
-  teams: number;
-  status: RoomStatus;
-}
-
-interface TemplateSummary {
-  id: string;
-  name: string;
-  width: number;
-  height: number;
-  activationCost: number;
-  income: number;
-  buildArea: number;
-}
-
-interface RoomJoinedPayload {
-  roomId: string;
-  roomCode: string;
-  roomName: string;
-  playerId: string;
-  playerName: string;
-  teamId: number | null;
-  templates: TemplateSummary[];
-  state: StatePayload;
-}
-
-interface BuildQueuedPayload {
-  eventId: number;
-  executeTick: number;
-}
-
-interface MembershipParticipant {
-  sessionId: string;
-  displayName: string;
-  role: 'player' | 'spectator';
-  slotId: string | null;
-  ready: boolean;
-  connectionStatus: ConnectionStatus;
-  holdExpiresAt: number | null;
-  disconnectReason: string | null;
-}
-
-interface RoomMembershipPayload {
-  roomId: string;
-  roomCode: string;
-  roomName: string;
-  revision: number;
-  status: RoomStatus;
-  hostSessionId: string | null;
-  slots: Record<string, string | null>;
-  participants: MembershipParticipant[];
-  heldSlots: Record<
-    string,
-    {
-      sessionId: string;
-      holdExpiresAt: number;
-      disconnectReason: string | null;
-    } | null
-  >;
-  countdownSecondsRemaining: number | null;
-}
-
-interface RoomCountdownPayload {
-  roomId: string;
-  secondsRemaining: number;
-}
-
-interface RoomErrorPayload {
-  message?: string;
-  reason?: string;
-}
-
-interface RoomSlotClaimedPayload {
-  roomId: string;
-  slotId: string;
-  teamId: number | null;
-}
-
-interface ChatMessagePayload {
-  roomId: string;
-  senderSessionId: string;
-  senderName: string;
-  message: string;
-  timestamp: number;
 }
 
 function getRequiredElement<T extends HTMLElement>(id: string): T {
@@ -234,7 +138,7 @@ function getOrCreateSessionId(): string {
 }
 
 const persistedSessionId = getOrCreateSessionId();
-const socket = io({
+const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io({
   auth: {
     sessionId: persistedSessionId,
   },
@@ -245,7 +149,7 @@ let gridHeight = 0;
 let gridBytes: Uint8Array | null = null;
 let cellSize = 6;
 let isDrawing = false;
-let drawValue = 1;
+let drawValue = true;
 let lastCell: Cell | null = null;
 
 let currentRoomId = '-';
@@ -294,7 +198,7 @@ function getClaimFailureMessage(payload: RoomErrorPayload): string {
   if (payload.reason === 'countdown-locked') {
     return 'Ready changes are locked while countdown is running.';
   }
-  return payload.message ?? 'Room request failed.';
+  return payload.message;
 }
 
 function appendChatMessage(payload: ChatMessagePayload): void {
@@ -498,7 +402,7 @@ function pointerToCell(event: PointerEvent): Cell | null {
   return { x, y };
 }
 
-function sendUpdate(x: number, y: number, alive: number): void {
+function sendUpdate(x: number, y: number, alive: boolean): void {
   socket.emit('cell:update', { x, y, alive });
 }
 
@@ -770,7 +674,7 @@ canvas.addEventListener('pointerdown', (event) => {
 
   canvas.setPointerCapture(event.pointerId);
   isDrawing = true;
-  drawValue = getCell(cell.x, cell.y) ? 0 : 1;
+  drawValue = getCell(cell.x, cell.y) === 0;
   lastCell = null;
   handleDraw(event);
 });
@@ -841,7 +745,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   updateLobbyControls();
 });
 
-socket.on('room:left', () => {
+socket.on('room:left', (_payload: RoomLeftPayload) => {
   currentRoomId = '-';
   currentRoomCode = '-';
   currentRoomName = '-';
@@ -899,7 +803,7 @@ socket.on('chat:message', (payload: ChatMessagePayload) => {
   appendChatMessage(payload);
 });
 
-socket.on('player:profile', (payload: { playerId: string; name: string }) => {
+socket.on('player:profile', (payload: PlayerProfilePayload) => {
   currentSessionId = payload.playerId;
   socket.auth = {
     sessionId: payload.playerId,

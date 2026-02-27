@@ -6,5 +6,5 @@
     "moduleResolution": "bundler",
     "noEmit": true
   },
-  "include": ["apps/web/src/**/*"]
+  "include": ["apps/web/src/**/*", "vite.config.ts", "vitest.config.ts"]
 }

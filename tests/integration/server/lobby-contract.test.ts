@@ -6,62 +6,16 @@ import {
   type GameServer,
 } from '../../../apps/server/src/server.js';
 
-interface RoomListEntry {
-  roomId: string;
-  roomCode: string;
-  name: string;
-  width: number;
-  height: number;
-  players: number;
-  spectators: number;
-  status: 'lobby' | 'countdown' | 'active';
-}
+import type {
+  ChatMessagePayload,
+  MatchStartedPayload,
+  RoomErrorPayload,
+  RoomJoinedPayload,
+  RoomListEntryPayload,
+  RoomMembershipPayload,
+} from '#rts-engine';
 
-interface MembershipParticipant {
-  sessionId: string;
-  displayName: string;
-  role: 'player' | 'spectator';
-  slotId: string | null;
-  ready: boolean;
-}
-
-interface RoomMembershipPayload {
-  roomId: string;
-  roomName: string;
-  roomCode: string;
-  revision: number;
-  status: 'lobby' | 'countdown' | 'active';
-  hostSessionId: string | null;
-  slots: Record<string, string | null>;
-  participants: MembershipParticipant[];
-  countdownSecondsRemaining: number | null;
-}
-
-interface RoomJoinedPayload {
-  roomId: string;
-  roomCode: string;
-  roomName: string;
-  playerId: string;
-  playerName: string;
-  teamId: number | null;
-}
-
-interface MatchStartedPayload {
-  roomId: string;
-}
-
-interface RoomErrorPayload {
-  message: string;
-  reason?: string;
-}
-
-interface ChatMessagePayload {
-  roomId: string;
-  senderSessionId: string;
-  senderName: string;
-  message: string;
-  timestamp: number;
-}
+type RoomListEntry = RoomListEntryPayload;
 
 function createClient(port: number): Socket {
   const socket = io(`http://localhost:${port}`, {

@@ -1,59 +1,20 @@
-import { beforeEach, afterEach, describe, expect, test } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import { io, type Socket } from 'socket.io-client';
 
 import { createServer } from '../../../apps/server/src/server.js';
 import { decodeGridBase64 } from '#conway-core';
+import type {
+  RoomJoinedPayload,
+  RoomLeftPayload,
+  RoomListEntryPayload,
+  RoomSlotClaimedPayload,
+  RoomStatePayload,
+  TeamPayload,
+} from '#rts-engine';
 
-interface StatePayload {
-  roomId?: string;
-  width: number;
-  height: number;
-  generation: number;
-  tick?: number;
-  grid: string;
-  teams?: TeamPayload[];
-}
-
-interface TeamPayload {
-  id: number;
-  resources: number;
-  income: number;
-  defeated: boolean;
-  baseTopLeft: Cell;
-}
-
-interface TemplateSummary {
-  id: string;
-  name: string;
-  width: number;
-  height: number;
-  activationCost: number;
-  income: number;
-  buildArea: number;
-}
-
-interface RoomJoinedPayload {
-  roomId: string;
-  roomName: string;
-  teamId: number | null;
-  templates: TemplateSummary[];
-  state: StatePayload;
-}
-
-interface SlotClaimedPayload {
-  roomId: string;
-  slotId: string;
-  teamId: number | null;
-}
-
-interface RoomListEntry {
-  roomId: string;
-  name: string;
-  width: number;
-  height: number;
-  players: number;
-  teams: number;
-}
+type StatePayload = RoomStatePayload;
+type SlotClaimedPayload = RoomSlotClaimedPayload;
+type RoomListEntry = RoomListEntryPayload;
 
 interface Cell {
   x: number;
@@ -259,7 +220,7 @@ describe('GameServer', () => {
     const teamId = claimed.teamId as number;
     const teamReadyState = await waitForCondition(
       socket,
-      (state) => (state.teams ?? []).some(({ id }) => id === teamId),
+      (state) => state.teams.some(({ id }) => id === teamId),
       12,
     );
     const initialTeam = getTeam(teamReadyState, teamId);
@@ -318,7 +279,7 @@ describe('GameServer', () => {
     const teamId = claimed.teamId as number;
     const teamReadyState = await waitForCondition(
       socket,
-      (state) => (state.teams ?? []).some(({ id }) => id === teamId),
+      (state) => state.teams.some(({ id }) => id === teamId),
       12,
     );
     const team = getTeam(teamReadyState, teamId);
@@ -410,22 +371,21 @@ describe('GameServer', () => {
 
     const withTwoTeams = await waitForCondition(
       owner,
-      (state) =>
-        state.roomId === ownerRoom.roomId && (state.teams?.length ?? 0) >= 2,
+      (state) => state.roomId === ownerRoom.roomId && state.teams.length >= 2,
       12,
     );
-    expect(withTwoTeams.teams?.length).toBeGreaterThanOrEqual(2);
+    expect(withTwoTeams.teams.length).toBeGreaterThanOrEqual(2);
 
     guest.emit('room:leave');
-    const leftPayload = (await waitForEvent(guest, 'room:left')) as {
-      roomId: string;
-    };
+    const leftPayload = (await waitForEvent(
+      guest,
+      'room:left',
+    )) as RoomLeftPayload;
     expect(leftPayload.roomId).toBe(ownerRoom.roomId);
 
     const backToOneTeam = await waitForCondition(
       owner,
-      (state) =>
-        state.roomId === ownerRoom.roomId && (state.teams?.length ?? 0) === 1,
+      (state) => state.roomId === ownerRoom.roomId && state.teams.length === 1,
       12,
     );
     expect(backToOneTeam.teams).toHaveLength(1);

@@ -22,16 +22,31 @@ import {
 } from '#rts-engine';
 import {
   addPlayerToRoom,
+  type CellUpdatePayload as SocketCellUpdatePayload,
+  type ChatSendPayload,
+  type ClientToServerEvents,
   createDefaultTemplates,
   createRoomState,
   createRoomStatePayload,
   createTemplateSummaries,
+  type PlayerProfilePayload,
   queueBuildEvent,
   queueLegacyCellUpdate,
   removePlayerFromRoom,
   renamePlayerInRoom,
+  type RoomClaimSlotPayload,
+  type RoomCreatePayload,
+  type BuildQueuedPayload,
+  type RoomErrorPayload,
+  type RoomJoinPayload,
+  type RoomListEntryPayload,
+  type RoomMembershipPayload,
+  type RoomSetReadyPayload,
+  type RoomStartPayload,
   type RoomState,
   type RoomStatePayload,
+  type RoomStatus,
+  type ServerToClientEvents,
   tickRoom,
 } from '#rts-engine';
 
@@ -53,92 +68,9 @@ export interface ServerOptions {
 
 export type StatePayload = RoomStatePayload;
 
-export interface CellUpdatePayload {
-  x: number;
-  y: number;
-  alive: boolean;
-}
-
-interface RoomCreatePayload {
-  name?: string;
-  width?: number;
-  height?: number;
-}
-
-interface RoomJoinPayload {
-  roomId?: string | number;
-  roomCode?: string | number;
-  slotId?: string;
-}
-
-interface SlotClaimPayload {
-  slotId?: string;
-}
-
-interface ReadyPayload {
-  ready?: unknown;
-}
-
-interface StartPayload {
-  force?: unknown;
-}
-
-interface ChatSendPayload {
-  message?: unknown;
-}
-
-interface BuildQueuedPayload {
-  eventId: number;
-  executeTick: number;
-}
-
-interface RoomErrorPayload {
-  message: string;
-  reason?: string;
-}
-
-type RoomStatus = 'lobby' | 'countdown' | 'active';
-
-interface RoomListPayloadEntry {
-  roomId: string;
-  roomCode: string;
-  name: string;
-  width: number;
-  height: number;
-  players: number;
-  spectators: number;
-  teams: number;
-  status: RoomStatus;
-}
-
-interface RoomMembershipPayload {
-  roomId: string;
-  roomCode: string;
-  roomName: string;
-  revision: number;
-  status: RoomStatus;
-  hostSessionId: string | null;
-  slots: Record<string, string | null>;
-  participants: {
-    sessionId: string;
-    displayName: string;
-    role: 'player' | 'spectator';
-    slotId: string | null;
-    ready: boolean;
-    connectionStatus: 'connected' | 'held';
-    holdExpiresAt: number | null;
-    disconnectReason: string | null;
-  }[];
-  heldSlots: Record<
-    string,
-    {
-      sessionId: string;
-      holdExpiresAt: number;
-      disconnectReason: string | null;
-    } | null
-  >;
-  countdownSecondsRemaining: number | null;
-}
+type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
+type RoomListPayloadEntry = RoomListEntryPayload;
+export type CellUpdatePayload = SocketCellUpdatePayload;
 
 interface RuntimeRoom {
   state: RoomState;
@@ -198,7 +130,7 @@ function parseReadyPayload(payload: unknown): boolean | null {
     return null;
   }
 
-  const value = (payload as ReadyPayload).ready;
+  const value = (payload as Partial<RoomSetReadyPayload>).ready;
   return typeof value === 'boolean' ? value : null;
 }
 
@@ -281,7 +213,9 @@ export function createServer(options: ServerOptions = {}): GameServer {
   app.use(express.static(WEB_APP_DIR));
 
   const httpServer = http.createServer(app);
-  const io = new SocketIOServer(httpServer);
+  const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(
+    httpServer,
+  );
 
   const defaultRoomId = '1';
   let roomCounter = 2;
@@ -411,7 +345,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     };
   }
 
-  function emitRoomList(target?: Socket): void {
+  function emitRoomList(target?: GameSocket): void {
     const payload = [...rooms.values()]
       .map((room): RoomListPayloadEntry => {
         const snapshot = getLobbySnapshot(room.lobby);
@@ -482,7 +416,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
     return true;
   }
 
-  function roomError(socket: Socket, message: string, reason?: string): void {
+  function roomError(
+    socket: GameSocket,
+    message: string,
+    reason?: string,
+  ): void {
     const payload: RoomErrorPayload = { message };
     if (reason) {
       payload.reason = reason;
@@ -491,7 +429,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   }
 
   function ensureCurrentSocket(
-    socket: Socket,
+    socket: GameSocket,
     session: PlayerSession,
   ): boolean {
     if (sessionCoordinator.isCurrentSocket(session.id, socket.id)) {
@@ -554,7 +492,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   }
 
   function leaveCurrentRoom(
-    socket: Socket,
+    socket: GameSocket,
     session: PlayerSession,
     options: LeaveCurrentRoomOptions,
   ): void {
@@ -598,7 +536,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     if (options.preserveHold) {
       sessionCoordinator.markSocketDisconnected(session.id, socket.id);
     } else {
-      socket.leave(roomChannel(room.state.id));
+      void socket.leave(roomChannel(room.state.id));
     }
 
     const wasPlayer = removeSessionFromRoom(room, session.id);
@@ -616,7 +554,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   }
 
   function joinRoom(
-    socket: Socket,
+    socket: GameSocket,
     session: PlayerSession,
     room: RuntimeRoom,
   ): void {
@@ -627,7 +565,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       });
     }
 
-    socket.join(roomChannel(room.state.id));
+    void socket.join(roomChannel(room.state.id));
     sessionCoordinator.clearHold(session.id);
     joinLobby(room.lobby, {
       sessionId: session.id,
@@ -653,7 +591,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   }
 
   function tryClaimSlot(
-    socket: Socket,
+    socket: GameSocket,
     session: PlayerSession,
     payload: unknown,
   ): void {
@@ -677,7 +615,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       return;
     }
 
-    const slotId = (payload as SlotClaimPayload).slotId;
+    const slotId = (payload as Partial<RoomClaimSlotPayload>).slotId;
     if (typeof slotId !== 'string' || !slotId.trim()) {
       roomError(socket, 'Invalid slot id', 'invalid-slot');
       return;
@@ -829,7 +767,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     return room;
   }
 
-  io.on('connection', (socket: Socket) => {
+  io.on('connection', (socket: GameSocket) => {
     const fallbackSessionId = `guest-${guestCounter}`;
     const fallbackName = `Player-${guestCounter}`;
     guestCounter += 1;
@@ -868,10 +806,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
     }
 
     emitRoomList(socket);
-    socket.emit('player:profile', {
+    const profilePayload: PlayerProfilePayload = {
       playerId: session.id,
       name: session.name,
-    });
+    };
+    socket.emit('player:profile', profilePayload);
 
     socket.on('player:set-name', (payload: unknown) => {
       if (!ensureCurrentSocket(socket, session)) {
@@ -900,10 +839,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
         emitMembership(room);
       }
 
-      socket.emit('player:profile', {
+      const profile: PlayerProfilePayload = {
         playerId: session.id,
         name: session.name,
-      });
+      };
+      socket.emit('player:profile', profile);
     });
 
     socket.on('room:list', () => {
@@ -1006,7 +946,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       emitMembership(room);
     });
 
-    socket.on('room:start', (payload: unknown) => {
+    socket.on('room:start', (payload?: RoomStartPayload) => {
       if (!ensureCurrentSocket(socket, session)) {
         return;
       }
@@ -1032,10 +972,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      const forceRequested =
-        payload && typeof payload === 'object'
-          ? Boolean((payload as StartPayload).force)
-          : false;
+      const forceRequested = Boolean(payload?.force);
 
       if (!allSlotsReady(room)) {
         roomError(
@@ -1097,10 +1034,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
+      const templateIdCandidate = (payload as { templateId?: unknown })
+        .templateId;
       const result = queueBuildEvent(room.state, session.id, {
-        templateId: String(
-          (payload as { templateId?: unknown }).templateId ?? '',
-        ),
+        templateId:
+          typeof templateIdCandidate === 'string' ? templateIdCandidate : '',
         x: Number((payload as { x?: unknown }).x),
         y: Number((payload as { y?: unknown }).y),
         delayTicks:
@@ -1197,7 +1135,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     }
 
     return new Promise((resolve) => {
-      io.close();
+      void io.close();
       httpServer.close(() => resolve());
     });
   }
@@ -1212,7 +1150,13 @@ export function createServer(options: ServerOptions = {}): GameServer {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.env.PORT) || 3000;
   const server = createServer({ port });
-  server.start().then((resolvedPort) => {
-    console.log(`Server listening on http://0.0.0.0:${resolvedPort}`);
-  });
+  void server
+    .start()
+    .then((resolvedPort) => {
+      console.log(`Server listening on http://0.0.0.0:${resolvedPort}`);
+    })
+    .catch((error: unknown) => {
+      console.error('Failed to start server', error);
+      process.exitCode = 1;
+    });
 }
