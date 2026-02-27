@@ -10,33 +10,34 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 ## Current Position
 
 Phase: 1 of 5 (Lobby & Team Reliability)
-Plan: 2 of 5 in current phase
+Plan: 3 of 5 in current phase
 Status: In progress
-Last activity: 2026-02-27 - Completed 01-02 authoritative lobby lifecycle + spectator chat guardrails.
+Last activity: 2026-02-27 - Completed 01-03 reconnect hold/reclaim reliability and session ownership recovery.
 
-Progress: [████░░░░░░] 40%
+Progress: [██████░░░░] 60%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 2
-- Average duration: 9.5 min
-- Total execution time: 0.3 hours
+- Total plans completed: 3
+- Average duration: 11.3 min
+- Total execution time: 0.6 hours
 
 **By Phase:**
 
 | Phase | Plans | Total  | Avg/Plan |
 | ----- | ----- | ------ | -------- |
-| 1     | 2     | 19 min | 9.5 min  |
+| 1     | 3     | 34 min | 11.3 min |
 
 **Recent Trend:**
 
-- Last 5 plans: 01-01 (7 min), 01-02 (12 min)
+- Last 5 plans: 01-01 (7 min), 01-02 (12 min), 01-03 (15 min)
 - Trend: Stable execution velocity
 
 _Updated after each plan completion_
 | Phase 01-lobby-team-reliability P02 | 12 min | 3 tasks | 4 files |
+| Phase 01-lobby-team-reliability P03 | 15 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -54,6 +55,9 @@ Recent decisions affecting current work:
 - [Phase 01-lobby-team-reliability]: Expose room:membership snapshots with monotonic revision numbers as the authoritative lobby visibility stream.
 - [Phase 01-lobby-team-reliability]: Disallow force-start when required players are not ready and enforce host-only countdown initiation.
 - [Phase 01-lobby-team-reliability]: Broadcast room-scoped chat to all participants (players and spectators) with server-attached sender metadata.
+- [Phase 01-lobby-team-reliability]: Use durable session IDs from handshake auth instead of ephemeral socket IDs for ownership.
+- [Phase 01-lobby-team-reliability]: Keep disconnected player slots locked for 30 seconds and reclaim before spectator slot claims.
+- [Phase 01-lobby-team-reliability]: Expose reconnect state inline in membership payloads for quiet UI indicators and deterministic assertions.
 
 ### Pending Todos
 
@@ -68,6 +72,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-27 05:04
-Stopped at: Completed 01-lobby-team-reliability-02-PLAN.md
+Last session: 2026-02-27 05:23
+Stopped at: Completed 01-lobby-team-reliability-03-PLAN.md
 Resume file: None
