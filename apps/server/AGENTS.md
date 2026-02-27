@@ -38,6 +38,7 @@ Server emits:
 - `room:error` `{ message, reason? }`
 - `chat:message` `{ roomId, senderSessionId, senderName, message, timestamp }`
 - `build:queued` `{ eventId, executeTick }`
+- `build:outcome` `{ roomId, eventId, teamId, outcome, reason?, executeTick, resolvedTick }`
 - `player:profile` `{ playerId, name }`
 
 Lifecycle/status contract:
@@ -45,15 +46,21 @@ Lifecycle/status contract:
 - Room status is authoritative and only transitions `lobby -> countdown -> active -> finished`.
 - `room:start` is host-only and serves both initial start and restart from `finished`.
 - `room:cancel-countdown` is host-only and only legal while status is `countdown`.
+- Gameplay mutations are queue-only: accepted mutations must enter through `build:queue`, and `cell:update` is an explicit rejected bypass path.
 
 Common `room:error.reason` values:
 
 - `not-host`: host-only action attempted by non-host session.
-- `start-preconditions-not-met`: missing slot occupancy, disconnected required player, or pending reconnect hold.
 - `invalid-transition`: lifecycle action rejected for current room status.
 - `invalid-state`: gameplay mutation attempted outside `active`.
 - `defeated`: defeated player attempted gameplay mutation.
 - `not-ready`: lobby start attempted before both slotted players are ready.
+- `queue-only-mutation-path`: direct `cell:update` gameplay bypass attempt was rejected.
+- `out-of-bounds`: `build:queue` payload coordinates exceeded room bounds.
+- `outside-territory`: `build:queue` payload targeted cells beyond team territory.
+- `invalid-coordinates`: `build:queue` payload included non-integer coordinates.
+- `invalid-delay`: `build:queue` delay value was not an integer.
+- `unknown-template`: `build:queue` referenced a template that is not available.
 
 ## Rules
 
