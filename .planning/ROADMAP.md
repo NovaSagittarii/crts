@@ -7,7 +7,7 @@ This roadmap delivers a reliable 1v1 Conway RTS loop in dependency order: player
 ## Phases
 
 - [x] **Phase 1: Lobby & Team Reliability** - Players can reliably create/join rooms, pick teams, and reconnect without state drift. (completed 2026-02-27)
-- [ ] **Phase 2: Match Lifecycle & Breach Outcomes** - Matches progress through legal lifecycle states and end with explicit winner/loser results.
+- [x] **Phase 2: Match Lifecycle & Breach Outcomes** - Matches progress through legal lifecycle states and end with explicit winner/loser results. (completed 2026-02-27)
 - [ ] **Phase 3: Deterministic Build Queue Validation** - All gameplay mutations run through validated queue paths with terminal build outcomes.
 - [ ] **Phase 4: Economy HUD & Queue Visibility** - Players can make informed build decisions using live resources/income and pending queue timeline.
 - [ ] **Phase 5: Quality Gate Validation** - Unit and integration test suites prove lobby-to-defeat flow is stable and repeatable.
@@ -100,7 +100,7 @@ Plans:
 | Phase                                   | Plans Complete | Status      | Completed  |
 | --------------------------------------- | -------------- | ----------- | ---------- |
 | 1. Lobby & Team Reliability             | 5/5            | Complete    | 2026-02-27 |
-| 2. Match Lifecycle & Breach Outcomes    | 2/3            | In Progress | -          |
+| 2. Match Lifecycle & Breach Outcomes    | 3/3 | Complete   | 2026-02-27 |
 | 3. Deterministic Build Queue Validation | 0/TBD          | Not started | -          |
 | 4. Economy HUD & Queue Visibility       | 0/TBD          | Not started | -          |
 | 5. Quality Gate Validation              | 0/TBD          | Not started | -          |
