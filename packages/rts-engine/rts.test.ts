@@ -22,6 +22,15 @@ interface Cell {
   y: number;
 }
 
+interface BuildOutcomeRecord {
+  eventId: number;
+  teamId: number;
+  outcome: 'applied' | 'rejected';
+  reason?: string;
+  executeTick: number;
+  resolvedTick: number;
+}
+
 function getCoreStructure(team: ReturnType<typeof addPlayerToRoom>): {
   key: string;
   hp: number;
@@ -50,6 +59,18 @@ function getCellAlive(
 ): boolean {
   const grid = decodeGridBase64(encodedGrid, width * height);
   return grid[cell.y * width + cell.x] === 1;
+}
+
+function getBuildOutcomes(
+  result: ReturnType<typeof tickRoom>,
+): BuildOutcomeRecord[] {
+  return (
+    (
+      result as ReturnType<typeof tickRoom> & {
+        buildOutcomes?: BuildOutcomeRecord[];
+      }
+    ).buildOutcomes ?? []
+  );
 }
 
 describe('rts', () => {
@@ -196,13 +217,44 @@ describe('rts', () => {
       y: 79,
     });
     expect(outsideBounds.accepted).toBe(false);
+    expect(room.timelineEvents.at(-1)?.metadata?.reason).toBe('out-of-bounds');
+
+    let outsideTerritoryCoordinate: Cell | null = null;
+    const blockTemplate = room.templateMap.get('block');
+    expect(blockTemplate).toBeDefined();
+    const blockWidth = blockTemplate?.width ?? 0;
+    const blockHeight = blockTemplate?.height ?? 0;
+    const baseCenterX = team.baseTopLeft.x + 1;
+    const baseCenterY = team.baseTopLeft.y + 1;
+
+    for (let y = 0; y <= room.height - blockHeight; y += 1) {
+      for (let x = 0; x <= room.width - blockWidth; x += 1) {
+        const centerX = x + Math.floor(blockWidth / 2);
+        const centerY = y + Math.floor(blockHeight / 2);
+        if (
+          Math.abs(centerX - baseCenterX) > team.territoryRadius ||
+          Math.abs(centerY - baseCenterY) > team.territoryRadius
+        ) {
+          outsideTerritoryCoordinate = { x, y };
+          break;
+        }
+      }
+      if (outsideTerritoryCoordinate) {
+        break;
+      }
+    }
+
+    expect(outsideTerritoryCoordinate).not.toBeNull();
 
     const outsideTerritory = queueBuildEvent(room, 'p1', {
       templateId: 'block',
-      x: team.baseTopLeft.x + team.territoryRadius + 20,
-      y: team.baseTopLeft.y + team.territoryRadius + 20,
+      x: outsideTerritoryCoordinate?.x ?? 0,
+      y: outsideTerritoryCoordinate?.y ?? 0,
     });
     expect(outsideTerritory.accepted).toBe(false);
+    expect(room.timelineEvents.at(-1)?.metadata?.reason).toBe(
+      'outside-territory',
+    );
 
     const invalidDelay = queueBuildEvent(room, 'p1', {
       templateId: 'block',
@@ -236,6 +288,77 @@ describe('rts', () => {
 
     const queued = room.teams.get(team.id)?.pendingBuildEvents ?? [];
     expect(queued.map(({ executeTick }) => executeTick)).toEqual([1, 20]);
+  });
+
+  test('emits exactly one terminal build outcome for each accepted event', () => {
+    const room = createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 50,
+      height: 50,
+    });
+    const team = addPlayerToRoom(room, 'p1', 'Alice');
+
+    const queued = queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x: team.baseTopLeft.x + 6,
+      y: team.baseTopLeft.y + 6,
+      delayTicks: 1,
+    });
+    expect(queued.accepted).toBe(true);
+
+    const executeTick = queued.executeTick as number;
+    const eventId = queued.eventId as number;
+
+    const preResolution = tickRoom(room);
+    expect(getBuildOutcomes(preResolution)).toHaveLength(0);
+
+    const resolved = tickRoom(room);
+    expect(getBuildOutcomes(resolved)).toEqual([
+      {
+        eventId,
+        teamId: team.id,
+        outcome: 'applied',
+        executeTick,
+        resolvedTick: executeTick,
+      },
+    ]);
+  });
+
+  test('resolves same-tick build events in ascending eventId order', () => {
+    const room = createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 70,
+      height: 70,
+    });
+    const teamOne = addPlayerToRoom(room, 'p1', 'Alice');
+    const teamTwo = addPlayerToRoom(room, 'p2', 'Bob');
+
+    const teamTwoQueued = queueBuildEvent(room, 'p2', {
+      templateId: 'block',
+      x: teamTwo.baseTopLeft.x + 6,
+      y: teamTwo.baseTopLeft.y + 6,
+      delayTicks: 1,
+    });
+    const teamOneQueued = queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x: teamOne.baseTopLeft.x + 6,
+      y: teamOne.baseTopLeft.y + 6,
+      delayTicks: 1,
+    });
+
+    expect(teamTwoQueued.accepted).toBe(true);
+    expect(teamOneQueued.accepted).toBe(true);
+    expect(teamTwoQueued.executeTick).toBe(teamOneQueued.executeTick);
+
+    tickRoom(room);
+    const resolved = tickRoom(room);
+
+    expect(getBuildOutcomes(resolved).map(({ eventId }) => eventId)).toEqual([
+      teamTwoQueued.eventId,
+      teamOneQueued.eventId,
+    ]);
   });
 
   test('emits canonical outcome details only when a defeat occurs', () => {
@@ -546,9 +669,24 @@ describe('rts', () => {
       result = tickRoom(room);
     }
 
+    const terminalOutcomes = getBuildOutcomes(result);
+    const pendingOutcome = terminalOutcomes.find(
+      ({ eventId }) => eventId === queued.eventId,
+    );
+
     expect(result.defeatedTeams).toEqual([team.id]);
     expect(team.defeated).toBe(true);
     expect(team.pendingBuildEvents).toHaveLength(0);
+    expect(pendingOutcome).toMatchObject({
+      eventId: queued.eventId,
+      teamId: team.id,
+      outcome: 'rejected',
+      reason: 'team-defeated',
+      executeTick: queued.executeTick,
+    });
+    expect(pendingOutcome?.resolvedTick).toBeLessThan(
+      queued.executeTick as number,
+    );
 
     const afterDefeat = queueBuildEvent(room, 'p1', {
       templateId: 'block',
