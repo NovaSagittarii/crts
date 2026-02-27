@@ -82,6 +82,18 @@ export interface TimelineEvent {
   metadata?: Record<string, number | string | boolean>;
 }
 
+type BuildRejectionReason =
+  | 'apply-failed'
+  | 'insufficient-resources'
+  | 'invalid-coordinates'
+  | 'invalid-delay'
+  | 'occupied-site'
+  | 'out-of-bounds'
+  | 'outside-territory'
+  | 'team-defeated'
+  | 'template-compare-failed'
+  | 'unknown-template';
+
 export interface TeamState {
   id: number;
   name: string;
@@ -280,6 +292,25 @@ function appendTimelineEvent(
   room.timelineEvents.push({
     ...event,
     tick: room.tick,
+  });
+}
+
+function rejectBuild(
+  room: RoomState,
+  team: TeamState,
+  reason: BuildRejectionReason,
+  eventId?: number,
+): void {
+  const metadata: Record<string, number | string | boolean> = { reason };
+  if (eventId !== undefined) {
+    metadata.eventId = eventId;
+  }
+
+  team.buildStats.rejected += 1;
+  appendTimelineEvent(room, {
+    teamId: team.id,
+    type: 'build-rejected',
+    metadata,
   });
 }
 
@@ -594,65 +625,35 @@ function applyTeamEconomyAndQueue(
 
     const template = room.templateMap.get(event.templateId);
     if (!template) {
-      team.buildStats.rejected += 1;
-      appendTimelineEvent(room, {
-        teamId: team.id,
-        type: 'build-rejected',
-        metadata: { reason: 'unknown-template', eventId: event.id },
-      });
+      rejectBuild(room, team, 'unknown-template', event.id);
       continue;
     }
 
     if (!inBounds(room, event.x, event.y, template.width, template.height)) {
-      team.buildStats.rejected += 1;
-      appendTimelineEvent(room, {
-        teamId: team.id,
-        type: 'build-rejected',
-        metadata: { reason: 'out-of-bounds', eventId: event.id },
-      });
+      rejectBuild(room, team, 'out-of-bounds', event.id);
       continue;
     }
 
     if (!isTeamTerritoryPlacementValid(team, template, event.x, event.y)) {
-      team.buildStats.rejected += 1;
-      appendTimelineEvent(room, {
-        teamId: team.id,
-        type: 'build-rejected',
-        metadata: { reason: 'outside-territory', eventId: event.id },
-      });
+      rejectBuild(room, team, 'outside-territory', event.id);
       continue;
     }
 
     const key = createStructureKey(template, event.x, event.y);
     if (team.structures.has(key)) {
-      team.buildStats.rejected += 1;
-      appendTimelineEvent(room, {
-        teamId: team.id,
-        type: 'build-rejected',
-        metadata: { reason: 'occupied-site', eventId: event.id },
-      });
+      rejectBuild(room, team, 'occupied-site', event.id);
       continue;
     }
 
     const diffCells = compareTemplate(room, template, event.x, event.y);
     if (diffCells < 0) {
-      team.buildStats.rejected += 1;
-      appendTimelineEvent(room, {
-        teamId: team.id,
-        type: 'build-rejected',
-        metadata: { reason: 'template-compare-failed', eventId: event.id },
-      });
+      rejectBuild(room, team, 'template-compare-failed', event.id);
       continue;
     }
 
     const buildCost = diffCells + template.activationCost;
     if (team.resources < buildCost) {
-      team.buildStats.rejected += 1;
-      appendTimelineEvent(room, {
-        teamId: team.id,
-        type: 'build-rejected',
-        metadata: { reason: 'insufficient-resources', eventId: event.id },
-      });
+      rejectBuild(room, team, 'insufficient-resources', event.id);
       continue;
     }
 
@@ -914,12 +915,7 @@ export function queueBuildEvent(
   }
 
   if (team.defeated) {
-    team.buildStats.rejected += 1;
-    appendTimelineEvent(room, {
-      teamId: team.id,
-      type: 'build-rejected',
-      metadata: { reason: 'team-defeated' },
-    });
+    rejectBuild(room, team, 'team-defeated');
     return {
       accepted: false,
       error: 'Team is defeated',
@@ -928,12 +924,7 @@ export function queueBuildEvent(
 
   const template = room.templateMap.get(payload.templateId);
   if (!template) {
-    team.buildStats.rejected += 1;
-    appendTimelineEvent(room, {
-      teamId: team.id,
-      type: 'build-rejected',
-      metadata: { reason: 'unknown-template' },
-    });
+    rejectBuild(room, team, 'unknown-template');
     return {
       accepted: false,
       error: 'Unknown template',
@@ -943,12 +934,7 @@ export function queueBuildEvent(
   const x = Number(payload.x);
   const y = Number(payload.y);
   if (!Number.isInteger(x) || !Number.isInteger(y)) {
-    team.buildStats.rejected += 1;
-    appendTimelineEvent(room, {
-      teamId: team.id,
-      type: 'build-rejected',
-      metadata: { reason: 'invalid-coordinates' },
-    });
+    rejectBuild(room, team, 'invalid-coordinates');
     return {
       accepted: false,
       error: 'x and y must be integers',
@@ -956,12 +942,7 @@ export function queueBuildEvent(
   }
 
   if (!inBounds(room, x, y, template.width, template.height)) {
-    team.buildStats.rejected += 1;
-    appendTimelineEvent(room, {
-      teamId: team.id,
-      type: 'build-rejected',
-      metadata: { reason: 'out-of-bounds' },
-    });
+    rejectBuild(room, team, 'out-of-bounds');
     return {
       accepted: false,
       error: 'Placement is out of bounds',
@@ -969,12 +950,7 @@ export function queueBuildEvent(
   }
 
   if (!isTeamTerritoryPlacementValid(team, template, x, y)) {
-    team.buildStats.rejected += 1;
-    appendTimelineEvent(room, {
-      teamId: team.id,
-      type: 'build-rejected',
-      metadata: { reason: 'outside-territory' },
-    });
+    rejectBuild(room, team, 'outside-territory');
     return {
       accepted: false,
       error: 'Placement is outside team territory',
@@ -983,12 +959,7 @@ export function queueBuildEvent(
 
   const delay = Number(payload.delayTicks ?? 2);
   if (!Number.isInteger(delay)) {
-    team.buildStats.rejected += 1;
-    appendTimelineEvent(room, {
-      teamId: team.id,
-      type: 'build-rejected',
-      metadata: { reason: 'invalid-delay' },
-    });
+    rejectBuild(room, team, 'invalid-delay');
     return {
       accepted: false,
       error: 'delayTicks must be an integer',
@@ -1175,15 +1146,7 @@ export function tickRoom(room: RoomState): RoomTickResult {
       continue;
     }
 
-    team.buildStats.rejected += 1;
-    appendTimelineEvent(room, {
-      teamId: team.id,
-      type: 'build-rejected',
-      metadata: {
-        reason: 'apply-failed',
-        eventId: event.id,
-      },
-    });
+    rejectBuild(room, team, 'apply-failed', event.id);
   }
 
   if (room.pendingLegacyUpdates.length > 0) {
