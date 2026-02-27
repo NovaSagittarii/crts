@@ -26,6 +26,9 @@ interface MembershipParticipant {
   role: 'player' | 'spectator';
   slotId: string | null;
   ready: boolean;
+  connectionStatus: 'connected' | 'held';
+  holdExpiresAt: number | null;
+  disconnectReason: string | null;
 }
 
 interface RoomMembershipPayload {
@@ -37,6 +40,14 @@ interface RoomMembershipPayload {
   hostSessionId: string | null;
   slots: Record<string, string | null>;
   participants: MembershipParticipant[];
+  heldSlots: Record<
+    string,
+    {
+      sessionId: string;
+      holdExpiresAt: number;
+      disconnectReason: string | null;
+    } | null
+  >;
   countdownSecondsRemaining: number | null;
 }
 
@@ -166,6 +177,26 @@ describe('lobby reconnect reliability', () => {
       1000,
     );
 
+    const heldMembership = await waitForMembership(
+      host,
+      created.roomId,
+      (payload) =>
+        payload.participants.some(
+          ({ sessionId, connectionStatus }) =>
+            sessionId === 'session-reclaim-timeout' &&
+            connectionStatus === 'held',
+        ),
+    );
+
+    const heldParticipant = heldMembership.participants.find(
+      ({ sessionId }) => sessionId === 'session-reclaim-timeout',
+    );
+    expect(heldParticipant?.connectionStatus).toBe('held');
+    expect(heldParticipant?.holdExpiresAt).toBeGreaterThan(Date.now());
+    expect(heldMembership.heldSlots['team-1']?.sessionId).toBe(
+      'session-reclaim-timeout',
+    );
+
     await waitForMembership(
       host,
       created.roomId,
@@ -272,6 +303,7 @@ describe('lobby reconnect reliability', () => {
       'room:error',
     );
     expect(raceError.reason).toBe('slot-full');
+    expect(raceError.message).toBe('Selected team slot is already full');
 
     const finalMembership = await waitForMembership(
       host,
@@ -316,6 +348,10 @@ describe('lobby reconnect reliability', () => {
       'room:error',
     );
     expect(staleError.reason).toBe('session-replaced');
+    expect([
+      'This session was replaced by a newer connection',
+      'This session is controlled by a newer connection',
+    ]).toContain(staleError.message);
 
     newestSocket.emit('room:set-ready', { ready: true });
     const readyMembership = await waitForMembership(

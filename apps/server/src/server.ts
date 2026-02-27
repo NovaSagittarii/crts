@@ -125,7 +125,18 @@ interface RoomMembershipPayload {
     role: 'player' | 'spectator';
     slotId: string | null;
     ready: boolean;
+    connectionStatus: 'connected' | 'held';
+    holdExpiresAt: number | null;
+    disconnectReason: string | null;
   }[];
+  heldSlots: Record<
+    string,
+    {
+      sessionId: string;
+      holdExpiresAt: number;
+      disconnectReason: string | null;
+    } | null
+  >;
   countdownSecondsRemaining: number | null;
 }
 
@@ -345,6 +356,28 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   function buildMembershipPayload(room: RuntimeRoom): RoomMembershipPayload {
     const snapshot = getLobbySnapshot(room.lobby);
+    const heldSlots: RoomMembershipPayload['heldSlots'] = {};
+
+    for (const slotId of room.lobby.slotIds) {
+      const sessionId = snapshot.slots[slotId];
+      if (!sessionId) {
+        heldSlots[slotId] = null;
+        continue;
+      }
+
+      const hold = sessionCoordinator.getHold(sessionId);
+      if (hold && hold.roomId === room.state.id && hold.slotId === slotId) {
+        heldSlots[slotId] = {
+          sessionId,
+          holdExpiresAt: hold.expiresAt,
+          disconnectReason: hold.disconnectReason,
+        };
+        continue;
+      }
+
+      heldSlots[slotId] = null;
+    }
+
     return {
       roomId: room.state.id,
       roomCode: room.roomCode,
@@ -353,13 +386,27 @@ export function createServer(options: ServerOptions = {}): GameServer {
       status: room.status,
       hostSessionId: snapshot.hostSessionId,
       slots: snapshot.slots,
-      participants: snapshot.participants.map((participant) => ({
-        sessionId: participant.sessionId,
-        displayName: participant.displayName,
-        role: participant.role,
-        slotId: participant.slotId,
-        ready: participant.ready,
-      })),
+      participants: snapshot.participants.map((participant) => {
+        const participantSession = sessionCoordinator.getSession(
+          participant.sessionId,
+        );
+        const hold = sessionCoordinator.getHold(participant.sessionId);
+        const held =
+          Boolean(hold && hold.roomId === room.state.id) &&
+          !participantSession?.connected;
+
+        return {
+          sessionId: participant.sessionId,
+          displayName: participant.displayName,
+          role: participant.role,
+          slotId: participant.slotId,
+          ready: participant.ready,
+          connectionStatus: held ? 'held' : 'connected',
+          holdExpiresAt: held ? (hold?.expiresAt ?? null) : null,
+          disconnectReason: held ? (hold?.disconnectReason ?? null) : null,
+        };
+      }),
+      heldSlots,
       countdownSecondsRemaining: room.countdownSecondsRemaining,
     };
   }
