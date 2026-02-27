@@ -2,13 +2,13 @@ import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
 export default defineConfig({
-  root: 'public',
+  root: 'apps/web',
   build: {
-    outDir: '../dist/client',
+    outDir: '../../dist/client',
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        index: resolve(__dirname, 'public/index.html'),
+        index: resolve(__dirname, 'apps/web/index.html'),
       },
     },
   },

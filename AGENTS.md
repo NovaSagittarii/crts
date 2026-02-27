@@ -5,14 +5,38 @@ This is a TypeScript project - a multiplayer Conway's Game of Life with Socket.I
 ## Project Structure
 
 ```
-src/
-  grid.ts       - Core grid logic (Cell updates, stepping, encoding)
-  server.ts     - Express + Socket.IO game server
-test/
-  server.test.ts - Vitest integration tests
-public/
-  index.html    - Client-side app
+apps/
+  server/src/server.ts            - Express + Socket.IO game server entry
+  web/index.html                  - Client HTML entry
+  web/src/client.ts               - Client Socket.IO app
+packages/
+  conway-core/src/grid.ts         - Core Conway grid logic
+  rts-engine/src/rts.ts           - RTS rooms/teams/templates/economy logic
+  conway-core/test/grid.test.ts   - Unit tests for grid logic
+  rts-engine/test/rts.test.ts     - Unit tests for RTS engine logic
+tests/
+  integration/server/server.test.ts - Integration tests against live Socket.IO server
 ```
+
+## Repository Collaboration Structure
+
+This repo is organized by app/runtime boundary (`apps`) and reusable domain logic (`packages`) to reduce merge conflicts and keep ownership clear for multi-developer workflows.
+
+### Collaboration Rules
+
+- Put reusable, deterministic domain logic in `packages/*/src`.
+- Put runtime concerns (socket lifecycle, static serving, app bootstrapping) in `apps/*`.
+- Co-locate unit tests with the package they validate under `packages/*/test`.
+- Keep end-to-end/socket behavior tests in `tests/integration`.
+- Keep imports directional:
+  - `apps/*` can import from `packages/*`.
+  - `packages/*` should not import from `apps/*`.
+
+### Why this shape
+
+- Keeps PRs smaller by area (web, server runtime, core logic, RTS logic).
+- Reduces accidental coupling between runtime code and core simulation logic.
+- Makes CI targeting straightforward (`test:unit` vs `test:integration`).
 
 ## Build/Lint/Test Commands
 
@@ -23,7 +47,7 @@ npm run dev          # Start dev server (Vite + tsx server)
 npm run dev:server   # Start server only (tsx watch)
 npm run build        # Build client (Vite)
 npm run build:server # Build server (tsc -p tsconfig.server.json)
-npm run start        # Run production server (node dist/server.js)
+npm run start        # Run production server (node dist/apps/server/src/server.js)
 npm run preview      # Preview production build
 ```
 
@@ -31,13 +55,15 @@ npm run preview      # Preview production build
 
 ```bash
 npm test             # Run all tests once (vitest run)
+npm run test:unit    # Run unit tests in packages/**/test
+npm run test:integration # Run integration tests under tests/integration
 npm run test:watch   # Run tests in watch mode (vitest)
 ```
 
 **Run a single test file:**
 
 ```bash
-npx vitest run test/server.test.ts
+npx vitest run tests/integration/server/server.test.ts
 ```
 
 **Run a single test by name:**
@@ -113,7 +139,8 @@ import type { CellUpdate } from './grid.js';
 ### Testing
 
 - Use Vitest with the `node` environment
-- Test files: `test/**/*.test.ts`
+- Unit tests: `packages/**/test/**/*.test.ts`
+- Integration tests: `tests/**/*.test.ts`
 - Use `describe` blocks for grouping
 - Use `test` instead of `it` (vitest globals enabled)
 - Clean up resources in `afterEach` or use `async/await` with cleanup
@@ -122,8 +149,8 @@ import type { CellUpdate } from './grid.js';
 ### Module Resolution
 
 - Server code: `NodeNext` resolution
-- Client code (public/): `bundler` resolution
-- Always use `import.meta.url` for \_\_dirname in ESM
+- Client code (`apps/web`): `bundler` resolution
+- Prefer `process.cwd()` for repo-root asset paths in server runtime
 
 ### Notable Patterns
 
@@ -157,7 +184,7 @@ import type { CellUpdate } from './grid.js';
 - Clients send individual cell updates; server batches them until next tick
 - Grid coordinates are 0-indexed, validated against width/height bounds
 
-### Client Code (public/)
+### Client Code (`apps/web`)
 
 - Uses Vite with `bundler` module resolution
 - Can import from `socket.io-client`

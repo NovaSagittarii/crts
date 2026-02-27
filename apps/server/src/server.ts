@@ -1,11 +1,10 @@
 import http from 'node:http';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import express, { Express } from 'express';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 
-import type { CellUpdate } from './grid.js';
+import type { CellUpdate } from '../../../packages/conway-core/src/grid.js';
 import {
   addPlayerToRoom,
   createDefaultTemplates,
@@ -20,11 +19,10 @@ import {
   RoomState,
   RoomStatePayload,
   tickRoom,
-} from './rts.js';
+} from '../../../packages/rts-engine/src/rts.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DIST_CLIENT_DIR = path.join(__dirname, '..', 'dist', 'client');
-const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const DIST_CLIENT_DIR = path.join(process.cwd(), 'dist', 'client');
+const WEB_APP_DIR = path.join(process.cwd(), 'apps', 'web');
 
 function getStaticDir(): string {
   return DIST_CLIENT_DIR;
@@ -138,7 +136,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   const app: Express = express();
   app.use(express.static(getStaticDir()));
-  app.use(express.static(PUBLIC_DIR));
+  app.use(express.static(WEB_APP_DIR));
 
   const httpServer = http.createServer(app);
   const io = new SocketIOServer(httpServer);

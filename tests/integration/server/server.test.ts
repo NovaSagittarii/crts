@@ -1,8 +1,8 @@
 import { beforeEach, afterEach, describe, expect, test } from 'vitest';
 import { io, type Socket } from 'socket.io-client';
 
-import { createServer } from '../src/server.js';
-import { decodeGridBase64 } from '../src/grid.js';
+import { createServer } from '../../../apps/server/src/server.js';
+import { decodeGridBase64 } from '../../../packages/conway-core/src/grid.js';
 
 interface StatePayload {
   roomId?: string;

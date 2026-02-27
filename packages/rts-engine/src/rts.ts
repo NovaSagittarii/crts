@@ -1,10 +1,10 @@
-import type { CellUpdate } from './grid.js';
+import type { CellUpdate } from '../../conway-core/src/grid.js';
 import {
   applyUpdates,
   createGrid,
   encodeGridBase64,
   stepGrid,
-} from './grid.js';
+} from '../../conway-core/src/grid.js';
 
 export interface Vector2 {
   x: number;
