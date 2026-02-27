@@ -1,11 +1,10 @@
 import { describe, expect, test } from 'vitest';
 
-import { createTorusSpawnLayout, nextSpawnOrientationSeed } from './spawn.js';
-
-function wrappedDelta(a: number, b: number, size: number): number {
-  const delta = Math.abs(a - b);
-  return Math.min(delta, size - delta);
-}
+import {
+  createTorusSpawnLayout,
+  nextSpawnOrientationSeed,
+  wrappedDelta,
+} from './spawn.js';
 
 describe('spawn', () => {
   test('creates deterministic equal-angle torus spawns', () => {

@@ -47,7 +47,7 @@ function seededUnit(seed: number): number {
   return next / UINT32_MAX;
 }
 
-function wrappedDelta(a: number, b: number, size: number): number {
+export function wrappedDelta(a: number, b: number, size: number): number {
   const delta = Math.abs(a - b);
   return Math.min(delta, size - delta);
 }
