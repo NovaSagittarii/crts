@@ -292,6 +292,43 @@
         min-height: 1.4em;
       }
 
+      .spectator-banner {
+        grid-column: 1 / -1;
+        margin-bottom: 14px;
+        border: 1px solid rgba(248, 192, 108, 0.45);
+        border-left: 4px solid var(--warn);
+        border-radius: 12px;
+        background: rgba(16, 22, 36, 0.88);
+        padding: 10px 12px;
+        display: grid;
+        gap: 4px;
+      }
+
+      .spectator-banner.is-hidden {
+        display: none;
+      }
+
+      .spectator-banner--defeated {
+        border-color: rgba(224, 122, 122, 0.55);
+        border-left-color: var(--danger);
+      }
+
+      .spectator-banner__title {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--warn);
+      }
+
+      .spectator-banner--defeated .spectator-banner__title {
+        color: var(--danger);
+      }
+
+      .spectator-banner__text {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
       .message--error {
         color: var(--danger);
       }
@@ -312,6 +349,11 @@
         background: #05070d;
         border: 1px solid rgba(255, 255, 255, 0.06);
         touch-action: none;
+      }
+
+      canvas.canvas--locked {
+        cursor: not-allowed;
+        opacity: 0.78;
       }
 
       .toast-stack {
@@ -634,6 +676,22 @@
     </header>
     <main>
       <section class="controls">
+        <div
+          id="spectator-banner"
+          class="spectator-banner is-hidden"
+          role="status"
+          aria-live="polite"
+        >
+          <strong
+            id="spectator-banner-title"
+            class="spectator-banner__title"
+          ></strong>
+          <span
+            id="spectator-banner-text"
+            class="spectator-banner__text"
+          ></span>
+        </div>
+
         <div class="control">
           <h2>Player</h2>
           <label>

@@ -93,6 +93,14 @@ const lobbyPlayerSlotsEl =
 const lobbySpectatorsEl =
   getRequiredElement<HTMLDivElement>('lobby-spectators');
 const spawnMarkersEl = getRequiredElement<HTMLDivElement>('spawn-markers');
+const spectatorBannerEl =
+  getRequiredElement<HTMLDivElement>('spectator-banner');
+const spectatorBannerTitleEl = getRequiredElement<HTMLElement>(
+  'spectator-banner-title',
+);
+const spectatorBannerTextEl = getRequiredElement<HTMLElement>(
+  'spectator-banner-text',
+);
 const countdownOverlayEl =
   getRequiredElement<HTMLDivElement>('countdown-overlay');
 const countdownSecondsEl = getRequiredElement<HTMLElement>('countdown-seconds');
@@ -189,6 +197,8 @@ let countdownSecondsRemaining: number | null = null;
 let currentMatchFinished: MatchFinishedPayload | null = null;
 let isFinishedPanelMinimized = false;
 let isFinishedLobbyView = false;
+let currentTeamDefeated = false;
+let persistentDefeatReason: string | null = null;
 
 function addToast(message: string, isError = false): void {
   const toast = document.createElement('div');
@@ -359,6 +369,95 @@ function getLifecycleLabel(status: RoomStatus): string {
   return 'Lobby';
 }
 
+function canMutateGameplay(): boolean {
+  const self = getSelfParticipant();
+  return Boolean(
+    self &&
+    self.role === 'player' &&
+    currentRoomStatus === 'active' &&
+    !currentTeamDefeated,
+  );
+}
+
+function getReadOnlyBannerCopy(): {
+  title: string;
+  text: string;
+  defeated: boolean;
+} | null {
+  if (currentRoomId === '-') {
+    return null;
+  }
+
+  if (currentTeamDefeated) {
+    return {
+      title: 'Defeated - Spectating',
+      text:
+        persistentDefeatReason ??
+        'Your core was breached. You are now in read-only spectating mode while board, HUD, and chat stay live.',
+      defeated: true,
+    };
+  }
+
+  const self = getSelfParticipant();
+  if (!self || self.role !== 'player') {
+    return {
+      title: 'Spectator Mode',
+      text: 'You can watch live updates and chat, but gameplay mutations stay disabled.',
+      defeated: false,
+    };
+  }
+
+  if (currentRoomStatus === 'countdown') {
+    return {
+      title: 'Countdown In Progress',
+      text: 'Gameplay controls are read-only until the match becomes active.',
+      defeated: false,
+    };
+  }
+
+  if (currentRoomStatus === 'finished') {
+    return {
+      title: 'Match Finished',
+      text: 'Review results and wait for the host restart to re-enter countdown.',
+      defeated: false,
+    };
+  }
+
+  if (currentRoomStatus === 'lobby') {
+    return {
+      title: 'Lobby Read-Only',
+      text: 'Claim a team and start the match to enable gameplay mutations.',
+      defeated: false,
+    };
+  }
+
+  return null;
+}
+
+function updateReadOnlyExperience(): void {
+  const gameplayAllowed = canMutateGameplay();
+
+  buildModeEl.disabled = !gameplayAllowed;
+  templateSelectEl.disabled = !gameplayAllowed;
+  buildDelayEl.disabled = !gameplayAllowed;
+  canvas.classList.toggle('canvas--locked', !gameplayAllowed);
+  canvas.setAttribute('aria-disabled', gameplayAllowed ? 'false' : 'true');
+
+  const bannerCopy = getReadOnlyBannerCopy();
+  spectatorBannerEl.classList.toggle('is-hidden', bannerCopy === null);
+
+  if (!bannerCopy) {
+    return;
+  }
+
+  spectatorBannerEl.classList.toggle(
+    'spectator-banner--defeated',
+    bannerCopy.defeated,
+  );
+  spectatorBannerTitleEl.textContent = bannerCopy.title;
+  spectatorBannerTextEl.textContent = bannerCopy.text;
+}
+
 function syncCurrentTeamIdFromState(payload: StatePayload): void {
   if (!currentSessionId) {
     currentTeamId = null;
@@ -467,6 +566,7 @@ function updateLifecycleUi(): void {
   updateLifecycleStatusLine();
   updateCountdownOverlay();
   updateFinishedPanelState();
+  updateReadOnlyExperience();
 }
 
 function applyRoomStatus(nextStatus: RoomStatus): void {
@@ -480,6 +580,8 @@ function applyRoomStatus(nextStatus: RoomStatus): void {
 
   if (previousStatus === 'finished' && nextStatus === 'countdown') {
     currentMatchFinished = null;
+    currentTeamDefeated = false;
+    persistentDefeatReason = null;
     renderFinishedResults();
   }
 
@@ -595,10 +697,22 @@ function pointerToCell(event: PointerEvent): Cell | null {
 }
 
 function sendUpdate(x: number, y: number, alive: boolean): void {
+  if (!canMutateGameplay()) {
+    setMessage(
+      'Gameplay edits are disabled while you are in read-only mode.',
+      true,
+    );
+    return;
+  }
   socket.emit('cell:update', { x, y, alive });
 }
 
 function queueTemplateAt(cell: Cell): void {
+  if (!canMutateGameplay()) {
+    setMessage('Template queues are disabled while you are spectating.', true);
+    return;
+  }
+
   if (!currentRoomId || currentRoomId === '-') {
     setMessage('Join a room before queuing templates.', true);
     return;
@@ -629,6 +743,7 @@ function updateTeamStats(payload: StatePayload): void {
   roomCodeEl.textContent = currentRoomCode;
 
   if (currentTeamId === null) {
+    currentTeamDefeated = false;
     teamEl.textContent = 'Spectator';
     resourcesEl.textContent = '-';
     incomeEl.textContent = '-';
@@ -638,11 +753,18 @@ function updateTeamStats(payload: StatePayload): void {
 
   const team = payload.teams.find(({ id }) => id === currentTeamId);
   if (!team) {
+    currentTeamDefeated = false;
     teamEl.textContent = '#?';
     resourcesEl.textContent = '-';
     incomeEl.textContent = '-';
     baseEl.textContent = 'Unknown';
     return;
+  }
+
+  currentTeamDefeated = team.defeated;
+  if (currentTeamDefeated && !persistentDefeatReason) {
+    persistentDefeatReason =
+      'Your team was defeated. You are now spectating in read-only mode.';
   }
 
   teamEl.textContent = `#${team.id}`;
@@ -866,6 +988,14 @@ function handleDraw(event: PointerEvent): void {
 canvas.addEventListener('pointerdown', (event) => {
   if (!gridBytes) return;
 
+  if (!canMutateGameplay()) {
+    setMessage(
+      'Board edits are read-only until you are an active, non-defeated player.',
+      true,
+    );
+    return;
+  }
+
   const cell = pointerToCell(event);
   if (!cell) return;
 
@@ -927,6 +1057,8 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   currentMatchFinished = null;
   isFinishedPanelMinimized = false;
   isFinishedLobbyView = false;
+  currentTeamDefeated = false;
+  persistentDefeatReason = null;
   currentMembership = null;
   availableTemplates = payload.templates;
   selectedTemplateId = payload.templates[0]?.id ?? '';
@@ -963,6 +1095,8 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   currentMatchFinished = null;
   isFinishedPanelMinimized = false;
   isFinishedLobbyView = false;
+  currentTeamDefeated = false;
+  persistentDefeatReason = null;
   currentMembership = null;
   applyRoomStatus('lobby');
   renderFinishedResults();
@@ -988,6 +1122,15 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
 
 socket.on('room:error', (payload: RoomErrorPayload) => {
   const message = getClaimFailureMessage(payload);
+
+  if (payload.reason === 'defeated') {
+    persistentDefeatReason =
+      payload.message ||
+      'Your team is defeated. You are now spectating in read-only mode.';
+    currentTeamDefeated = true;
+    updateLifecycleUi();
+  }
+
   setMessage(message, true);
   addToast(message, true);
 });
