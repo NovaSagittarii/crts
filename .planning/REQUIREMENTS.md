@@ -10,8 +10,8 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Lobby & Teams
 
 - [ ] **LOBBY-01**: User can list, create, join, and leave rooms with deterministic membership updates.
-- [ ] **LOBBY-02**: User can join a team and receive deterministic base assignment for that team.
-- [ ] **LOBBY-03**: Team spawn locations are equally spaced on the torus map to ensure fair starts and avoid overlap.
+- [x] **LOBBY-02**: User can join a team and receive deterministic base assignment for that team.
+- [x] **LOBBY-03**: Team spawn locations are equally spaced on the torus map to ensure fair starts and avoid overlap.
 - [ ] **LOBBY-04**: Reconnecting user can rejoin their room and receive authoritative state resync.
 
 ### Match Lifecycle
@@ -71,8 +71,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase   | Status  |
 | ----------- | ------- | ------- |
 | LOBBY-01    | Phase 1 | Pending |
-| LOBBY-02    | Phase 1 | Pending |
-| LOBBY-03    | Phase 1 | Pending |
+| LOBBY-02    | Phase 1 | Complete |
+| LOBBY-03    | Phase 1 | Complete |
 | LOBBY-04    | Phase 1 | Pending |
 | MATCH-01    | Phase 2 | Pending |
 | MATCH-02    | Phase 2 | Pending |
