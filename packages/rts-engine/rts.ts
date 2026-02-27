@@ -5,6 +5,11 @@ import {
   encodeGridBase64,
   stepGrid,
 } from '#conway-core';
+import {
+  determineMatchOutcome,
+  type MatchOutcome,
+  type TeamOutcomeSnapshot,
+} from './match-lifecycle.js';
 import { createTorusSpawnLayout } from './spawn.js';
 
 export interface Vector2 {
@@ -57,6 +62,28 @@ export interface StructureInstance {
   x: number;
   y: number;
   active: boolean;
+  hp: number;
+  isCore: boolean;
+  buildRadius: number;
+}
+
+export interface BuildStats {
+  queued: number;
+  applied: number;
+  rejected: number;
+}
+
+export interface TimelineEvent {
+  tick: number;
+  teamId: number;
+  type:
+    | 'build-queued'
+    | 'build-applied'
+    | 'build-rejected'
+    | 'core-damaged'
+    | 'core-destroyed'
+    | 'team-defeated';
+  metadata?: Record<string, number | string | boolean>;
 }
 
 export interface TeamState {
@@ -71,6 +98,7 @@ export interface TeamState {
   defeated: boolean;
   structures: Map<string, StructureInstance>;
   pendingBuildEvents: BuildEvent[];
+  buildStats: BuildStats;
 }
 
 export interface RoomPlayerState {
@@ -95,6 +123,7 @@ export interface RoomState {
   players: Map<string, RoomPlayerState>;
   spawnOrientationSeed: number;
   pendingLegacyUpdates: CellUpdate[];
+  timelineEvents: TimelineEvent[];
 }
 
 export interface RoomListEntry {
@@ -138,6 +167,7 @@ export interface QueueBuildResult {
 export interface RoomTickResult {
   appliedBuilds: number;
   defeatedTeams: number[];
+  outcome: MatchOutcome | null;
 }
 
 export interface CreateRoomOptions {
@@ -164,6 +194,9 @@ const DEFAULT_STARTING_RESOURCES = 40;
 const DEFAULT_TEAM_TERRITORY_RADIUS = 12;
 const DEFAULT_SPAWN_CAPACITY = 2;
 const MAX_DELAY_TICKS = 20;
+const CORE_TEMPLATE_ID = '__core__';
+const CORE_STARTING_HP = 3;
+const CORE_RESTORE_INTERVAL_TICKS = 1;
 
 function hashSpawnSeed(roomId: string, width: number, height: number): number {
   let hash = 2166136261;
@@ -229,6 +262,50 @@ function createTemplateFromRows(
     buildArea: options.buildArea ?? 0,
     checks: options.checks ?? [],
   };
+}
+
+const CORE_STRUCTURE_TEMPLATE = createTemplateFromRows({
+  id: CORE_TEMPLATE_ID,
+  name: 'Core',
+  rows: ['##', '##'],
+  buildArea: 0,
+  checks: [
+    { x: 0, y: 0 },
+    { x: 1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 1, y: 1 },
+  ],
+});
+
+function appendTimelineEvent(
+  room: RoomState,
+  event: Omit<TimelineEvent, 'tick'>,
+): void {
+  room.timelineEvents.push({
+    ...event,
+    tick: room.tick,
+  });
+}
+
+function getStructureTemplate(
+  room: RoomState,
+  structure: StructureInstance,
+): StructureTemplate | null {
+  if (structure.isCore) {
+    return CORE_STRUCTURE_TEMPLATE;
+  }
+
+  return room.templateMap.get(structure.templateId) ?? null;
+}
+
+function getCoreStructure(team: TeamState): StructureInstance | null {
+  for (const structure of team.structures.values()) {
+    if (structure.isCore) {
+      return structure;
+    }
+  }
+
+  return null;
 }
 
 function templateCellAt(
@@ -388,16 +465,37 @@ function checkStructureIntegrity(
 }
 
 function isBaseIntact(room: RoomState, team: TeamState): boolean {
-  for (let by = 0; by < BASE_BLOCK_HEIGHT; by += 1) {
-    for (let bx = 0; bx < BASE_BLOCK_WIDTH; bx += 1) {
-      const x = team.baseTopLeft.x + bx;
-      const y = team.baseTopLeft.y + by;
-      if (gridCellAt(room.grid, room.width, room.height, x, y) !== 1) {
-        return false;
+  const core = getCoreStructure(team);
+  if (!core || core.hp <= 0) {
+    return false;
+  }
+
+  return checkStructureIntegrity(room, core, CORE_STRUCTURE_TEMPLATE);
+}
+
+function countTerritoryCells(room: RoomState, team: TeamState): number {
+  const centerX = team.baseTopLeft.x + 1;
+  const centerY = team.baseTopLeft.y + 1;
+  const radius = team.territoryRadius;
+
+  let count = 0;
+  for (
+    let y = Math.max(0, centerY - radius);
+    y <= Math.min(room.height - 1, centerY + radius);
+    y += 1
+  ) {
+    for (
+      let x = Math.max(0, centerX - radius);
+      x <= Math.min(room.width - 1, centerX + radius);
+      x += 1
+    ) {
+      if (gridCellAt(room.grid, room.width, room.height, x, y) === 1) {
+        count += 1;
       }
     }
   }
-  return true;
+
+  return count;
 }
 
 function seedBase(room: RoomState, baseTopLeft: Vector2): void {
@@ -464,17 +562,21 @@ function applyTeamEconomyAndQueue(
   let territoryBonus = 0;
 
   for (const structure of team.structures.values()) {
-    const template = room.templateMap.get(structure.templateId);
+    const template = getStructureTemplate(room, structure);
     if (!template) {
       structure.active = false;
+      structure.buildRadius = 0;
       continue;
     }
 
-    const active = checkStructureIntegrity(room, structure, template);
+    const active =
+      structure.hp > 0 && checkStructureIntegrity(room, structure, template);
     structure.active = active;
-    if (active) {
+    structure.buildRadius = active ? template.buildArea : 0;
+
+    if (active && !structure.isCore) {
       computedIncome += template.income;
-      territoryBonus += template.buildArea;
+      territoryBonus += structure.buildRadius;
     }
   }
 
@@ -496,29 +598,65 @@ function applyTeamEconomyAndQueue(
 
     const template = room.templateMap.get(event.templateId);
     if (!template) {
+      team.buildStats.rejected += 1;
+      appendTimelineEvent(room, {
+        teamId: team.id,
+        type: 'build-rejected',
+        metadata: { reason: 'unknown-template', eventId: event.id },
+      });
       continue;
     }
 
     if (!inBounds(room, event.x, event.y, template.width, template.height)) {
+      team.buildStats.rejected += 1;
+      appendTimelineEvent(room, {
+        teamId: team.id,
+        type: 'build-rejected',
+        metadata: { reason: 'out-of-bounds', eventId: event.id },
+      });
       continue;
     }
 
     if (!isTeamTerritoryPlacementValid(team, template, event.x, event.y)) {
+      team.buildStats.rejected += 1;
+      appendTimelineEvent(room, {
+        teamId: team.id,
+        type: 'build-rejected',
+        metadata: { reason: 'outside-territory', eventId: event.id },
+      });
       continue;
     }
 
     const key = createStructureKey(template, event.x, event.y);
     if (team.structures.has(key)) {
+      team.buildStats.rejected += 1;
+      appendTimelineEvent(room, {
+        teamId: team.id,
+        type: 'build-rejected',
+        metadata: { reason: 'occupied-site', eventId: event.id },
+      });
       continue;
     }
 
     const diffCells = compareTemplate(room, template, event.x, event.y);
     if (diffCells < 0) {
+      team.buildStats.rejected += 1;
+      appendTimelineEvent(room, {
+        teamId: team.id,
+        type: 'build-rejected',
+        metadata: { reason: 'template-compare-failed', eventId: event.id },
+      });
       continue;
     }
 
     const buildCost = diffCells + template.activationCost;
     if (team.resources < buildCost) {
+      team.buildStats.rejected += 1;
+      appendTimelineEvent(room, {
+        teamId: team.id,
+        type: 'build-rejected',
+        metadata: { reason: 'insufficient-resources', eventId: event.id },
+      });
       continue;
     }
 
@@ -532,6 +670,9 @@ function applyTeamEconomyAndQueue(
         x: event.x,
         y: event.y,
         active: false,
+        hp: 1,
+        isCore: false,
+        buildRadius: 0,
       });
     }
   }
@@ -626,6 +767,7 @@ export function createRoomState(options: CreateRoomOptions): RoomState {
       options.height,
     ),
     pendingLegacyUpdates: [],
+    timelineEvents: [],
   };
 }
 
@@ -661,6 +803,24 @@ export function addPlayerToRoom(
   room.nextTeamId += 1;
 
   const baseTopLeft = pickSpawnPosition(room, teamId);
+  const coreKey = createStructureKey(
+    CORE_STRUCTURE_TEMPLATE,
+    baseTopLeft.x,
+    baseTopLeft.y,
+  );
+
+  const structures = new Map<string, StructureInstance>();
+  structures.set(coreKey, {
+    key: coreKey,
+    templateId: CORE_TEMPLATE_ID,
+    x: baseTopLeft.x,
+    y: baseTopLeft.y,
+    active: true,
+    hp: CORE_STARTING_HP,
+    isCore: true,
+    buildRadius: 0,
+  });
+
   const team: TeamState = {
     id: teamId,
     name: `${playerName}'s Team`,
@@ -671,8 +831,13 @@ export function addPlayerToRoom(
     territoryRadius: DEFAULT_TEAM_TERRITORY_RADIUS,
     baseTopLeft,
     defeated: false,
-    structures: new Map<string, StructureInstance>(),
+    structures,
     pendingBuildEvents: [],
+    buildStats: {
+      queued: 0,
+      applied: 0,
+      rejected: 0,
+    },
   };
 
   room.players.set(playerId, {
@@ -753,6 +918,12 @@ export function queueBuildEvent(
   }
 
   if (team.defeated) {
+    team.buildStats.rejected += 1;
+    appendTimelineEvent(room, {
+      teamId: team.id,
+      type: 'build-rejected',
+      metadata: { reason: 'team-defeated' },
+    });
     return {
       accepted: false,
       error: 'Team is defeated',
@@ -761,6 +932,12 @@ export function queueBuildEvent(
 
   const template = room.templateMap.get(payload.templateId);
   if (!template) {
+    team.buildStats.rejected += 1;
+    appendTimelineEvent(room, {
+      teamId: team.id,
+      type: 'build-rejected',
+      metadata: { reason: 'unknown-template' },
+    });
     return {
       accepted: false,
       error: 'Unknown template',
@@ -770,6 +947,12 @@ export function queueBuildEvent(
   const x = Number(payload.x);
   const y = Number(payload.y);
   if (!Number.isInteger(x) || !Number.isInteger(y)) {
+    team.buildStats.rejected += 1;
+    appendTimelineEvent(room, {
+      teamId: team.id,
+      type: 'build-rejected',
+      metadata: { reason: 'invalid-coordinates' },
+    });
     return {
       accepted: false,
       error: 'x and y must be integers',
@@ -777,6 +960,12 @@ export function queueBuildEvent(
   }
 
   if (!inBounds(room, x, y, template.width, template.height)) {
+    team.buildStats.rejected += 1;
+    appendTimelineEvent(room, {
+      teamId: team.id,
+      type: 'build-rejected',
+      metadata: { reason: 'out-of-bounds' },
+    });
     return {
       accepted: false,
       error: 'Placement is out of bounds',
@@ -784,6 +973,12 @@ export function queueBuildEvent(
   }
 
   if (!isTeamTerritoryPlacementValid(team, template, x, y)) {
+    team.buildStats.rejected += 1;
+    appendTimelineEvent(room, {
+      teamId: team.id,
+      type: 'build-rejected',
+      metadata: { reason: 'outside-territory' },
+    });
     return {
       accepted: false,
       error: 'Placement is outside team territory',
@@ -792,6 +987,12 @@ export function queueBuildEvent(
 
   const delay = Number(payload.delayTicks ?? 2);
   if (!Number.isInteger(delay)) {
+    team.buildStats.rejected += 1;
+    appendTimelineEvent(room, {
+      teamId: team.id,
+      type: 'build-rejected',
+      metadata: { reason: 'invalid-delay' },
+    });
     return {
       accepted: false,
       error: 'delayTicks must be an integer',
@@ -812,6 +1013,15 @@ export function queueBuildEvent(
 
   team.pendingBuildEvents.push(event);
   team.pendingBuildEvents.sort((a, b) => a.executeTick - b.executeTick);
+  team.buildStats.queued += 1;
+  appendTimelineEvent(room, {
+    teamId: team.id,
+    type: 'build-queued',
+    metadata: {
+      eventId: event.id,
+      executeTick: event.executeTick,
+    },
+  });
 
   return {
     accepted: true,
@@ -850,6 +1060,99 @@ export function createRoomStatePayload(room: RoomState): RoomStatePayload {
   };
 }
 
+function resolveCoreRestoreChecks(room: RoomState): Map<number, number> {
+  const coreHpBeforeResolution = new Map<number, number>();
+
+  if (
+    CORE_RESTORE_INTERVAL_TICKS <= 0 ||
+    room.tick % CORE_RESTORE_INTERVAL_TICKS !== 0
+  ) {
+    return coreHpBeforeResolution;
+  }
+
+  for (const team of room.teams.values()) {
+    if (team.defeated) {
+      continue;
+    }
+
+    const core = getCoreStructure(team);
+    if (!core || core.hp <= 0) {
+      continue;
+    }
+
+    const intact = checkStructureIntegrity(room, core, CORE_STRUCTURE_TEMPLATE);
+    if (intact) {
+      core.active = true;
+      core.buildRadius = 0;
+      continue;
+    }
+
+    const hpBefore = core.hp;
+    coreHpBeforeResolution.set(team.id, hpBefore);
+    core.hp = Math.max(0, core.hp - 1);
+    core.buildRadius = 0;
+
+    appendTimelineEvent(room, {
+      teamId: team.id,
+      type: 'core-damaged',
+      metadata: {
+        hpBefore,
+        hpAfter: core.hp,
+      },
+    });
+
+    if (core.hp > 0) {
+      applyTemplate(room, CORE_STRUCTURE_TEMPLATE, core.x, core.y);
+      core.active = true;
+      continue;
+    }
+
+    core.active = false;
+    appendTimelineEvent(room, {
+      teamId: team.id,
+      type: 'core-destroyed',
+      metadata: {
+        hpBefore,
+      },
+    });
+  }
+
+  return coreHpBeforeResolution;
+}
+
+export function createTeamOutcomeSnapshots(
+  room: RoomState,
+  coreHpBeforeResolution: ReadonlyMap<number, number> = new Map(),
+): TeamOutcomeSnapshot[] {
+  const snapshots: TeamOutcomeSnapshot[] = [];
+
+  for (const team of room.teams.values()) {
+    const core = getCoreStructure(team);
+    const coreHp = core?.hp ?? 0;
+    snapshots.push({
+      teamId: team.id,
+      coreHp,
+      coreHpBeforeResolution: coreHpBeforeResolution.get(team.id) ?? coreHp,
+      coreDestroyed: coreHp <= 0,
+      territoryCellCount: countTerritoryCells(room, team),
+      queuedBuildCount: team.buildStats.queued,
+      appliedBuildCount: team.buildStats.applied,
+      rejectedBuildCount: team.buildStats.rejected,
+    });
+  }
+
+  return snapshots;
+}
+
+export function createCanonicalMatchOutcome(
+  room: RoomState,
+  coreHpBeforeResolution: ReadonlyMap<number, number> = new Map(),
+): MatchOutcome | null {
+  return determineMatchOutcome(
+    createTeamOutcomeSnapshots(room, coreHpBeforeResolution),
+  );
+}
+
 export function tickRoom(room: RoomState): RoomTickResult {
   const acceptedEvents: BuildEvent[] = [];
 
@@ -857,12 +1160,34 @@ export function tickRoom(room: RoomState): RoomTickResult {
     applyTeamEconomyAndQueue(room, team, acceptedEvents);
   }
 
+  let appliedBuilds = 0;
   for (const event of acceptedEvents) {
     const template = room.templateMap.get(event.templateId);
-    if (!template) {
+    const team = room.teams.get(event.teamId);
+    if (!template || !team) {
       continue;
     }
-    applyTemplate(room, template, event.x, event.y);
+
+    if (applyTemplate(room, template, event.x, event.y)) {
+      appliedBuilds += 1;
+      team.buildStats.applied += 1;
+      appendTimelineEvent(room, {
+        teamId: team.id,
+        type: 'build-applied',
+        metadata: { eventId: event.id },
+      });
+      continue;
+    }
+
+    team.buildStats.rejected += 1;
+    appendTimelineEvent(room, {
+      teamId: team.id,
+      type: 'build-rejected',
+      metadata: {
+        reason: 'apply-failed',
+        eventId: event.id,
+      },
+    });
   }
 
   if (room.pendingLegacyUpdates.length > 0) {
@@ -874,18 +1199,30 @@ export function tickRoom(room: RoomState): RoomTickResult {
   room.tick += 1;
   room.generation += 1;
 
+  const coreHpBeforeResolution = resolveCoreRestoreChecks(room);
   const defeatedTeams: number[] = [];
   for (const team of room.teams.values()) {
-    const intact = isBaseIntact(room, team);
-    if (!intact && !team.defeated) {
+    const core = getCoreStructure(team);
+    const defeated = !core || core.hp <= 0;
+    if (defeated && !team.defeated) {
       team.defeated = true;
       team.pendingBuildEvents = [];
       defeatedTeams.push(team.id);
+      appendTimelineEvent(room, {
+        teamId: team.id,
+        type: 'team-defeated',
+      });
     }
   }
 
+  const outcome =
+    defeatedTeams.length > 0
+      ? createCanonicalMatchOutcome(room, coreHpBeforeResolution)
+      : null;
+
   return {
-    appliedBuilds: acceptedEvents.length,
+    appliedBuilds,
     defeatedTeams,
+    outcome,
   };
 }

@@ -413,7 +413,7 @@ describe('rts', () => {
     expect(team.defeated).toBe(true);
   });
 
-  test('marks team defeated when base integrity is breached', () => {
+  test('marks team defeated when core hp is exhausted by repeated breaches', () => {
     const room = createRoomState({
       id: '1',
       name: 'Alpha',
@@ -427,7 +427,7 @@ describe('rts', () => {
       templateId: 'block',
       x: base.x + 2,
       y: base.y + 2,
-      delayTicks: 1,
+      delayTicks: 20,
     });
     expect(queued.accepted).toBe(true);
 
@@ -437,15 +437,20 @@ describe('rts', () => {
       { x: base.x, y: base.y + 1 },
       { x: base.x + 1, y: base.y + 1 },
     ];
-    for (const cell of baseCells) {
-      queueLegacyCellUpdate(room, {
-        x: cell.x,
-        y: cell.y,
-        alive: 0,
-      });
-    }
+    const initialHp = getCoreStructure(team).hp;
+    let result = tickRoom(room);
 
-    const result = tickRoom(room);
+    for (let cycle = 0; cycle < initialHp; cycle += 1) {
+      for (const cell of baseCells) {
+        queueLegacyCellUpdate(room, {
+          x: cell.x,
+          y: cell.y,
+          alive: 0,
+        });
+      }
+
+      result = tickRoom(room);
+    }
 
     expect(result.defeatedTeams).toEqual([team.id]);
     expect(team.defeated).toBe(true);
