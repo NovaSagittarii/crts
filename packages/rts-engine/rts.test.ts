@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { decodeGridBase64 } from '../../conway-core/src/grid.js';
+import { decodeGridBase64 } from '#conway-core';
 import {
   addPlayerToRoom,
   createDefaultTemplates,

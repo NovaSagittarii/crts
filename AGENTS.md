@@ -11,12 +11,13 @@ apps/
   web/src/client.ts
 
 packages/
-  conway-core/src/grid.ts
-  conway-core/src/grid.test.ts   (preferred)
-  conway-core/test/grid.test.ts  (legacy)
-  rts-engine/src/rts.ts
-  rts-engine/src/rts.test.ts     (preferred)
-  rts-engine/test/rts.test.ts    (legacy)
+  conway-core/grid.ts
+  conway-core/grid.test.ts
+  conway-core/index.ts
+  rts-engine/lobby.ts
+  rts-engine/rts.ts
+  rts-engine/rts.test.ts
+  rts-engine/index.ts
 
 tests/
   integration/server/server.test.ts
@@ -42,10 +43,17 @@ When editing a file, follow the nearest AGENTS.md plus this root file.
 - Keep imports directional:
   - `apps/*` can import from `packages/*`
   - `packages/*` must not import from `apps/*`
-- Keep reusable deterministic logic in `packages/*/src`
+- Keep reusable deterministic logic in `packages/*`
 - Keep runtime bootstrapping and socket lifecycle in `apps/*`
-- Prefer co-located unit tests in `packages/*/src` as `*.test.ts` (legacy: `packages/*/test`)
+- Prefer co-located unit tests in `packages/*` as `*.test.ts` (legacy: `packages/*/test`)
 - Keep cross-runtime behavior tests in `tests/integration`
+
+## Module Entry Points / Aliases
+
+- Prefer importing shared package APIs via Node `package.json` `imports` aliases:
+  - `#conway-core`
+  - `#rts-engine`
+- Package entry points live at `packages/*/index.ts` and are compiled into `dist/packages/*/index.js` for runtime use.
 
 ## Build / Test Commands
 

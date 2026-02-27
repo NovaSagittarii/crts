@@ -1,10 +1,10 @@
-import type { CellUpdate } from '../../conway-core/src/grid.js';
+import type { CellUpdate } from '#conway-core';
 import {
   applyUpdates,
   createGrid,
   encodeGridBase64,
   stepGrid,
-} from '../../conway-core/src/grid.js';
+} from '#conway-core';
 import { createTorusSpawnLayout } from './spawn.js';
 
 export interface Vector2 {

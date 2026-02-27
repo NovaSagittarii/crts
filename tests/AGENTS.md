@@ -5,7 +5,7 @@ These rules apply to `tests/*`.
 ## Scope
 
 - Keep cross-runtime and end-to-end behavior checks here.
-- Prefer package-local unit tests co-located under `packages/*/src` for deterministic logic.
+- Prefer package-local unit tests co-located under `packages/*` for deterministic logic.
 
 ## Rules
 

@@ -5,6 +5,11 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "#conway-core": ["packages/conway-core/index.ts"],
+      "#rts-engine": ["packages/rts-engine/index.ts"]
+    }
   }
 }

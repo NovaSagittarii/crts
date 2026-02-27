@@ -27,4 +27,4 @@ These rules apply to `packages/rts-engine/*`.
 
 ## Testing
 
-- Prefer co-located unit tests under `packages/rts-engine/src` as `*.test.ts`.
+- Prefer co-located unit tests under `packages/rts-engine` as `*.test.ts`.

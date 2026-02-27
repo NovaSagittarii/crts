@@ -9,7 +9,7 @@ import {
   type PlayerSession,
 } from './lobby-session.js';
 
-import type { CellUpdate } from '../../../packages/conway-core/src/grid.js';
+import type { CellUpdate } from '#conway-core';
 import {
   claimLobbySlot,
   createLobbyRoom,
@@ -19,7 +19,7 @@ import {
   setLobbyReady,
   type LobbyRejectionReason,
   type LobbyRoomState,
-} from '../../../packages/rts-engine/src/lobby.js';
+} from '#rts-engine';
 import {
   addPlayerToRoom,
   createDefaultTemplates,
@@ -33,7 +33,7 @@ import {
   type RoomState,
   type RoomStatePayload,
   tickRoom,
-} from '../../../packages/rts-engine/src/rts.js';
+} from '#rts-engine';
 
 const DIST_CLIENT_DIR = path.join(process.cwd(), 'dist', 'client');
 const WEB_APP_DIR = path.join(process.cwd(), 'apps', 'web');

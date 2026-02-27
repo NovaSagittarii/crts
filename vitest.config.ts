@@ -1,6 +1,21 @@
+import { fileURLToPath } from 'node:url';
+
 import { defineConfig } from 'vitest/config';
 
+const conwayCoreEntry = fileURLToPath(
+  new URL('./packages/conway-core/index.ts', import.meta.url),
+);
+const rtsEngineEntry = fileURLToPath(
+  new URL('./packages/rts-engine/index.ts', import.meta.url),
+);
+
 export default defineConfig({
+  resolve: {
+    alias: {
+      '#conway-core': conwayCoreEntry,
+      '#rts-engine': rtsEngineEntry,
+    },
+  },
   test: {
     globals: true,
     environment: 'node',

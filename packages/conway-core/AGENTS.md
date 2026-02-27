@@ -21,4 +21,4 @@ These rules apply to `packages/conway-core/*`.
 
 ## Testing
 
-- Prefer co-located unit tests under `packages/conway-core/src` as `*.test.ts`.
+- Prefer co-located unit tests under `packages/conway-core` as `*.test.ts`.

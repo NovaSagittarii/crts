@@ -1,14 +1,20 @@
 import { defineConfig } from 'vite';
-import { resolve } from 'path';
+import path from 'node:path';
 
 export default defineConfig({
   root: 'apps/web',
+  resolve: {
+    alias: {
+      '#conway-core': path.resolve(__dirname, 'packages/conway-core/index.ts'),
+      '#rts-engine': path.resolve(__dirname, 'packages/rts-engine/index.ts'),
+    },
+  },
   build: {
     outDir: '../../dist/client',
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        index: resolve(__dirname, 'apps/web/index.html'),
+        index: path.resolve(__dirname, 'apps/web/index.html'),
       },
     },
   },
