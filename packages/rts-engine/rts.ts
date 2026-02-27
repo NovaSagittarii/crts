@@ -314,6 +314,18 @@ function rejectBuild(
   });
 }
 
+function insertBuildEventSorted(queue: BuildEvent[], event: BuildEvent): void {
+  let insertIndex = queue.length;
+  for (let index = queue.length - 1; index >= 0; index -= 1) {
+    if (queue[index].executeTick <= event.executeTick) {
+      break;
+    }
+    insertIndex = index;
+  }
+
+  queue.splice(insertIndex, 0, event);
+}
+
 function getStructureTemplate(
   room: RoomState,
   structure: StructureInstance,
@@ -978,8 +990,7 @@ export function queueBuildEvent(
   };
   room.nextBuildEventId += 1;
 
-  team.pendingBuildEvents.push(event);
-  team.pendingBuildEvents.sort((a, b) => a.executeTick - b.executeTick);
+  insertBuildEventSorted(team.pendingBuildEvents, event);
   team.buildStats.queued += 1;
   appendTimelineEvent(room, {
     teamId: team.id,
