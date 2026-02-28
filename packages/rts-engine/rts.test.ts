@@ -290,6 +290,173 @@ describe('rts', () => {
     expect(queued.map(({ executeTick }) => executeTick)).toEqual([1, 20]);
   });
 
+  test('rejects unaffordable queue requests with exact affordability deficits', () => {
+    const room = createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 70,
+      height: 70,
+    });
+    const team = addPlayerToRoom(room, 'p1', 'Alice');
+
+    team.resources = 9;
+    const result = queueBuildEvent(room, 'p1', {
+      templateId: 'generator',
+      x: team.baseTopLeft.x + 6,
+      y: team.baseTopLeft.y + 6,
+      delayTicks: 1,
+    });
+
+    expect(result).toMatchObject({
+      accepted: false,
+      reason: 'insufficient-resources',
+      needed: 10,
+      current: 9,
+      deficit: 1,
+    });
+    expect(team.pendingBuildEvents).toHaveLength(0);
+    expect(room.timelineEvents.at(-1)?.metadata?.reason).toBe(
+      'insufficient-resources',
+    );
+  });
+
+  test('projects pending queue rows sorted by executeTick then eventId', () => {
+    const room = createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 80,
+      height: 80,
+    });
+    const team = addPlayerToRoom(room, 'p1', 'Alice');
+
+    const first = queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x: team.baseTopLeft.x + 4,
+      y: team.baseTopLeft.y + 4,
+      delayTicks: 5,
+    });
+    const second = queueBuildEvent(room, 'p1', {
+      templateId: 'glider',
+      x: team.baseTopLeft.x + 7,
+      y: team.baseTopLeft.y + 4,
+      delayTicks: 3,
+    });
+    const third = queueBuildEvent(room, 'p1', {
+      templateId: 'generator',
+      x: team.baseTopLeft.x + 10,
+      y: team.baseTopLeft.y + 4,
+      delayTicks: 5,
+    });
+
+    expect(first.accepted).toBe(true);
+    expect(second.accepted).toBe(true);
+    expect(third.accepted).toBe(true);
+
+    const payload = createRoomStatePayload(room);
+    const projectedTeam = payload.teams.find(({ id }) => id === team.id);
+
+    expect(projectedTeam).toBeDefined();
+    const pendingProjection =
+      projectedTeam?.pendingBuilds.map(
+        ({ eventId, executeTick, templateId, templateName }) => ({
+          eventId,
+          executeTick,
+          templateId,
+          templateName,
+        }),
+      ) ?? [];
+    expect(pendingProjection).toEqual([
+      {
+        eventId: second.eventId,
+        executeTick: second.executeTick,
+        templateId: 'glider',
+        templateName: 'Glider',
+      },
+      {
+        eventId: first.eventId,
+        executeTick: first.executeTick,
+        templateId: 'block',
+        templateName: 'Block 2x2',
+      },
+      {
+        eventId: third.eventId,
+        executeTick: third.executeTick,
+        templateId: 'generator',
+        templateName: 'Generator Block',
+      },
+    ]);
+  });
+
+  test('projects per-team income breakdown that tracks active structures', () => {
+    const room = createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 60,
+      height: 60,
+    });
+    const team = addPlayerToRoom(room, 'p1', 'Alice');
+
+    const initialPayload = createRoomStatePayload(room);
+    const initialTeam = initialPayload.teams.find(({ id }) => id === team.id);
+    expect(initialTeam?.incomeBreakdown).toEqual({
+      base: 0,
+      structures: 0,
+      total: 0,
+      activeStructureCount: 0,
+    });
+
+    const position = {
+      x: team.baseTopLeft.x + 5,
+      y: team.baseTopLeft.y + 5,
+    };
+    const queued = queueBuildEvent(room, 'p1', {
+      templateId: 'generator',
+      x: position.x,
+      y: position.y,
+      delayTicks: 1,
+    });
+    expect(queued.accepted).toBe(true);
+
+    tickRoom(room);
+    tickRoom(room);
+    tickRoom(room);
+
+    const activePayload = createRoomStatePayload(room);
+    const activeTeam = activePayload.teams.find(({ id }) => id === team.id);
+    expect(activeTeam?.incomeBreakdown).toEqual({
+      base: 0,
+      structures: 2,
+      total: 2,
+      activeStructureCount: 1,
+    });
+
+    const generatorCells = [
+      { x: position.x, y: position.y },
+      { x: position.x + 1, y: position.y },
+      { x: position.x, y: position.y + 1 },
+      { x: position.x + 1, y: position.y + 1 },
+    ];
+    for (const cell of generatorCells) {
+      queueLegacyCellUpdate(room, {
+        x: cell.x,
+        y: cell.y,
+        alive: 0,
+      });
+    }
+
+    tickRoom(room);
+    tickRoom(room);
+
+    const inactivePayload = createRoomStatePayload(room);
+    const inactiveTeam = inactivePayload.teams.find(({ id }) => id === team.id);
+    expect(inactiveTeam?.incomeBreakdown).toEqual({
+      base: 0,
+      structures: 0,
+      total: 0,
+      activeStructureCount: 0,
+    });
+  });
+
   test('emits exactly one terminal build outcome for each accepted event', () => {
     const room = createRoomState({
       id: '1',
