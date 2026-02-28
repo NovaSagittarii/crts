@@ -1,9 +1,12 @@
 import type {
+  AffordabilityResult,
   BuildOutcome,
   BuildRejectionReason,
   BuildQueuePayload,
+  PendingBuildPayload,
   RoomStatePayload,
   StructureTemplateSummary,
+  TeamIncomeBreakdown,
 } from './rts.js';
 import type { RankedTeamOutcome } from './match-lifecycle.js';
 
@@ -20,6 +23,29 @@ export interface BuildQueuedPayload {
   executeTick: number;
 }
 
+export type BuildAffordabilityPayload = Pick<
+  AffordabilityResult,
+  'affordable' | 'needed' | 'current' | 'deficit'
+>;
+
+export type PendingBuildStatePayload = PendingBuildPayload;
+export type TeamIncomeBreakdownPayload = TeamIncomeBreakdown;
+
+export interface BuildPreviewRequestPayload {
+  templateId: string;
+  x: number;
+  y: number;
+}
+
+export interface BuildPreviewPayload extends BuildAffordabilityPayload {
+  roomId: string;
+  teamId: number;
+  templateId: string;
+  x: number;
+  y: number;
+  reason?: BuildOutcomeRejectionReason;
+}
+
 export type BuildOutcomeRejectionReason = BuildRejectionReason;
 
 export interface BuildOutcomePayload extends BuildOutcome {
@@ -29,6 +55,9 @@ export interface BuildOutcomePayload extends BuildOutcome {
 export interface RoomErrorPayload {
   message: string;
   reason?: string;
+  needed?: number;
+  current?: number;
+  deficit?: number;
 }
 
 export interface RoomListEntryPayload {
@@ -173,6 +202,7 @@ export interface ClientToServerEvents {
   'room:start': (payload?: RoomStartPayload) => void;
   'room:cancel-countdown': () => void;
   'chat:send': (payload: ChatSendPayload) => void;
+  'build:preview': (payload: BuildPreviewRequestPayload) => void;
   'build:queue': (payload: BuildQueuePayload) => void;
   'cell:update': (payload: CellUpdatePayload) => void;
 }
@@ -189,6 +219,7 @@ export interface ServerToClientEvents {
   'room:match-finished': (payload: MatchFinishedPayload) => void;
   'room:error': (payload: RoomErrorPayload) => void;
   'chat:message': (payload: ChatMessagePayload) => void;
+  'build:preview': (payload: BuildPreviewPayload) => void;
   'build:queued': (payload: BuildQueuedPayload) => void;
   'build:outcome': (payload: BuildOutcomePayload) => void;
   'player:profile': (payload: PlayerProfilePayload) => void;
