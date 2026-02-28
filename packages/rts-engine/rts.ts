@@ -100,8 +100,35 @@ export interface BuildOutcome {
   teamId: number;
   outcome: 'applied' | 'rejected';
   reason?: BuildRejectionReason;
+  affordable?: boolean;
+  needed?: number;
+  current?: number;
+  deficit?: number;
   executeTick: number;
   resolvedTick: number;
+}
+
+export interface AffordabilityResult {
+  affordable: boolean;
+  needed: number;
+  current: number;
+  deficit: number;
+}
+
+export interface TeamIncomeBreakdown {
+  base: number;
+  structures: number;
+  total: number;
+  activeStructureCount: number;
+}
+
+export interface PendingBuildPayload {
+  eventId: number;
+  executeTick: number;
+  templateId: string;
+  templateName: string;
+  x: number;
+  y: number;
 }
 
 export interface TeamState {
@@ -110,6 +137,7 @@ export interface TeamState {
   playerIds: Set<string>;
   resources: number;
   income: number;
+  incomeBreakdown: TeamIncomeBreakdown;
   lastIncomeTick: number;
   territoryRadius: number;
   baseTopLeft: Vector2;
@@ -159,6 +187,8 @@ export interface TeamPayload {
   playerIds: string[];
   resources: number;
   income: number;
+  incomeBreakdown: TeamIncomeBreakdown;
+  pendingBuilds: PendingBuildPayload[];
   defeated: boolean;
   baseTopLeft: Vector2;
   baseIntact: boolean;
@@ -178,6 +208,11 @@ export interface RoomStatePayload {
 export interface QueueBuildResult {
   accepted: boolean;
   error?: string;
+  reason?: BuildRejectionReason;
+  affordable?: boolean;
+  needed?: number;
+  current?: number;
+  deficit?: number;
   eventId?: number;
   executeTick?: number;
 }
@@ -306,15 +341,35 @@ function appendTimelineEvent(
   });
 }
 
+function evaluateAffordability(
+  needed: number,
+  current: number,
+): AffordabilityResult {
+  const deficit = Math.max(0, needed - current);
+  return {
+    affordable: deficit === 0,
+    needed,
+    current,
+    deficit,
+  };
+}
+
 function rejectBuild(
   room: RoomState,
   team: TeamState,
   reason: BuildRejectionReason,
   eventId?: number,
+  affordability?: AffordabilityResult,
 ): void {
   const metadata: Record<string, number | string | boolean> = { reason };
   if (eventId !== undefined) {
     metadata.eventId = eventId;
+  }
+  if (affordability) {
+    metadata.affordable = affordability.affordable;
+    metadata.needed = affordability.needed;
+    metadata.current = affordability.current;
+    metadata.deficit = affordability.deficit;
   }
 
   team.buildStats.rejected += 1;
@@ -346,20 +401,49 @@ function compareBuildOutcomes(a: BuildOutcome, b: BuildOutcome): number {
   return a.executeTick - b.executeTick || a.eventId - b.eventId;
 }
 
+function projectPendingBuilds(
+  room: RoomState,
+  team: TeamState,
+): PendingBuildPayload[] {
+  const pending = [...team.pendingBuildEvents];
+  pending.sort(compareBuildEvents);
+  return pending.map((event) => {
+    const templateName = room.templateMap.get(event.templateId)?.name;
+    return {
+      eventId: event.id,
+      executeTick: event.executeTick,
+      templateId: event.templateId,
+      templateName: templateName ?? event.templateId,
+      x: event.x,
+      y: event.y,
+    };
+  });
+}
+
 function recordRejectedBuildOutcome(
   buildOutcomes: BuildOutcome[],
   event: BuildEvent,
   reason: BuildRejectionReason,
   resolvedTick: number,
+  affordability?: AffordabilityResult,
 ): void {
-  buildOutcomes.push({
+  const outcome: BuildOutcome = {
     eventId: event.id,
     teamId: event.teamId,
     outcome: 'rejected',
     reason,
     executeTick: event.executeTick,
     resolvedTick,
-  });
+  };
+
+  if (affordability) {
+    outcome.affordable = affordability.affordable;
+    outcome.needed = affordability.needed;
+    outcome.current = affordability.current;
+    outcome.deficit = affordability.deficit;
+  }
+
+  buildOutcomes.push(outcome);
 }
 
 function drainPendingBuildEvents(
@@ -657,10 +741,19 @@ function applyTeamEconomyAndQueue(
   buildOutcomes: BuildOutcome[],
 ): void {
   if (team.defeated) {
+    team.income = 0;
+    team.incomeBreakdown = {
+      base: 0,
+      structures: 0,
+      total: 0,
+      activeStructureCount: 0,
+    };
     return;
   }
 
-  let computedIncome = 0;
+  const baseIncome = 0;
+  let structureIncome = 0;
+  let activeStructureCount = 0;
   let territoryBonus = 0;
 
   for (const structure of team.structures.values()) {
@@ -677,12 +770,19 @@ function applyTeamEconomyAndQueue(
     structure.buildRadius = active ? template.buildArea : 0;
 
     if (active && !structure.isCore) {
-      computedIncome += template.income;
+      structureIncome += template.income;
+      activeStructureCount += 1;
       territoryBonus += structure.buildRadius;
     }
   }
 
-  team.income = computedIncome;
+  team.incomeBreakdown = {
+    base: baseIncome,
+    structures: structureIncome,
+    total: baseIncome + structureIncome,
+    activeStructureCount,
+  };
+  team.income = team.incomeBreakdown.total;
   team.territoryRadius = DEFAULT_TEAM_TERRITORY_RADIUS + territoryBonus;
 
   if (room.tick > team.lastIncomeTick) {
@@ -757,13 +857,21 @@ function applyTeamEconomyAndQueue(
     }
 
     const buildCost = diffCells + template.activationCost;
-    if (team.resources < buildCost) {
-      rejectBuild(room, team, 'insufficient-resources', event.id);
+    const affordability = evaluateAffordability(buildCost, team.resources);
+    if (!affordability.affordable) {
+      rejectBuild(
+        room,
+        team,
+        'insufficient-resources',
+        event.id,
+        affordability,
+      );
       recordRejectedBuildOutcome(
         buildOutcomes,
         event,
         'insufficient-resources',
         room.tick,
+        affordability,
       );
       continue;
     }
@@ -935,6 +1043,12 @@ export function addPlayerToRoom(
     playerIds: new Set<string>([playerId]),
     resources: DEFAULT_STARTING_RESOURCES,
     income: 0,
+    incomeBreakdown: {
+      base: 0,
+      structures: 0,
+      total: 0,
+      activeStructureCount: 0,
+    },
     lastIncomeTick: room.tick,
     territoryRadius: DEFAULT_TEAM_TERRITORY_RADIUS,
     baseTopLeft,
@@ -1030,6 +1144,7 @@ export function queueBuildEvent(
     return {
       accepted: false,
       error: 'Team is defeated',
+      reason: 'team-defeated',
     };
   }
 
@@ -1039,6 +1154,7 @@ export function queueBuildEvent(
     return {
       accepted: false,
       error: 'Unknown template',
+      reason: 'unknown-template',
     };
   }
 
@@ -1049,6 +1165,7 @@ export function queueBuildEvent(
     return {
       accepted: false,
       error: 'x and y must be integers',
+      reason: 'invalid-coordinates',
     };
   }
 
@@ -1057,6 +1174,7 @@ export function queueBuildEvent(
     return {
       accepted: false,
       error: 'Placement is out of bounds',
+      reason: 'out-of-bounds',
     };
   }
 
@@ -1065,6 +1183,7 @@ export function queueBuildEvent(
     return {
       accepted: false,
       error: 'Placement is outside team territory',
+      reason: 'outside-territory',
     };
   }
 
@@ -1074,6 +1193,32 @@ export function queueBuildEvent(
     return {
       accepted: false,
       error: 'delayTicks must be an integer',
+      reason: 'invalid-delay',
+    };
+  }
+
+  const diffCells = compareTemplate(room, template, x, y);
+  if (diffCells < 0) {
+    rejectBuild(room, team, 'template-compare-failed');
+    return {
+      accepted: false,
+      error: 'Unable to compare template with current state',
+      reason: 'template-compare-failed',
+    };
+  }
+
+  const needed = diffCells + template.activationCost;
+  const affordability = evaluateAffordability(needed, team.resources);
+  if (!affordability.affordable) {
+    rejectBuild(room, team, 'insufficient-resources', undefined, affordability);
+    return {
+      accepted: false,
+      error: 'Insufficient resources',
+      reason: 'insufficient-resources',
+      affordable: affordability.affordable,
+      needed: affordability.needed,
+      current: affordability.current,
+      deficit: affordability.deficit,
     };
   }
 
@@ -1116,6 +1261,13 @@ export function createRoomStatePayload(room: RoomState): RoomStatePayload {
       playerIds: [...team.playerIds],
       resources: team.resources,
       income: team.income,
+      incomeBreakdown: {
+        base: team.incomeBreakdown.base,
+        structures: team.incomeBreakdown.structures,
+        total: team.incomeBreakdown.total,
+        activeStructureCount: team.incomeBreakdown.activeStructureCount,
+      },
+      pendingBuilds: projectPendingBuilds(room, team),
       defeated: team.defeated,
       baseTopLeft: {
         x: team.baseTopLeft.x,
