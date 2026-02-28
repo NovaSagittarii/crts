@@ -87,7 +87,21 @@ Each task was committed atomically:
 
 ## Deviations from Plan
 
-None - plan executed exactly as written.
+### Auto-fixed Issues
+
+**1. [Rule 3 - Blocking] Corrected roadmap progress row after CLI update no-op**
+
+- **Found during:** state/roadmap metadata finalization
+- **Issue:** `roadmap update-plan-progress` reported `summary_count: 1` but left Phase 4 progress row at `0/3 Not started`.
+- **Fix:** Manually updated Phase 4 roadmap row to `1/3 In Progress` and checked off `04-01-PLAN.md` in the phase plan list.
+- **Files modified:** `.planning/ROADMAP.md`
+- **Verification:** Re-read roadmap progress table and phase plan checklist entries after patch.
+- **Committed in:** metadata follow-up commit
+
+---
+
+**Total deviations:** 1 auto-fixed (1 blocking)
+**Impact on plan:** Metadata now accurately reflects completed Phase 4 plan progress; implementation scope unchanged.
 
 ## Authentication Gates
 

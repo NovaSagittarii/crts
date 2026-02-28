@@ -90,7 +90,7 @@ Plans:
 
 Plans:
 
-- [ ] 04-01-PLAN.md — Add engine-authoritative affordability metadata, income breakdown fields, and pending queue projection contracts.
+- [x] 04-01-PLAN.md — Add engine-authoritative affordability metadata, income breakdown fields, and pending queue projection contracts.
 - [ ] 04-02-PLAN.md — Wire server preview/rejection payloads and integration coverage for deficits and pending queue state visibility.
 - [ ] 04-03-PLAN.md — Implement HUD affordability gating, pulse/delta income cues, and pending queue timeline UI from authoritative payloads.
 
@@ -113,5 +113,5 @@ Plans:
 | 1. Lobby & Team Reliability             | 5/5            | Complete    | 2026-02-27 |
 | 2. Match Lifecycle & Breach Outcomes    | 3/3            | Complete    | 2026-02-27 |
 | 3. Deterministic Build Queue Validation | 2/2            | Complete    | 2026-02-27 |
-| 4. Economy HUD & Queue Visibility       | 0/3            | Not started | -          |
+| 4. Economy HUD & Queue Visibility       | 1/3            | In Progress | -          |
 | 5. Quality Gate Validation              | 0/TBD          | Not started | -          |
