@@ -5,18 +5,18 @@
 See: .planning/PROJECT.md (updated 2026-02-27)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 3 - Deterministic Build Queue Validation
+**Current focus:** Phase 4 - Economy HUD & Queue Visibility
 
 ## Current Position
 
-**Current Phase:** 03
-**Current Phase Name:** Deterministic Build Queue Validation
+**Current Phase:** 04
+**Current Phase Name:** Economy HUD & Queue Visibility
 **Total Phases:** 5
-**Current Plan:** Not started
-**Total Plans in Phase:** 2
-**Status:** Milestone complete
-**Last Activity:** 2026-02-27
-**Progress:** [██████████] 100%
+**Current Plan:** 2
+**Total Plans in Phase:** 3
+**Status:** Ready to execute
+**Last Activity:** 2026-02-28
+**Progress:** [█████████░] 85%
 
 ## Performance Metrics
 
@@ -47,6 +47,7 @@ _Updated after each plan completion_
 | Phase 02 P03 | 9 min | 3 tasks | 3 files |
 | Phase 03 P01 | 11 min | 3 tasks | 3 files |
 | Phase 03 P02 | 12 min | 3 tasks | 4 files |
+| Phase 04 P01 | 9 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,9 @@ Recent decisions affecting current work:
 - [Phase 03]: Emit build:outcome room-wide from tickRoom() results so each acknowledged queue event has terminal closure
 - [Phase 03]: Map queue validation failures to explicit room:error reason codes instead of generic build-rejected
 - [Phase 03]: Reject direct cell:update gameplay mutations with queue-only-mutation-path and preserve build:queue as the sole gameplay mutation entrypoint
+- [Phase 04]: Keep affordability metadata canonical in engine outputs with exact needed/current/deficit fields.
+- [Phase 04]: Project pending queue rows per team with executeTick/eventId ordering and template id/name for reconnect-safe timeline rendering.
+- [Phase 04]: Introduce typed build:preview request/response contracts while keeping existing queue/state/outcome event names stable.
 
 ### Pending Todos
 
@@ -101,6 +105,6 @@ None yet.
 
 ## Session Continuity
 
-**Last session:** 2026-02-27T12:26:06.069Z
-**Stopped At:** Completed 03-02-PLAN.md
+**Last session:** 2026-02-28T23:54:40.082Z
+**Stopped At:** Completed 04-01-PLAN.md
 **Resume File:** None

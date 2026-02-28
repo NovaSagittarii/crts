@@ -30,12 +30,12 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Economy
 
 - [ ] **ECON-01**: User can see current resources and per-tick income in the match HUD.
-- [ ] **ECON-02**: User can only queue affordable builds; unaffordable requests are rejected with reason.
-- [ ] **ECON-03**: Resource income updates dynamically based on owned structures/territory state.
+- [x] **ECON-02**: User can only queue affordable builds; unaffordable requests are rejected with reason.
+- [x] **ECON-03**: Resource income updates dynamically based on owned structures/territory state.
 
 ### UX
 
-- [ ] **UX-01**: User can inspect pending builds in a queue timeline organized by execute tick.
+- [x] **UX-01**: User can inspect pending builds in a queue timeline organized by execute tick.
 
 ### Quality Gates
 
@@ -82,9 +82,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BUILD-03    | Phase 3 | Complete |
 | BUILD-04    | Phase 3 | Complete |
 | ECON-01     | Phase 4 | Pending |
-| ECON-02     | Phase 4 | Pending |
-| ECON-03     | Phase 4 | Pending |
-| UX-01       | Phase 4 | Pending |
+| ECON-02     | Phase 4 | Complete |
+| ECON-03     | Phase 4 | Complete |
+| UX-01       | Phase 4 | Complete |
 | QUAL-01     | Phase 5 | Pending |
 | QUAL-02     | Phase 5 | Pending |
 
