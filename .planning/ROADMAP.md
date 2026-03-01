@@ -120,4 +120,4 @@ Plans:
 | 2. Match Lifecycle & Breach Outcomes    | 3/3            | Complete | 2026-02-27 |
 | 3. Deterministic Build Queue Validation | 2/2            | Complete | 2026-02-27 |
 | 4. Economy HUD & Queue Visibility       | 4/4            | Complete | 2026-03-01 |
-| 5. Quality Gate Validation              | 2/2            | Complete | 2026-03-01 |
+| 5. Quality Gate Validation              | 2/2            | Complete    | 2026-03-01 |
