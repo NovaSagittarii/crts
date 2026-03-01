@@ -12,11 +12,11 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 **Current Phase:** 04
 **Current Phase Name:** Economy HUD & Queue Visibility
 **Total Phases:** 5
-**Current Plan:** 2
+**Current Plan:** 3
 **Total Plans in Phase:** 3
 **Status:** Ready to execute
-**Last Activity:** 2026-02-28
-**Progress:** [█████████░] 85%
+**Last Activity:** 2026-03-01
+**Progress:** [█████████░] 92%
 
 ## Performance Metrics
 
@@ -48,6 +48,7 @@ _Updated after each plan completion_
 | Phase 03 P01 | 11 min | 3 tasks | 3 files |
 | Phase 03 P02 | 12 min | 3 tasks | 4 files |
 | Phase 04 P01 | 9 min | 3 tasks | 3 files |
+| Phase 04 P02 | 19 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -91,6 +92,9 @@ Recent decisions affecting current work:
 - [Phase 04]: Keep affordability metadata canonical in engine outputs with exact needed/current/deficit fields.
 - [Phase 04]: Project pending queue rows per team with executeTick/eventId ordering and template id/name for reconnect-safe timeline rendering.
 - [Phase 04]: Introduce typed build:preview request/response contracts while keeping existing queue/state/outcome event names stable.
+- [Phase 04]: Compute build:preview responses via queueBuildEvent probes on cloned room state
+- [Phase 04]: Use engine-provided queue rejection reason codes and include room:error deficit metadata for insufficient-resources
+- [Phase 04]: Keep state/build:outcome emissions as pass-through carriers for pending queue and affordability metadata
 
 ### Pending Todos
 
@@ -105,6 +109,6 @@ None yet.
 
 ## Session Continuity
 
-**Last session:** 2026-02-28T23:54:40.082Z
-**Stopped At:** Completed 04-01-PLAN.md
+**Last session:** 2026-03-01T00:19:43.385Z
+**Stopped At:** Completed 04-02-PLAN.md
 **Resume File:** None
