@@ -28,6 +28,8 @@
     "test": "vitest run --config vitest.config.ts",
     "test:unit": "vitest run --config vitest.config.ts --dir packages",
     "test:integration": "vitest run --config vitest.config.ts --dir tests/integration",
+    "test:integration:serial": "vitest run --config vitest.config.ts --dir tests/integration --no-file-parallelism",
+    "test:quality": "npm run test:unit && npm run test:integration",
     "test:watch": "vitest"
   },
   "dependencies": {
