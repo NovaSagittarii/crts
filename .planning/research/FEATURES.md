@@ -1,159 +1,123 @@
 # Feature Research
 
-**Domain:** Browser multiplayer Conway RTS prototype (lobby/team setup + playable match loop)
-**Researched:** 2026-02-27
-**Confidence:** MEDIUM (HIGH for in-repo behavior, MEDIUM for broader feature expectations)
+**Domain:** Conway RTS prototype - v0.0.2 Gameplay Expansion
+**Researched:** 2026-03-01
+**Confidence:** HIGH (milestone scope and behavior are defined in project docs)
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-Features users assume exist for a playable browser multiplayer strategy demo. Missing these makes the prototype feel broken, not minimal.
+Features players should experience as baseline in v0.0.2. Missing these makes the gameplay expansion feel incomplete.
 
-| Feature                                                                 | Why Expected                                                               | Complexity | Notes                                                                                                                                           |
-| ----------------------------------------------------------------------- | -------------------------------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Reliable room lifecycle (`room:list/create/join/leave`)                 | Players must reach the same match quickly, or no gameplay can be validated | MEDIUM     | Depends on server room channels and cleanup rules; TDD slice: integration tests around `room:joined`, `room:left`, and room list updates        |
-| Deterministic team assignment + base spawn                              | Fair starts are mandatory in a head-to-head RTS loop                       | MEDIUM     | Depends on spawn selection and collision avoidance; add tests for spawn exhaustion/overlap behavior                                             |
-| Server-authoritative tick + state sync                                  | Multiplayer Conway without authoritative ticks desyncs immediately         | MEDIUM     | Already present; keep as non-negotiable foundation; test cadence and room-scoped broadcasts                                                     |
-| Core build loop (template queue, delay, validation, ack/error feedback) | Building is the primary player action in this design                       | HIGH       | Requires bounds + territory + affordability checks and clear rejection messages; TDD slice: `queueBuildEvent` matrix + socket integration paths |
-| Economy visibility and spending loop                                    | Resource cost/income is needed for meaningful strategic choices            | MEDIUM     | Depends on structure integrity and per-tick income; expose resources/income in HUD and verify cost deductions in tests                          |
-| Territory-constrained construction                                      | Prevents cross-map griefing and defines strategic space around each base   | MEDIUM     | Rule exists in engine; v1 needs at least clear textual/visual feedback when placement is outside territory                                      |
-| Canonical breach/win condition with explicit end-state UX               | A match must end clearly (win/lose), not just continue after base failure  | MEDIUM     | Align one rule across docs + code (safe cell breach vs 2x2 base integrity); include defeated lockout + victory/defeat messaging                 |
-| Minimal player identity feedback (name/team/base status)                | Multiplayer sessions require "who am I" and "what team am I" clarity       | LOW        | Session-level identity is enough for v1; no account system required                                                                             |
+| Feature                                                         | Expected Player-Facing Behavior                                                                                                                   | Complexity | Dependencies (Existing Systems)                                                                                                    | Milestone Notes                                              |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `STRUCT-INT`: Template-wide integrity + HP repair loop          | Structures that fail integrity auto-restore on repair intervals by consuming structure HP; exhausted HP leads to predictable collapse/degradation | HIGH       | Deterministic tick simulation; structure HP/state model; authoritative state snapshots; unit/integration quality gates from v0.0.1 | Land backend + tests before rich UI for structure status     |
+| `BASE-SHAPE`: 5x5 base footprint (16 cells)                     | Bases are easier to pressure and breach paths are broader, creating more active attack/defense play than a tiny core                              | MEDIUM     | Spawn/base initialization rules; breach/defeat resolution; client rendering for base geometry                                      | Keep one canonical 5x5 layout for this milestone             |
+| `BUILD-ZONE`: Union of per-structure build zones (radius 15)    | Build eligibility expands or contracts from owned structures, replacing one global build radius with spatially meaningful pressure zones          | HIGH       | Existing build queue validation/rejection flow; structure ownership index; geometry helpers; affordability feedback loop           | Radius is fixed at 15 in v0.0.2 to avoid rebalance churn     |
+| `UI-ARCH`: Lobby and in-game screen separation with transitions | Players move through a clear lobby flow into a focused in-game view with explicit state transitions at match start/end                            | MEDIUM     | Existing room/match lifecycle events and reconnect state; current web state machine                                                | Keep Socket.IO lobby contract stable while UI flow changes   |
+| `UI-ARCH` enabler: UI modularization into focused files         | No direct new button, but players get fewer regressions while new controls/overlays ship and iterate                                              | MEDIUM     | Existing `apps/web/src/client.ts` responsibilities; build tooling and event wiring                                                 | Treat as mandatory delivery foundation, not optional cleanup |
 
-### Differentiators (Competitive Advantage)
+### Differentiators (High-Value Gameplay/UI Leverage)
 
-Features that make this a Conway RTS (not just "multiplayer Life paint mode").
+These features increase strategic expression and readability once table stakes are stable.
 
-| Feature                                                  | Value Proposition                                                                                    | Complexity | Notes                                                                                              |
-| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------- |
-| Ghost-cell batch planner with commit semantics           | Captures the design's core tactical idea: plan edits safely, then commit in one deterministic action | HIGH       | Best differentiator, but can be staged (single-batch v1.x before advanced multi-batch editor)      |
-| Curated pattern deck (offense/defense/support templates) | Makes advanced Conway tactics accessible without requiring expert pattern memorization               | MEDIUM     | Start from `block/glider/eater/generator`, then expand toward DESIGN.md candidates                 |
-| Territory-growth support structures                      | Adds macro-strategy (map control) on top of micro placement                                          | MEDIUM     | Leverages existing `buildArea`/income concepts; add UI cues before adding many new structures      |
-| Tick-timeline UX (pending build queue visibility)        | Improves readability of delayed deterministic actions, reducing "why didn't it build?" confusion     | MEDIUM     | Server already returns `executeTick`; add queue panel before adding cancellation/advanced controls |
-| Conway-specific threat signaling near safe cell          | Helps non-experts read attack trajectories and defend intentionally                                  | HIGH       | Defer deep forecasting; start with simple danger indicators tied to base-adjacent activity         |
+| Feature                                                           | Value Proposition                                                                                              | Complexity | Dependencies (Existing Systems)                                                                              | Milestone Notes                                                        |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| `PLACE-XFORM`: Rotate/mirror placement transforms                 | Players can adapt the same template to many tactical contexts without requiring a much larger template catalog | HIGH       | Template placement pipeline; server-side build validation; client preview/ghost placement handling           | Ship canonical transforms only (90-degree rotations + mirror)          |
+| `UI-MAP`: Structure hover details + destroy action                | Players can inspect ownership/health role and intentionally remove weak or misplaced structures                | MEDIUM     | Authoritative structure identifiers and metadata in snapshots; action validation and acknowledgment pipeline | Start with single-structure select + confirm destroy (no bulk actions) |
+| `UI-MAP`: Pan/zoom camera + in-grid overlays (economy/build/team) | Larger base/build-zone mechanics stay readable and pressure is understandable at gameplay speed                | HIGH       | Camera/world coordinate transform layer; authoritative economy/team/build-zone data feeds; render layering   | Prioritize correctness and legibility over animation polish            |
 
-### Anti-Features (Commonly Requested, Often Problematic)
+### Anti-Features (Out of Scope / Risky Scope Expansion)
 
-Features that look attractive but are likely to derail v1 validation.
-
-| Feature                                                            | Why Requested                                      | Why Problematic                                                                            | Alternative                                                    |
-| ------------------------------------------------------------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| Accounts, progression, ranked matchmaking                          | Players expect progression systems in online games | Adds auth, persistence, moderation, and non-gameplay complexity before core loop is proven | Session names + room-based play for v1                         |
-| 4-10 player rooms/complex team systems                             | Social scale sounds more exciting                  | Amplifies spawn balancing, UI clutter, and performance risk before 1v1 is stable           | Lock v1 to 1v1 (optionally 2v2 later)                          |
-| Huge maps + high-TPS optimization push (e.g., 2048x2048 ambitions) | "Epic scale" appeal                                | Forces transport/computation rewrites and obscures gameplay feedback quality               | Keep map sizes moderate and optimize after gameplay validation |
-| Replay/spectator/time-travel tooling                               | Useful for sharing and debugging                   | Requires event logs, persistence, and replay UI architecture                               | Post-match summary + logs only                                 |
-| Arbitrary user-uploaded templates/macros                           | Creative freedom appeal                            | Breaks balance and increases abuse/exploit surface early                                   | Curated template whitelist with controlled expansion           |
-| Full fog-of-war + minimap + advanced camera suite                  | Familiar RTS feature request                       | Large UX/systems cost for a prototype currently built around direct grid visibility        | Keep full-map visibility for v1; revisit once core loop is fun |
-| Stack rewrite (WASM/protobuf/C++ parity)                           | Performance and "production-ready" perception      | Conflicts with milestone goal of fast TypeScript iteration and gameplay learning           | Keep TypeScript + Socket.IO for this milestone                 |
+| Anti-Feature                                                 | Why Requested                                    | Why Problematic in v0.0.2                                                                                                  | Alternative                                                      |
+| ------------------------------------------------------------ | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Full custom template editor + user-uploaded template sharing | More creativity and content variety              | Expands validation surface, abuse risk, and balance volatility while core transform/build-zone rules are still stabilizing | Keep curated templates and ship rotate/mirror first              |
+| Minimap, fog-of-war, cinematic camera effects                | Feels "more complete RTS"                        | High UI/system cost that competes with required pan/zoom + overlay correctness                                             | Deliver practical pan/zoom with clear, trustworthy overlays      |
+| Bulk destroy, undo/redo timeline editing                     | Convenience for correcting mistakes              | Requires rollback/history semantics and increases deterministic desync risk                                                | Single destroy action with explicit server acknowledgment        |
+| Multiple base archetypes or custom base geometry             | Variety/replayability request                    | Undercuts `BASE-SHAPE` balancing objective and multiplies breach test matrix                                               | Lock to one 5x5 (16-cell) base shape this milestone              |
+| Frontend framework migration during modularization           | Team ergonomics and long-term architecture goals | High delivery risk and minimal immediate player value for this milestone                                                   | Modularize the current TypeScript/Vite client incrementally      |
+| Client-predicted build-zone/repair outcomes                  | Faster apparent responsiveness                   | Risks divergence from authoritative simulation and confusing mismatch states                                               | Keep server-authoritative outcomes with clear pending indicators |
 
 ## Feature Dependencies
 
 ```text
-[Room lifecycle]
-    └──requires──> [Team assignment + base spawn]
-                         └──requires──> [Authoritative tick + state broadcast]
-                                              └──requires──> [Build queue + template placement]
-                                                                   └──requires──> [Economy spend/income]
-                                                                                        └──requires──> [Breach win/lose + end-state UX]
+[Deterministic tick + authoritative state broadcast] (v0.0.1 baseline)
+    └──enables──> [STRUCT-INT integrity/HP repair loop]
+                        └──feeds──> [Hover structure health/details]
 
-[Template catalog] ──enhances──> [Build queue + template placement]
-[Ghost-cell planner] ──enhances──> [Build queue + template placement]
-[Territory-growth structures] ──enhances──> [Economy spend/income]
+[Spawn/base initialization + breach resolver] (v0.0.1 baseline)
+    └──required-by──> [BASE-SHAPE 5x5/16-cell footprint]
 
-[Large-map performance hardening] ──conflicts──> [Fast v1 gameplay validation]
+[Build queue validation + rejection reasons] (v0.0.1 baseline)
+    └──required-by──> [BUILD-ZONE union radius=15]
+                            └──enhanced-by──> [PLACE-XFORM rotate/mirror]
+                            └──updated-by──> [Destroy action shrinks zones]
+
+[UI modularization]
+    └──enables──> [Lobby/in-game separation]
+                       └──enables──> [Pan/zoom + overlays + hover interactions]
 ```
 
 ### Dependency Notes
 
-- **Room lifecycle requires team/base assignment:** until room membership is deterministic, every downstream gameplay feature is noisy or untestable.
-- **Build queue requires authoritative tick/state sync:** delayed template execution only works if all clients consume one server timeline.
-- **Economy and breach rules should ship together:** players need immediate strategic feedback (resource pressure + win/loss) to evaluate loop quality.
-- **Ghost planner should follow stable queue semantics:** implement planner UI only after queue acceptance/rejection semantics are reliable.
+- **`STRUCT-INT` before rich structure UI:** hover/detail surfaces are only trustworthy once template-wide integrity and HP behavior are authoritative.
+- **`BASE-SHAPE` and `BUILD-ZONE` should be validated together:** footprint/radius changes jointly define pressure lanes and breach pacing.
+- **`PLACE-XFORM` depends on stable legality checks:** transformed placements must run through the same authoritative validation as non-transformed placements.
+- **Destroy must immediately affect build eligibility:** removing structures must recompute union zones to avoid stale client previews.
+- **UI modularization should precede heavy map UI work:** lowers regression risk while adding camera transforms, overlays, and hover interactions.
 
 ## MVP Definition
 
-### Launch With (v1)
+### Launch With (v0.0.2)
 
-Minimum playable scope for milestone success.
+- [ ] `STRUCT-INT` template-wide integrity/HP repair loop with deterministic tests
+- [ ] `BASE-SHAPE` 5x5/16-cell base footprint integrated with breach outcomes
+- [ ] `BUILD-ZONE` union-of-structure build eligibility at radius 15
+- [ ] `PLACE-XFORM` rotate/mirror placement supported in validation + UI controls
+- [ ] `UI-MAP` baseline structure hover details + single-structure destroy flow
+- [ ] `UI-MAP` practical pan/zoom + economy/build/team overlays
+- [ ] `UI-ARCH` lobby/in-game separation and modularized UI code organization
 
-- [ ] Room list/create/join/leave flow with clear room membership state
-- [ ] 1v1 team spawn with deterministic base placement
-- [ ] Template queue build loop (delay, validation, queued acknowledgment, rejection messaging)
-- [ ] Resource/income HUD + territory enforcement in build validation
-- [ ] Canonical breach victory/defeat loop with defeated-team action lockout
-- [ ] End-to-end integration test path: join -> build -> tick -> breach -> defeat
+### Add After Validation (v0.0.2.x)
 
-### Add After Validation (v1.x)
+- [ ] Overlay polish (extra visual modes, richer toggles) after readability is confirmed in playtests
+- [ ] Transform QoL (hotkeys, repeat placement workflows) after baseline rotate/mirror adoption is validated
+- [ ] Advanced structure panel workflows (sorting/filtering/history) after baseline hover/destroy telemetry exists
 
-Features that improve quality and strategic depth after v1 is stable.
+### Future Consideration (v0.0.3+)
 
-- [ ] Ghost-cell planner (single-batch draft/commit) — add when base v1 queue feedback is stable
-- [ ] Expanded template catalog from DESIGN.md shortlist — add when players can reliably execute core loop
-- [ ] Queue inspector UI (pending events by execute tick) — add when build confusion appears in playtests
-- [ ] Better execution-time failure signaling for queued builds — address known "accepted but not applied" confusion path
-
-### Future Consideration (v2+)
-
-Defer until core gameplay value is validated.
-
-- [ ] Authentication, persistent profiles, and matchmaking services — defer due backend complexity
-- [ ] Large-room scaling and transport optimization architecture — defer until measured load requires it
-- [ ] Replay/spectator systems — defer until matches are strategically interesting enough to rewatch
-- [ ] Multi-team diplomacy/high-player-count UX — defer until 1v1 balance is solved
-
-## TDD-Friendly Slicing
-
-1. **Lobby contract slice:** integration-test `room:list/create/join/leave` and `room:joined` payload completeness.
-2. **Team/base slice:** unit-test spawn/base invariants, then integration-test two players in one room.
-3. **Build validation slice:** unit-test bounds/territory/template/resource/defeated rejections for `queueBuildEvent`.
-4. **Economy + execution slice:** unit-test queued build execution costs and dynamic income behavior over ticks.
-5. **Match resolution slice:** unit + integration tests for breach detection, defeat lockout, and winner/loser UI events.
-6. **Differentiator slice (post-v1):** add ghost planner as isolated client/server contract without changing core tick semantics.
+- [ ] New transport/runtime stack changes (WASM/protobuf/protocol redesign)
+- [ ] Auth, progression, and matchmaking services
+- [ ] High-scale map/performance rearchitecture
+- [ ] Replay, spectator, or timeline-scrubbing systems
 
 ## Feature Prioritization Matrix
 
-| Feature                                   | User Value          | Implementation Cost | Priority |
-| ----------------------------------------- | ------------------- | ------------------- | -------- |
-| Room lifecycle + room visibility          | HIGH                | MEDIUM              | P1       |
-| Deterministic team spawn + base ownership | HIGH                | MEDIUM              | P1       |
-| Build queue + validation + feedback loop  | HIGH                | HIGH                | P1       |
-| Economy HUD + spending clarity            | HIGH                | MEDIUM              | P1       |
-| Breach win/lose + end-state UX            | HIGH                | MEDIUM              | P1       |
-| Ghost-cell planner                        | HIGH                | HIGH                | P2       |
-| Expanded pattern deck                     | MEDIUM              | MEDIUM              | P2       |
-| Queue timeline inspector                  | MEDIUM              | MEDIUM              | P2       |
-| Large-map optimization program            | MEDIUM              | HIGH                | P3       |
-| Accounts/ranked matchmaking               | LOW (for prototype) | HIGH                | P3       |
+| Feature                                           | User Value               | Implementation Cost | Priority |
+| ------------------------------------------------- | ------------------------ | ------------------- | -------- |
+| `STRUCT-INT`                                      | HIGH                     | HIGH                | P1       |
+| `BASE-SHAPE`                                      | HIGH                     | MEDIUM              | P1       |
+| `BUILD-ZONE`                                      | HIGH                     | HIGH                | P1       |
+| `UI-ARCH` separation + modularization             | HIGH                     | MEDIUM              | P1       |
+| `PLACE-XFORM`                                     | HIGH                     | HIGH                | P1       |
+| `UI-MAP` hover + destroy                          | HIGH                     | MEDIUM              | P1       |
+| `UI-MAP` pan/zoom + overlays                      | HIGH                     | HIGH                | P1       |
+| Overlay/transform QoL polish                      | MEDIUM                   | MEDIUM              | P2       |
+| Minimap/fog-of-war/replay/custom-template systems | LOW (for this milestone) | HIGH                | P3       |
 
 **Priority key:**
 
-- P1: Must have for launch
-- P2: Should have after core validation
-- P3: Intentional defer
-
-## Competitor Feature Analysis
-
-| Feature                           | Competitor A                                                                                                     | Competitor B                                                         | Our Approach                                            |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------- |
-| Instant browser multiplayer entry | LittleWarGame emphasizes no-download/no-registration browser play (LOW-MEDIUM confidence from landing page only) | N/A for Life pattern sites                                           | Keep guest identity + direct room join as table stakes  |
-| High-skill strategic vocabulary   | Traditional RTS uses unit tech trees                                                                             | Conway ecosystem uses canonical named patterns (gliders/eaters/guns) | Use curated Conway template deck as the learning bridge |
+- P1: Must have for v0.0.2 milestone closure
+- P2: Add once v0.0.2 core behavior is validated
+- P3: Explicitly deferred
 
 ## Sources
 
-- `/workspace/.planning/PROJECT.md` (HIGH)
-- `/workspace/conway-rts/DESIGN.md` (HIGH)
-- `/workspace/packages/rts-engine/src/rts.ts` (HIGH)
-- `/workspace/apps/server/src/server.ts` (HIGH)
-- `/workspace/apps/web/src/client.ts` (HIGH)
-- `/workspace/tests/integration/server/server.test.ts` (HIGH)
-- `/workspace/packages/rts-engine/test/rts.test.ts` (HIGH)
-- https://socket.io/docs/v4/rooms/ (official docs, last updated Jan 22, 2026) (HIGH)
-- https://www.littlewargame.com/ (landing page feature claims) (LOW-MEDIUM)
-- https://conwaylife.com/wiki/Glider (pattern taxonomy/context) (MEDIUM)
-- https://conwaylife.com/wiki/Block-laying_switch_engine (pattern taxonomy/context) (MEDIUM)
+- `/home/alpine/crts-opencode/.planning/PROJECT.md` (HIGH)
+- `/home/alpine/crts-opencode/conway-rts/DESIGN.md` (HIGH)
 
 ---
 
-_Feature research for: Browser multiplayer Conway RTS prototype_
-_Researched: 2026-02-27_
+_Feature research for: Conway RTS prototype - v0.0.2 Gameplay Expansion_
+_Researched: 2026-03-01_

@@ -1,321 +1,291 @@
 # Architecture Research
 
-**Domain:** Server-authoritative Conway RTS browser prototype (lobby/team-first)
-**Researched:** 2026-02-27
-**Confidence:** MEDIUM
+**Domain:** Conway RTS v0.0.2 gameplay expansion (deterministic multiplayer, server authoritative)
+**Researched:** 2026-03-01
+**Confidence:** HIGH for backend integration points and contracts; MEDIUM for exact frontend module split shape
 
 ## Standard Architecture
 
 ### System Overview
 
 ```text
-┌──────────────────────────────────── Browser (apps/web) ────────────────────────────────────┐
-│  Lobby UI  │  Team Setup UI  │  Match HUD  │  Canvas Renderer (requestAnimationFrame)      │
-│                                                                                              │
-│                Intent Builder (ghost plans, room actions, ready/start)                      │
-│                                      │                                                       │
-│                                      ▼                                                       │
-│                              Socket Client Adapter                                           │
-└──────────────────────────────────────┬───────────────────────────────────────────────────────┘
-                                       │ room-scoped events + acks
-┌──────────────────────────────────────┴───────────────────────────────────────────────────────┐
-│                               Server Runtime (apps/server)                                   │
-│  Socket Gateway -> Runtime Validation -> Lobby/Team Service -> Match Lifecycle Coordinator  │
-│         │                                   │                           │                    │
-│         │                                   ▼                           ▼                    │
-│         │                             Room Directory              Tick Scheduler             │
-│         │                                                              │                     │
-│         └---------------------- Snapshot/Delta Broadcaster <-----------┘                     │
-└──────────────────────────────────────┬───────────────────────────────────────────────────────┘
-                                       │ pure deterministic function calls
-┌──────────────────────────────────────┴───────────────────────────────────────────────────────┐
-│                                 Domain Packages (packages/*)                                 │
-│  protocol contracts | lobby state machine | rts command queue | conway-core step/encoding   │
-└───────────────────────────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────── Browser (apps/web) ─────────────────────────────────────┐
+│  Lobby View  <->  Game View  <->  Overlay Layer (hover/details/build-zone/economy badges)    │
+│         │                  │                     │                                              │
+│         └────────────── UI Store (authoritative state + local camera/input state) ───────────┘
+│                                            │                                                    │
+│                                   Typed Socket Adapter                                          │
+└────────────────────────────────────────────┬─────────────────────────────────────────────────────┘
+                                             │
+┌────────────────────────────────────────────┴─────────────────────────────────────────────────────┐
+│                          Server Runtime (apps/server/src/server.ts)                              │
+│  Socket handlers -> payload parsing -> lifecycle gate -> engine command APIs -> room broadcast   │
+│                                            │                                                      │
+│                                        Tick Loop                                                  │
+└────────────────────────────────────────────┬─────────────────────────────────────────────────────┘
+                                             │
+┌────────────────────────────────────────────┴─────────────────────────────────────────────────────┐
+│                         Deterministic Engine (packages/rts-engine)                               │
+│  placement transforms | union build-zone checks | queue commands (build/destroy)                │
+│  structure integrity + HP repair | base geometry | room payload projection                       │
+└───────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Component Responsibilities
 
-| Component                     | Responsibility                                                    | Typical Implementation                                   |
-| ----------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------- |
-| `Socket Gateway`              | Own event names, per-event auth checks, ack/reject mapping        | `apps/server/src/socket/*` handlers calling package APIs |
-| `Room Directory`              | Create/list/join/leave rooms and membership                       | In-memory map first; deterministic IDs and room channels |
-| `Lobby/Team Service`          | Team assignment, host controls, ready checks, start preconditions | Pure transitions in `packages/rts-engine/src/lobby/*`    |
-| `Match Lifecycle Coordinator` | Enforce phases (`lobby -> countdown -> active -> finished`)       | Explicit finite-state reducer with guards                |
-| `Tick Scheduler`              | Produce fixed simulation ticks and call engine in order           | Accumulator loop with max-steps clamp                    |
-| `RTS Command Engine`          | Validate and execute queued commands at `executeTick`             | `queue*` + `tick*` pure functions                        |
-| `Conway Core`                 | Deterministic grid stepping and bit-encoding                      | `packages/conway-core/src/grid.ts`                       |
-| `State Broadcaster`           | Emit room state updates with version metadata                     | `state:delta` + periodic `state:snapshot`                |
-| `Client State Store`          | Keep server-confirmed state and local transient UI overlays       | Store module in `apps/web/src/state/*`                   |
-| `Canvas Renderer`             | Render from store at display cadence, not network cadence         | `requestAnimationFrame` rendering loop                   |
+| Component                                         | Responsibility                                                                                        | Typical Implementation                                               |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `packages/rts-engine` deterministic core          | Own build validation, transform normalization, queue execution, integrity/HP rules, base breach logic | Pure functions called from server tick and socket handlers           |
+| `apps/server/src/server.ts` runtime orchestration | Own socket events, lifecycle gating (`lobby/countdown/active/finished`), room-scoped emissions        | Parse payload -> call package API -> emit `state` and outcome events |
+| `packages/rts-engine/socket-contract.ts`          | Own wire-level TypeScript contracts for client/server/integration tests                               | Shared event interfaces and payload types                            |
+| `apps/web` app state + rendering                  | Own view transitions, map camera (pan/zoom), overlay rendering, local input state                     | Split store/socket/render/view modules; no simulation logic          |
+| `tests/integration/server/*`                      | Lock end-to-end event and lifecycle behavior                                                          | Socket-level contract tests with two clients and deterministic waits |
 
 ## Recommended Project Structure
 
 ```text
-apps/
-├── server/src/
-│   ├── socket/                # Event handlers + payload validation + ack wiring
-│   ├── rooms/                 # Room directory and membership orchestration
-│   ├── lifecycle/             # Lobby/countdown/active/finished orchestration
-│   ├── tick/                  # Fixed-step scheduler and tick orchestration
-│   └── sync/                  # Snapshot/delta emission + resync handlers
-└── web/src/
-    ├── socket/                # Typed socket adapter
-    ├── state/                 # Authoritative state store + selectors
-    ├── scenes/lobby/          # Room/team/ready UI
-    ├── scenes/match/          # Match HUD + command UI
-    └── render/                # Canvas rendering and ghost overlay
+packages/rts-engine/
+├── rts.ts                         # Existing orchestrator; keep as main tick entry
+├── placement-transform.ts         # NEW: rotate/mirror normalization + transformed template projection
+├── build-zone.ts                  # NEW: union-of-structure-radius predicates + overlay projection
+├── structure-integrity.ts         # NEW: generic K-tick integrity check + HP repair resolution
+├── structure-commands.ts          # NEW: build/destroy queue command union + deterministic ordering
+├── socket-contract.ts             # Existing wire contracts; extend events/payloads
+└── *.test.ts                      # Expand deterministic unit coverage before server/UI wiring
 
-packages/
-├── conway-core/src/           # Pure cellular automata logic and encoding
-├── rts-engine/src/lobby/      # Lobby/team transitions (deterministic)
-├── rts-engine/src/match/      # Tick reducer, queue processing, win conditions
-└── protocol/src/              # Shared event contracts + DTO schemas
+apps/server/src/
+├── server.ts                      # Existing runtime; extend handlers and emissions
+├── gameplay-payloads.ts           # NEW: transform + destroy payload parsing/validation helpers
+└── lobby-session.ts               # Existing reconnect/session authority logic
+
+apps/web/src/
+├── client.ts                      # Convert to bootstrap only
+├── app/store.ts                   # NEW: canonical client state + derived selectors
+├── app/socket.ts                  # NEW: event bindings and dispatch bridge
+├── views/lobby-view.ts            # NEW: lobby-focused DOM/render logic
+├── views/game-view.ts             # NEW: in-match DOM/render logic
+├── render/camera.ts               # NEW: pan/zoom transforms and world<->screen helpers
+├── render/grid-renderer.ts        # NEW: grid canvas paint path
+├── render/overlay-renderer.ts     # NEW: build-zone, structure hover, placement previews
+├── features/placement-controls.ts # NEW: rotate/mirror controls + preview queue interactions
+└── features/structure-actions.ts  # NEW: destroy action UX flow
 ```
 
 ### Structure Rationale
 
-- **`packages/protocol`:** Single source of truth for event contracts to prevent server/client/test drift.
-- **`rts-engine` split by `lobby` and `match`:** Keeps pre-game and in-game rules separate, enabling focused tests and safer iteration.
-- **Server `tick/` and `sync/` separation:** Decouples simulation timing from transport concerns, reducing accidental nondeterminism.
-- **Web `state/` + `render/` split:** Prevents network event storms from directly triggering heavy paint work.
+- **`placement-transform.ts` + `structure-commands.ts`:** keeps rotation/mirror and destroy changes out of `rts.ts` mega-function sprawl.
+- **`build-zone.ts`:** isolates the new union-radius algorithm so queue validation, preview, and overlays share one implementation.
+- **`gameplay-payloads.ts` on server:** avoids ad-hoc parsing branches inside an already large `server.ts`.
+- **`app/store.ts` and dedicated render/view modules:** makes lobby/game transition and camera overlays testable without socket coupling.
 
 ## Architectural Patterns
 
-### Pattern 1: Authoritative Intent Pipeline
+### Pattern 1: Command Queue Union (Build + Destroy)
 
-**What:** Clients send intents, server validates and schedules deterministic execution, server broadcasts results.
-**When to use:** All gameplay-affecting actions (`build`, `commit-ghosts`, `ready/start`, `team-change`).
-**Trade-offs:** Strong consistency and anti-cheat posture, but more server-side implementation effort.
-
-**Example:**
-
-```typescript
-// server side shape (conceptual)
-interface BuildIntent {
-  commandId: string;
-  roomId: string;
-  teamId: number;
-  templateId: string;
-  x: number;
-  y: number;
-  executeTick: number;
-}
-
-function handleBuildIntent(intent: BuildIntent): {
-  accepted: boolean;
-  reason?: string;
-} {
-  const validated = validateBuildIntent(intent);
-  if (!validated.ok) return { accepted: false, reason: validated.reason };
-  enqueueBuildCommand(validated.value);
-  return { accepted: true };
-}
-```
-
-### Pattern 2: Explicit Match Lifecycle State Machine
-
-**What:** Lifecycle is a reducer with explicit phase transitions and guards, not ad-hoc booleans.
-**When to use:** Lobby readiness, countdown start, match end, rematch/reset.
-**Trade-offs:** Slightly more ceremony upfront, much lower long-term bug rate.
+**What:** Keep one deterministic queue model with a command union instead of parallel ad-hoc queues.
+**When to use:** Any gameplay mutation that changes structures/grid state (`build`, `destroy`).
+**Trade-offs:** Slight refactor now, less long-term event-order ambiguity and less duplicate validation logic.
 
 **Example:**
 
 ```typescript
-type Phase = 'lobby' | 'countdown' | 'active' | 'finished';
+type PlacementTransform = {
+  rotationQuarterTurns: 0 | 1 | 2 | 3;
+  mirrorX: boolean;
+};
 
-function transition(
-  phase: Phase,
-  event: 'all-ready' | 'countdown-done' | 'breach',
-): Phase {
-  if (phase === 'lobby' && event === 'all-ready') return 'countdown';
-  if (phase === 'countdown' && event === 'countdown-done') return 'active';
-  if (phase === 'active' && event === 'breach') return 'finished';
-  return phase;
-}
+type QueuedCommand =
+  | {
+      kind: 'build';
+      eventId: number;
+      teamId: number;
+      executeTick: number;
+      templateId: string;
+      x: number;
+      y: number;
+      transform: PlacementTransform;
+    }
+  | {
+      kind: 'destroy';
+      eventId: number;
+      teamId: number;
+      executeTick: number;
+      structureId: string;
+    };
 ```
 
-### Pattern 3: Snapshot + Delta Synchronization
+### Pattern 2: Shared Validation Path for Preview and Queue
 
-**What:** Frequent deltas for responsiveness plus periodic snapshots for recovery and anti-drift.
-**When to use:** Grid/state updates over variable mobile/desktop networks.
-**Trade-offs:** More protocol complexity, major reduction in bandwidth spikes and desync pain.
+**What:** Preview and queue should call the same engine validator, not diverging code paths.
+**When to use:** Build placement with transforms, destroy checks, affordability checks.
+**Trade-offs:** Requires extracting validator API from `queueBuildEvent`; removes clone/probe drift risk.
 
 **Example:**
 
 ```typescript
-interface StateDelta {
-  fromTick: number;
-  toTick: number;
-  changedCells: Array<{ x: number; y: number; alive: 0 | 1 }>;
-}
+const preview = validateBuildCommand(room, teamId, payload);
+if (!preview.ok) return reject(preview.reason);
 
-if (delta.fromTick !== client.lastAppliedTick) {
-  socket.emit('state:resync', {
-    roomId,
-    lastAppliedTick: client.lastAppliedTick,
-  });
-}
+const queued = queueValidatedBuildCommand(room, preview.normalized);
 ```
+
+### Pattern 3: Server-Projected Structure Metadata for Grid-Attached UI
+
+**What:** Server emits structure snapshots and build-zone sources; client only renders and interacts.
+**When to use:** Hover details, destroy affordance, build-zone overlays, camera-aware annotations.
+**Trade-offs:** Larger `state` payload; avoids client/server rules drift.
 
 ## Data Flow
 
-### Authority Model
-
-- **Server authoritative:** Room state, team assignments, lifecycle phase, resource accounting, and Conway ticks are owned by the server only.
-- **Client intent-only:** Browser sends commands and lobby actions, never authoritative mutations.
-- **Client local-only overlays:** Ghost planning preview and optimistic UI messaging can be local, but must reconcile to server acks/state.
-
-### Request Flow
+### Flow A: Rotate/Mirror Build Path (Preview -> Queue -> Commit)
 
 ```text
-[User action in lobby/match UI]
-    ↓
-[Client intent builder]
-    ↓ emits intent with commandId
-[Socket gateway]
-    ↓ validates payload and phase permissions
-[Lobby service or match command queue]
-    ↓ accepted intents become scheduled events
-[Tick scheduler executes deterministic reducer]
-    ↓
-[State broadcaster emits delta/snapshot with tick metadata]
-    ↓
-[Client store applies in order, renderer paints on rAF]
+[UI transform controls + board click]
+    -> build:preview {templateId, x, y, rotationQuarterTurns, mirrorX}
+    -> server payload parser + lifecycle gate
+    -> engine validateBuildPlacement(...)
+    -> build:preview response (affordability + rejection reason + normalized transform)
+    -> build:queue (same payload)
+    -> engine queue command
+    -> tick executes command deterministically
+    -> build:outcome + state broadcast
 ```
 
-### State Management
+### Flow B: Destroy Structure End-to-End
 
 ```text
-Server: RoomAggregate (canonical)
-  ├── LobbyState (members, teams, ready, host)
-  ├── MatchState (grid, resources, queue, tick, victory)
-  └── PhaseState (lobby/countdown/active/finished)
+[Hover structure -> Destroy action]
+    -> structure:destroy {structureId, delayTicks}
+    -> server validates active state + ownership + not defeated
+    -> engine queues destroy command
+    -> tick resolves command (remove structure, recompute build-zone sources)
+    -> structure:outcome + state broadcast
+```
 
-Client: ViewStore
-  ├── ConfirmedState (last server tick)
-  ├── PendingIntents (awaiting ack)
-  └── LocalOverlay (ghost preview, cursor, selections)
+### Flow C: Generic Integrity + HP Repair Loop
+
+```text
+tickRoom
+  1) apply economy + due queued commands
+  2) apply grid mutations from accepted commands
+  3) apply legacy updates (until removed)
+  4) step Conway grid
+  5) every K ticks: integrity checks for all structures with checks[]
+     - failed check => hp--, then restore template if hp > 0
+  6) evaluate defeat + match outcome
+  7) project state payload
 ```
 
 ### Key Data Flows
 
-1. **Lobby/team flow:** `room:create/join -> team:assign -> team:ready -> match:start` guarded by lifecycle reducer.
-2. **Deterministic simulation flow:** `build intent -> queue at executeTick -> tick reducer -> conway step -> win check`.
-3. **UI synchronization flow:** `delta stream + periodic snapshot + resync endpoint` with monotonic tick checks.
-4. **Reconnect flow:** temporary disconnect uses Socket.IO recovery when possible; otherwise full snapshot bootstrap.
-
-## Build Order and Dependency Map
-
-| Step | Deliverable                                                         | Depends On | Why This Order                                                        |
-| ---- | ------------------------------------------------------------------- | ---------- | --------------------------------------------------------------------- |
-| 1    | Shared protocol contracts (`packages/protocol`) + typed sockets     | none       | Prevents contract drift before adding more events                     |
-| 2    | Lobby/team state machine + server handlers                          | Step 1     | Lobby-first is the milestone priority and unlocks reliable room entry |
-| 3    | Match lifecycle coordinator (`lobby/countdown/active/finished`)     | Step 2     | Defines allowed actions before deep simulation work                   |
-| 4    | Deterministic command queue upgrade (ghost commit/build scheduling) | Step 3     | Gameplay actions must run under phase and tick guarantees             |
-| 5    | UI store split + rAF renderer + pending intent UX                   | Steps 1-4  | UI sync should consume stable protocol/lifecycle, not shape them      |
-| 6    | Resync/reconnect hardening + delta/snapshot channel                 | Steps 3-5  | Recovery semantics require stable lifecycle and state metadata        |
-
-## Test-Driven Development Notes
-
-### Deterministic Test Seams
-
-- **`transitionLobbyState(state, event)` seam:** unit-test legal and illegal phase transitions without sockets.
-- **`reduceMatchTick(state, commands)` seam:** replay command logs and assert byte-identical grid hashes/winner.
-- **`validateIntent(payload, context)` seam:** fuzz malformed/stale/out-of-phase intents at pure function boundary.
-- **`encode/decode state payload` seam:** roundtrip tests for snapshot/delta serialization fidelity.
-
-### Runtime Boundary Tests
-
-- Integration tests: two-client lobby team assignment, ready gating, countdown start, and room-scoped broadcasts.
-- Integration tests: command ack/reject behavior (including timeout/retry paths), then deterministic execution at expected tick.
-- Integration tests: disconnect + reconnect with both recovered and unrecovered paths.
-- Contract tests: compile-time event typing plus runtime schema validation failures.
-
-### Determinism Guardrails
-
-- Keep `Date.now()`, random selection, and side effects out of package reducers.
-- Inject clock/tick externally from scheduler.
-- Order same-tick command execution deterministically (`executeTick`, then `teamId`, then `commandId`).
-- Keep replay fixtures as golden tests for regression detection.
-
-## Scaling Considerations
-
-| Scale         | Architecture Adjustments                                                                             |
-| ------------- | ---------------------------------------------------------------------------------------------------- |
-| 0-1k users    | Single Node process, in-memory rooms, full snapshots acceptable for MVP                              |
-| 1k-100k users | Sticky sessions + multi-node adapter, room sharding, snapshot+delta required                         |
-| 100k+ users   | Regional match clusters, external room directory, persistent event streams, aggressive load shedding |
-
-### Scaling Priorities
-
-1. **First bottleneck:** full-grid encode/broadcast every tick; fix with deltas and periodic keyframes.
-2. **Second bottleneck:** single-process room scheduler; fix with room partitioning across workers/nodes.
-
-## Anti-Patterns
-
-### Anti-Pattern 1: No Explicit Match Phase Boundaries
-
-**What people do:** Keep lobby + gameplay in one mutable object with ad-hoc boolean checks.
-**Why it's wrong:** Creates race conditions (start/leave/build overlap) and brittle handlers.
-**Do this instead:** Central phase reducer that gates every command by phase.
-
-### Anti-Pattern 2: Client-Driven Grid Mutation in Competitive Path
-
-**What people do:** Accept raw `cell:update` as primary gameplay operation.
-**Why it's wrong:** Breaks authority model, encourages desync/cheat vectors, bypasses resource and territory rules.
-**Do this instead:** Treat raw cell updates as debug-only; use scheduled server-validated commands for gameplay.
-
-### Anti-Pattern 3: Transport-Coupled Rendering
-
-**What people do:** Re-render entire canvas directly in every socket callback.
-**Why it's wrong:** Causes jank and inconsistent visual pacing under packet bursts.
-**Do this instead:** Apply network updates to store; render on `requestAnimationFrame` with latest confirmed tick.
+1. **Transform propagation:** UI controls -> preview payload -> queued command -> outcome/state metadata.
+2. **Build-zone propagation:** structure active/radius changes -> server build-zone source projection -> client overlay render.
+3. **Destroy propagation:** hover-selected `structureId` -> queued destroy command -> state removal and outcome event.
 
 ## Integration Points
 
-### External Services
+### New Artifacts (Create)
 
-| Service                                     | Integration Pattern                             | Notes                                                                                 |
-| ------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Socket.IO rooms/adapters                    | Room-scoped broadcast and membership channels   | Rooms are server-only concept; keep room membership authoritative on server           |
-| Socket.IO connection recovery               | Enable for short disconnect continuity          | Works with in-memory adapter; Redis adapter does not support this feature             |
-| Redis Streams adapter (optional scale step) | Cross-node packet forwarding + recovery support | Prefer this over classic Redis Pub/Sub if connection recovery must survive multi-node |
+| Artifact                                                              | Layer  | Responsibility                                                                    | Depends On                            |
+| --------------------------------------------------------------------- | ------ | --------------------------------------------------------------------------------- | ------------------------------------- |
+| `packages/rts-engine/placement-transform.ts`                          | Engine | Deterministic rotate/mirror projection for cells/checks and normalized dimensions | Existing template model in `rts.ts`   |
+| `packages/rts-engine/build-zone.ts`                                   | Engine | Union-of-structure-radius validation and overlay source projection                | Structure snapshots and active status |
+| `packages/rts-engine/structure-integrity.ts`                          | Engine | Generic integrity check + HP repair (not core-only)                               | Tick order in `tickRoom`              |
+| `packages/rts-engine/structure-commands.ts`                           | Engine | Build/destroy command queue model + deterministic sorting                         | Queue/event IDs in room state         |
+| `apps/server/src/gameplay-payloads.ts`                                | Server | Parse and normalize transform/destroy payload fields                              | Socket contracts                      |
+| `apps/web/src/render/camera.ts`                                       | Web    | Pan/zoom and world/screen conversion helpers                                      | Canvas render and pointer handlers    |
+| `apps/web/src/render/overlay-renderer.ts`                             | Web    | Build-zone outlines, hover cards, placement footprints                            | State payload structure metadata      |
+| `apps/web/src/views/lobby-view.ts`, `apps/web/src/views/game-view.ts` | Web    | Explicit lobby/game view transitions                                              | App store state machine               |
 
-### Internal Boundaries
+### Existing Artifacts (Modify)
 
-| Boundary                                              | Communication              | Notes                                                                |
-| ----------------------------------------------------- | -------------------------- | -------------------------------------------------------------------- |
-| `apps/server/socket` ↔ `packages/protocol`            | Typed DTO + runtime schema | Prevent drift and reject malformed payloads early                    |
-| `apps/server/lifecycle` ↔ `packages/rts-engine/lobby` | Pure transitions           | Enables deterministic unit tests and easier host/team policy changes |
-| `apps/server/tick` ↔ `packages/rts-engine/match`      | Fixed-step reducer calls   | Keep scheduler impure, engine pure                                   |
-| `apps/web/socket` ↔ `apps/web/state`                  | Action dispatch            | Centralizes reconciliation and pending-intent cleanup                |
+| Artifact                                                                                           | Change Type          | Required Changes                                                                                                           |
+| -------------------------------------------------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `packages/rts-engine/rts.ts`                                                                       | Modify               | Base shape constants/template, queue event model, structure ID strategy, new zone/integrity calls, destroy command support |
+| `packages/rts-engine/socket-contract.ts`                                                           | Modify               | Extend build payloads with transform fields; add destroy events/payloads; extend state team payload for structures/zones   |
+| `packages/rts-engine/index.ts`                                                                     | Modify               | Export newly extracted modules/types                                                                                       |
+| `packages/rts-engine/rts.test.ts`                                                                  | Modify               | Add tests for transform validity, 5x5 base checks, union-zone checks, destroy command, deterministic same-tick ordering    |
+| `apps/server/src/server.ts`                                                                        | Modify               | Wire new payload parsers, `structure:destroy` path, extended outcome emissions, updated reason mappings                    |
+| `apps/web/src/client.ts`                                                                           | Modify (then shrink) | Migrate monolith logic into store/socket/render/view modules; keep bootstrap only                                          |
+| `apps/web/index.html`                                                                              | Modify               | Add explicit lobby/game containers, map viewport wrapper, overlay layer anchors, transform/destroy controls                |
+| `tests/integration/server/server.test.ts` and `tests/integration/server/quality-gate-loop.test.ts` | Modify               | Assert new wire contracts, destroy flow, transform-aware preview/queue/outcome, and no regressions in existing lifecycle   |
 
-## Confidence and Gaps
+### Critical Data Contract Extensions
 
-- **HIGH confidence:** Socket.IO room semantics, delivery guarantees, acknowledgements/timeouts/retries, connection recovery behavior, adapter compatibility, sticky session requirements.
-- **HIGH confidence:** Node timer behavior (no exact callback timing guarantees) and browser `requestAnimationFrame` behavior.
-- **MEDIUM confidence:** Recommended deterministic replay and command-ordering approach for this exact RTS domain (based on existing code + established game networking practice).
-- **LOW confidence:** Large-scale (100k+) architecture details are directional because this milestone is explicitly prototype-scoped and has no production traffic profile yet.
+| Contract                     | Extension                                                                                                                   | Why                                                                              |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `BuildPreviewRequestPayload` | add `rotationQuarterTurns`, `mirrorX`                                                                                       | Preview must match final queued orientation/mirror                               |
+| `BuildQueuePayload`          | add `rotationQuarterTurns`, `mirrorX`                                                                                       | Commit path must carry transform deterministically                               |
+| `BuildPreviewPayload`        | echo normalized transform + transformed `width/height`                                                                      | Client preview box must match server-validated footprint                         |
+| `BuildRejectionReason`       | add transform/destroy reasons (e.g. `invalid-transform`, `unknown-structure`, `cannot-destroy-core`, `structure-not-owned`) | Distinguish failure causes for UX and tests                                      |
+| `RoomStatePayload.teams[]`   | add `structures[]` and `buildZoneSources[]` projections                                                                     | Needed for hover details, destroy targeting, and grid-attached overlay rendering |
+| `ClientToServerEvents`       | add `structure:destroy`                                                                                                     | End-to-end destroy command                                                       |
+| `ServerToClientEvents`       | add `structure:queued` and `structure:outcome`                                                                              | Destroy command lifecycle observability                                          |
+
+### Cross-Layer Wiring Points and Failure-Prone Links
+
+| Boundary                                     | Wiring Point                                                    | Failure Risk                                      | Mitigation                                                                           |
+| -------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Web input -> server preview                  | Transform payload (`rotationQuarterTurns`, `mirrorX`)           | UI preview mismatch versus server acceptance      | Normalize transform in server parser and echo normalized payload in preview response |
+| Server preview -> engine queue               | Separate validation paths (`runQueueBuildProbe` clone vs queue) | Drift between preview and queue rejection reasons | Replace clone/probe with shared validator API in engine                              |
+| Engine structure identity -> destroy payload | Reusing `x,y,width,height` key                                  | Collisions after rotations/mirrors and stale IDs  | Introduce stable monotonic `structureId` and project it in `state`                   |
+| Engine zone math -> overlay renderer         | Client recomputes zone differently                              | Visual zone differs from authoritative validator  | Emit server-projected `buildZoneSources[]`; client renders only projection           |
+| Camera math -> gameplay coordinates          | Pan/zoom + DPR pointer translation errors                       | Wrong cells queued/destroyed at non-default zoom  | Centralize world/screen conversion in `camera.ts` and unit test conversion           |
+| Lifecycle gate -> destroy/build commands     | Missing status checks for new event                             | Mutations during lobby/countdown/finished         | Reuse `assertGameplayMutationAllowed` for all command handlers                       |
+
+## Dependency-Aware Build Order (Backend + Tests First)
+
+| Phase | Deliverable                                                                       | New vs Modified Artifacts                                                                          | Test Gate                                                          | Why This Order                                                |
+| ----- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------- |
+| 1     | Engine seam extraction (no behavior change)                                       | NEW `placement-transform.ts`, `build-zone.ts`, `structure-integrity.ts`; MOD `rts.ts` exports only | `npm run test:unit` unchanged behavior                             | Reduces risk before introducing new rules                     |
+| 2     | Base geometry upgrade (5x5 / 16-cell core shape)                                  | MOD `rts.ts`, spawn geometry usage, payload base metadata                                          | New unit tests for base seed, integrity, defeat                    | Base shape drives later zone + destroy targeting              |
+| 3     | Generic integrity + HP repair for all checked structures                          | MOD tick pipeline and structure model; NEW integrity helpers                                       | Unit tests for K-tick damage/repair determinism                    | Required before destroy and zone radius semantics settle      |
+| 4     | Union build-zone validator (radius 15)                                            | MOD queue validation + preview validation; NEW zone projection                                     | Unit tests for inclusion/exclusion and deterministic ordering      | Queue/preview contract should stabilize before UI consumes it |
+| 5     | Transform-aware build queue + preview contracts                                   | MOD `socket-contract.ts`, server parser, queue/build tests                                         | Integration tests for preview->queue->outcome parity               | Locks wire contracts before frontend refactor                 |
+| 6     | Destroy command end-to-end                                                        | NEW destroy event/contracts + engine command path; MOD server handlers                             | Integration tests for ownership/core-protection/lifecycle lockouts | Completes backend feature set before UI implementation        |
+| 7     | Frontend module split + lobby/game view state machine                             | NEW web modules, MOD `client.ts` to bootstrap                                                      | Existing web + integration tests must still pass                   | Avoid adding camera/overlay complexity to monolith            |
+| 8     | UI gameplay features (pan/zoom, overlays, rotate/mirror controls, destroy action) | NEW camera/overlay/feature modules + MOD `index.html`                                              | Focused web tests + `npm run test:quality`                         | Final UX layer builds on stable backend contracts             |
+| 9     | Regression hardening and requirement trace closure                                | MOD integration tests (`QUAL-01`, `QUAL-02` plus new req IDs)                                      | `npm run test:quality` green                                       | Prevents milestone drift and catches cross-layer regressions  |
+
+## Anti-Patterns
+
+### Anti-Pattern 1: Client-Side Rule Reimplementation
+
+**What people do:** Recompute transform legality, zone union, or integrity status in browser logic.
+**Why it is wrong:** Causes server/client divergence and false-positive UI affordances.
+**Do this instead:** Keep server authoritative and render only server-projected previews/zones/outcomes.
+
+### Anti-Pattern 2: Identity by Coordinates Only
+
+**What people do:** Use `(x,y,width,height)` as persistent structure identity.
+**Why it is wrong:** Rotations/mirrors and future template changes can collide or invalidate IDs.
+**Do this instead:** Assign deterministic `structureId` on apply and use that ID across state/hover/destroy.
+
+### Anti-Pattern 3: UI Refactor and Protocol Refactor in Same Slice
+
+**What people do:** Refactor `apps/web/src/client.ts` while event payloads are still changing.
+**Why it is wrong:** Creates cascading churn and hard-to-isolate regressions.
+**Do this instead:** Freeze backend contracts first, then split UI modules against stable types.
+
+## Scaling Considerations
+
+| Scale                         | Architecture Adjustments                                                                            |
+| ----------------------------- | --------------------------------------------------------------------------------------------------- |
+| Prototype (current)           | Full `state` payload with structure projections is acceptable; prioritize deterministic correctness |
+| Larger matches/maps           | Consider incremental structure/zone delta payloads to reduce `state` bandwidth                      |
+| Multi-room concurrency growth | Keep deterministic engine pure and isolate server handler parsing to control hot-path complexity    |
 
 ## Sources
 
-- Project context and current implementation: `/workspace/.planning/PROJECT.md`, `/workspace/conway-rts/DESIGN.md`, `apps/server/src/server.ts`, `apps/web/src/client.ts`, `packages/rts-engine/src/rts.ts`, `packages/conway-core/src/grid.ts`, `tests/integration/server/server.test.ts` (HIGH)
-- Socket.IO Rooms (updated Jan 22, 2026): https://socket.io/docs/v4/rooms/ (HIGH)
-- Socket.IO Delivery guarantees (updated Jan 22, 2026): https://socket.io/docs/v4/delivery-guarantees (HIGH)
-- Socket.IO Connection state recovery (updated Jan 22, 2026): https://socket.io/docs/v4/connection-state-recovery (HIGH)
-- Socket.IO TypeScript typing (updated Jan 22, 2026): https://socket.io/docs/v4/typescript/ (HIGH)
-- Socket.IO Emitting events / acknowledgements / volatile events (updated Jan 22, 2026): https://socket.io/docs/v4/emitting-events/ (HIGH)
-- Socket.IO Client offline behavior (updated Jan 22, 2026): https://socket.io/docs/v4/client-offline-behavior/ (HIGH)
-- Socket.IO Client options (`retries`, `ackTimeout`, transport behavior; updated Jan 22, 2026): https://socket.io/docs/v4/client-options/#retries (HIGH)
-- Socket.IO multiple nodes + sticky sessions (updated Jan 22, 2026): https://socket.io/docs/v4/using-multiple-nodes/ (HIGH)
-- Socket.IO Redis adapter (updated Feb 4, 2026): https://socket.io/docs/v4/redis-adapter/ (HIGH)
-- Socket.IO Redis Streams adapter (updated Feb 9, 2026): https://socket.io/docs/v4/redis-streams-adapter/ (HIGH)
-- Node.js Timers API (v25 docs): https://nodejs.org/api/timers.html (HIGH)
-- MDN `requestAnimationFrame` (modified Dec 26, 2025): https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame (HIGH)
-- Glenn Fiedler, fixed timestep + networking model (2004/2010; historical but still relevant): https://gafferongames.com/post/fix_your_timestep/ and https://gafferongames.com/post/what_every_programmer_needs_to_know_about_game_networking/ (LOW)
+- Project scope and constraints: `.planning/PROJECT.md` (HIGH)
+- Milestone rationale and gameplay intent: `conway-rts/DESIGN.md` (HIGH)
+- Current deterministic engine implementation: `packages/rts-engine/rts.ts` (HIGH)
+- Current wire contracts: `packages/rts-engine/socket-contract.ts` (HIGH)
+- Current runtime wiring: `apps/server/src/server.ts` and `apps/server/src/lobby-session.ts` (HIGH)
+- Current frontend architecture: `apps/web/src/client.ts`, `apps/web/src/economy-view-model.ts`, `apps/web/index.html` (HIGH)
+- Current quality gate/integration behavior: `tests/integration/server/server.test.ts`, `tests/integration/server/match-lifecycle.test.ts`, `tests/integration/server/quality-gate-loop.test.ts` (HIGH)
 
 ---
 
-_Architecture research for: Conway RTS TypeScript prototype_
-_Researched: 2026-02-27_
+_Architecture research for: Conway RTS v0.0.2 gameplay expansion_
+_Researched: 2026-03-01_

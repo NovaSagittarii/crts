@@ -1,275 +1,307 @@
 # Pitfalls Research
 
-**Domain:** Multiplayer server-authoritative Conway RTS prototype (lobby/team-first)
-**Researched:** 2026-02-27
-**Confidence:** MEDIUM
+**Domain:** Deterministic multiplayer Conway RTS milestone v0.0.2 gameplay expansion
+**Researched:** 2026-03-01
+**Confidence:** HIGH
+
+## Assumed Mitigation Phases (for placement guidance)
+
+1. **Phase 1 - Contract and deterministic rule freeze**
+2. **Phase 2 - Integrity generalization + 5x5 base/breach rebalance**
+3. **Phase 3 - Union build-zone + transform-aware placement validation**
+4. **Phase 4 - Destroy interactions + structure lifecycle cohesion**
+5. **Phase 5 - UI architecture split + explicit lobby/in-game screen state**
+6. **Phase 6 - Camera pan/zoom + overlays + interaction hardening**
+7. **Phase 7 - Quality-gate expansion (unit/integration/replay/perf)**
 
 ## Critical Pitfalls
 
-### Pitfall 1: Lobby and team flow without an explicit room state machine
+### Pitfall 1: Tick-order drift while generalizing periodic integrity checks
 
 **What goes wrong:**
-Players can be left in inconsistent lobby states (duplicate joins, unexpected leaves during transitions, match start while roster is unstable), which makes game start reliability the first blocker.
+Template-wide integrity and HP repair are introduced in multiple places, and the same input sequence no longer resolves to the same tick-by-tick outcomes.
 
 **Why it happens:**
-Room lifecycle is event-driven (`room:create`, `room:join`, `room:leave`) but currently has no explicit lobby/match phase model or idempotency contract.
+Current behavior is tightly ordered (`applyTeamEconomyAndQueue -> applyTemplate -> stepGrid -> resolveCoreRestoreChecks`). Expanding checks from core-only to all structures invites ad hoc checks during queue validation, preview probes, or UI hooks.
 
 **How to avoid:**
-Define a strict room lifecycle (`Lobby -> Starting -> InMatch -> Ended`) and enforce command validity per phase; make join/leave/start idempotent and host-gated.
+Define one authoritative integrity phase in engine code and run it once per tick in a deterministic order (teamId asc, then stable structure ordering). Keep all HP/repair writes inside that phase only.
 
 **Warning signs:**
-`room:list` and `state` team counts diverge, reconnecting users appear as new teams, start attempts succeed with missing/duplicate participants.
+Same scripted match yields different defeat tick; intermittent failures in outcome/comparator tests; timeline event ordering differs between runs.
 
 **Phase to address:**
-Phase 1 - Lobby/Team Lifecycle Hardening.
-
-**TDD focus:**
-Integration tests for race sequences (`join+leave`, `disconnect during join`, repeated `start`), asserting exactly one team assignment per player and stable room occupancy.
+Phase 1 (rule freeze) and Phase 2 (engine implementation).
 
 ---
 
-### Pitfall 2: Assuming Socket.IO delivery is reliable enough for gameplay intents
+### Pitfall 2: Hidden 2x2 base assumptions survive the 5x5 geometry migration
 
 **What goes wrong:**
-Build intents or lobby actions are silently lost during transient disconnects, leaving client UI and server truth out of sync.
+Placement validation, spawn spacing, breach checks, or UI markers still behave as if the base is a 2x2 block, creating unfair pressure and contradictory validation.
 
 **Why it happens:**
-Socket.IO is ordered but default delivery is "at most once"; disconnected clients miss server events unless recovery/replay is implemented.
+The code currently hardcodes 2x2 assumptions in multiple places (`BASE_BLOCK_WIDTH/HEIGHT`, `baseTopLeft + 1` center math, spawn min distance, core checks).
 
 **How to avoid:**
-Add intent acknowledgements with timeouts for critical commands, enable connection state recovery where applicable, and always resync from authoritative room snapshot after reconnect.
+Introduce a single `BaseGeometry` model (footprint cells, center, check cells, bounding box) and replace all magic offsets/constants with geometry-derived helpers.
 
 **Warning signs:**
-Users report "I queued it, then it vanished" after reconnects; jumps in generation/tick without expected intermediate outcomes.
+"Outside territory" near expected legal base-adjacent cells; spawn overlap regressions; base hover/marker offset from actual vulnerable cells.
 
 **Phase to address:**
-Phase 1 - Lobby/Team Lifecycle Hardening (reconnect contract), reinforced in Phase 5.
-
-**TDD focus:**
-Fault-injection integration tests that force disconnect/reconnect mid-action and assert eventual consistency (same room/team, same accepted/rejected command outcome).
+Phase 2.
 
 ---
 
-### Pitfall 3: Queue acceptance without execution-time resolution events
+### Pitfall 3: Breach-pressure rebalance done by constant tweaking without deterministic scenarios
 
 **What goes wrong:**
-Client receives `build:queued`, but build is skipped at execution time (territory/resource/duplicate checks) with no explicit rejection event.
+The new base shape plus repair loop produces degenerate matches (snowball in <30s, or stalemates that rarely finish).
 
 **Why it happens:**
-Execution checks in `applyTeamEconomyAndQueue()` drop invalid due events via `continue` branches, and transport currently emits only enqueue success.
+Balance changes are validated only with ad hoc playtests instead of replayable scripted pressure cases.
 
 **How to avoid:**
-Model build events as `queued -> applied | rejected(reason)`; emit a terminal resolution event for every queued build ID; reserve resources on queue or explicitly revalidate with reason codes.
+Create deterministic scenario fixtures (mirrored openings, sustained pressure windows, repeated breach attempts) and set numeric acceptance bands for match duration and comeback frequency.
 
 **Warning signs:**
-Rising count of queued IDs with no visible outcome; support/debug messages like "queued but never built"; user retries same placement repeatedly.
+Match duration distribution collapses to extremes; one opening dominates win rate; repeated unresolved matches in integration smoke runs.
 
 **Phase to address:**
-Phase 3 - Ghost Build Commit + Queue Guarantees.
-
-**TDD focus:**
-Unit tests for each rejection branch at execution tick, plus integration tests asserting every queued event reaches exactly one terminal state.
+Phase 2 (initial tuning) and Phase 7 (regression gate).
 
 ---
 
-### Pitfall 4: Keeping legacy `cell:update` as a production gameplay path
+### Pitfall 4: Union build-zone logic diverges between preview, queue, and UI
 
 **What goes wrong:**
-Direct paint updates bypass team territory semantics and undermine the DESIGN.md ghost-cell batch/commit model, enabling griefing and rule drift.
+Client preview says placement is valid, queue rejects it (or inverse), especially after structure activation/deactivation.
 
 **Why it happens:**
-`cell:update` currently checks only coordinate bounds, not team ownership/territory/pending-commit rules.
+Current validation is radius-based around base center. Migrating to union-of-structure zones can leave mixed logic paths if only one call site is updated.
 
 **How to avoid:**
-Restrict `cell:update` to debug-only mode (or remove it from multiplayer flow), and enforce all edits through server-validated ghost batch commits with atomic apply semantics.
+Use one engine helper for eligibility (`isPlacementBuildEligible`) and route both preview probes and queue validation through that exact helper. Drive overlays from authoritative state, not separate client math.
 
 **Warning signs:**
-Players alter opponent areas using paint mode; behavior differs between template mode and paint mode; territory rules appear arbitrary to users.
+Spike in `outside-territory` rejections immediately after green/affordable previews; user reports "overlay says yes, server says no".
 
 **Phase to address:**
-Phase 2 - Safe-Cell Rules and Territory Enforcement, completed in Phase 3.
-
-**TDD focus:**
-Adversarial integration tests that attempt out-of-territory or opponent-targeted edits and require deterministic rejection; unit tests for batch flip invariants.
+Phase 3.
 
 ---
 
-### Pitfall 5: Spawn/territory exhaustion producing invalid matches
+### Pitfall 5: Rotate/mirror transforms are implemented twice and disagree
 
 **What goes wrong:**
-When spawn candidates are exhausted, fallback placement can overlap bases or create unfair starts, invalidating match results.
+A placement accepted by client preview applies shifted/rotated differently on the server, causing reject noise and trust loss.
 
 **Why it happens:**
-Spawn selection has finite candidate logic and a hard fallback to `{ x: 0, y: 0 }` when no free slot is found.
+Transform math (pivot, anchor, even/odd footprint handling) is duplicated in client rendering and server validation.
 
 **How to avoid:**
-Track spawn occupancy explicitly, reject joins when no legal spawn exists (or auto-create overflow room), and add minimum-distance constraints between safe cells.
+Implement transforms once in shared package code and reuse on both server and web. Add golden fixtures for all transform states against known templates (including asymmetric templates).
 
 **Warning signs:**
-Duplicate `baseTopLeft` values, immediate base interference at match start, sudden spike in first-minute defeats.
+Orientation-specific rejects (`out-of-bounds`/`occupied-site`) for otherwise valid clicks; applied shape appears one cell off from ghost.
 
 **Phase to address:**
-Phase 1 - Lobby/Team Lifecycle Hardening.
-
-**TDD focus:**
-Unit tests for spawn-capacity boundaries and no-overlap invariant; integration tests for N+1 join behavior under full room conditions.
+Phase 3 (shared math) and Phase 6 (UI consumption).
 
 ---
 
-### Pitfall 6: Full-grid tick + full-grid broadcast + full redraw bottleneck
+### Pitfall 6: Structure identity collisions under transform + destroy
 
 **What goes wrong:**
-Prototype feels laggy as room size/player count grows: server CPU spikes, network payloads balloon, client frame rate drops.
+Destroy requests target the wrong structure or fail to target any structure after rotation/mirroring, especially for templates sharing width/height anchors.
 
 **Why it happens:**
-Each tick currently steps the whole grid, serializes full grid payload, emits `state`, and client decodes and redraws whole board (including repeated `resizeCanvas()` calls).
+Current structure keying is anchor+dimensions. That is not robust once transform state and lifecycle actions are first-class.
 
 **How to avoid:**
-Define budget targets now (tick time, payload bytes, render time); move to chunk/delta updates, resize only on dimension changes, and render on `requestAnimationFrame` cadence.
+Give every placed structure a stable `structureId` (event-derived), persist transform metadata, and resolve destroy actions by ID plus ownership checks.
 
 **Warning signs:**
-Tick loop delay > target cadence, noticeable input lag at larger maps, sustained high CPU on server/client even with small player counts.
+Destroy action removes neighbor structure; `occupied-site` conflicts on apparently empty anchors; timeline metadata references non-existent keys.
 
 **Phase to address:**
-Phase 5 - Performance Hardening for Playable Match Reliability.
-
-**TDD focus:**
-Performance regression tests (max bytes/tick, max tick duration under fixture loads) and integration benchmarks for map-size thresholds.
+Phase 3 (identity model) and Phase 4 (destroy flows).
 
 ---
 
-### Pitfall 7: No abuse controls on mutating socket events
+### Pitfall 7: Destroy interactions bypass queue-validation and lifecycle gates
 
 **What goes wrong:**
-One client can flood `build:queue`/`cell:update` and degrade room responsiveness or exploit unbounded queue growth.
+Immediate destroy mutations race with queued builds and defeat resolution, creating non-deterministic state and broken outcome accounting.
 
 **Why it happens:**
-No per-socket rate limiting, no queue caps, and no authenticated authorization boundary around state-mutating intents.
+Destroy is treated as a direct UI action instead of a queued, server-authoritative gameplay mutation.
 
 **How to avoid:**
-Use Socket.IO middleware for auth + rate limiting, enforce per-team queue limits/backpressure, and disconnect or quarantine abusive sessions.
+Model destroy as queued intent with execute tick, terminal outcome, and explicit reasons (`unknown-structure`, `not-owner`, `core-locked`, `team-defeated`). Enforce the same mutation gate used by build queue.
 
 **Warning signs:**
-`pendingBuildEvents` lengths grow unbounded, same socket dominates event throughput, server memory/CPU climbs nonlinearly during playtests.
+Build outcomes reference structures that no longer exist; different clients disagree on structure presence; defeated players can still issue destroy actions.
 
 **Phase to address:**
-Phase 5 - Abuse and Runtime Hardening (minimum controls can start in Phase 1).
-
-**TDD focus:**
-Adversarial integration tests that spam events and assert throttling, bounded queues, and stable server behavior under load.
+Phase 4.
 
 ---
 
-### Pitfall 8: Over-expanding template catalog before economy balance is stable
+### Pitfall 8: Derived state (income/build-zone/hover data) lags after destroy or repair
 
 **What goes wrong:**
-Gameplay collapses into one dominant build order or unwinnable snowball loops, making feedback on "fun" inconclusive.
+Income, build-zone eligibility, and hover status reflect stale pre-destroy/pre-repair values for one or more ticks.
 
 **Why it happens:**
-Conway patterns have nonlinear interactions; adding many offensive/defensive/support templates before cost/territory/income tuning obscures root causes.
+Derived values are recalculated in scattered places, and new lifecycle transitions add more invalidation points.
 
 **How to avoid:**
-Start with a minimal, role-balanced catalog (one offense, one defense, one support plus base), instrument win-rate/build-rate metrics, and gate new templates behind balance checkpoints.
+Centralize all derived-state recomputation in one post-mutation pass per tick. Tie previews to that pass, and include versioned derived-state metadata for UI invalidation.
 
 **Warning signs:**
-Single template dominates build share, average match duration collapses or stalls, comeback rate trends to near zero.
+Income does not drop after destroy; overlay still shows removed structure influence; hover HP/status disagrees with latest state payload.
 
 **Phase to address:**
-Phase 4 - Template Catalog + Economy Loop Balancing.
+Phase 4 (engine) and Phase 6 (UI sync behavior).
 
-**TDD focus:**
-Simulation-style tests for economy invariants (no negative resources, bounded income growth) and scenario tests for mirrored starts to detect obvious first-order imbalance.
+---
+
+### Pitfall 9: Pan/zoom + UI refactor breaks coordinate mapping and multiplies event handlers
+
+**What goes wrong:**
+Clicks target wrong cells at non-default zoom, or one input emits multiple preview/queue events due duplicate listeners after screen transitions.
+
+**Why it happens:**
+Current pointer mapping assumes no camera transform, and `client.ts` is monolithic with many side effects tied directly to DOM/socket events.
+
+**How to avoid:**
+Introduce explicit camera state with inverse coordinate mapping, and split UI into mount/unmount-safe modules with one-time socket registration and explicit screen FSM.
+
+**Warning signs:**
+Cursor-to-cell drift increases with zoom; duplicate queue acks from one click; frame drops when overlays are enabled during active tick updates.
+
+**Phase to address:**
+Phase 5 (architecture split) and Phase 6 (camera/overlay interactions).
+
+---
+
+### Pitfall 10: Event-contract drift for new fields (transform, destroy, structure status)
+
+**What goes wrong:**
+Server, client, and tests compile independently but disagree at runtime on payload shape/reason enums, causing silent fallback copy and wrong UX.
+
+**Why it happens:**
+New fields are appended ad hoc in handlers before shared contract/types and integration assertions are updated.
+
+**How to avoid:**
+Update `socket-contract.ts` first, then server/client handlers, then integration tests. Keep reason codes union-typed and ban catch-all reason mapping for new gameplay events.
+
+**Warning signs:**
+UI falls back to generic "validation failed" text for new rejection paths; integration tests fail on undefined payload fields.
+
+**Phase to address:**
+Phase 1 (contract-first) and Phase 7 (quality gate enforcement).
 
 ---
 
 ## Technical Debt Patterns
 
-Shortcuts that look fast now but are expensive in this prototype.
+Shortcuts that look fast now but create costly rewrites in this milestone.
 
-| Shortcut                                                    | Immediate Benefit              | Long-term Cost                                              | When Acceptable                              |
-| ----------------------------------------------------------- | ------------------------------ | ----------------------------------------------------------- | -------------------------------------------- |
-| Keep `cell:update` as user-facing build path                | Fast iteration for UI painting | Violates territory/ghost semantics and creates exploit path | Only behind explicit debug flag in local dev |
-| Emit only `build:queued` (no terminal result)               | Simple socket contract         | "Phantom build" UX and hard-to-debug state divergence       | Never                                        |
-| Keep socket DTO types duplicated across server/client/tests | Quick local edits              | Event contract drift and runtime-only failures              | Never                                        |
-| Add many templates before instrumentation                   | Feels feature-rich quickly     | Balance chaos, unclear root causes, rewrites                | Only after metrics baseline exists           |
+| Shortcut                                                               | Immediate Benefit                 | Long-term Cost                                           | When Acceptable                |
+| ---------------------------------------------------------------------- | --------------------------------- | -------------------------------------------------------- | ------------------------------ |
+| Keep scalar `territoryRadius` logic and fake union zones only in UI    | Faster demo of build-zone feature | Preview/queue mismatch and fairness bugs                 | Never                          |
+| Implement rotate/mirror math separately in client and server           | Faster local iteration per layer  | Persistent offset/rejection bugs that are hard to debug  | Never                          |
+| Reuse anchor-based structure key as destroy target                     | Minimal schema changes            | Wrong-target destroy and key collisions under transforms | Never                          |
+| Add pan/zoom directly into monolithic `client.ts` without module split | Fast feature spike                | Listener leaks, state coupling, transition regressions   | Only as throwaway spike branch |
+| Tune breach constants from ad hoc playtests only                       | Immediate balance tweaks          | Rebalance churn with no deterministic baseline           | Never for milestone closure    |
 
 ## Integration Gotchas
 
-| Integration          | Common Mistake                                  | Correct Approach                                                          |
-| -------------------- | ----------------------------------------------- | ------------------------------------------------------------------------- |
-| Socket.IO reconnect  | Assume missed events are replayed automatically | Resync from authoritative snapshot; add ack/recovery for critical intents |
-| Socket.IO rooms      | Treat client as source of room membership truth | Treat server room membership as canonical; test disconnect/rejoin flows   |
-| Node tick scheduling | Assume `setInterval` fires exactly on cadence   | Track drift and process simulation based on measured elapsed time budget  |
+| Integration                        | Common Mistake                                          | Correct Approach                                                       |
+| ---------------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `rts-engine` <-> server build APIs | Update queue path but not preview probe path            | Keep preview and queue on same engine validator and transform helpers  |
+| server <-> web placement payloads  | Add transform fields in one direction only              | Extend shared socket contract first, then both emit/listen paths       |
+| destroy action <-> lifecycle gate  | Allow destroy during lobby/finished or for spectators   | Reuse gameplay mutation gate and room status checks                    |
+| state payload <-> overlays         | Compute overlay zones from client-local estimates       | Render overlays from authoritative payload and shared geometry helpers |
+| tests <-> runtime event reasons    | Keep generic string assertions after adding new reasons | Assert exact typed reason unions and terminal outcomes                 |
 
 ## Performance Traps
 
-| Trap                                     | Symptoms                                    | Prevention                                                     | When It Breaks                                   |
-| ---------------------------------------- | ------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------ |
-| Full-grid state emission every tick      | Bandwidth spikes and high serialization CPU | Delta/chunk updates and rate control                           | Medium map sizes + multiple active rooms         |
-| Full-canvas decode/draw on every `state` | Client FPS drop and input latency           | Diff rendering + `requestAnimationFrame` + no redundant resize | As grid dimensions and update frequency increase |
-| Build queue sort/scan per tick           | Tick cost scales with queued events         | Tick-indexed buckets/min-heap + queue caps                     | Under spam or many delayed builds                |
+| Trap                                                                 | Symptoms                                  | Prevention                                                                       | When It Breaks                                       |
+| -------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Recomputing union build zones from scratch every tick                | Tick duration climbs with structure count | Incremental invalidation keyed by structure lifecycle changes                    | Mid-size rooms with many active structures           |
+| Running `structuredClone` preview probes at pointermove frequency    | CPU spikes and delayed preview feedback   | Throttle preview emits per tick and cache unchanged placement results            | During rapid placement scanning at active tick rates |
+| Full canvas resize + full redraw every `state` while adding pan/zoom | Frame drops and input lag                 | Resize on dimension change only, draw on animation frame, apply camera transform | Larger maps with overlays enabled                    |
+| Hover detail lookups scanning all structures per move                | UI stutter while panning/hovering         | Spatial index or cell-to-structure map updated per tick                          | Dense late-game structure fields                     |
 
 ## Security Mistakes
 
-| Mistake                                          | Risk                                   | Prevention                                                       |
-| ------------------------------------------------ | -------------------------------------- | ---------------------------------------------------------------- |
-| No authenticated identity on socket connect      | Impersonation and untrusted mutations  | Add auth handshake and bind player identity to session           |
-| No per-event authorization (team/room ownership) | Cross-team griefing/modification       | Enforce team ownership and territory checks at server boundary   |
-| No rate limiting on mutating events              | Event flood DoS against room tick loop | Socket middleware throttles + bounded queues + disconnect policy |
+| Mistake                                       | Risk                                           | Prevention                                                          |
+| --------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------- |
+| Destroy payload lacks strict ownership checks | Cross-team griefing via forged structure IDs   | Validate team ownership and room membership before queueing destroy |
+| Transform payload accepts arbitrary values    | Invalid states or parser abuse paths           | Restrict transform to strict enum and reject unknown values         |
+| No rate limit on preview/destroy spam         | Event flood starves tick and UI responsiveness | Per-socket throttles and bounded pending intent queues              |
 
 ## UX Pitfalls
 
-| Pitfall                                       | User Impact                             | Better Approach                                            |
-| --------------------------------------------- | --------------------------------------- | ---------------------------------------------------------- |
-| "Build queued" without "applied/rejected"     | Confusing, feels random or buggy        | Show per-build lifecycle with reasoned failures            |
-| No explicit lobby readiness/start constraints | Matches start in broken states          | Show lobby readiness and host-controlled start gate        |
-| Weak safe-cell breach feedback                | Players do not understand why they lost | Add explicit breach animation/message + post-match summary |
+| Pitfall                                                  | User Impact                                     | Better Approach                                                       |
+| -------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------- |
+| Ghost placement orientation does not match applied shape | Players lose trust in controls                  | Render ghost using server-shared transform helpers                    |
+| Overlay shows eligible area that server rejects          | Feels random and unfair                         | Drive overlay from authoritative zone model/versioned state           |
+| Destroy action has no clear terminal feedback            | Users think command was ignored                 | Show queued -> applied/rejected lifecycle for destroy intents         |
+| Lobby/in-game transition keeps stale build selection     | Accidental invalid queues after screen switches | Reset interaction state on screen transitions with explicit FSM hooks |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Lobby flow:** Works in happy path but not after disconnect/reconnect - verify team identity and room re-assignment stability.
-- [ ] **Build queue:** Accepts requests but does not emit terminal outcomes - verify every queued ID resolves once.
-- [ ] **Territory rules:** Enforced for templates but bypassed by legacy updates - verify no mutating path bypasses server territory checks.
-- [ ] **Playable match:** Win condition triggers, but defeated teams can still affect play - verify post-defeat action lockout and clear UX.
-- [ ] **Performance:** Feels smooth at 1 room only - verify tick and render budgets at target room/map settings.
+- [ ] **Integrity generalization:** All templates checked, but tick order changed - verify deterministic replay snapshots still match expected timeline.
+- [ ] **Base migration:** Visual 5x5 shape added - verify spawn spacing, center math, and breach checks are geometry-driven (no hardcoded +1 center assumptions).
+- [ ] **Union zones:** Overlay renders union - verify preview and queue use the same server validator and produce no contradictory outcomes.
+- [ ] **Transforms:** Rotate/mirror UI works - verify all transform states apply identically server-side with no orientation-specific offset.
+- [ ] **Destroy flow:** Button removes structure in UI - verify destroy is queue-validated with terminal outcomes and defeat/lifecycle gating.
+- [ ] **Pan/zoom overlays:** Camera feels good - verify pointer-to-cell correctness at multiple zoom levels and no duplicate event emissions after transitions.
+- [ ] **Quality gates:** New features pass unit tests - verify integration scenarios cover cross-client deterministic outcomes and rejection reasons.
 
 ## Recovery Strategies
 
-| Pitfall                               | Recovery Cost | Recovery Steps                                                                                          |
-| ------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------- |
-| Queue events silently dropped         | MEDIUM        | Add terminal event state machine, backfill client UX, write migration tests for old/new event contracts |
-| Spawn overlap in live matches         | LOW           | Hotfix join rejection on no legal spawn, invalidate affected matches, add spawn-cap tests               |
-| Reconnect desync                      | HIGH          | Force authoritative resync on reconnect, invalidate stale local intents, add disconnect fault tests     |
-| Performance collapse under map growth | HIGH          | Reduce tick/payload budget immediately, ship diff pipeline incrementally, add performance gates in CI   |
+| Pitfall                                        | Recovery Cost | Recovery Steps                                                                                                        |
+| ---------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Tick-order drift in integrity/repair           | HIGH          | Revert to last deterministic tick order, add replay fixtures, reintroduce generalized checks behind one ordered phase |
+| 5x5 base migration with hidden 2x2 assumptions | HIGH          | Introduce explicit geometry model, migrate all call sites, re-baseline spawn/territory/breach tests                   |
+| Transform mismatch across client/server        | MEDIUM        | Centralize transform helper in shared package, update both layers, add golden transform fixtures                      |
+| Destroy bypass path shipped                    | HIGH          | Disable direct destroy endpoint, route through queued flow, backfill terminal outcome and ownership checks            |
+| UI camera/refactor regressions                 | MEDIUM        | Roll back to stable interaction controller, add mount/unmount listener guardrails, re-enable pan/zoom incrementally   |
 
 ## Pitfall-to-Phase Mapping
 
-| Pitfall                        | Prevention Phase          | Verification                                                            |
-| ------------------------------ | ------------------------- | ----------------------------------------------------------------------- |
-| Lobby/team state machine drift | Phase 1                   | Integration race tests pass for join/leave/start/disconnect sequences   |
-| Delivery/reconnect assumptions | Phase 1 (and 5 hardening) | Fault-injection reconnect tests preserve room/team/action consistency   |
-| Queue accepted but unresolved  | Phase 3                   | Every queued build ID reaches `applied` or `rejected(reason)` in tests  |
-| Legacy `cell:update` bypass    | Phase 2-3                 | Unauthorized/out-of-territory updates are rejected in adversarial tests |
-| Spawn exhaustion overlap       | Phase 1                   | No-overlap invariant holds across max-capacity join tests               |
-| Full-grid perf bottleneck      | Phase 5                   | Tick/payload/render budgets enforced by automated performance checks    |
-| Event spam and abuse           | Phase 5                   | Throttle/disconnect behavior validated under spam scenarios             |
-| Template/economy imbalance     | Phase 4                   | Balance metrics and simulation invariants stay within agreed thresholds |
+| Pitfall                                          | Prevention Phase   | Verification                                                                                  |
+| ------------------------------------------------ | ------------------ | --------------------------------------------------------------------------------------------- |
+| Tick-order drift during integrity generalization | Phase 1 -> Phase 2 | Deterministic replay suite reproduces identical timeline and defeat ticks                     |
+| Hidden 2x2 assumptions after base migration      | Phase 2            | Geometry invariants pass for spawn, territory checks, and breach detection                    |
+| Breach-pressure rebalance without scenarios      | Phase 2 -> Phase 7 | Scenario-based duration/comeback metrics remain inside defined acceptance bands               |
+| Union zone divergence (preview vs queue vs UI)   | Phase 3            | Integration tests show zero contradictory preview/queue outcomes for sampled placements       |
+| Transform math divergence                        | Phase 3 -> Phase 6 | Golden fixtures and E2E placement tests pass for all transform states                         |
+| Structure identity collisions under destroy      | Phase 3 -> Phase 4 | Destroy-by-ID tests remove only intended structure across transform variants                  |
+| Destroy bypassing deterministic queue            | Phase 4            | Every destroy intent resolves with terminal outcome and lifecycle gate compliance             |
+| Stale derived state after lifecycle changes      | Phase 4 -> Phase 6 | Income/zone/hover values update coherently within same tick payload                           |
+| Pan/zoom + transition interaction regressions    | Phase 5 -> Phase 6 | Pointer mapping tests pass at varied zoom; no duplicate event emissions after screen switches |
+| Event contract drift for new fields/reasons      | Phase 1 -> Phase 7 | Shared contract types compile across layers and integration asserts full payload shape        |
 
 ## Sources
 
-- [HIGH] Project context and active requirements: `/workspace/.planning/PROJECT.md` (updated 2026-02-27).
-- [HIGH] Original game design constraints (safe cell, territory, ghost batch commits): `/workspace/conway-rts/DESIGN.md`.
-- [HIGH] Current code behavior and known concerns: `/workspace/.planning/codebase/CONCERNS.md`, `/workspace/apps/server/src/server.ts`, `/workspace/apps/web/src/client.ts`, `/workspace/packages/rts-engine/src/rts.ts`, `/workspace/tests/integration/server/server.test.ts`.
-- [HIGH] Socket.IO disconnection semantics (client not always connected; server does not store events): https://socket.io/docs/v4/tutorial/handling-disconnections (last updated Jan 22, 2026).
-- [HIGH] Socket.IO delivery guarantees and retries/acks: https://socket.io/docs/v4/delivery-guarantees and https://socket.io/docs/v4/tutorial/step-8 (last updated Jan 22, 2026).
-- [HIGH] Socket.IO connection state recovery limits and configuration: https://socket.io/docs/v4/connection-state-recovery (last updated Jan 22, 2026).
-- [HIGH] Socket.IO room/disconnect behavior: https://socket.io/docs/v4/rooms/ (last updated Jan 22, 2026).
-- [HIGH] Socket.IO middleware for auth/rate limiting hooks: https://socket.io/docs/v4/middlewares/ (last updated Jan 22, 2026).
-- [HIGH] Socket.IO offline buffering and burst risk: https://socket.io/docs/v4/client-offline-behavior/ and volatile events docs https://socket.io/docs/v4/emitting-events/ (last updated Jan 22, 2026).
-- [MEDIUM] Node timer scheduling caveats for tick cadence (`setTimeout`/event loop timing not exact): https://nodejs.org/api/timers.html (v25 docs).
-- [MEDIUM] Browser render-loop guidance for smooth repaint cadence (`requestAnimationFrame`): https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame (last modified Dec 26, 2025).
+- [HIGH] Milestone scope and constraints: `.planning/PROJECT.md`.
+- [HIGH] Original domain mechanics and intended UI controls: `conway-rts/DESIGN.md`.
+- [HIGH] Engine invariants and current tick order: `packages/rts-engine/rts.ts`.
+- [HIGH] Shared event contract surface: `packages/rts-engine/socket-contract.ts`.
+- [HIGH] Runtime lifecycle/mutation gates and preview/queue wiring: `apps/server/src/server.ts`.
+- [HIGH] Current UI interaction model (pointer mapping, rendering, transitions): `apps/web/src/client.ts`.
+- [HIGH] Existing unit coverage boundaries: `packages/rts-engine/rts.test.ts`.
+- [HIGH] Existing integration coverage boundaries: `tests/integration/server/server.test.ts`, `tests/integration/server/quality-gate-loop.test.ts`, `tests/integration/server/match-lifecycle.test.ts`.
+- [MEDIUM] Prior concern inventory for fragile areas and coverage gaps: `.planning/codebase/CONCERNS.md` (dated 2026-02-27; partially stale, used only as secondary corroboration).
 
 ---
 
-_Pitfalls research for: Multiplayer Conway RTS lobby/team-first prototype_
-_Researched: 2026-02-27_
+_Pitfalls research for: Conway RTS v0.0.2 Gameplay Expansion_
+_Researched: 2026-03-01_

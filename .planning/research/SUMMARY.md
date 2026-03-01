@@ -1,181 +1,212 @@
 # Project Research Summary
 
 **Project:** Conway RTS TypeScript Prototype
-**Domain:** Browser-based multiplayer Conway RTS prototype (server-authoritative, lobby/team-first)
-**Researched:** 2026-02-27
-**Confidence:** MEDIUM
+**Domain:** Deterministic multiplayer Conway RTS gameplay expansion (v0.0.2)
+**Researched:** 2026-03-01
+**Confidence:** HIGH
 
 ## Executive Summary
 
-This project is a browser multiplayer strategy prototype where the core product value is a fast path from lobby to a deterministic 1v1 Conway RTS match. Across the research set, the strongest consensus is to keep a server-authoritative TypeScript architecture (Node + Socket.IO + deterministic package reducers), treat the client as intent-only, and harden room/team reliability before adding strategic depth. Experts build this kind of system by making protocol contracts explicit, gating all actions through match phases, and validating every inbound event at runtime.
+v0.0.2 is a gameplay expansion on top of a working deterministic 1v1 prototype, not a platform rewrite. Across the research set, the strongest agreement is to keep the existing server-authoritative TypeScript architecture and implement new gameplay rules in `packages/rts-engine` first: template-wide integrity and HP repair, a 5x5 base footprint, union-of-structure build zones, transform-aware placement, and queued destroy actions. The browser remains a rendering and input layer driven by authoritative state snapshots.
 
-The recommended approach is a dependency-first roadmap: lock protocol and lobby/team lifecycle first, then enforce match lifecycle and win/loss semantics, then make build queue outcomes fully deterministic (`queued -> applied | rejected(reason)`). This sequence matches both feature dependencies and architecture constraints, and it aligns with project constraints (no wasm, no protobuf, TDD-first). The MVP target should remain a full end-to-end path: join room, assign teams, queue builds, execute ticks, resolve breach, and lock defeated players out.
+The recommended approach is backend/tests-first with explicit contract freeze before UI feature work, and a roadmap that stays under the 11-phase cap (recommended: 9 phases). Keep the current runtime stack (Socket.IO + TypeScript + Canvas 2D + Vitest), add `fast-check` immediately for transform and build-zone invariants, and defer optional tooling changes (`zod`, `d3-zoom`, TypeScript/Vite/Vitest upgrades) unless concrete complexity triggers appear.
 
-The biggest risks are not framework choice; they are state correctness and player trust failures: lost intents on reconnect, queued builds with no terminal outcome, and room/team drift under race conditions. Mitigation is clear: explicit lifecycle reducers, acknowledgements + reconnect resync, and exhaustive integration tests around race/disconnect scenarios. Performance and scale work should be intentionally deferred until the core loop is consistently playable and test-verified.
+Key risks are deterministic drift (tick order changes), geometry drift (hidden 2x2 assumptions after base migration), validation drift (preview, queue, and overlay disagree), and identity drift (destroy targeting without stable IDs). Mitigate these by centralizing rule execution in one ordered tick phase, reusing the same validator for preview and queue, introducing stable `structureId`, enforcing lifecycle gates on all gameplay mutations, and expanding unit/integration quality gates before UI polish.
 
 ## Key Findings
 
 ### Recommended Stack
 
-The stack is already directionally correct for this milestone: Node/TypeScript/Socket.IO/Vite/Vitest with strict typing and runtime payload validation. Research strongly recommends incremental upgrades over rewrites, prioritizing delivery risk reduction over speculative performance architecture.
+Stack research is clear: v0.0.2 should ship on the current architecture with targeted upgrades only where milestone risk is highest. The required technical moves are Socket.IO parity (`4.8.3`) and property-based testing with `fast-check` for deterministic geometry and command-order invariants.
 
-Critical version floors matter: Node 22.12+ (target 24.x LTS in CI), TypeScript 5.9.x, Socket.IO 4.8.3 parity server/client, Vite 7.3.0, and Vitest 4.0.16. Keep wasm/protobuf out of scope until gameplay contracts stabilize.
+Critical version note: keep TypeScript at `5.4.5` unless adopting `zod@4`, which should be paired with a planned TS upgrade (`5.9.3` target). Keep Canvas 2D + Pointer Events as-is; no frontend framework or renderer migration is justified for this milestone.
 
 **Core technologies:**
 
-- **Node.js 22.12+ (target 24.x LTS):** authoritative server tick runtime with low migration risk in the current repo.
-- **TypeScript 5.9.3:** strict shared typing across server/client/packages for contract safety.
-- **Socket.IO 4.8.3:** room orchestration, ordered events, typed contracts, and reconnect tooling.
-- **Express 4.22.1:** pragmatic HTTP wrapper/static hosting without a framework migration tax.
-- **Vite 7.3.0 + Vitest 4.0.16:** fast iteration and TDD coverage for deterministic logic and socket integration.
-- **Zod 4.x:** runtime schema enforcement at all inbound socket boundaries.
+- `Socket.IO 4.8.3` (server + client parity): typed event transport for new transform/destroy surface area without protocol drift.
+- `TypeScript 5.4.5` baseline (`5.9.3` target when needed): strict contract and geometry typing across engine/server/web.
+- `Canvas 2D + Pointer Events`: sufficient for pan/zoom and overlays while preserving current web architecture.
+- `Vitest + fast-check`: deterministic and property-based validation for backend-first slices.
+- Optional `zod` and `d3-zoom`: add only when payload guards or camera interactions become a sustained maintenance burden.
 
 ### Expected Features
 
-Feature research is explicit that v1 success is operational, not cosmetic: players must reliably reach a match and complete a coherent win/loss loop. Differentiators should be staged after the base command/economy/territory path is trustworthy.
+Feature research maps a strict v0.0.2 closure set: seven P1 capabilities must land together for a coherent experience. Most "nice-to-have" asks are explicitly deferred because they increase desync and delivery risk without improving milestone validation.
 
 **Must have (table stakes):**
 
-- Reliable `room:list/create/join/leave` lifecycle with deterministic membership.
-- Deterministic team assignment and non-overlapping base spawn.
-- Server-authoritative tick + state synchronization for desync prevention.
-- Build queue with delay/validation/ack/rejection feedback.
-- Economy visibility (resources + income) and territory-constrained construction.
-- Canonical breach win/lose flow with explicit end-state UX and defeated lockout.
+- `STRUCT-INT`: template-wide integrity checks plus HP-backed repair loop with deterministic cadence.
+- `BASE-SHAPE`: canonical 5x5/16-cell base geometry integrated with breach logic.
+- `BUILD-ZONE`: union-of-structure build eligibility at fixed radius 15.
+- `PLACE-XFORM`: rotate/mirror placement in both validation and gameplay UI.
+- `UI-MAP`: structure hover metadata plus single-structure destroy flow.
+- `UI-MAP`: practical pan/zoom and clear economy/build/team overlays.
+- `UI-ARCH`: lobby/in-game screen separation plus web client modularization.
 
-**Should have (competitive):**
+**Should have (competitive, post-core validation):**
 
-- Ghost-cell batch planner with commit semantics (single-batch first).
-- Curated offense/defense/support pattern deck expansion.
-- Queue timeline inspector and clearer pending-build UX.
-- Conway-specific near-safe-cell threat indicators.
+- Overlay readability polish (extra modes/toggles after baseline correctness is proven).
+- Transform QoL improvements (hotkeys/repeat placement) after baseline adoption data exists.
+- Richer structure panel workflows (sorting/filtering/history) once hover/destroy telemetry is stable.
 
 **Defer (v2+):**
 
-- Accounts/profiles/ranked matchmaking.
-- Large-room scaling and transport-level optimization programs.
-- Replay/spectator/time-travel tooling.
-- High-player diplomacy/complex team systems.
+- Custom template editor and user-uploaded template sharing.
+- Minimap, fog-of-war, cinematic camera effects.
+- Bulk destroy and undo/redo timeline editing.
+- Multiple base archetypes or custom base geometry.
+- Runtime/transport overhauls (framework migration, WASM, protobuf, replay/spectator systems).
 
 ### Architecture Approach
 
-Architecture research converges on a clean split: impure runtime orchestration in `apps/*`, pure deterministic reducers in `packages/*`, and a shared protocol layer to prevent event drift. Three patterns are central: authoritative intent pipeline, explicit lifecycle state machine (`lobby -> countdown -> active -> finished`), and snapshot+delta sync with monotonic tick ordering and resync fallback.
+Architecture research recommends a layered, contract-first implementation: deterministic gameplay logic in `packages/rts-engine`, runtime orchestration and lifecycle gating in `apps/server`, and UI state/render modules in `apps/web` that consume authoritative projections only. The highest leverage pattern is a unified command model (`build` + `destroy`) with shared validation paths for preview and queue to eliminate drift.
 
 **Major components:**
 
-1. **Socket Gateway + Validation:** own event contracts, runtime validation, and ack/reject behavior.
-2. **Lobby/Team + Lifecycle Coordinator:** enforce room/team/start invariants and legal phase transitions.
-3. **Tick Scheduler + RTS Engine Reducers:** deterministic queue execution and Conway stepping.
-4. **State Broadcaster:** room-scoped deltas/snapshots with tick metadata for ordering/recovery.
-5. **Client Store + rAF Renderer:** reconcile authoritative state while isolating rendering cadence from network bursts.
+1. `packages/rts-engine` deterministic core - transform math, build-zone eligibility, integrity/repair cadence, queued build/destroy commands, base/breach rules.
+2. `apps/server/src/server.ts` orchestration layer - payload parsing, lifecycle gate enforcement, engine invocation, room broadcasts.
+3. `packages/rts-engine/socket-contract.ts` shared contracts - typed payloads/reasons/outcomes kept in lockstep across server, web, and tests.
+4. `apps/web` modular client - store/socket bridge, lobby/game views, camera + overlays, feature controls without simulation logic.
+5. `tests/integration/server/*` quality gate - two-client, lifecycle-aware verification of all new contracts and deterministic outcomes.
 
 ### Critical Pitfalls
 
-1. **No explicit lobby/match state machine** - implement strict room phases and idempotent join/leave/start transitions.
-2. **Assuming default Socket.IO delivery is sufficient** - require ack/timeout contracts for critical intents and authoritative resync on reconnect.
-3. **Queue accepted but never resolved** - enforce terminal build outcomes for every queued ID (`applied` or `rejected(reason)`).
-4. **Legacy `cell:update` bypasses gameplay rules** - remove from production flow or gate to debug-only; route all gameplay mutations through validated queue/commit paths.
-5. **Full-grid tick/broadcast/redraw bottleneck** - define tick/payload/render budgets and move to delta + rAF-driven rendering.
+1. **Tick-order drift during integrity generalization** - run integrity/HP writes in one ordered engine phase only; never in preview/UI paths.
+2. **Hidden 2x2 assumptions after 5x5 migration** - replace magic offsets with one shared `BaseGeometry` model used everywhere.
+3. **Preview/queue/UI build-zone divergence** - route all legality checks through one engine helper and render overlays from authoritative projections.
+4. **Transform mismatch and structure identity collisions** - centralize rotate/mirror math in shared package and use stable `structureId` for destroy targeting.
+5. **Destroy bypasses queue/lifecycle gates** - model destroy as queued intent with terminal outcomes and strict ownership/lifecycle checks.
 
 ## Implications for Roadmap
 
-Based on combined research, use a 5-phase plan aligned to dependency order and risk reduction.
+Based on combined research, use a 9-phase roadmap (within the 11-phase cap) that preserves backend/tests-first delivery.
 
-### Phase 1: Protocol + Lobby/Team Lifecycle Hardening
+### Phase 1: Contract Freeze and Engine Seams
 
-**Rationale:** Lobby reliability is the critical path; every gameplay signal is noisy until room/team state is deterministic.
-**Delivers:** Shared protocol contracts, typed socket handlers, room lifecycle invariants, deterministic spawn assignment, reconnect resync baseline.
-**Addresses:** Room lifecycle, team assignment/base spawn, identity clarity.
-**Avoids:** Pitfalls 1, 2, and 5 (state drift, delivery assumptions, spawn overlap).
+**Rationale:** Freeze protocol and extraction seams before behavior changes to prevent cross-layer churn.
+**Delivers:** Extended `socket-contract.ts`, extracted engine modules (`placement-transform`, `build-zone`, `structure-integrity`, `structure-commands`) with no behavior change.
+**Addresses:** Foundation for `STRUCT-INT`, `BUILD-ZONE`, `PLACE-XFORM`, and destroy lifecycle.
+**Avoids:** Event-contract drift and early deterministic regressions.
 
-### Phase 2: Match Lifecycle + Canonical Win/Loss Loop
+### Phase 2: Base Geometry + Integrity Generalization
 
-**Rationale:** Actions need legal phase boundaries before deep build/economy work.
-**Delivers:** Explicit lifecycle reducer (`lobby/countdown/active/finished`), start gating, canonical breach rule implementation, defeated-team lockout, victory/defeat UX.
-**Addresses:** Breach end-state UX, authoritative timeline clarity, playable session completion.
-**Implements:** Architecture lifecycle coordinator + authority model.
+**Rationale:** Base shape and integrity cadence are foundational mechanics for all later pressure/breach behavior.
+**Delivers:** Canonical 5x5/16-cell base model and generic K-tick integrity+HP repair flow with deterministic ordering.
+**Addresses:** `BASE-SHAPE`, `STRUCT-INT`.
+**Avoids:** Tick-order drift, hidden 2x2 assumptions, untestable rebalance churn.
 
-### Phase 3: Deterministic Build Queue Guarantees
+### Phase 3: Authoritative Union Build-Zone
 
-**Rationale:** The core player action must produce predictable outcomes to make strategy testable.
-**Delivers:** `build:queued -> build:applied|build:rejected(reason)` terminal contract, territory/resource validation hardening, `cell:update` gameplay-path removal, end-to-end integration path (join -> build -> tick -> breach).
-**Addresses:** Build loop, territory enforcement, economy spend correctness.
-**Avoids:** Pitfalls 3 and 4 (phantom queues, rule bypass).
+**Rationale:** Build legality must stabilize before transform UX and overlay rendering.
+**Delivers:** Shared `isPlacementBuildEligible` logic (radius 15), server-projected build-zone sources, preview/queue parity tests.
+**Addresses:** `BUILD-ZONE`.
+**Avoids:** "overlay says yes, server says no" contradictions.
 
-### Phase 4: Differentiators + Balance Checkpoint (v1.x)
+### Phase 4: Transform-Aware Placement End-to-End
 
-**Rationale:** Strategic depth should follow a stable deterministic core, not precede it.
-**Delivers:** Single-batch ghost planner, curated template deck expansion, queue timeline UX, basic balance instrumentation (win-rate/build-share/match-length).
-**Addresses:** Main differentiators from feature research.
-**Avoids:** Pitfall 8 (template over-expansion before economy balance).
+**Rationale:** Placement controls are high-value but depend on stable zone/base validators.
+**Delivers:** Shared rotate/mirror normalization, contract extensions in preview+queue payloads, transformed footprint metadata in responses.
+**Addresses:** `PLACE-XFORM` backend contracts and deterministic behavior.
+**Avoids:** Client/server transform drift and orientation-specific rejection bugs.
 
-### Phase 5: Reliability/Performance/Abuse Hardening
+### Phase 5: Stable Structure Identity + Destroy Command Flow
 
-**Rationale:** Harden once core loop is proven, then optimize the real bottlenecks.
-**Delivers:** Snapshot+delta sync, reconnect recovery test matrix, per-socket rate limits + queue caps, tick/payload/render budgets in CI, optional Redis Streams adapter for multi-node.
-**Addresses:** Playtest stability, performance, and operational safety.
-**Avoids:** Pitfalls 2, 6, and 7 (reconnect desync, full-grid bottlenecks, event spam).
+**Rationale:** Destroy is lifecycle-sensitive and unsafe without stable IDs and queue semantics.
+**Delivers:** Monotonic `structureId`, queued `structure:destroy`, ownership/core/lifecycle guardrails, terminal `structure:outcome` reasons.
+**Addresses:** `UI-MAP` destroy behavior and zone shrink updates.
+**Avoids:** Wrong-target deletes, non-deterministic races, spectator/defeated mutation leaks.
+
+### Phase 6: Derived-State Recompute Hardening
+
+**Rationale:** Hover/economy/zone UI reliability depends on coherent derived state right after mutations.
+**Delivers:** Single post-mutation recompute pass and consistent projection of structures/zones/health metadata.
+**Addresses:** `UI-MAP` data correctness for overlays and hover cards.
+**Avoids:** One-tick stale income/zone/hover desync.
+
+### Phase 7: Web Architecture Split and Screen FSM
+
+**Rationale:** Separate lobby/game responsibilities before adding heavy map interactions.
+**Delivers:** `client.ts` bootstrap-only, modular store/socket/view/render structure, explicit lobby<->game transition FSM.
+**Addresses:** `UI-ARCH` with lower regression risk.
+**Avoids:** Listener duplication, stale interaction state, monolith coupling.
+
+### Phase 8: Gameplay UI Integration (Camera, Overlays, Controls)
+
+**Rationale:** UX features should consume frozen contracts and authoritative projections, not drive rule design.
+**Delivers:** Pan/zoom camera, grid overlays, hover detail panel, rotate/mirror controls, destroy action UX.
+**Addresses:** `UI-MAP` and `PLACE-XFORM` player-facing interactions.
+**Avoids:** Pointer mapping drift and ghost/applied mismatch.
+
+### Phase 9: Quality-Gate Expansion and Balance Validation
+
+**Rationale:** Milestone closure requires deterministic confidence, not just feature visibility.
+**Delivers:** Expanded unit/property/integration coverage, scenario fixtures for breach-pressure tuning, acceptance bands for match outcomes.
+**Addresses:** Final verification for all v0.0.2 P1 requirements.
+**Avoids:** Regression slip and unstable gameplay pacing.
 
 ### Phase Ordering Rationale
 
-- Feature dependency chain requires stable room/team state before match actions and before differentiators.
-- Architecture dependency chain requires protocol contracts and lifecycle guards before queue semantics and sync hardening.
-- Pitfall mapping shows most severe correctness issues cluster in Phases 1-3; shipping those early reduces rework risk later.
+- Contract-first and backend-first ordering minimizes UI churn and keeps deterministic behavior testable as complexity rises.
+- Architecture groupings follow dependency direction: engine rules -> server contracts -> web composition -> interaction UX.
+- Pitfall prevention is front-loaded: highest-risk drift classes (tick, geometry, contract, identity) are addressed before camera/overlay polish.
 
 ### Research Flags
 
 Phases likely needing deeper `/gsd-research-phase` during planning:
 
-- **Phase 4 (Differentiators + Balance):** Conway template interactions are nonlinear; balance thresholds and instrumentation targets need tighter validation.
-- **Phase 5 (Reliability/Performance/Abuse):** requires benchmark-driven decisions (delta encoding shape, queue data structures, rate-limit policy, optional multi-node topology).
+- **Phase 8:** Camera/input correctness at varied zoom and overlay rendering performance may require implementation-option validation (`d3-zoom` threshold, redraw strategy).
+- **Phase 9:** Balance acceptance bands and deterministic scenario design need explicit metric definitions before gate automation.
+- **Phase 6:** If structure counts rise, recompute-vs-incremental derived-state strategy may need targeted performance research.
 
-Phases with standard patterns (can usually skip extra research):
+Phases with standard patterns (can usually skip deeper research):
 
-- **Phase 1 (Protocol + Lobby/Team):** well-documented Socket.IO room/ack patterns and clear in-repo constraints.
-- **Phase 2 (Lifecycle + Win/Loss):** established reducer/state-machine pattern and straightforward dependency structure.
-- **Phase 3 (Queue Guarantees):** requirements are concrete and testable from existing engine behavior and known gaps.
+- **Phase 1:** Contract-first Socket.IO typing and seam extraction are well-documented and low novelty.
+- **Phase 3:** Shared validator pattern for preview/queue is established and directly supported by current architecture.
+- **Phase 5:** Queue-modeled destroy with ownership/lifecycle gate reuse follows existing server-authoritative mutation patterns.
+- **Phase 7:** UI modularization + explicit screen FSM is conventional refactor work with low domain uncertainty.
 
 ## Confidence Assessment
 
-| Area         | Confidence | Notes                                                                                                                     |
-| ------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Stack        | HIGH       | Strong official-doc support and direct fit to current repo; only scale-out path remains less proven.                      |
-| Features     | MEDIUM     | Core MVP requirements are clear, but differentiator depth and final UX expectations need live playtest validation.        |
-| Architecture | MEDIUM     | Pattern choices are sound and documented, but replay/recovery/perf behavior needs confirmation in this specific codebase. |
-| Pitfalls     | MEDIUM     | Risks are concrete and code-informed, but severity ordering for performance/abuse needs empirical load data.              |
+| Area         | Confidence | Notes                                                                                                                                                |
+| ------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stack        | HIGH       | Recommendations are grounded in official docs and current repo compatibility; optional libraries are clearly trigger-gated.                          |
+| Features     | HIGH       | Milestone requirements are explicit in project docs and strongly aligned across feature and architecture research.                                   |
+| Architecture | MEDIUM     | Backend boundaries and contracts are clear; exact frontend module decomposition and camera integration details still need implementation validation. |
+| Pitfalls     | HIGH       | Risks are code-informed, phase-mapped, and paired with concrete warning signs and prevention tactics.                                                |
 
-**Overall confidence:** MEDIUM
+**Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Canonical breach rule alignment:** finalize one authoritative win-condition definition (safe-cell breach vs base-integrity phrasing) before Phase 2 implementation.
-- **Reconnect strategy specifics:** define exact fallback contract when recovery is unavailable (authoritative snapshot bootstrap + pending intent invalidation policy).
-- **Spawn and room capacity policy:** set hard limits and overflow behavior for N+1 joins to prevent invalid match starts.
-- **Balance success thresholds:** define numeric acceptance targets (match length, template pick share, comeback rate) before Phase 4 expansion.
-- **Abuse-control baseline for prototype:** choose minimum auth/rate-limit policy early so Phase 5 is hardening, not first introduction.
+- **Integrity cadence tuning:** lock K-tick and HP cost values early, then validate with deterministic scenario fixtures before UI balancing.
+- **Canonical 5x5 geometry spec:** publish one definitive coordinate/check-cell contract to prevent hidden legacy assumptions.
+- **Derived-state performance thresholds:** define when to switch from full recompute to incremental updates as structure counts grow.
+- **Camera input acceptance criteria:** set zoom-level pointer accuracy tests and duplicate-listener guards before shipping Phase 8 UX.
+- **Optional dependency trigger points:** predefine measurable thresholds for introducing `zod` or `d3-zoom` to avoid scope creep.
 
 ## Sources
 
 ### Primary (HIGH confidence)
 
-- `.planning/research/STACK.md` - runtime/tooling versions, compatibility floors, scale-path constraints.
+- `.planning/research/STACK.md` - stack versions, compatibility constraints, required vs optional dependencies.
 - `.planning/research/FEATURES.md` - table stakes, differentiators, anti-features, dependency graph.
-- `.planning/research/ARCHITECTURE.md` - authority model, component boundaries, build-order dependencies.
-- `.planning/research/PITFALLS.md` - critical failure modes, phase mapping, prevention/test strategy.
-- `.planning/PROJECT.md` - milestone scope, constraints, and product priorities.
-- Socket.IO official docs (rooms, delivery guarantees, connection recovery, adapters, middleware) - transport and reliability semantics.
-- Node.js timers API + MDN `requestAnimationFrame` - tick/render cadence constraints.
+- `.planning/research/ARCHITECTURE.md` - component boundaries, data flows, dependency-aware build order.
+- `.planning/research/PITFALLS.md` - phase-mapped failure modes, prevention strategies, verification signals.
+- `.planning/PROJECT.md` - official v0.0.2 scope, constraints, and milestone decisions.
+- `conway-rts/DESIGN.md` - gameplay intent and UI interaction expectations.
+- Socket.IO docs - typed contracts and delivery guarantees: https://socket.io/docs/v4/typescript/ and https://socket.io/docs/v4/delivery-guarantees
+- Vitest + fast-check + MDN Canvas/Pointer docs - deterministic test and camera interaction baselines.
 
 ### Secondary (MEDIUM confidence)
 
-- Conway pattern taxonomy references used to shape template-differentiator direction and onboarding assumptions.
-- Historical fixed-timestep/networking guidance (Gaffer on Games) used as directional architecture support.
+- MDN wheel event caveats (device variability risks): https://developer.mozilla.org/en-US/docs/Web/API/Element/wheel_event
+- `.planning/codebase/CONCERNS.md` (partially stale, used only as corroboration for fragile areas).
 
 ### Tertiary (LOW confidence)
 
-- Competitor landing-page feature claims used only for lightweight positioning context.
+- None.
 
 ---
 
-_Research completed: 2026-02-27_
+_Research completed: 2026-03-01_
 _Ready for roadmap: yes_
