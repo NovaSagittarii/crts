@@ -21,6 +21,7 @@ Server receives:
 - `room:start` `{ force? }`
 - `room:cancel-countdown` `{}` (or no payload)
 - `chat:send` `{ message }`
+- `build:preview` `{ templateId, x, y }`
 - `build:queue` `{ templateId, x, y, delayTicks? }`
 - `cell:update` `{ x, y, alive }`
 
@@ -35,11 +36,17 @@ Server emits:
 - `room:countdown` `{ roomId, secondsRemaining }`
 - `room:match-started` `{ roomId }`
 - `room:match-finished` `{ roomId, winner, ranked, comparator }` (winner-first standings; non-winners are `defeated`/`eliminated`)
-- `room:error` `{ message, reason? }`
+- `room:error` `{ message, reason?, needed?, current?, deficit? }` (`needed/current/deficit` are included for `insufficient-resources` rejections)
 - `chat:message` `{ roomId, senderSessionId, senderName, message, timestamp }`
+- `build:preview` `{ roomId, teamId, templateId, x, y, affordable, needed, current, deficit, reason? }`
 - `build:queued` `{ eventId, executeTick }`
-- `build:outcome` `{ roomId, eventId, teamId, outcome, reason?, executeTick, resolvedTick }`
+- `build:outcome` `{ roomId, eventId, teamId, outcome, reason?, affordable?, needed?, current?, deficit?, executeTick, resolvedTick }`
 - `player:profile` `{ playerId, name }`
+
+State payload expectations:
+
+- `state` remains room-scoped and carries authoritative `RoomStatePayload` team rows with `pendingBuilds[]` sorted by `executeTick` then `eventId`.
+- Team rows include `incomeBreakdown` fields and pending queue metadata (`eventId`, `executeTick`, `templateId`, `templateName`, `x`, `y`) for reconnect-safe HUD/timeline rendering.
 
 Lifecycle/status contract:
 
@@ -61,6 +68,7 @@ Common `room:error.reason` values:
 - `invalid-coordinates`: `build:queue` payload included non-integer coordinates.
 - `invalid-delay`: `build:queue` delay value was not an integer.
 - `unknown-template`: `build:queue` referenced a template that is not available.
+- `insufficient-resources`: queue request was unaffordable; payload includes exact `needed/current/deficit` values.
 
 ## Rules
 
