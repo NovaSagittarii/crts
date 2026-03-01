@@ -12,9 +12,9 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 **Current Phase:** 04
 **Current Phase Name:** Economy HUD & Queue Visibility
 **Total Phases:** 5
-**Current Plan:** 4
+**Current Plan:** Not started
 **Total Plans in Phase:** 4
-**Status:** Phase complete — ready for verification
+**Status:** Milestone complete
 **Last Activity:** 2026-03-01
 **Progress:** [██████████] 100%
 
