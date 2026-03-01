@@ -12,8 +12,8 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 **Current Milestone:** v0.0.2 Gameplay Expansion
 **Phase:** 6 of 7 (Base Geometry and Integrity Core)
 **Plan:** 0 of TBD
-**Status:** Ready to plan
-**Last Activity:** 2026-03-01 - Created roadmap phases 6-12 with full v1 traceability mapping.
+**Status:** Context gathered; ready for planning
+**Last Activity:** 2026-03-01 - Captured Phase 6 context with locked 5x5 base and integrity constants.
 **Progress:** [░░░░░░░░░░] 0%
 
 ## Performance Metrics
@@ -58,8 +58,8 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 
 ### Pending Todos
 
+- Run `/gsd-research-phase 6` to validate implementation patterns for template-wide integrity and 5x5 geometry migration.
 - Run `/gsd-plan-phase 6` to decompose base geometry and integrity work.
-- Lock explicit K-tick cadence and HP-repair cost constants before implementation begins.
 - Define pan/zoom input-accuracy acceptance checks before Phase 11 execution.
 
 ### Blockers/Concerns
@@ -69,6 +69,6 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 
 ## Session Continuity
 
-**Last session:** 2026-03-01
-**Stopped At:** v0.0.2 roadmap and traceability written; execution has not started.
-**Resume File:** `.planning/ROADMAP.md`
+**Last session:** 2026-03-01T22:26:24.476Z
+**Stopped At:** Phase 6 context gathered
+**Resume File:** .planning/phases/06-base-geometry-and-integrity-core/06-CONTEXT.md
