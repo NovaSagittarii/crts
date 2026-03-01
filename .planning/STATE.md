@@ -5,19 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-03-01)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Define the next milestone with `/gsd-new-milestone`
+**Current focus:** Define requirements and roadmap for milestone v0.0.2 Gameplay Expansion
 
 ## Current Position
 
-**Current Milestone:** v0.0.1 Prototype Baseline
-**Current Phase:** None (milestone archived)
-**Current Phase Name:** Milestone Closure
-**Total Phases:** 5
-**Current Plan:** None
-**Total Plans in Phase:** 0
-**Status:** v0.0.1 milestone archived
-**Last Activity:** 2026-03-01
-**Progress:** [██████████] 100%
+**Current Milestone:** v0.0.2 Gameplay Expansion
+**Current Phase:** Not started (defining requirements)
+**Current Plan:** —
+**Status:** Defining requirements
+**Last Activity:** 2026-03-01 — Milestone v0.0.2 started
+**Progress:** [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -40,10 +37,11 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 
 **Recent Trend:**
 
-- Trend: Milestone shipped with full phase completion and quality gates in place.
+- Trend: v0.0.1 closed cleanly; v0.0.2 is now in requirements definition.
 
 _Updated after each plan completion_
 | Milestone v0.0.1 | 16 plans | 48 tasks | archived |
+| Milestone v0.0.2 | 0 plans | 0 tasks | defining requirements |
 
 ## Accumulated Context
 
