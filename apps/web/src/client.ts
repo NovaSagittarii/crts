@@ -1,6 +1,8 @@
 import { io, type Socket } from 'socket.io-client';
 
 import type {
+  BuildOutcomePayload,
+  BuildPreviewPayload,
   BuildQueuedPayload,
   ChatMessagePayload,
   ClientToServerEvents,
@@ -18,11 +20,37 @@ import type {
   RoomStatePayload,
   ServerToClientEvents,
   StructureTemplateSummary,
+  TeamIncomeBreakdownPayload,
 } from '#rts-engine';
+
+import {
+  aggregateIncomeDelta,
+  deriveIncomeDeltaSamples,
+  formatRelativeEta,
+  groupPendingByExecuteTick,
+  type AggregatedIncomeDelta,
+  type IncomeDeltaSample,
+} from './economy-view-model.js';
 
 type RoomListEntry = RoomListEntryPayload;
 type StatePayload = RoomStatePayload;
 type TemplateSummary = StructureTemplateSummary;
+type TeamPayload = StatePayload['teams'][number];
+type BuildPreview = BuildPreviewPayload;
+type BuildOutcome = BuildOutcomePayload;
+
+interface SelectedTemplatePlacement {
+  templateId: string;
+  x: number;
+  y: number;
+}
+
+interface TeamEconomySnapshot {
+  tick: number;
+  resources: number;
+  income: number;
+  incomeBreakdown: TeamIncomeBreakdownPayload;
+}
 
 interface Cell {
   x: number;
@@ -82,6 +110,24 @@ const teamEl = getRequiredElement<HTMLElement>('team');
 const resourcesEl = getRequiredElement<HTMLElement>('resources');
 const incomeEl = getRequiredElement<HTMLElement>('income');
 const baseEl = getRequiredElement<HTMLElement>('base');
+const hudResourcesEl = getRequiredElement<HTMLElement>('hud-resources');
+const hudIncomeEl = getRequiredElement<HTMLElement>('hud-income');
+const hudDeltaChipEl = getRequiredElement<HTMLElement>('hud-delta-chip');
+const incomeBreakdownBaseEl = getRequiredElement<HTMLElement>(
+  'income-breakdown-base',
+);
+const incomeBreakdownStructuresEl = getRequiredElement<HTMLElement>(
+  'income-breakdown-structures',
+);
+const incomeBreakdownActiveEl = getRequiredElement<HTMLElement>(
+  'income-breakdown-active',
+);
+const queuePlacementEl = getRequiredElement<HTMLElement>('queue-placement');
+const queueCostEl = getRequiredElement<HTMLElement>('queue-cost');
+const queueFeedbackEl = getRequiredElement<HTMLElement>('queue-feedback');
+const queueBuildButton = getRequiredElement<HTMLButtonElement>('queue-build');
+const pendingTimelineEl =
+  getRequiredElement<HTMLDivElement>('pending-timeline');
 const messageEl = getRequiredElement<HTMLElement>('message');
 const lobbyStatusEl = getRequiredElement<HTMLElement>('lobby-status');
 const lobbyCountdownEl = getRequiredElement<HTMLElement>('lobby-countdown');
@@ -200,6 +246,15 @@ let isFinishedLobbyView = false;
 let currentTeamDefeated = false;
 let persistentDefeatReason: string | null = null;
 let latestOutcomeTimelineMetadata: unknown = null;
+let selectedTemplatePlacement: SelectedTemplatePlacement | null = null;
+let latestBuildPreview: BuildPreview | null = null;
+let previewPending = false;
+let lastPreviewRefreshTick: number | null = null;
+let lastTeamEconomySnapshot: TeamEconomySnapshot | null = null;
+let latestEconomyDeltaCue: AggregatedIncomeDelta | null = null;
+let latestEconomyDeltaTick: number | null = null;
+let latestEconomyDeltaSamples: IncomeDeltaSample[] = [];
+let queueFeedbackOverride: { text: string; isError: boolean } | null = null;
 
 function addToast(message: string, isError = false): void {
   const toast = document.createElement('div');
@@ -314,29 +369,424 @@ function getSelectedTemplate(): TemplateSummary | null {
   return availableTemplates.find(({ id }) => id === selectedTemplateId) ?? null;
 }
 
+function formatSigned(value: number): string {
+  return value > 0 ? `+${value}` : `${value}`;
+}
+
+function readDelayTicks(): number {
+  const parsed = Number.parseInt(buildDelayEl.value, 10);
+  if (!Number.isFinite(parsed)) {
+    buildDelayEl.value = '2';
+    return 2;
+  }
+
+  const normalized = Math.max(1, Math.min(20, parsed));
+  buildDelayEl.value = String(normalized);
+  return normalized;
+}
+
+function describeBuildFailureReason(reason: string | undefined): string {
+  if (reason === 'outside-territory') {
+    return 'outside territory';
+  }
+  if (reason === 'out-of-bounds') {
+    return 'out of bounds';
+  }
+  if (reason === 'occupied-site') {
+    return 'occupied site';
+  }
+  if (reason === 'unknown-template') {
+    return 'unknown template';
+  }
+  if (reason === 'invalid-coordinates') {
+    return 'invalid coordinates';
+  }
+  if (reason === 'invalid-delay') {
+    return 'invalid delay';
+  }
+  if (reason === 'team-defeated') {
+    return 'team defeated';
+  }
+  if (reason === 'match-finished') {
+    return 'match finished';
+  }
+  if (reason === 'template-compare-failed') {
+    return 'template compare failed';
+  }
+  if (reason === 'apply-failed') {
+    return 'apply failed';
+  }
+  return 'validation failed';
+}
+
+function formatDeficitCopy(
+  needed: number,
+  current: number,
+  deficit: number,
+): string {
+  return `Need ${needed}, current ${current} (deficit ${deficit}).`;
+}
+
+function triggerValuePulse(...elements: HTMLElement[]): void {
+  for (const element of elements) {
+    element.classList.remove('economy-value--pulse');
+    void element.offsetWidth;
+    element.classList.add('economy-value--pulse');
+  }
+}
+
+function cloneIncomeBreakdown(
+  breakdown: TeamIncomeBreakdownPayload,
+): TeamIncomeBreakdownPayload {
+  return {
+    base: breakdown.base,
+    structures: breakdown.structures,
+    total: breakdown.total,
+    activeStructureCount: breakdown.activeStructureCount,
+  };
+}
+
+function resetQueueFeedbackOverride(): void {
+  queueFeedbackOverride = null;
+}
+
+function setQueueFeedbackOverride(message: string, isError: boolean): void {
+  queueFeedbackOverride = { text: message, isError };
+}
+
+function clearSelectedTemplatePlacement(): void {
+  selectedTemplatePlacement = null;
+  latestBuildPreview = null;
+  previewPending = false;
+  lastPreviewRefreshTick = null;
+  resetQueueFeedbackOverride();
+}
+
+function updateQueuePlacementCopy(): void {
+  if (!selectedTemplatePlacement) {
+    queuePlacementEl.textContent =
+      'Select a board placement while in Template Queue mode.';
+    return;
+  }
+
+  queuePlacementEl.textContent = `Placement: (${selectedTemplatePlacement.x}, ${selectedTemplatePlacement.y}) for ${selectedTemplatePlacement.templateId}.`;
+}
+
+function updateQueueAffordabilityUi(): void {
+  updateQueuePlacementCopy();
+
+  queueCostEl.classList.remove('queue-cost--affordable', 'queue-cost--blocked');
+  if (!latestBuildPreview) {
+    queueCostEl.textContent = 'Cost: --';
+  } else {
+    queueCostEl.textContent = `Cost: ${latestBuildPreview.needed} | Current: ${latestBuildPreview.current}`;
+    queueCostEl.classList.add(
+      latestBuildPreview.affordable
+        ? 'queue-cost--affordable'
+        : 'queue-cost--blocked',
+    );
+  }
+
+  let feedback = 'Queue action is disabled until placement preview returns.';
+  let isError = false;
+  let disabled = true;
+
+  if (!templateMode) {
+    feedback = 'Switch to Template Queue mode to queue build actions.';
+  } else if (!canMutateGameplay()) {
+    feedback =
+      'Queue action is read-only until you are an active, non-defeated player.';
+  } else if (!selectedTemplatePlacement) {
+    feedback = 'Select a board placement to request affordability preview.';
+  } else if (previewPending) {
+    feedback = 'Checking affordability...';
+  } else if (!latestBuildPreview) {
+    feedback = 'Preview unavailable. Select placement again.';
+  } else if (!latestBuildPreview.affordable) {
+    if (latestBuildPreview.deficit > 0) {
+      feedback = formatDeficitCopy(
+        latestBuildPreview.needed,
+        latestBuildPreview.current,
+        latestBuildPreview.deficit,
+      );
+    } else {
+      feedback = `Cannot queue here: ${describeBuildFailureReason(latestBuildPreview.reason)}.`;
+    }
+    isError = true;
+  } else {
+    feedback = `Affordable: need ${latestBuildPreview.needed}, current ${latestBuildPreview.current}.`;
+    disabled = false;
+  }
+
+  if (queueFeedbackOverride) {
+    feedback = queueFeedbackOverride.text;
+    isError = queueFeedbackOverride.isError;
+  }
+
+  queueBuildButton.disabled = disabled;
+  queueFeedbackEl.textContent = feedback;
+  queueFeedbackEl.classList.toggle('queue-feedback--error', isError);
+}
+
+function emitBuildPreviewForSelectedPlacement(): void {
+  if (!selectedTemplatePlacement || !templateMode || !canMutateGameplay()) {
+    return;
+  }
+
+  resetQueueFeedbackOverride();
+  previewPending = true;
+  latestBuildPreview = null;
+  socket.emit('build:preview', {
+    templateId: selectedTemplatePlacement.templateId,
+    x: selectedTemplatePlacement.x,
+    y: selectedTemplatePlacement.y,
+  });
+  updateQueueAffordabilityUi();
+}
+
+function renderIncomeBreakdown(team: TeamPayload | null): void {
+  if (!team) {
+    incomeBreakdownBaseEl.textContent = '-';
+    incomeBreakdownStructuresEl.textContent = '-';
+    incomeBreakdownActiveEl.textContent = '-';
+    return;
+  }
+
+  incomeBreakdownBaseEl.textContent = formatSigned(team.incomeBreakdown.base);
+  incomeBreakdownStructuresEl.textContent = formatSigned(
+    team.incomeBreakdown.structures,
+  );
+  incomeBreakdownActiveEl.textContent = `${team.incomeBreakdown.activeStructureCount}`;
+}
+
+function renderPendingTimeline(
+  team: TeamPayload | null,
+  currentTick: number,
+): void {
+  pendingTimelineEl.innerHTML = '';
+
+  if (!team || team.pendingBuilds.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'pending-item';
+    empty.textContent = 'No pending build events.';
+    pendingTimelineEl.append(empty);
+    return;
+  }
+
+  const groupedRows = groupPendingByExecuteTick(
+    team.pendingBuilds,
+    currentTick,
+  );
+
+  for (const group of groupedRows) {
+    const groupEl = document.createElement('section');
+    groupEl.className = 'pending-group';
+
+    const title = document.createElement('p');
+    title.className = 'pending-group__title';
+    title.textContent = `Execute tick ${group.executeTick} (${group.etaLabel})`;
+    groupEl.append(title);
+
+    for (const row of group.items) {
+      const item = document.createElement('article');
+      item.className = 'pending-item';
+
+      const name = document.createElement('div');
+      name.className = 'pending-item__name';
+      name.textContent = `${row.templateName} (#${row.eventId})`;
+
+      const meta = document.createElement('div');
+      meta.className = 'pending-item__meta';
+      meta.textContent = `tick ${row.executeTick} | ${formatRelativeEta(row.executeTick, currentTick)} | at (${row.x}, ${row.y})`;
+
+      item.append(name, meta);
+      groupEl.append(item);
+    }
+
+    pendingTimelineEl.append(groupEl);
+  }
+}
+
+function renderEconomyDeltaChip(team: TeamPayload | null): void {
+  if (!team || !latestEconomyDeltaCue) {
+    hudDeltaChipEl.classList.add('is-hidden');
+    return;
+  }
+
+  const parts: string[] = [];
+  if (latestEconomyDeltaCue.netDelta !== 0) {
+    parts.push(`net ${formatSigned(latestEconomyDeltaCue.netDelta)}/tick`);
+  }
+  if (latestEconomyDeltaCue.resourceDelta !== 0) {
+    parts.push(`res ${formatSigned(latestEconomyDeltaCue.resourceDelta)}`);
+  }
+
+  if (parts.length === 0) {
+    hudDeltaChipEl.classList.add('is-hidden');
+    return;
+  }
+
+  hudDeltaChipEl.classList.remove('is-hidden');
+  hudDeltaChipEl.classList.toggle(
+    'economy-delta-chip--negative',
+    team.income < 0 || latestEconomyDeltaCue.isNegativeNet,
+  );
+  hudDeltaChipEl.textContent = `${parts.join(' | ')} • ${latestEconomyDeltaCue.causeLabel}`;
+}
+
+function resetEconomyTracking(): void {
+  lastTeamEconomySnapshot = null;
+  latestEconomyDeltaCue = null;
+  latestEconomyDeltaTick = null;
+  latestEconomyDeltaSamples = [];
+  resourcesEl.classList.remove(
+    'economy-value--negative',
+    'economy-value--pulse',
+  );
+  incomeEl.classList.remove('economy-value--negative', 'economy-value--pulse');
+  hudResourcesEl.classList.remove(
+    'economy-value--negative',
+    'economy-value--pulse',
+  );
+  hudIncomeEl.classList.remove(
+    'economy-value--negative',
+    'economy-value--pulse',
+  );
+  renderEconomyDeltaChip(null);
+  renderIncomeBreakdown(null);
+  renderPendingTimeline(null, 0);
+}
+
+function syncEconomyHud(team: TeamPayload | null, tick: number): void {
+  if (!team) {
+    hudResourcesEl.textContent = '-';
+    hudIncomeEl.textContent = '-';
+    incomeEl.classList.remove('economy-value--negative');
+    hudIncomeEl.classList.remove('economy-value--negative');
+    renderIncomeBreakdown(null);
+    renderPendingTimeline(null, tick);
+    latestEconomyDeltaCue = null;
+    renderEconomyDeltaChip(null);
+    lastTeamEconomySnapshot = null;
+    latestEconomyDeltaTick = null;
+    latestEconomyDeltaSamples = [];
+    return;
+  }
+
+  hudResourcesEl.textContent = `${team.resources}`;
+  hudIncomeEl.textContent = `${team.income}/tick`;
+  const netNegative = team.income < 0;
+  incomeEl.classList.toggle('economy-value--negative', netNegative);
+  hudIncomeEl.classList.toggle('economy-value--negative', netNegative);
+
+  renderIncomeBreakdown(team);
+  renderPendingTimeline(team, tick);
+
+  const nextSnapshot: TeamEconomySnapshot = {
+    tick,
+    resources: team.resources,
+    income: team.income,
+    incomeBreakdown: cloneIncomeBreakdown(team.incomeBreakdown),
+  };
+
+  const previousSnapshot = lastTeamEconomySnapshot;
+  if (previousSnapshot) {
+    const resourceDelta = nextSnapshot.resources - previousSnapshot.resources;
+    const incomeDelta = nextSnapshot.income - previousSnapshot.income;
+    const resourceChanged = resourceDelta !== 0;
+    const incomeChanged = incomeDelta !== 0;
+
+    if (resourceChanged) {
+      triggerValuePulse(resourcesEl, hudResourcesEl);
+    }
+    if (incomeChanged) {
+      triggerValuePulse(incomeEl, hudIncomeEl);
+    }
+
+    if (resourceChanged || incomeChanged) {
+      if (latestEconomyDeltaTick !== nextSnapshot.tick) {
+        latestEconomyDeltaTick = nextSnapshot.tick;
+        latestEconomyDeltaSamples = [];
+      }
+
+      latestEconomyDeltaSamples.push(
+        ...deriveIncomeDeltaSamples(
+          nextSnapshot.tick,
+          previousSnapshot.incomeBreakdown,
+          nextSnapshot.incomeBreakdown,
+        ),
+      );
+
+      if (resourceDelta !== 0) {
+        latestEconomyDeltaSamples.push({
+          tick: nextSnapshot.tick,
+          netDelta: 0,
+          resourceDelta,
+          cause: resourceDelta > 0 ? 'income tick' : 'queue spend',
+        });
+      }
+
+      const tickCue = aggregateIncomeDelta(latestEconomyDeltaSamples).find(
+        ({ tick: cueTick }) => cueTick === nextSnapshot.tick,
+      );
+      latestEconomyDeltaCue = tickCue ?? null;
+    } else if (latestEconomyDeltaTick !== nextSnapshot.tick) {
+      latestEconomyDeltaCue = null;
+    }
+  }
+
+  lastTeamEconomySnapshot = nextSnapshot;
+  renderEconomyDeltaChip(team);
+}
+
+function selectTemplatePlacementAt(cell: Cell): void {
+  const template = getSelectedTemplate();
+  if (!template) {
+    setMessage('No template selected.', true);
+    return;
+  }
+
+  const x = cell.x - Math.floor(template.width / 2);
+  const y = cell.y - Math.floor(template.height / 2);
+  selectedTemplatePlacement = {
+    templateId: template.id,
+    x,
+    y,
+  };
+  lastPreviewRefreshTick = null;
+  resetQueueFeedbackOverride();
+  setMessage(`Template placement selected at (${x}, ${y}).`);
+  emitBuildPreviewForSelectedPlacement();
+  updateQueueAffordabilityUi();
+}
+
 function updateTemplateOptions(): void {
   templateSelectEl.innerHTML = '';
 
   if (availableTemplates.length === 0) {
+    clearSelectedTemplatePlacement();
     const option = document.createElement('option');
     option.value = '';
     option.textContent = 'No templates';
     templateSelectEl.append(option);
     selectedTemplateId = '';
+    updateQueueAffordabilityUi();
     return;
   }
 
   for (const template of availableTemplates) {
     const option = document.createElement('option');
     option.value = template.id;
-    option.textContent = `${template.name} (${template.width}x${template.height})`;
+    option.textContent = `${template.name} (${template.width}x${template.height}) | base ${template.activationCost}`;
     templateSelectEl.append(option);
   }
 
   if (!selectedTemplateId || !getSelectedTemplate()) {
     selectedTemplateId = availableTemplates[0].id;
+    clearSelectedTemplatePlacement();
   }
   templateSelectEl.value = selectedTemplateId;
+  updateQueueAffordabilityUi();
 }
 
 function getSelfParticipant(): MembershipParticipant | null {
@@ -448,6 +898,7 @@ function updateReadOnlyExperience(): void {
   spectatorBannerEl.classList.toggle('is-hidden', bannerCopy === null);
 
   if (!bannerCopy) {
+    updateQueueAffordabilityUi();
     return;
   }
 
@@ -457,6 +908,7 @@ function updateReadOnlyExperience(): void {
   );
   spectatorBannerTitleEl.textContent = bannerCopy.title;
   spectatorBannerTextEl.textContent = bannerCopy.text;
+  updateQueueAffordabilityUi();
 }
 
 function syncCurrentTeamIdFromState(payload: StatePayload): void {
@@ -703,12 +1155,16 @@ function render(): void {
 
   if (templateMode) {
     const template = getSelectedTemplate();
-    if (template) {
+    if (
+      template &&
+      selectedTemplatePlacement &&
+      selectedTemplatePlacement.templateId === template.id
+    ) {
       ctx.strokeStyle = 'rgba(70, 213, 182, 0.75)';
       ctx.lineWidth = 1;
       ctx.strokeRect(
-        0.5,
-        0.5,
+        selectedTemplatePlacement.x * cellSize + 0.5,
+        selectedTemplatePlacement.y * cellSize + 0.5,
         template.width * cellSize,
         template.height * cellSize,
       );
@@ -735,7 +1191,7 @@ function sendUpdate(x: number, y: number, alive: boolean): void {
   socket.emit('cell:update', { x, y, alive });
 }
 
-function queueTemplateAt(cell: Cell): void {
+function chooseTemplatePlacement(cell: Cell): void {
   if (!canMutateGameplay()) {
     setMessage('Template queues are disabled while you are spectating.', true);
     return;
@@ -746,22 +1202,7 @@ function queueTemplateAt(cell: Cell): void {
     return;
   }
 
-  const template = getSelectedTemplate();
-  if (!template) {
-    setMessage('No template selected.', true);
-    return;
-  }
-
-  const x = cell.x - Math.floor(template.width / 2);
-  const y = cell.y - Math.floor(template.height / 2);
-  const delayTicks = Number(buildDelayEl.value);
-
-  socket.emit('build:queue', {
-    templateId: template.id,
-    x,
-    y,
-    delayTicks,
-  });
+  selectTemplatePlacementAt(cell);
 }
 
 function updateTeamStats(payload: StatePayload): void {
@@ -776,6 +1217,8 @@ function updateTeamStats(payload: StatePayload): void {
     resourcesEl.textContent = '-';
     incomeEl.textContent = '-';
     baseEl.textContent = 'Unknown';
+    syncEconomyHud(null, payload.tick);
+    updateQueueAffordabilityUi();
     return;
   }
 
@@ -786,6 +1229,8 @@ function updateTeamStats(payload: StatePayload): void {
     resourcesEl.textContent = '-';
     incomeEl.textContent = '-';
     baseEl.textContent = 'Unknown';
+    syncEconomyHud(null, payload.tick);
+    updateQueueAffordabilityUi();
     return;
   }
 
@@ -805,6 +1250,9 @@ function updateTeamStats(payload: StatePayload): void {
   } else {
     baseEl.textContent = 'Critical';
   }
+
+  syncEconomyHud(team, payload.tick);
+  updateQueueAffordabilityUi();
 }
 
 function renderLobbyStatus(payload: RoomMembershipPayload): void {
@@ -1028,7 +1476,7 @@ canvas.addEventListener('pointerdown', (event) => {
   if (!cell) return;
 
   if (templateMode) {
-    queueTemplateAt(cell);
+    chooseTemplatePlacement(cell);
     return;
   }
 
@@ -1089,6 +1537,8 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   persistentDefeatReason = null;
   latestOutcomeTimelineMetadata = null;
   currentMembership = null;
+  clearSelectedTemplatePlacement();
+  resetEconomyTracking();
   availableTemplates = payload.templates;
   selectedTemplateId = payload.templates[0]?.id ?? '';
   updateTemplateOptions();
@@ -1128,6 +1578,8 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   persistentDefeatReason = null;
   latestOutcomeTimelineMetadata = null;
   currentMembership = null;
+  clearSelectedTemplatePlacement();
+  resetEconomyTracking();
   applyRoomStatus('lobby');
   renderFinishedResults();
 
@@ -1148,10 +1600,37 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   setMessage('You left the room.');
   updateLobbyControls();
   updateLifecycleUi();
+  updateQueueAffordabilityUi();
 });
 
 socket.on('room:error', (payload: RoomErrorPayload) => {
-  const message = getClaimFailureMessage(payload);
+  let message = getClaimFailureMessage(payload);
+
+  if (
+    payload.reason === 'insufficient-resources' &&
+    typeof payload.needed === 'number' &&
+    typeof payload.current === 'number' &&
+    typeof payload.deficit === 'number'
+  ) {
+    const deficitCopy = formatDeficitCopy(
+      payload.needed,
+      payload.current,
+      payload.deficit,
+    );
+    message = `Queue rejected. ${deficitCopy}`;
+    setQueueFeedbackOverride(deficitCopy, true);
+  } else if (
+    payload.reason === 'outside-territory' ||
+    payload.reason === 'out-of-bounds' ||
+    payload.reason === 'occupied-site' ||
+    payload.reason === 'unknown-template' ||
+    payload.reason === 'invalid-coordinates'
+  ) {
+    setQueueFeedbackOverride(
+      `Cannot queue here: ${describeBuildFailureReason(payload.reason)}.`,
+      true,
+    );
+  }
 
   if (payload.reason === 'defeated') {
     persistentDefeatReason =
@@ -1163,6 +1642,7 @@ socket.on('room:error', (payload: RoomErrorPayload) => {
 
   setMessage(message, true);
   addToast(message, true);
+  updateQueueAffordabilityUi();
 });
 
 socket.on('room:membership', (payload: RoomMembershipPayload) => {
@@ -1234,10 +1714,65 @@ socket.on('player:profile', (payload: PlayerProfilePayload) => {
   updateLifecycleUi();
 });
 
+socket.on('build:preview', (payload: BuildPreview) => {
+  if (payload.roomId !== currentRoomId || currentTeamId === null) {
+    return;
+  }
+
+  if (payload.teamId !== currentTeamId || !selectedTemplatePlacement) {
+    return;
+  }
+
+  if (
+    payload.templateId !== selectedTemplatePlacement.templateId ||
+    payload.x !== selectedTemplatePlacement.x ||
+    payload.y !== selectedTemplatePlacement.y
+  ) {
+    return;
+  }
+
+  previewPending = false;
+  latestBuildPreview = payload;
+  resetQueueFeedbackOverride();
+  updateQueueAffordabilityUi();
+});
+
+socket.on('build:outcome', (payload: BuildOutcome) => {
+  if (payload.roomId !== currentRoomId || currentTeamId === null) {
+    return;
+  }
+
+  if (payload.teamId !== currentTeamId) {
+    return;
+  }
+
+  if (payload.outcome === 'rejected') {
+    const rejectionCopy =
+      payload.reason === 'insufficient-resources' &&
+      typeof payload.needed === 'number' &&
+      typeof payload.current === 'number' &&
+      typeof payload.deficit === 'number'
+        ? formatDeficitCopy(payload.needed, payload.current, payload.deficit)
+        : `Build #${payload.eventId} rejected: ${describeBuildFailureReason(payload.reason)}.`;
+
+    setQueueFeedbackOverride(rejectionCopy, true);
+    setMessage(rejectionCopy, true);
+  } else {
+    resetQueueFeedbackOverride();
+  }
+
+  updateQueueAffordabilityUi();
+});
+
 socket.on('build:queued', (payload: BuildQueuedPayload) => {
+  setQueueFeedbackOverride(
+    `Queued event #${payload.eventId} for execute tick ${payload.executeTick}.`,
+    false,
+  );
   setMessage(
     `Build queued (#${payload.eventId}) for tick ${payload.executeTick}.`,
   );
+  updateQueueAffordabilityUi();
 });
 
 socket.on('state', (payload: StatePayload) => {
@@ -1257,6 +1792,17 @@ socket.on('state', (payload: StatePayload) => {
   resizeCanvas();
   render();
   updateLifecycleUi();
+
+  if (
+    selectedTemplatePlacement &&
+    templateMode &&
+    canMutateGameplay() &&
+    !previewPending &&
+    lastPreviewRefreshTick !== payload.tick
+  ) {
+    lastPreviewRefreshTick = payload.tick;
+    emitBuildPreviewForSelectedPlacement();
+  }
 });
 
 setNameButton.addEventListener('click', () => {
@@ -1268,15 +1814,27 @@ setNameButton.addEventListener('click', () => {
 
 buildModeEl.addEventListener('change', () => {
   templateMode = buildModeEl.value === 'template';
+  if (!templateMode) {
+    clearSelectedTemplatePlacement();
+  }
   setMessage(
     templateMode
-      ? 'Template mode: click on the board to queue a structure.'
+      ? 'Template mode: click on the board to select placement, then use Queue Selected Placement.'
       : 'Paint mode: click and drag to toggle cells.',
   );
+  render();
+  updateQueueAffordabilityUi();
 });
 
 templateSelectEl.addEventListener('change', () => {
   selectedTemplateId = templateSelectEl.value;
+  clearSelectedTemplatePlacement();
+  render();
+  updateQueueAffordabilityUi();
+});
+
+buildDelayEl.addEventListener('change', () => {
+  readDelayTicks();
 });
 
 createRoomButton.addEventListener('click', () => {
@@ -1333,6 +1891,26 @@ startMatchButton.addEventListener('click', () => {
   socket.emit('room:start');
 });
 
+queueBuildButton.addEventListener('click', () => {
+  if (
+    !selectedTemplatePlacement ||
+    !latestBuildPreview ||
+    !latestBuildPreview.affordable
+  ) {
+    updateQueueAffordabilityUi();
+    return;
+  }
+
+  resetQueueFeedbackOverride();
+  socket.emit('build:queue', {
+    templateId: selectedTemplatePlacement.templateId,
+    x: selectedTemplatePlacement.x,
+    y: selectedTemplatePlacement.y,
+    delayTicks: readDelayTicks(),
+  });
+  updateQueueAffordabilityUi();
+});
+
 finishedMinimizeButton.addEventListener('click', () => {
   isFinishedPanelMinimized = !isFinishedPanelMinimized;
   updateFinishedPanelState();
@@ -1378,6 +1956,8 @@ refreshRoomsButton.addEventListener('click', () => {
 });
 
 updateTemplateOptions();
+resetEconomyTracking();
 updateLobbyControls();
 renderFinishedResults();
 updateLifecycleUi();
+updateQueueAffordabilityUi();

@@ -167,6 +167,187 @@
         gap: 8px;
       }
 
+      .economy-hud {
+        margin-top: 12px;
+        border: 1px solid var(--panel-border);
+        border-radius: 12px;
+        background: rgba(9, 14, 26, 0.72);
+        padding: 10px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .economy-hud__row {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .economy-hud__metric {
+        border: 1px solid var(--panel-border);
+        border-radius: 10px;
+        padding: 8px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .economy-hud__metric span {
+        display: block;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+
+      .economy-hud__metric strong {
+        display: block;
+        margin-top: 4px;
+        font-family: 'IBM Plex Mono', 'Courier New', monospace;
+        font-size: 15px;
+      }
+
+      .economy-value--negative {
+        color: var(--danger);
+      }
+
+      .economy-value--pulse {
+        animation: economyPulse 260ms ease;
+      }
+
+      @keyframes economyPulse {
+        0% {
+          transform: translateY(0);
+          filter: brightness(1);
+        }
+        40% {
+          transform: translateY(-1px);
+          filter: brightness(1.25);
+        }
+        100% {
+          transform: translateY(0);
+          filter: brightness(1);
+        }
+      }
+
+      .economy-delta-chip {
+        margin: 0;
+        border-radius: 999px;
+        border: 1px solid rgba(70, 213, 182, 0.45);
+        background: rgba(70, 213, 182, 0.14);
+        color: var(--accent);
+        padding: 5px 9px;
+        font-family: 'IBM Plex Mono', 'Courier New', monospace;
+        font-size: 12px;
+      }
+
+      .economy-delta-chip--negative {
+        border-color: rgba(224, 122, 122, 0.5);
+        background: rgba(224, 122, 122, 0.14);
+        color: var(--danger);
+      }
+
+      .economy-delta-chip.is-hidden {
+        display: none;
+      }
+
+      .income-breakdown {
+        border-top: 1px solid rgba(154, 167, 189, 0.22);
+        padding-top: 8px;
+      }
+
+      .income-breakdown summary {
+        cursor: pointer;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .income-breakdown__grid {
+        margin-top: 8px;
+        display: grid;
+        gap: 6px;
+        font-family: 'IBM Plex Mono', 'Courier New', monospace;
+        font-size: 12px;
+      }
+
+      .income-breakdown__row {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .queue-placement,
+      .queue-cost,
+      .queue-feedback {
+        margin: 0;
+        font-size: 12px;
+      }
+
+      .queue-placement,
+      .queue-feedback {
+        color: var(--muted);
+      }
+
+      .queue-feedback {
+        min-height: 1.3em;
+      }
+
+      .queue-feedback--error {
+        color: var(--danger);
+      }
+
+      .queue-cost {
+        font-family: 'IBM Plex Mono', 'Courier New', monospace;
+      }
+
+      .queue-cost--affordable {
+        color: var(--accent);
+      }
+
+      .queue-cost--blocked {
+        color: var(--danger);
+      }
+
+      .pending-timeline {
+        margin-top: 8px;
+        display: grid;
+        gap: 8px;
+        max-height: 180px;
+        overflow: auto;
+      }
+
+      .pending-group {
+        border: 1px solid var(--panel-border);
+        border-radius: 10px;
+        padding: 8px;
+        display: grid;
+        gap: 6px;
+      }
+
+      .pending-group__title {
+        margin: 0;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+
+      .pending-item {
+        border: 1px solid rgba(154, 167, 189, 0.24);
+        border-radius: 8px;
+        padding: 6px;
+        display: grid;
+        gap: 4px;
+      }
+
+      .pending-item__name {
+        font-size: 13px;
+      }
+
+      .pending-item__meta {
+        font-family: 'IBM Plex Mono', 'Courier New', monospace;
+        font-size: 11px;
+        color: var(--muted);
+      }
+
       .room-list,
       .slot-list,
       .spectator-list,
@@ -719,6 +900,52 @@
             Delay (ticks)
             <input id="build-delay" type="number" min="1" max="20" value="2" />
           </label>
+
+          <div class="economy-hud">
+            <div class="economy-hud__row">
+              <div class="economy-hud__metric">
+                <span>Resources</span>
+                <strong id="hud-resources" class="economy-value">-</strong>
+              </div>
+              <div class="economy-hud__metric">
+                <span>Net Income</span>
+                <strong id="hud-income" class="economy-value">-</strong>
+              </div>
+            </div>
+            <p id="hud-delta-chip" class="economy-delta-chip is-hidden"></p>
+            <details id="income-breakdown" class="income-breakdown">
+              <summary>Income Breakdown</summary>
+              <div class="income-breakdown__grid">
+                <div class="income-breakdown__row">
+                  <span>Base</span>
+                  <strong id="income-breakdown-base">-</strong>
+                </div>
+                <div class="income-breakdown__row">
+                  <span>Structures</span>
+                  <strong id="income-breakdown-structures">-</strong>
+                </div>
+                <div class="income-breakdown__row">
+                  <span>Active Structures</span>
+                  <strong id="income-breakdown-active">-</strong>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <h3>Template Queue Action</h3>
+          <p id="queue-placement" class="queue-placement">
+            Select a board placement while in Template Queue mode.
+          </p>
+          <p id="queue-cost" class="queue-cost">Cost: --</p>
+          <button id="queue-build" type="button" disabled>
+            Queue Selected Placement
+          </button>
+          <p id="queue-feedback" class="queue-feedback">
+            Queue action is disabled until placement preview returns.
+          </p>
+
+          <h3>Pending Timeline</h3>
+          <div id="pending-timeline" class="pending-timeline"></div>
         </div>
 
         <div class="control">
