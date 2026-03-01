@@ -109,7 +109,7 @@ Plans:
 
 Plans:
 
-- [ ] 05-01-PLAN.md — Make QUAL-01 unit coverage explicit and requirement-traceable in package-level tests.
+- [x] 05-01-PLAN.md — Make QUAL-01 unit coverage explicit and requirement-traceable in package-level tests.
 - [ ] 05-02-PLAN.md — Add explicit QUAL-02 end-to-end loop coverage and script-level quality-gate commands.
 
 ## Progress
@@ -120,4 +120,4 @@ Plans:
 | 2. Match Lifecycle & Breach Outcomes    | 3/3            | Complete    | 2026-02-27 |
 | 3. Deterministic Build Queue Validation | 2/2            | Complete    | 2026-02-27 |
 | 4. Economy HUD & Queue Visibility       | 4/4            | Complete    | 2026-03-01 |
-| 5. Quality Gate Validation              | 0/2            | Not started | -          |
+| 5. Quality Gate Validation              | 1/2            | In Progress | -          |
