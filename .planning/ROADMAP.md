@@ -10,7 +10,7 @@ This roadmap delivers a reliable 1v1 Conway RTS loop in dependency order: player
 - [x] **Phase 2: Match Lifecycle & Breach Outcomes** - Matches progress through legal lifecycle states and end with explicit winner/loser results. (completed 2026-02-27)
 - [ ] **Phase 3: Deterministic Build Queue Validation** - All gameplay mutations run through validated queue paths with terminal build outcomes.
 - [x] **Phase 4: Economy HUD & Queue Visibility** - Players can make informed build decisions using live resources/income and pending queue timeline. (completed 2026-03-01)
-- [ ] **Phase 5: Quality Gate Validation** - Unit and integration test suites prove lobby-to-defeat flow is stable and repeatable.
+- [x] **Phase 5: Quality Gate Validation** - Unit and integration test suites prove lobby-to-defeat flow is stable and repeatable. (completed 2026-03-01)
 
 ## Phase Details
 
@@ -110,14 +110,14 @@ Plans:
 Plans:
 
 - [x] 05-01-PLAN.md — Make QUAL-01 unit coverage explicit and requirement-traceable in package-level tests.
-- [ ] 05-02-PLAN.md — Add explicit QUAL-02 end-to-end loop coverage and script-level quality-gate commands.
+- [x] 05-02-PLAN.md — Add explicit QUAL-02 end-to-end loop coverage and script-level quality-gate commands.
 
 ## Progress
 
-| Phase                                   | Plans Complete | Status      | Completed  |
-| --------------------------------------- | -------------- | ----------- | ---------- |
-| 1. Lobby & Team Reliability             | 5/5            | Complete    | 2026-02-27 |
-| 2. Match Lifecycle & Breach Outcomes    | 3/3            | Complete    | 2026-02-27 |
-| 3. Deterministic Build Queue Validation | 2/2            | Complete    | 2026-02-27 |
-| 4. Economy HUD & Queue Visibility       | 4/4            | Complete    | 2026-03-01 |
-| 5. Quality Gate Validation              | 1/2            | In Progress | -          |
+| Phase                                   | Plans Complete | Status   | Completed  |
+| --------------------------------------- | -------------- | -------- | ---------- |
+| 1. Lobby & Team Reliability             | 5/5            | Complete | 2026-02-27 |
+| 2. Match Lifecycle & Breach Outcomes    | 3/3            | Complete | 2026-02-27 |
+| 3. Deterministic Build Queue Validation | 2/2            | Complete | 2026-02-27 |
+| 4. Economy HUD & Queue Visibility       | 4/4            | Complete | 2026-03-01 |
+| 5. Quality Gate Validation              | 2/2            | Complete | 2026-03-01 |

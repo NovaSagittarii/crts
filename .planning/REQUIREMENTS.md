@@ -40,7 +40,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Quality Gates
 
 - [x] **QUAL-01**: Developers can run unit tests covering lobby/team invariants, queue validation, queue terminal outcomes, and economy rules.
-- [ ] **QUAL-02**: Developers can run integration tests covering end-to-end flow: join -> build -> tick -> breach -> defeat.
+- [x] **QUAL-02**: Developers can run integration tests covering end-to-end flow: join -> build -> tick -> breach -> defeat.
 
 ## v2 Requirements
 
@@ -86,7 +86,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ECON-03     | Phase 4 | Complete |
 | UX-01       | Phase 4 | Complete |
 | QUAL-01     | Phase 5 | Complete |
-| QUAL-02     | Phase 5 | Pending |
+| QUAL-02     | Phase 5 | Complete |
 
 **Coverage:**
 
