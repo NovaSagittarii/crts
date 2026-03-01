@@ -32,7 +32,7 @@ Enforce authoritative structure placement legality using the union of build-radi
 ### Authoritative reject feedback
 
 - Rejections include a stable machine reason code and a human-readable message.
-- Out-of-zone player message: "Outside build zone — build closer to your structures."
+- Out-of-zone player message: "Outside build zone - build closer to your structures."
 - Repeated identical invalid attempts are de-duplicated with a short cooldown to avoid feedback spam.
 - If multiple legality checks fail simultaneously, return one deterministic primary reason, with out-of-zone prioritized first.
 
@@ -64,7 +64,7 @@ Enforce authoritative structure placement legality using the union of build-radi
 <deferred>
 ## Deferred Ideas
 
-- None — discussion stayed within the Phase 7 scope boundary.
+- None - discussion stayed within the Phase 7 scope boundary.
 
 </deferred>
 
