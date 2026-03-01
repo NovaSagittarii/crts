@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 
@@ -58,19 +59,18 @@ import {
 } from '#rts-engine';
 
 const DIST_CLIENT_DIR = path.join(process.cwd(), 'dist', 'client');
-const WEB_APP_DIR = path.join(process.cwd(), 'apps', 'web');
+const DIST_CLIENT_INDEX_HTML = path.join(DIST_CLIENT_DIR, 'index.html');
 const PLAYER_SLOT_IDS = ['team-1', 'team-2'] as const;
 const COUNTDOWN_SECONDS = 3;
 
-function getStaticDir(): string {
-  return DIST_CLIENT_DIR;
-}
+type ClientAssetsMode = 'optional' | 'strict';
 
 export interface ServerOptions {
   port?: number;
   width?: number;
   height?: number;
   tickMs?: number;
+  clientAssetsMode?: ClientAssetsMode;
 }
 
 export type StatePayload = RoomStatePayload;
@@ -78,6 +78,19 @@ export type StatePayload = RoomStatePayload;
 type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 type RoomListPayloadEntry = RoomListEntryPayload;
 export type CellUpdatePayload = SocketCellUpdatePayload;
+
+function configureStaticAssets(app: Express, mode: ClientAssetsMode): void {
+  if (!fs.existsSync(DIST_CLIENT_INDEX_HTML)) {
+    if (mode === 'strict') {
+      throw new Error(
+        `Missing built client assets at ${DIST_CLIENT_INDEX_HTML}. Run \`npm run build\` before starting the server.`,
+      );
+    }
+    return;
+  }
+
+  app.use(express.static(DIST_CLIENT_DIR));
+}
 
 interface RuntimeRoom {
   state: RoomState;
@@ -195,10 +208,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
   const width = options.width ?? 100;
   const height = options.height ?? 100;
   const tickMs = options.tickMs ?? 100;
+  const clientAssetsMode = options.clientAssetsMode ?? 'optional';
 
   const app: Express = express();
-  app.use(express.static(getStaticDir()));
-  app.use(express.static(WEB_APP_DIR));
+  configureStaticAssets(app, clientAssetsMode);
 
   const httpServer = http.createServer(app);
   const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(
@@ -1642,14 +1655,19 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.env.PORT) || 3000;
-  const server = createServer({ port });
-  void server
-    .start()
-    .then((resolvedPort) => {
-      console.log(`Server listening on http://0.0.0.0:${resolvedPort}`);
-    })
-    .catch((error: unknown) => {
-      console.error('Failed to start server', error);
-      process.exitCode = 1;
-    });
+  try {
+    const server = createServer({ port, clientAssetsMode: 'strict' });
+    void server
+      .start()
+      .then((resolvedPort) => {
+        console.log(`Server listening on http://0.0.0.0:${resolvedPort}`);
+      })
+      .catch((error: unknown) => {
+        console.error('Failed to start server', error);
+        process.exitCode = 1;
+      });
+  } catch (error) {
+    console.error('Failed to start server', error);
+    process.exitCode = 1;
+  }
 }

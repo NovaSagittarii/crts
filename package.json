@@ -17,7 +17,7 @@
   "scripts": {
     "build": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
-    "start": "node dist/apps/server/src/server.js",
+    "start": "npm run build && npm run build:server && node dist/apps/server/src/server.js",
     "dev": "concurrently \"vite\" \"NODE_OPTIONS=--conditions=development tsx watch apps/server/src/server.ts\"",
     "dev:server": "NODE_OPTIONS=--conditions=development tsx watch apps/server/src/server.ts",
     "preview": "vite preview",
