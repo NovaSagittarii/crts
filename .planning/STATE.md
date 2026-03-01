@@ -2,19 +2,20 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-27)
+See: .planning/PROJECT.md (updated 2026-03-01)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 5 - Quality Gate Validation
+**Current focus:** Define the next milestone with `/gsd-new-milestone`
 
 ## Current Position
 
-**Current Phase:** 5
-**Current Phase Name:** Quality Gate Validation
+**Current Milestone:** v0.0.1 Prototype Baseline
+**Current Phase:** None (milestone archived)
+**Current Phase Name:** Milestone Closure
 **Total Phases:** 5
-**Current Plan:** Not started
-**Total Plans in Phase:** 2
-**Status:** Milestone complete
+**Current Plan:** None
+**Total Plans in Phase:** 0
+**Status:** v0.0.1 milestone archived
 **Last Activity:** 2026-03-01
 **Progress:** [██████████] 100%
 
@@ -22,37 +23,27 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 
 **Velocity:**
 
-- Total plans completed: 5
-- Average duration: 15.8 min
-- Total execution time: 1.3 hours
+- Total phases completed: 5
+- Total plans completed: 16
+- Total tasks completed: 48
+- Timeline: 2026-02-27 to 2026-03-01
 
 **By Phase:**
 
-| Phase | Plans | Total  | Avg/Plan |
-| ----- | ----- | ------ | -------- |
-| 1     | 5     | 79 min | 15.8 min |
+| Phase | Plans | Status   |
+| ----- | ----- | -------- |
+| 1     | 5/5   | Complete |
+| 2     | 3/3   | Complete |
+| 3     | 2/2   | Complete |
+| 4     | 4/4   | Complete |
+| 5     | 2/2   | Complete |
 
 **Recent Trend:**
 
-- Last 5 plans: 01-01 (7 min), 01-02 (12 min), 01-03 (15 min), 01-04 (35 min), 01-05 (10 min)
-- Trend: Stable execution velocity
+- Trend: Milestone shipped with full phase completion and quality gates in place.
 
 _Updated after each plan completion_
-| Phase 01-lobby-team-reliability P02 | 12 min | 3 tasks | 4 files |
-| Phase 01-lobby-team-reliability P03 | 15 min | 3 tasks | 3 files |
-| Phase 01-lobby-team-reliability P05 | 10 min | 3 tasks | 3 files |
-| Phase 01-lobby-team-reliability P04 | 35 min | 3 tasks | 3 files |
-| Phase 02-match-lifecycle-breach-outcomes P01 | 8 min | 3 tasks | 5 files |
-| Phase 02-match-lifecycle-breach-outcomes P02 | 9 min | 3 tasks | 5 files |
-| Phase 02 P03 | 9 min | 3 tasks | 3 files |
-| Phase 03 P01 | 11 min | 3 tasks | 3 files |
-| Phase 03 P02 | 12 min | 3 tasks | 4 files |
-| Phase 04 P01 | 9 min | 3 tasks | 3 files |
-| Phase 04 P02 | 19 min | 3 tasks | 3 files |
-| Phase 04 P03 | 23 min | 3 tasks | 5 files |
-| Phase 04 P04 | 12 min | 3 tasks | 4 files |
-| Phase 05 P01 | 8 min | 3 tasks | 2 files |
-| Phase 05 P02 | 22 min | 3 tasks | 2 files |
+| Milestone v0.0.1 | 16 plans | 48 tasks | archived |
 
 ## Accumulated Context
 
@@ -110,11 +101,17 @@ Recent decisions affecting current work:
 - [Phase 05]: Kept default test:integration and added test:integration:serial as deterministic fallback.
 - [Phase 05]: Added dedicated QUAL-02 integration file for explicit join-build-tick-breach-defeat traceability.
 
+Milestone closure decisions:
+
+- Requirement accounting excludes `LOBBY-02`; the behavior shipped but is tracked as a delivered capability rather than a formal requirement.
+- Planning docs are archived under `.planning/milestones/`, and active roadmap docs reset for next milestone definition.
+
 ### Pending Todos
 
 From `.planning/todos/pending/` - ideas captured during sessions.
 
-None yet.
+- Create fresh milestone requirements and roadmap via `/gsd-new-milestone`.
+- Decide whether to run retrospective `/gsd-audit-milestone` against v0.0.1 artifacts.
 
 ### Blockers/Concerns
 
@@ -124,5 +121,5 @@ None yet.
 ## Session Continuity
 
 **Last session:** 2026-03-01T09:47:44.802Z
-**Stopped At:** Completed 05-02-PLAN.md
-**Resume File:** None
+**Stopped At:** Milestone v0.0.1 archived and ready for next milestone planning
+**Resume File:** `.planning/PROJECT.md`
