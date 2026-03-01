@@ -25,7 +25,7 @@ Players can destroy owned structures during active matches through authoritative
 - Default destroy behavior is immediate on click (no confirmation for most structures).
 - Destroy controls are hidden for non-owned structures.
 - Pending destroy has an explicit visual pending state until authoritative outcome arrives.
-- Base structure requires extra inline confirm before destroy.
+- Base structure requires an inline confirm modal before destroy.
 - Confirmation requirement should be implemented as a structure-level property so future structure types can opt into the same behavior.
 
 ### Outcome and rejection feedback
