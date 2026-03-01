@@ -9,7 +9,7 @@ This roadmap delivers a reliable 1v1 Conway RTS loop in dependency order: player
 - [x] **Phase 1: Lobby & Team Reliability** - Players can reliably create/join rooms, pick teams, and reconnect without state drift. (completed 2026-02-27)
 - [x] **Phase 2: Match Lifecycle & Breach Outcomes** - Matches progress through legal lifecycle states and end with explicit winner/loser results. (completed 2026-02-27)
 - [ ] **Phase 3: Deterministic Build Queue Validation** - All gameplay mutations run through validated queue paths with terminal build outcomes.
-- [ ] **Phase 4: Economy HUD & Queue Visibility** - Players can make informed build decisions using live resources/income and pending queue timeline.
+- [x] **Phase 4: Economy HUD & Queue Visibility** - Players can make informed build decisions using live resources/income and pending queue timeline. (completed 2026-03-01)
 - [ ] **Phase 5: Quality Gate Validation** - Unit and integration test suites prove lobby-to-defeat flow is stable and repeatable.
 
 ## Phase Details
@@ -92,7 +92,7 @@ Plans:
 
 - [x] 04-01-PLAN.md — Add engine-authoritative affordability metadata, income breakdown fields, and pending queue projection contracts.
 - [x] 04-02-PLAN.md — Wire server preview/rejection payloads and integration coverage for deficits and pending queue state visibility.
-- [ ] 04-03-PLAN.md — Implement HUD affordability gating, pulse/delta income cues, and pending queue timeline UI from authoritative payloads.
+- [x] 04-03-PLAN.md — Implement HUD affordability gating, pulse/delta income cues, and pending queue timeline UI from authoritative payloads.
 
 ### Phase 5: Quality Gate Validation
 
@@ -113,5 +113,5 @@ Plans:
 | 1. Lobby & Team Reliability             | 5/5            | Complete    | 2026-02-27 |
 | 2. Match Lifecycle & Breach Outcomes    | 3/3            | Complete    | 2026-02-27 |
 | 3. Deterministic Build Queue Validation | 2/2            | Complete    | 2026-02-27 |
-| 4. Economy HUD & Queue Visibility       | 2/3            | In Progress | -          |
+| 4. Economy HUD & Queue Visibility       | 3/3            | Complete    | 2026-03-01 |
 | 5. Quality Gate Validation              | 0/TBD          | Not started | -          |

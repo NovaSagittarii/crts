@@ -29,7 +29,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Economy
 
-- [ ] **ECON-01**: User can see current resources and per-tick income in the match HUD.
+- [x] **ECON-01**: User can see current resources and per-tick income in the match HUD.
 - [x] **ECON-02**: User can only queue affordable builds; unaffordable requests are rejected with reason.
 - [x] **ECON-03**: Resource income updates dynamically based on owned structures/territory state.
 
@@ -81,7 +81,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BUILD-02    | Phase 3 | Complete |
 | BUILD-03    | Phase 3 | Complete |
 | BUILD-04    | Phase 3 | Complete |
-| ECON-01     | Phase 4 | Pending |
+| ECON-01     | Phase 4 | Complete |
 | ECON-02     | Phase 4 | Complete |
 | ECON-03     | Phase 4 | Complete |
 | UX-01       | Phase 4 | Complete |
