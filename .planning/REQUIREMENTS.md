@@ -58,16 +58,31 @@ Explicit exclusions for `v0.0.2`.
 
 Mapped during roadmap creation.
 
-| Requirement | Phase | Status |
-| ----------- | ----- | ------ |
+| Requirement | Phase    | Status  |
+| ----------- | -------- | ------- |
+| BASE-01     | Phase 6  | Pending |
+| STRUCT-01   | Phase 6  | Pending |
+| BUILD-01    | Phase 7  | Pending |
+| BUILD-02    | Phase 7  | Pending |
+| XFORM-01    | Phase 8  | Pending |
+| XFORM-02    | Phase 8  | Pending |
+| QUAL-03     | Phase 8  | Pending |
+| STRUCT-02   | Phase 9  | Pending |
+| QUAL-04     | Phase 9  | Pending |
+| UI-01       | Phase 10 | Pending |
+| UI-02       | Phase 11 | Pending |
+| UI-05       | Phase 11 | Pending |
+| UI-03       | Phase 12 | Pending |
+| UI-04       | Phase 12 | Pending |
 
 **Coverage:**
 
 - v1 requirements: 14 total
-- Mapped to phases: 0
-- Unmapped: 14
+- Mapped to phases: 14
+- Unmapped: 0
+- Coverage status: 100% mapped
 
 ---
 
 _Requirements defined: 2026-03-01_
-_Last updated: 2026-03-01 after milestone v0.0.2 requirement adjustment_
+_Last updated: 2026-03-01 after roadmap creation for milestone v0.0.2_

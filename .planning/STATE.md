@@ -5,119 +5,70 @@
 See: .planning/PROJECT.md (updated 2026-03-01)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Define requirements and roadmap for milestone v0.0.2 Gameplay Expansion
+**Current focus:** Plan and execute Phase 6 (backend-first gameplay expansion for v0.0.2).
 
 ## Current Position
 
 **Current Milestone:** v0.0.2 Gameplay Expansion
-**Current Phase:** Not started (defining requirements)
-**Current Plan:** —
-**Status:** Defining requirements
-**Last Activity:** 2026-03-01 — Milestone v0.0.2 started
+**Phase:** 6 of 7 (Base Geometry and Integrity Core)
+**Plan:** 0 of TBD
+**Status:** Ready to plan
+**Last Activity:** 2026-03-01 - Created roadmap phases 6-12 with full v1 traceability mapping.
 **Progress:** [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total phases completed: 5
-- Total plans completed: 16
-- Total tasks completed: 48
-- Timeline: 2026-02-27 to 2026-03-01
+- Completed phases: 5
+- Completed plans: 16
+- Completed tasks: 48
+- Shipped milestones: 1 (`v0.0.1`)
 
 **By Phase:**
 
-| Phase | Plans | Status   |
-| ----- | ----- | -------- |
-| 1     | 5/5   | Complete |
-| 2     | 3/3   | Complete |
-| 3     | 2/2   | Complete |
-| 4     | 4/4   | Complete |
-| 5     | 2/2   | Complete |
+| Phase | Plans | Status      |
+| ----- | ----- | ----------- |
+| 1     | 5/5   | Complete    |
+| 2     | 3/3   | Complete    |
+| 3     | 2/2   | Complete    |
+| 4     | 4/4   | Complete    |
+| 5     | 2/2   | Complete    |
+| 6     | 0/TBD | Not started |
+| 7     | 0/TBD | Not started |
+| 8     | 0/TBD | Not started |
+| 9     | 0/TBD | Not started |
+| 10    | 0/TBD | Not started |
+| 11    | 0/TBD | Not started |
+| 12    | 0/TBD | Not started |
 
 **Recent Trend:**
 
-- Trend: v0.0.1 closed cleanly; v0.0.2 is now in requirements definition.
-
-_Updated after each plan completion_
-| Milestone v0.0.1 | 16 plans | 48 tasks | archived |
-| Milestone v0.0.2 | 0 plans | 0 tasks | defining requirements |
+- v0.0.1 closed with passing quality gates.
+- v0.0.2 starts with backend and test slices before UI-heavy slices.
 
 ## Accumulated Context
 
 ### Decisions
 
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
-
-- [Phase 1]: Prioritize deterministic room/team reliability before deeper gameplay work.
-- [Phase 2]: Enforce canonical lifecycle and breach outcomes immediately after lobby stability.
-- [Phase 3]: Route all gameplay mutations through validated build queue paths.
-- [Phase 01-lobby-team-reliability]: Players always join as spectators and explicitly claim one of two player slots.
-- [Phase 01-lobby-team-reliability]: Spawn orientation seed is derived from room identity for deterministic base placement.
-- [Phase 01-lobby-team-reliability]: Default torus spawn radius is constrained to quarter-span to preserve wrapped-distance separation.
-- [Phase 01-lobby-team-reliability]: Expose room:membership snapshots with monotonic revision numbers as the authoritative lobby visibility stream.
-- [Phase 01-lobby-team-reliability]: Disallow force-start when required players are not ready and enforce host-only countdown initiation.
-- [Phase 01-lobby-team-reliability]: Broadcast room-scoped chat to all participants (players and spectators) with server-attached sender metadata.
-- [Phase 01-lobby-team-reliability]: Use durable session IDs from handshake auth instead of ephemeral socket IDs for ownership.
-- [Phase 01-lobby-team-reliability]: Keep disconnected player slots locked for 30 seconds and reclaim before spectator slot claims.
-- [Phase 01-lobby-team-reliability]: Expose reconnect state inline in membership payloads for quiet UI indicators and deterministic assertions.
-- [Phase 01-lobby-team-reliability]: Model timeout fallback in-lobby before countdown so replacement slot claims remain valid and deterministic
-- [Phase 01-lobby-team-reliability]: Register room:error listeners before emits in reliability tests to avoid event-order race flakes
-- [Phase 01-lobby-team-reliability]: Render team slot rows directly from room:membership snapshots with explicit team labels and held/disconnect badges.
-- [Phase 01-lobby-team-reliability]: Persist localStorage session IDs and send them in Socket.IO auth to keep reconnect ownership stable.
-- [Phase 01-lobby-team-reliability]: Surface claim and reconnect race failures through both inline status and toast messages for clear user feedback.
-- [Phase 02-match-lifecycle-breach-outcomes]: Use explicit transitionMatchLifecycle guards as the single lifecycle authority path.
-- [Phase 02-match-lifecycle-breach-outcomes]: Lock same-tick breach ordering to coreHpBeforeResolution desc, territoryCellCount desc, appliedBuildCount desc, then teamId asc.
-- [Phase 02-match-lifecycle-breach-outcomes]: Resolve defeat only when core HP reaches zero after restore checks, then emit winner-first ranked outcomes.
-- [Phase 02-match-lifecycle-breach-outcomes]: Use room:start as the host-only action for both initial start and restart from finished via lifecycle guards.
-- [Phase 02-match-lifecycle-breach-outcomes]: Keep active disconnect expiry non-terminal by preserving team/session membership until breach determines outcomes.
-- [Phase 02-match-lifecycle-breach-outcomes]: Re-broadcast room:match-finished snapshots during finished state to keep reconnecting and late listeners synchronized.
-- [Phase 02-match-lifecycle-breach-outcomes]: Drive lifecycle overlays from authoritative room:membership status and room:match-finished payloads.
-- [Phase 02-match-lifecycle-breach-outcomes]: Keep restart host-only through room:start in finished while non-host users see waiting messaging.
-- [Phase 02-match-lifecycle-breach-outcomes]: Disable client gameplay mutations whenever user is defeated, spectating, or lifecycle status is non-active.
-- [Phase 03]: Return terminal buildOutcomes from tickRoom so runtime layers can emit one explicit outcome per accepted event.
-- [Phase 03]: Drain pending events on both team defeat and match finish using explicit team-defeated and match-finished reasons.
-- [Phase 03]: Keep build:queued unchanged while adding room-scoped build:outcome payload typing.
-- [Phase 03]: Emit build:outcome room-wide from tickRoom() results so each acknowledged queue event has terminal closure
-- [Phase 03]: Map queue validation failures to explicit room:error reason codes instead of generic build-rejected
-- [Phase 03]: Reject direct cell:update gameplay mutations with queue-only-mutation-path and preserve build:queue as the sole gameplay mutation entrypoint
-- [Phase 04]: Keep affordability metadata canonical in engine outputs with exact needed/current/deficit fields.
-- [Phase 04]: Project pending queue rows per team with executeTick/eventId ordering and template id/name for reconnect-safe timeline rendering.
-- [Phase 04]: Introduce typed build:preview request/response contracts while keeping existing queue/state/outcome event names stable.
-- [Phase 04]: Compute build:preview responses via queueBuildEvent probes on cloned room state
-- [Phase 04]: Use engine-provided queue rejection reason codes and include room:error deficit metadata for insufficient-resources
-- [Phase 04]: Keep state/build:outcome emissions as pass-through carriers for pending queue and affordability metadata
-- [Phase 04]: Queue action is preview-gated and disabled until authoritative affordability data reports affordable.
-- [Phase 04]: Pending timeline rendering uses deterministic executeTick/eventId grouping helpers with relative ETA labels.
-- [Phase 04]: HUD delta cues aggregate per tick with color-only negative-net indication tied to authoritative state.
-- [Phase 04]: Use strict dist-client asset enforcement only for CLI startup mode so production startup fails fast while integration harnesses stay stable.
-- [Phase 04]: Keep failure visibility within existing status, lifecycle, inline message, and toast UI surfaces instead of adding new screens.
-- [Phase 04]: Assert bootstrap correctness with both served module checks and room:joined plus room:membership handshake smoke assertions.
-- [Phase 05]: Keep QUAL-01 traceability in existing package unit suites instead of introducing new test files.
-- [Phase 05]: Assert typed rejection and outcome fields (reason, needed/current/deficit, outcome) rather than parsing message strings.
-- [Phase 05]: Kept default test:integration and added test:integration:serial as deterministic fallback.
-- [Phase 05]: Added dedicated QUAL-02 integration file for explicit join-build-tick-breach-defeat traceability.
-
-Milestone closure decisions:
-
-- Requirement accounting excludes `LOBBY-02`; the behavior shipped but is tracked as a delivered capability rather than a formal requirement.
-- Planning docs are archived under `.planning/milestones/`, and active roadmap docs reset for next milestone definition.
+- Continue continuous numbering; v0.0.2 starts at Phase 6.
+- Keep the v0.0.2 roadmap under the 11-phase cap (planned as 7 phases).
+- Front-load backend rule changes and deterministic test coverage before UI-heavy integration.
+- Preserve server-authoritative simulation and deterministic package logic as non-negotiable architecture constraints.
 
 ### Pending Todos
 
-From `.planning/todos/pending/` - ideas captured during sessions.
-
-- Create fresh milestone requirements and roadmap via `/gsd-new-milestone`.
-- Decide whether to run retrospective `/gsd-audit-milestone` against v0.0.1 artifacts.
+- Run `/gsd-plan-phase 6` to decompose base geometry and integrity work.
+- Lock explicit K-tick cadence and HP-repair cost constants before implementation begins.
+- Define pan/zoom input-accuracy acceptance checks before Phase 11 execution.
 
 ### Blockers/Concerns
 
-- Canonical breach-rule wording must stay consistent across server events, UI status, and tests.
-- Room capacity and overflow handling should be finalized before lobby hardening is considered complete.
+- Canonical 5x5 base coordinate semantics must remain identical across engine, server, and UI projections.
+- Destroy outcomes and build-zone updates must remain reconnect-safe to satisfy `QUAL-04`.
 
 ## Session Continuity
 
-**Last session:** 2026-03-01T09:47:44.802Z
-**Stopped At:** Milestone v0.0.1 archived and ready for next milestone planning
-**Resume File:** `.planning/PROJECT.md`
+**Last session:** 2026-03-01
+**Stopped At:** v0.0.2 roadmap and traceability written; execution has not started.
+**Resume File:** `.planning/ROADMAP.md`
