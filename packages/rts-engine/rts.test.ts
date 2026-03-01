@@ -322,6 +322,55 @@ describe('rts', () => {
     );
   });
 
+  test('[QUAL-01] keeps queue sequencing isolated per room instance', () => {
+    const roomA = createRoomState({
+      id: 'room-a',
+      name: 'Alpha',
+      width: 60,
+      height: 60,
+    });
+    const roomB = createRoomState({
+      id: 'room-b',
+      name: 'Bravo',
+      width: 60,
+      height: 60,
+    });
+
+    const teamA = addPlayerToRoom(roomA, 'p1', 'Alice');
+    const teamB = addPlayerToRoom(roomB, 'p1', 'Alice');
+
+    const queueA = queueBuildEvent(roomA, 'p1', {
+      templateId: 'block',
+      x: teamA.baseTopLeft.x + 4,
+      y: teamA.baseTopLeft.y + 4,
+      delayTicks: 1,
+    });
+    const queueB = queueBuildEvent(roomB, 'p1', {
+      templateId: 'block',
+      x: teamB.baseTopLeft.x + 4,
+      y: teamB.baseTopLeft.y + 4,
+      delayTicks: 1,
+    });
+
+    expect(queueA).toMatchObject({
+      accepted: true,
+      eventId: 1,
+      executeTick: 1,
+    });
+    expect(queueB).toMatchObject({
+      accepted: true,
+      eventId: 1,
+      executeTick: 1,
+    });
+
+    tickRoom(roomA);
+    const resolvedA = tickRoom(roomA);
+
+    expect(getBuildOutcomes(resolvedA)).toHaveLength(1);
+    expect(roomB.tick).toBe(0);
+    expect(roomB.teams.get(teamB.id)?.pendingBuildEvents).toHaveLength(1);
+  });
+
   test('projects pending queue rows sorted by executeTick then eventId', () => {
     const room = createRoomState({
       id: '1',

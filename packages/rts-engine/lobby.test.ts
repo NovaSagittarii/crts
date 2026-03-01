@@ -132,6 +132,26 @@ describe('lobby', () => {
       expect(leaveLobby(lobby, 'p1').ok).toBe(true);
       expect(claimLobbySlot(lobby, 'p2', 'team-1').ok).toBe(true);
     });
+
+    test('[QUAL-01] keeps slot claims isolated across independent lobby instances', () => {
+      const lobbyA = createLobbyRoom({
+        roomId: 'room-9a',
+        slotIds: ['team-1', 'team-2'],
+      });
+      const lobbyB = createLobbyRoom({
+        roomId: 'room-9b',
+        slotIds: ['team-1', 'team-2'],
+      });
+
+      joinLobby(lobbyA, { sessionId: 'p1', displayName: 'Alice' });
+      joinLobby(lobbyB, { sessionId: 'p2', displayName: 'Bob' });
+
+      expect(claimLobbySlot(lobbyA, 'p1', 'team-1').ok).toBe(true);
+      expect(claimLobbySlot(lobbyB, 'p2', 'team-1').ok).toBe(true);
+
+      expect(getLobbySnapshot(lobbyA).hostSessionId).toBe('p1');
+      expect(getLobbySnapshot(lobbyB).hostSessionId).toBe('p2');
+    });
   });
 
   test('returns explicit slot rejections for invalid inputs', () => {
