@@ -12,8 +12,8 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 **Current Phase:** 04
 **Current Phase Name:** Economy HUD & Queue Visibility
 **Total Phases:** 5
-**Current Plan:** 3
-**Total Plans in Phase:** 3
+**Current Plan:** 4
+**Total Plans in Phase:** 4
 **Status:** Phase complete — ready for verification
 **Last Activity:** 2026-03-01
 **Progress:** [██████████] 100%
@@ -50,6 +50,7 @@ _Updated after each plan completion_
 | Phase 04 P01 | 9 min | 3 tasks | 3 files |
 | Phase 04 P02 | 19 min | 3 tasks | 3 files |
 | Phase 04 P03 | 23 min | 3 tasks | 5 files |
+| Phase 04 P04 | 12 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -99,6 +100,9 @@ Recent decisions affecting current work:
 - [Phase 04]: Queue action is preview-gated and disabled until authoritative affordability data reports affordable.
 - [Phase 04]: Pending timeline rendering uses deterministic executeTick/eventId grouping helpers with relative ETA labels.
 - [Phase 04]: HUD delta cues aggregate per tick with color-only negative-net indication tied to authoritative state.
+- [Phase 04]: Use strict dist-client asset enforcement only for CLI startup mode so production startup fails fast while integration harnesses stay stable.
+- [Phase 04]: Keep failure visibility within existing status, lifecycle, inline message, and toast UI surfaces instead of adding new screens.
+- [Phase 04]: Assert bootstrap correctness with both served module checks and room:joined plus room:membership handshake smoke assertions.
 
 ### Pending Todos
 
@@ -113,6 +117,6 @@ None yet.
 
 ## Session Continuity
 
-**Last session:** 2026-03-01T00:47:41.021Z
-**Stopped At:** Completed 04-03-PLAN.md
+**Last session:** 2026-03-01T08:20:06.050Z
+**Stopped At:** Completed 04-04-PLAN.md
 **Resume File:** None
