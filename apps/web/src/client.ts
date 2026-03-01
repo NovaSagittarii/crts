@@ -199,6 +199,7 @@ const chatSendButton = getRequiredElement<HTMLButtonElement>('chat-send');
 const toastStackEl = getRequiredElement<HTMLDivElement>('toast-stack');
 
 const SESSION_STORAGE_KEY = 'life-rts.session-id';
+const BOOTSTRAP_MEMBERSHIP_TIMEOUT_MS = 6000;
 
 function getOrCreateSessionId(): string {
   const fallback = `session-${generateStableIdFragment()}`;
@@ -255,6 +256,10 @@ let latestEconomyDeltaCue: AggregatedIncomeDelta | null = null;
 let latestEconomyDeltaTick: number | null = null;
 let latestEconomyDeltaSamples: IncomeDeltaSample[] = [];
 let queueFeedbackOverride: { text: string; isError: boolean } | null = null;
+let lifecycleConnectionNotice: string | null = null;
+let bootstrapMembershipTimeoutId: number | null = null;
+let connectionIssueVisible = false;
+let lastConnectionErrorSignature: string | null = null;
 
 function addToast(message: string, isError = false): void {
   const toast = document.createElement('div');
@@ -277,6 +282,65 @@ function addToast(message: string, isError = false): void {
 function setMessage(message: string, isError = false): void {
   messageEl.textContent = message;
   messageEl.classList.toggle('message--error', isError);
+}
+
+function clearBootstrapMembershipTimeout(): void {
+  if (bootstrapMembershipTimeoutId === null) {
+    return;
+  }
+  window.clearTimeout(bootstrapMembershipTimeoutId);
+  bootstrapMembershipTimeoutId = null;
+}
+
+function updateConnectionIssue(
+  statusLabel: string,
+  lifecycleNotice: string,
+  message: string,
+  showToast = false,
+): void {
+  statusEl.textContent = statusLabel;
+  lifecycleConnectionNotice = lifecycleNotice;
+  connectionIssueVisible = true;
+  setMessage(message, true);
+  updateLifecycleStatusLine();
+
+  if (showToast && lastConnectionErrorSignature !== message) {
+    addToast(message, true);
+    lastConnectionErrorSignature = message;
+  }
+}
+
+function clearConnectionIssue(showRecoveryMessage = false): void {
+  const hadIssue = connectionIssueVisible;
+  connectionIssueVisible = false;
+  lifecycleConnectionNotice = null;
+  lastConnectionErrorSignature = null;
+  updateLifecycleStatusLine();
+
+  if (showRecoveryMessage && hadIssue) {
+    const recoveryMessage =
+      'Connection restored. Room membership bootstrap resumed.';
+    setMessage(recoveryMessage);
+    addToast(recoveryMessage);
+  }
+}
+
+function scheduleBootstrapMembershipTimeout(): void {
+  clearBootstrapMembershipTimeout();
+  bootstrapMembershipTimeoutId = window.setTimeout(() => {
+    bootstrapMembershipTimeoutId = null;
+    if (!socket.connected || currentMembership) {
+      return;
+    }
+
+    updateConnectionIssue(
+      'Connected (bootstrap pending)',
+      'connected, waiting for room membership',
+      'Connected to server, but room membership bootstrap is taking longer than expected. Waiting for automatic recovery.',
+      true,
+    );
+    socket.emit('room:list');
+  }, BOOTSTRAP_MEMBERSHIP_TIMEOUT_MS);
 }
 
 function getClaimFailureMessage(payload: RoomErrorPayload): string {
@@ -1038,7 +1102,10 @@ function updateFinishedPanelState(): void {
 }
 
 function updateLifecycleStatusLine(): void {
-  lifecycleStatusLineEl.textContent = `Lifecycle: ${getLifecycleLabel(currentRoomStatus)}`;
+  const baseLabel = `Lifecycle: ${getLifecycleLabel(currentRoomStatus)}`;
+  lifecycleStatusLineEl.textContent = lifecycleConnectionNotice
+    ? `${baseLabel} | ${lifecycleConnectionNotice}`
+    : baseLabel;
 }
 
 function updateLifecycleUi(): void {
@@ -1513,11 +1580,63 @@ window.addEventListener('resize', () => {
 
 socket.on('connect', () => {
   statusEl.textContent = 'Connected';
+  clearConnectionIssue(true);
+  scheduleBootstrapMembershipTimeout();
   socket.emit('room:list');
 });
 
-socket.on('disconnect', () => {
-  statusEl.textContent = 'Disconnected';
+socket.on('disconnect', (reason) => {
+  clearBootstrapMembershipTimeout();
+  updateConnectionIssue(
+    'Disconnected',
+    'connection lost',
+    `Connection lost (${reason}). Attempting to reconnect...`,
+    reason !== 'io client disconnect',
+  );
+});
+
+socket.on('connect_error', (error: Error) => {
+  clearBootstrapMembershipTimeout();
+  const detail =
+    typeof error.message === 'string' && error.message.trim()
+      ? error.message.trim()
+      : 'network unavailable';
+  updateConnectionIssue(
+    'Connection Error',
+    'unable to establish socket connection',
+    `Unable to connect to server (${detail}). Waiting for automatic retry.`,
+    true,
+  );
+});
+
+socket.io.on('reconnect_attempt', (attempt) => {
+  statusEl.textContent = `Reconnecting (${attempt})`;
+  lifecycleConnectionNotice = `reconnecting (attempt ${attempt})`;
+  setMessage(`Reconnecting to server (attempt ${attempt})...`, true);
+  updateLifecycleStatusLine();
+});
+
+socket.io.on('reconnect_error', (error: Error) => {
+  const detail =
+    typeof error.message === 'string' && error.message.trim()
+      ? error.message.trim()
+      : 'unknown reconnect error';
+  updateConnectionIssue(
+    'Reconnect Error',
+    'reconnect attempt failed',
+    `Reconnect attempt failed (${detail}). Retrying automatically.`,
+    false,
+  );
+});
+
+socket.io.on('reconnect_failed', () => {
+  clearBootstrapMembershipTimeout();
+  updateConnectionIssue(
+    'Reconnect Failed',
+    'automatic reconnect exhausted',
+    'Unable to reconnect automatically. Verify the server is running, then refresh this page.',
+    true,
+  );
 });
 
 socket.on('room:list', (rooms: RoomListEntry[]) => {
@@ -1525,6 +1644,9 @@ socket.on('room:list', (rooms: RoomListEntry[]) => {
 });
 
 socket.on('room:joined', (payload: RoomJoinedPayload) => {
+  clearBootstrapMembershipTimeout();
+  clearConnectionIssue(true);
+
   currentRoomId = payload.roomId;
   currentRoomCode = payload.roomCode;
   currentRoomName = payload.roomName;
@@ -1646,6 +1768,8 @@ socket.on('room:error', (payload: RoomErrorPayload) => {
 });
 
 socket.on('room:membership', (payload: RoomMembershipPayload) => {
+  clearBootstrapMembershipTimeout();
+  clearConnectionIssue(true);
   renderLobbyMembership(payload);
 });
 
