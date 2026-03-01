@@ -640,16 +640,16 @@ describe('GameServer', () => {
 
     const setup = await setupActiveMatch(port);
 
-    const generatorTemplate = setup.hostJoined.templates.find(
-      ({ id }) => id === 'generator',
+    const expensiveTemplate = setup.hostJoined.templates.find(
+      ({ id }) => id === 'eater-1',
     );
-    if (!generatorTemplate) {
-      throw new Error('Expected generator template to be available');
+    if (!expensiveTemplate) {
+      throw new Error('Expected eater-1 template to be available');
     }
 
     const placements = collectCandidatePlacements(
       setup.hostTeam,
-      generatorTemplate,
+      expensiveTemplate,
       setup.hostJoined.state.width,
       setup.hostJoined.state.height,
     );
@@ -658,7 +658,7 @@ describe('GameServer', () => {
     let drainPlacement: Cell | null = null;
     for (const placement of placements) {
       setup.host.emit('build:queue', {
-        templateId: generatorTemplate.id,
+        templateId: expensiveTemplate.id,
         x: placement.x,
         y: placement.y,
         delayTicks: 1,
@@ -675,15 +675,13 @@ describe('GameServer', () => {
     }
 
     if (!drainPlacement) {
-      throw new Error(
-        'Unable to find a valid generator placement to drain resources',
-      );
+      throw new Error('Unable to find a valid placement to drain resources');
     }
 
     let insufficient: { error: RoomError } | null = null;
     for (let attempt = 0; attempt < 24; attempt += 1) {
       setup.host.emit('build:queue', {
-        templateId: generatorTemplate.id,
+        templateId: expensiveTemplate.id,
         x: drainPlacement.x,
         y: drainPlacement.y,
         delayTicks: 1,

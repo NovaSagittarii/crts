@@ -21,11 +21,15 @@ import {
 } from '#rts-engine';
 import {
   addPlayerToRoom,
+  type BuildPreviewPayload,
+  type BuildPreviewRequestPayload,
+  type BuildQueuePayload,
   type CellUpdatePayload as SocketCellUpdatePayload,
   type ChatSendPayload,
   type ClientToServerEvents,
   type LifecyclePreconditions,
   type MatchFinishedPayload,
+  type QueueBuildResult,
   createDefaultTemplates,
   createRoomState,
   createRoomStatePayload,
@@ -419,10 +423,16 @@ export function createServer(options: ServerOptions = {}): GameServer {
     socket: GameSocket,
     message: string,
     reason?: string,
+    affordability?: AffordabilityMetadata,
   ): void {
     const payload: RoomErrorPayload = { message };
     if (reason) {
       payload.reason = reason;
+    }
+    if (affordability) {
+      payload.needed = affordability.needed;
+      payload.current = affordability.current;
+      payload.deficit = affordability.deficit;
     }
     socket.emit('room:error', payload);
   }
@@ -932,6 +942,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   function mapQueueBuildErrorReason(error?: string): string {
     switch (error) {
+      case 'Insufficient resources':
+        return 'insufficient-resources';
       case 'Unknown template':
         return 'unknown-template';
       case 'x and y must be integers':
@@ -951,6 +963,101 @@ export function createServer(options: ServerOptions = {}): GameServer {
       default:
         return 'build-rejected';
     }
+  }
+
+  interface AffordabilityMetadata {
+    needed: number;
+    current: number;
+    deficit: number;
+  }
+
+  function getAffordabilityMetadata(
+    result: Pick<QueueBuildResult, 'needed' | 'current' | 'deficit'>,
+  ): AffordabilityMetadata | undefined {
+    if (
+      typeof result.needed !== 'number' ||
+      typeof result.current !== 'number' ||
+      typeof result.deficit !== 'number'
+    ) {
+      return undefined;
+    }
+
+    return {
+      needed: result.needed,
+      current: result.current,
+      deficit: result.deficit,
+    };
+  }
+
+  function resolveQueueBuildRejectionReason(result: QueueBuildResult): string {
+    if (result.reason) {
+      return result.reason;
+    }
+
+    return mapQueueBuildErrorReason(result.error);
+  }
+
+  function runQueueBuildProbe(
+    roomState: RoomState,
+    playerId: string,
+    payload: BuildQueuePayload,
+    resourceOverride?: number,
+  ): QueueBuildResult {
+    const probeState = structuredClone(roomState) as RoomState;
+
+    if (typeof resourceOverride === 'number') {
+      const probePlayer = probeState.players.get(playerId);
+      if (probePlayer) {
+        const probeTeam = probeState.teams.get(probePlayer.teamId);
+        if (probeTeam) {
+          probeTeam.resources = resourceOverride;
+        }
+      }
+    }
+
+    return queueBuildEvent(probeState, playerId, payload);
+  }
+
+  function derivePreviewAffordability(
+    roomState: RoomState,
+    playerId: string,
+    payload: BuildPreviewRequestPayload,
+    currentResources: number,
+    previewResult: QueueBuildResult,
+  ): Pick<
+    BuildPreviewPayload,
+    'affordable' | 'needed' | 'current' | 'deficit'
+  > {
+    const directMetadata = getAffordabilityMetadata(previewResult);
+    if (previewResult.reason === 'insufficient-resources' && directMetadata) {
+      return {
+        affordable: false,
+        needed: directMetadata.needed,
+        current: directMetadata.current,
+        deficit: directMetadata.deficit,
+      };
+    }
+
+    const zeroResourceProbe = runQueueBuildProbe(
+      roomState,
+      playerId,
+      payload,
+      0,
+    );
+    const zeroResourceMetadata = getAffordabilityMetadata(zeroResourceProbe);
+    const needed =
+      zeroResourceProbe.reason === 'insufficient-resources' &&
+      zeroResourceMetadata
+        ? zeroResourceMetadata.needed
+        : 0;
+    const deficit = Math.max(0, needed - currentResources);
+
+    return {
+      affordable: previewResult.accepted && deficit === 0,
+      needed,
+      current: currentResources,
+      deficit,
+    };
   }
 
   function createRoomFromPayload(payload: unknown): RuntimeRoom {
@@ -1283,6 +1390,79 @@ export function createServer(options: ServerOptions = {}): GameServer {
       });
     });
 
+    socket.on('build:preview', (payload: unknown) => {
+      if (!ensureCurrentSocket(socket, session)) {
+        return;
+      }
+
+      const room = getRoomOrNull(session.roomId);
+      if (!room) {
+        roomError(socket, 'Join a room first', 'not-in-room');
+        return;
+      }
+
+      const gate = assertGameplayMutationAllowed(room, session.id);
+      if (!gate.allowed) {
+        roomError(
+          socket,
+          gate.message ?? 'Gameplay mutation rejected',
+          gate.reason,
+        );
+        return;
+      }
+
+      if (!gate.team) {
+        roomError(
+          socket,
+          'Only assigned players can issue gameplay mutations',
+          'not-player',
+        );
+        return;
+      }
+
+      if (!payload || typeof payload !== 'object') {
+        roomError(socket, 'Invalid build payload', 'invalid-build');
+        return;
+      }
+
+      const templateIdCandidate = (payload as { templateId?: unknown })
+        .templateId;
+      const previewRequest: BuildPreviewRequestPayload = {
+        templateId:
+          typeof templateIdCandidate === 'string' ? templateIdCandidate : '',
+        x: Number((payload as { x?: unknown }).x),
+        y: Number((payload as { y?: unknown }).y),
+      };
+
+      const previewResult = runQueueBuildProbe(
+        room.state,
+        session.id,
+        previewRequest,
+      );
+      const affordability = derivePreviewAffordability(
+        room.state,
+        session.id,
+        previewRequest,
+        gate.team.resources,
+        previewResult,
+      );
+
+      const previewPayload: BuildPreviewPayload = {
+        roomId: room.state.id,
+        teamId: gate.team.id,
+        templateId: previewRequest.templateId,
+        x: previewRequest.x,
+        y: previewRequest.y,
+        ...affordability,
+      };
+
+      if (!previewResult.accepted && previewResult.reason) {
+        previewPayload.reason = previewResult.reason;
+      }
+
+      socket.emit('build:preview', previewPayload);
+    });
+
     socket.on('build:queue', (payload: unknown) => {
       if (!ensureCurrentSocket(socket, session)) {
         return;
@@ -1323,10 +1503,14 @@ export function createServer(options: ServerOptions = {}): GameServer {
       });
 
       if (!result.accepted) {
+        const reason = resolveQueueBuildRejectionReason(result);
         roomError(
           socket,
           result.error ?? 'Build rejected',
-          mapQueueBuildErrorReason(result.error),
+          reason,
+          reason === 'insufficient-resources'
+            ? getAffordabilityMetadata(result)
+            : undefined,
         );
         return;
       }
