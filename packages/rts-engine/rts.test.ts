@@ -181,7 +181,7 @@ describe('rts', () => {
     expect(room.teams.has(team.id)).toBe(false);
   });
 
-  test('validates build queue payloads and delay clamping', () => {
+  test('[QUAL-01] validates queue rejection reasons and delay clamping', () => {
     const room = createRoomState({
       id: '1',
       name: 'Alpha',
@@ -217,6 +217,7 @@ describe('rts', () => {
       y: 79,
     });
     expect(outsideBounds.accepted).toBe(false);
+    expect(outsideBounds.reason).toBe('out-of-bounds');
     expect(room.timelineEvents.at(-1)?.metadata?.reason).toBe('out-of-bounds');
 
     let outsideTerritoryCoordinate: Cell | null = null;
@@ -252,6 +253,7 @@ describe('rts', () => {
       y: outsideTerritoryCoordinate?.y ?? 0,
     });
     expect(outsideTerritory.accepted).toBe(false);
+    expect(outsideTerritory.reason).toBe('outside-territory');
     expect(room.timelineEvents.at(-1)?.metadata?.reason).toBe(
       'outside-territory',
     );
@@ -290,7 +292,7 @@ describe('rts', () => {
     expect(queued.map(({ executeTick }) => executeTick)).toEqual([1, 20]);
   });
 
-  test('rejects unaffordable queue requests with exact affordability deficits', () => {
+  test('[QUAL-01] rejects insufficient resources with numeric deficit fields', () => {
     const room = createRoomState({
       id: '1',
       name: 'Alpha',
@@ -387,7 +389,7 @@ describe('rts', () => {
     ]);
   });
 
-  test('projects per-team income breakdown that tracks active structures', () => {
+  test('[QUAL-01] tracks economy income from active and inactive structures', () => {
     const room = createRoomState({
       id: '1',
       name: 'Alpha',
@@ -457,7 +459,7 @@ describe('rts', () => {
     });
   });
 
-  test('emits exactly one terminal build outcome for each accepted event', () => {
+  test('[QUAL-01] emits one terminal build outcome per accepted queue event', () => {
     const room = createRoomState({
       id: '1',
       name: 'Alpha',
