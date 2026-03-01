@@ -4,6 +4,7 @@ import { io, type Socket } from 'socket.io-client';
 import { createServer } from '../../../apps/server/src/server.js';
 import { decodeGridBase64 } from '#conway-core';
 import type {
+  BuildPreviewPayload,
   BuildOutcomePayload,
   BuildQueuedPayload,
   RoomJoinedPayload,
@@ -19,6 +20,7 @@ import type {
 type StatePayload = RoomStatePayload;
 type SlotClaimedPayload = RoomSlotClaimedPayload;
 type RoomListEntry = RoomListEntryPayload;
+type BuildPreview = BuildPreviewPayload;
 type BuildQueued = BuildQueuedPayload;
 type BuildOutcome = BuildOutcomePayload;
 type RoomError = RoomErrorPayload;
@@ -580,6 +582,259 @@ describe('GameServer', () => {
     setup.guest.close();
     await server.stop();
   }, 20_000);
+
+  test('returns affordability preview payloads for valid build placements', async () => {
+    const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
+    const port = await server.start();
+
+    const setup = await setupActiveMatch(port);
+
+    const blockTemplate = setup.hostJoined.templates.find(
+      ({ id }) => id === 'block',
+    );
+    if (!blockTemplate) {
+      throw new Error('Expected block template to be available');
+    }
+
+    const candidatePlacements = collectCandidatePlacements(
+      setup.hostTeam,
+      blockTemplate,
+      setup.hostJoined.state.width,
+      setup.hostJoined.state.height,
+    );
+    const previewTarget = candidatePlacements[0];
+    if (!previewTarget) {
+      throw new Error('Expected at least one valid placement for preview test');
+    }
+
+    setup.host.emit('build:preview', {
+      templateId: blockTemplate.id,
+      x: previewTarget.x,
+      y: previewTarget.y,
+    });
+
+    const preview = (await waitForEvent(
+      setup.host,
+      'build:preview',
+    )) as BuildPreview;
+
+    expect(preview.roomId).toBe(setup.roomId);
+    expect(preview.teamId).toBe(setup.hostTeam.id);
+    expect(preview.templateId).toBe(blockTemplate.id);
+    expect(preview.x).toBe(previewTarget.x);
+    expect(preview.y).toBe(previewTarget.y);
+    expect(Number.isInteger(preview.needed)).toBe(true);
+    expect(Number.isInteger(preview.current)).toBe(true);
+    expect(Number.isInteger(preview.deficit)).toBe(true);
+    expect(preview.deficit).toBe(Math.max(0, preview.needed - preview.current));
+    expect(preview.affordable).toBe(preview.deficit === 0);
+
+    setup.host.close();
+    setup.guest.close();
+    await server.stop();
+  }, 20_000);
+
+  test('rejects unaffordable queue attempts with exact deficit metadata and no queue ack', async () => {
+    const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
+    const port = await server.start();
+
+    const setup = await setupActiveMatch(port);
+
+    const generatorTemplate = setup.hostJoined.templates.find(
+      ({ id }) => id === 'generator',
+    );
+    if (!generatorTemplate) {
+      throw new Error('Expected generator template to be available');
+    }
+
+    const placements = collectCandidatePlacements(
+      setup.hostTeam,
+      generatorTemplate,
+      setup.hostJoined.state.width,
+      setup.hostJoined.state.height,
+    );
+    expect(placements.length).toBeGreaterThan(0);
+
+    let drainPlacement: Cell | null = null;
+    for (const placement of placements) {
+      setup.host.emit('build:queue', {
+        templateId: generatorTemplate.id,
+        x: placement.x,
+        y: placement.y,
+        delayTicks: 1,
+      });
+
+      const response = await waitForBuildQueueResponse(setup.host, 4_000);
+      if ('error' in response) {
+        continue;
+      }
+
+      drainPlacement = placement;
+      await collectBuildOutcomes(setup.host, [response.queued.eventId], 8_000);
+      break;
+    }
+
+    if (!drainPlacement) {
+      throw new Error(
+        'Unable to find a valid generator placement to drain resources',
+      );
+    }
+
+    let insufficient: { error: RoomError } | null = null;
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      setup.host.emit('build:queue', {
+        templateId: generatorTemplate.id,
+        x: drainPlacement.x,
+        y: drainPlacement.y,
+        delayTicks: 1,
+      });
+
+      const response = await waitForBuildQueueResponse(setup.host, 4_000);
+      if ('error' in response) {
+        if (response.error.reason === 'insufficient-resources') {
+          insufficient = response;
+          break;
+        }
+        continue;
+      }
+
+      await collectBuildOutcomes(setup.host, [response.queued.eventId], 8_000);
+    }
+
+    expect(insufficient).not.toBeNull();
+    if (!insufficient) {
+      throw new Error(
+        'Expected at least one insufficient-resources queue rejection',
+      );
+    }
+
+    expect(insufficient.error.reason).toBe('insufficient-resources');
+    const needed = insufficient.error.needed;
+    const current = insufficient.error.current;
+    const deficit = insufficient.error.deficit;
+
+    if (
+      typeof needed !== 'number' ||
+      typeof current !== 'number' ||
+      typeof deficit !== 'number'
+    ) {
+      throw new Error(
+        'Expected insufficient-resources payload to include deficit fields',
+      );
+    }
+
+    expect(current).toBeLessThan(needed);
+    expect(deficit).toBe(needed - current);
+
+    setup.host.close();
+    setup.guest.close();
+    await server.stop();
+  }, 25_000);
+
+  test('projects pending queue rows in sorted state order and removes rows after resolution', async () => {
+    const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
+    const port = await server.start();
+
+    const setup = await setupActiveMatch(port);
+
+    const blockTemplate = setup.hostJoined.templates.find(
+      ({ id }) => id === 'block',
+    );
+    if (!blockTemplate) {
+      throw new Error('Expected block template to be available');
+    }
+
+    const placements = collectCandidatePlacements(
+      setup.hostTeam,
+      blockTemplate,
+      setup.hostJoined.state.width,
+      setup.hostJoined.state.height,
+    ).slice(0, 3);
+    expect(placements).toHaveLength(3);
+
+    const queued: BuildQueued[] = [];
+    const delays = [18, 14, 18];
+
+    for (let index = 0; index < placements.length; index += 1) {
+      const placement = placements[index];
+      setup.host.emit('build:queue', {
+        templateId: blockTemplate.id,
+        x: placement.x,
+        y: placement.y,
+        delayTicks: delays[index],
+      });
+
+      const response = await waitForBuildQueueResponse(setup.host, 4_000);
+      if ('error' in response) {
+        throw new Error(
+          `Expected queued build response, received error: ${response.error.reason}`,
+        );
+      }
+
+      queued.push(response.queued);
+    }
+
+    const queuedEventIds = queued.map(({ eventId }) => eventId);
+    const expectedPendingOrder = [...queued]
+      .sort((a, b) => a.executeTick - b.executeTick || a.eventId - b.eventId)
+      .map(({ eventId }) => eventId);
+
+    const pendingState = await waitForCondition(
+      setup.host,
+      (state) => {
+        const team = state.teams.find(({ id }) => id === setup.hostTeam.id);
+        if (!team) {
+          return false;
+        }
+
+        const pendingIds = team.pendingBuilds.map(({ eventId }) => eventId);
+        return queuedEventIds.every((eventId) => pendingIds.includes(eventId));
+      },
+      30,
+    );
+
+    const pendingTeam = getTeamByPlayerId(
+      pendingState,
+      setup.hostJoined.playerId,
+    );
+    const observedPendingOrder = pendingTeam.pendingBuilds
+      .filter(({ eventId }) => queuedEventIds.includes(eventId))
+      .map(({ eventId }) => eventId);
+
+    expect(observedPendingOrder).toEqual(expectedPendingOrder);
+
+    await collectBuildOutcomes(setup.host, queuedEventIds, 12_000);
+
+    const clearedState = await waitForCondition(
+      setup.host,
+      (state) => {
+        const team = state.teams.find(({ id }) => id === setup.hostTeam.id);
+        if (!team) {
+          return false;
+        }
+
+        const pendingIds = new Set(
+          team.pendingBuilds.map(({ eventId }) => eventId),
+        );
+        return queuedEventIds.every((eventId) => !pendingIds.has(eventId));
+      },
+      40,
+    );
+
+    const clearedTeam = getTeamByPlayerId(
+      clearedState,
+      setup.hostJoined.playerId,
+    );
+    expect(
+      clearedTeam.pendingBuilds.some(({ eventId }) =>
+        queuedEventIds.includes(eventId),
+      ),
+    ).toBe(false);
+
+    setup.host.close();
+    setup.guest.close();
+    await server.stop();
+  }, 30_000);
 
   test('queues template builds and charges resources', async () => {
     const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
