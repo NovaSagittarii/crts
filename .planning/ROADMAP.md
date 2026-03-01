@@ -42,8 +42,8 @@ v0.0.2 expands deterministic gameplay through structure integrity rules, base-ge
 
 Plans:
 
-- [ ] 06-01-PLAN.md — Canonicalize 5x5 base geometry helpers and wire spawn/territory logic to shared footprint math.
-- [ ] 06-02-PLAN.md — Implement template-wide integrity HP/repair rules and deterministic defeat/base-intact outcome coverage.
+- [ ] 06-01-PLAN.md — Canonicalize 5x5 base geometry helpers and wire spawn/territory/breach math to shared footprint logic.
+- [ ] 06-02-PLAN.md — Implement template-wide integrity HP/repair rules and lock deterministic defeat/base-intact behavior with integration coverage.
 
 ### Phase 7: Authoritative Union Build Zones
 
