@@ -29,6 +29,7 @@ Client emits:
 - `room:start`
 - `room:cancel-countdown`
 - `chat:send`
+- `build:preview`
 - `build:queue`
 - `cell:update`
 
@@ -45,8 +46,17 @@ Client listens for:
 - `room:match-finished`
 - `room:error`
 - `chat:message`
+- `build:preview`
 - `build:queued`
+- `build:outcome`
 - `player:profile`
+
+Phase 4 economy/queue contract expectations:
+
+- Drive queue affordability UI from authoritative `build:preview` payloads (`affordable`, `needed`, `current`, `deficit`, `reason`) before enabling queue actions.
+- Keep in-match HUD economy readouts (`resources`, `income`, and breakdown details) sourced from `state.teams[].incomeBreakdown` and never from client-local rule simulation.
+- Render pending queue timeline from `state.teams[].pendingBuilds` grouped by `executeTick` and ordered by `eventId`.
+- Surface queue rejection feedback from `room:error` deficit metadata and reconcile terminal status from `build:outcome` rather than assuming queued events always apply.
 
 Finished/restart expectations:
 
