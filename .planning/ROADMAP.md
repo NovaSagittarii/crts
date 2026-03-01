@@ -38,7 +38,12 @@ v0.0.2 expands deterministic gameplay through structure integrity rules, base-ge
 3. All player-owned structure templates run integrity checks on a fixed K-tick cadence during active matches.
 4. When an integrity check fails, the structure loses HP and integrity is restored with deterministic outcomes across identical runs.
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+
+- [ ] 06-01-PLAN.md — Canonicalize 5x5 base geometry helpers and wire spawn/territory logic to shared footprint math.
+- [ ] 06-02-PLAN.md — Implement template-wide integrity HP/repair rules and deterministic defeat/base-intact outcome coverage.
 
 ### Phase 7: Authoritative Union Build Zones
 
