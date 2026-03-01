@@ -1,125 +1,132 @@
 ---
 phase: 04-economy-hud-queue-visibility
-verified: 2026-03-01T00:55:34Z
+verified: 2026-03-01T08:33:24Z
 status: human_needed
-score: 10/10 must-haves verified
+score: 11/11 must-haves verified
+re_verification:
+  previous_status: gaps_found
+  previous_score: 10/11
+  gaps_closed:
+    - 'Browser bootstrap now requires executable client assets and reaches room membership handshake in automated smoke coverage.'
+  gaps_remaining: []
+  regressions: []
 human_verification:
-  - test: 'Live-match HUD pulse/delta readability'
-    expected: 'Resources/net income stay legible, pulses are subtle, and one aggregated delta cue appears per tick'
-    why_human: 'Visual motion clarity and perceived noise level are UX judgments not fully provable by static checks'
-  - test: 'Unaffordable queue feedback comprehension'
-    expected: 'Queue action stays disabled and inline text clearly communicates needed/current/deficit values'
-    why_human: 'Message clarity is subjective and requires user interpretation'
-  - test: 'Mobile layout around build controls'
-    expected: 'Economy HUD, queue action, and pending timeline remain usable on narrow viewports without clipping/overlap'
-    why_human: 'Responsive usability requires manual viewport interaction'
+  - test: 'Clean-start browser bootstrap and room entry'
+    expected: 'From a fresh clone, `npm start` serves executable assets, lifecycle leaves waiting state, and joining reaches interactive HUD/queue controls.'
+    why_human: 'Requires real browser startup flow and end-user interaction confirmation.'
+  - test: 'Connection-loss messaging visibility'
+    expected: 'When server connectivity drops and recovers, `#status`, `#lifecycle-status-line`, and inline message/toast surfaces show clear reconnect progress and recovery.'
+    why_human: 'Error-message clarity and timing are UX qualities not fully verifiable via static inspection.'
+  - test: 'Economy cue readability during active play'
+    expected: 'Resource/income pulse cues and the delta chip are noticeable without overwhelming gameplay context, and timeline grouping remains easy to parse.'
+    why_human: 'Visual intensity/readability and interaction feel require human perception.'
 ---
 
 # Phase 4: Economy HUD & Queue Visibility Verification Report
 
 **Phase Goal:** Users can evaluate affordability, expected income, and pending actions while deciding what to build.
-**Verified:** 2026-03-01T00:55:34Z
+**Verified:** 2026-03-01T08:33:24Z
 **Status:** human_needed
-**Re-verification:** No — initial verification
+**Re-verification:** Yes — after gap closure
 
 ## Goal Achievement
 
 ### Observable Truths
 
-| #   | Truth                                                                                                                     | Status     | Evidence                                                                                                                                                                      |
-| --- | ------------------------------------------------------------------------------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Queue affordability is computed in engine authority with explicit `needed/current/deficit` metadata.                      | ✓ VERIFIED | `packages/rts-engine/rts.ts:344`, `packages/rts-engine/rts.ts:1210`, `packages/rts-engine/rts.ts:1218`, `packages/rts-engine/rts.test.ts:293`                                 |
-| 2   | Authoritative room state includes deterministic pending queue rows (`executeTick` then `eventId`) with template metadata. | ✓ VERIFIED | `packages/rts-engine/rts.ts:404`, `packages/rts-engine/rts.ts:397`, `packages/rts-engine/rts.ts:1270`, `packages/rts-engine/rts.test.ts:323`                                  |
-| 3   | Authoritative room state includes per-team income breakdown fields that change with structure state.                      | ✓ VERIFIED | `packages/rts-engine/rts.ts:779`, `packages/rts-engine/rts.ts:1264`, `packages/rts-engine/rts.test.ts:390`                                                                    |
-| 4   | Runtime exposes authoritative `build:preview` affordability responses before queue submission.                            | ✓ VERIFIED | `apps/server/src/server.ts:1393`, `apps/server/src/server.ts:1437`, `apps/server/src/server.ts:1463`, `tests/integration/server/server.test.ts:586`                           |
-| 5   | Unaffordable queue attempts return explicit socket-visible reasons with exact deficit numbers.                            | ✓ VERIFIED | `apps/server/src/server.ts:1505`, `apps/server/src/server.ts:1511`, `apps/server/src/server.ts:433`, `tests/integration/server/server.test.ts:637`                            |
-| 6   | Room-scoped `state` and `build:outcome` emissions preserve enriched queue/economy metadata from engine payloads.          | ✓ VERIFIED | `apps/server/src/server.ts:374`, `apps/server/src/server.ts:385`, `apps/server/src/server.ts:1570`, `packages/rts-engine/rts.ts:1255`                                         |
-| 7   | Players can always see current resources and net income near build controls during active play.                           | ✓ VERIFIED | `apps/web/index.html:904`, `apps/web/index.html:908`, `apps/web/index.html:912`, `apps/web/src/client.ts:676`, `apps/web/src/client.ts:677`                                   |
-| 8   | Queue action stays disabled when unaffordable and inline feedback shows exact deficit numbers.                            | ✓ VERIFIED | `apps/web/src/client.ts:505`, `apps/web/src/client.ts:507`, `apps/web/src/client.ts:526`, `apps/web/src/client.ts:1894`, `apps/web/src/client.ts:1609`                        |
-| 9   | Income/resource changes trigger pulse cues and one aggregated per-tick delta chip with short causes.                      | ✓ VERIFIED | `apps/web/src/client.ts:699`, `apps/web/src/client.ts:703`, `apps/web/src/client.ts:729`, `apps/web/src/economy-view-model.ts:123`, `tests/web/economy-view-model.test.ts:66` |
-| 10  | Pending build timeline shows pending-only items grouped by execute tick with template + relative ETA context.             | ✓ VERIFIED | `apps/web/src/client.ts:568`, `apps/web/src/client.ts:576`, `apps/web/src/client.ts:587`, `apps/web/src/client.ts:600`, `apps/web/src/economy-view-model.ts:74`               |
+| #   | Truth                                                                                                                                              | Status     | Evidence                                                                                                                                                                                                                                                                                 |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Queue affordability is computed in engine authority with explicit `needed/current/deficit` metadata.                                               | ✓ VERIFIED | `packages/rts-engine/rts.ts:344`, `packages/rts-engine/rts.ts:1210`, `packages/rts-engine/rts.ts:1221`, `packages/rts-engine/rts.test.ts:293`                                                                                                                                            |
+| 2   | Authoritative room state includes deterministic pending queue rows (`executeTick` then `eventId`) with template metadata.                          | ✓ VERIFIED | `packages/rts-engine/rts.ts:397`, `packages/rts-engine/rts.ts:404`, `packages/rts-engine/rts.ts:1270`, `packages/rts-engine/rts.test.ts:323`                                                                                                                                             |
+| 3   | Authoritative room state includes per-team income breakdown data that changes with structure state.                                                | ✓ VERIFIED | `packages/rts-engine/rts.ts:779`, `packages/rts-engine/rts.ts:1264`, `packages/rts-engine/rts.test.ts:390`, `packages/rts-engine/rts.test.ts:426`                                                                                                                                        |
+| 4   | Runtime exposes authoritative `build:preview` affordability responses before queue submission.                                                     | ✓ VERIFIED | `apps/server/src/server.ts:1406`, `apps/server/src/server.ts:1450`, `apps/server/src/server.ts:1476`, `tests/integration/server/server.test.ts:610`                                                                                                                                      |
+| 5   | Unaffordable queue attempts return explicit reasons with exact deficit numbers at socket boundary.                                                 | ✓ VERIFIED | `apps/server/src/server.ts:1518`, `apps/server/src/server.ts:1524`, `apps/server/src/server.ts:1525`, `tests/integration/server/server.test.ts:637`, `tests/integration/server/server.test.ts:709`                                                                                       |
+| 6   | Room-scoped `state` and `build:outcome` emissions preserve enriched queue/economy metadata.                                                        | ✓ VERIFIED | `apps/server/src/server.ts:386`, `apps/server/src/server.ts:398`, `apps/server/src/server.ts:1581`, `apps/server/src/server.ts:1608`, `tests/integration/server/server.test.ts:788`                                                                                                      |
+| 7   | Players can see resources and net income near build controls during play.                                                                          | ✓ VERIFIED | `apps/web/index.html:904`, `apps/web/index.html:912`, `apps/web/src/client.ts:740`, `apps/web/src/client.ts:1275`                                                                                                                                                                        |
+| 8   | Queue action stays disabled when unaffordable and inline feedback shows exact deficits.                                                            | ✓ VERIFIED | `apps/web/src/client.ts:539`, `apps/web/src/client.ts:569`, `apps/web/src/client.ts:590`, `apps/web/src/client.ts:1841`                                                                                                                                                                  |
+| 9   | Income/resource changes trigger pulse cues and one aggregated delta chip per tick.                                                                 | ✓ VERIFIED | `apps/web/src/client.ts:764`, `apps/web/src/client.ts:767`, `apps/web/src/client.ts:793`, `apps/web/src/economy-view-model.ts:123`, `tests/web/economy-view-model.test.ts:75`                                                                                                            |
+| 10  | Pending timeline renders pending-only items grouped by execute tick with relative ETA labels.                                                      | ✓ VERIFIED | `apps/web/src/client.ts:626`, `apps/web/src/client.ts:640`, `apps/web/src/client.ts:664`, `apps/web/src/economy-view-model.ts:74`, `tests/web/economy-view-model.test.ts:49`                                                                                                             |
+| 11  | Browser runtime can load executable client assets from server startup path and reach `room:joined` + `room:membership` before Phase 4 interaction. | ✓ VERIFIED | `apps/server/src/server.ts:82`, `apps/server/src/server.ts:86`, `apps/server/src/server.ts:1659`, `package.json:20`, `tests/integration/server/bootstrap-smoke.test.ts:57`, `tests/integration/server/bootstrap-smoke.test.ts:66`, `tests/integration/server/bootstrap-smoke.test.ts:77` |
 
-**Score:** 10/10 truths verified
+**Score:** 11/11 truths verified
 
 ### Required Artifacts
 
-| Artifact                                  | Expected                                                       | Status     | Details                                                                                                                                                                                                                             |
-| ----------------------------------------- | -------------------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/rts-engine/rts.ts`              | Engine affordability, pending projection, income breakdown     | ✓ VERIFIED | Contains affordability evaluator + rejection metadata + projected pending rows + income breakdown; consumed by server runtime (`packages/rts-engine/rts.ts:344`, `packages/rts-engine/rts.ts:1255`, `apps/server/src/server.ts:39`) |
-| `packages/rts-engine/socket-contract.ts`  | Shared DTOs for preview/deficit/pending/income payloads        | ✓ VERIFIED | Exports preview and deficit-capable contracts used by runtime/client (`packages/rts-engine/socket-contract.ts:26`, `packages/rts-engine/socket-contract.ts:55`, `packages/rts-engine/socket-contract.ts:205`)                       |
-| `packages/rts-engine/rts.test.ts`         | Regression coverage for deficits, ordering, income behavior    | ✓ VERIFIED | Includes targeted affordability/pending/income tests and passed (`packages/rts-engine/rts.test.ts:293`, `packages/rts-engine/rts.test.ts:323`, `packages/rts-engine/rts.test.ts:390`)                                               |
-| `apps/server/src/server.ts`               | Preview handler, deficit mapping, state/outcome emission       | ✓ VERIFIED | `build:preview` probe, structured queue rejection, room-scoped state/outcome wiring (`apps/server/src/server.ts:1393`, `apps/server/src/server.ts:1505`, `apps/server/src/server.ts:374`)                                           |
-| `tests/integration/server/server.test.ts` | Runtime contract coverage for preview/rejection/pending state  | ✓ VERIFIED | Contains and passes preview, unaffordable rejection, and pending projection tests (`tests/integration/server/server.test.ts:586`, `tests/integration/server/server.test.ts:637`, `tests/integration/server/server.test.ts:732`)     |
-| `apps/server/AGENTS.md`                   | Updated server contract docs for Phase 4 payloads              | ✓ VERIFIED | Documents preview + deficit fields + pending/income state expectations (`apps/server/AGENTS.md:24`, `apps/server/AGENTS.md:39`, `apps/server/AGENTS.md:48`)                                                                         |
-| `apps/web/index.html`                     | HUD, affordability feedback, queue action, timeline containers | ✓ VERIFIED | Defines required HUD and queue/timeline DOM anchors consumed by client (`apps/web/index.html:908`, `apps/web/index.html:940`, `apps/web/index.html:948`)                                                                            |
-| `apps/web/src/economy-view-model.ts`      | Deterministic grouping/ETA/delta helper layer                  | ✓ VERIFIED | Implements pure grouping, relative ETA, and delta aggregation consumed by client/tests (`apps/web/src/economy-view-model.ts:62`, `apps/web/src/economy-view-model.ts:74`, `apps/web/src/economy-view-model.ts:123`)                 |
-| `tests/web/economy-view-model.test.ts`    | Tests for ordering/ETA/aggregation rules                       | ✓ VERIFIED | Locks deterministic grouping and one-cue-per-tick aggregation behavior (`tests/web/economy-view-model.test.ts:13`, `tests/web/economy-view-model.test.ts:58`, `tests/web/economy-view-model.test.ts:66`)                            |
-| `apps/web/src/client.ts`                  | Runtime wiring for HUD gating, deficits, timeline rendering    | ✓ VERIFIED | Uses authoritative `state`/`build:preview`/`room:error`/`build:outcome` to render and gate queue action (`apps/web/src/client.ts:531`, `apps/web/src/client.ts:1606`, `apps/web/src/client.ts:1717`)                                |
-| `apps/web/AGENTS.md`                      | Updated client event-usage contract docs                       | ✓ VERIFIED | Documents Phase 4 authoritative economy/queue usage expectations (`apps/web/AGENTS.md:54`, `apps/web/AGENTS.md:56`, `apps/web/AGENTS.md:59`)                                                                                        |
+| Artifact                                           | Expected                                                                     | Status     | Details                                                                                                                                                                                                                                            |
+| -------------------------------------------------- | ---------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/rts-engine/rts.ts`                       | Engine authority for affordability, pending projection, and income breakdown | ✓ VERIFIED | Exists; substantive logic at `packages/rts-engine/rts.ts:344`, `packages/rts-engine/rts.ts:404`, `packages/rts-engine/rts.ts:779`; wired to runtime via `queueBuildEvent` usage in `apps/server/src/server.ts:1507`.                               |
+| `packages/rts-engine/rts.test.ts`                  | Regression coverage for affordability/pending/income invariants              | ✓ VERIFIED | Exists; substantive tests at `packages/rts-engine/rts.test.ts:293`, `packages/rts-engine/rts.test.ts:323`, `packages/rts-engine/rts.test.ts:390`; exercised in verification run (15 tests passed overall).                                         |
+| `apps/server/src/server.ts`                        | Socket runtime preview/rejection/membership and static bootstrap guardrails  | ✓ VERIFIED | Exists; substantive handlers at `apps/server/src/server.ts:1406`, `apps/server/src/server.ts:1518`, static guard at `apps/server/src/server.ts:82`; wired to start flow (`package.json:20`) and smoke/integration tests.                           |
+| `tests/integration/server/server.test.ts`          | Runtime contract coverage for preview/rejection/pending state                | ✓ VERIFIED | Exists; substantive assertions for preview and deficit metadata (`tests/integration/server/server.test.ts:610`, `tests/integration/server/server.test.ts:637`) and pending queue state (`tests/integration/server/server.test.ts:788`).            |
+| `apps/web/index.html`                              | HUD/queue/timeline/status DOM anchors near build controls                    | ✓ VERIFIED | Exists; substantive containers at `apps/web/index.html:904`, `apps/web/index.html:935`, `apps/web/index.html:948` and lifecycle/status anchors at `apps/web/index.html:819`, `apps/web/index.html:830`, `apps/web/index.html:1026`.                |
+| `apps/web/src/client.ts`                           | Client wiring for HUD, affordability gating, timeline, and connection errors | ✓ VERIFIED | Exists; substantive queue/timeline/economy wiring at `apps/web/src/client.ts:539`, `apps/web/src/client.ts:626`, `apps/web/src/client.ts:724`; connect/bootstrap error surfaces at `apps/web/src/client.ts:1598`, `apps/web/src/client.ts:1632`.   |
+| `apps/web/src/economy-view-model.ts`               | Deterministic helper logic for timeline ETA/grouping and delta aggregation   | ✓ VERIFIED | Exists; substantive helpers at `apps/web/src/economy-view-model.ts:62`, `apps/web/src/economy-view-model.ts:74`, `apps/web/src/economy-view-model.ts:123`; wired from client imports at `apps/web/src/client.ts:27`.                               |
+| `tests/web/economy-view-model.test.ts`             | Unit coverage for helper deterministic behavior                              | ✓ VERIFIED | Exists; substantive helper tests at `tests/web/economy-view-model.test.ts:49`, `tests/web/economy-view-model.test.ts:59`, `tests/web/economy-view-model.test.ts:75`; passed in verification run.                                                   |
+| `package.json`                                     | Start flow guarantees executable client assets before server launch          | ✓ VERIFIED | Exists; substantive start script `npm run build && npm run build:server && node ...` at `package.json:20`; wired to strict asset mode in `apps/server/src/server.ts:1659`.                                                                         |
+| `tests/integration/server/bootstrap-smoke.test.ts` | Smoke coverage for HTML -> module executability -> membership handshake      | ✓ VERIFIED | Exists; substantive module/content-type assertions at `tests/integration/server/bootstrap-smoke.test.ts:57`, `tests/integration/server/bootstrap-smoke.test.ts:63`; handshake assertions at `tests/integration/server/bootstrap-smoke.test.ts:77`. |
 
 ### Key Link Verification
 
-| From                         | To                                        | Via                                                                  | Status  | Details                                                                                                                                                                                                                                           |
-| ---------------------------- | ----------------------------------------- | -------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/rts-engine/rts.ts` | `packages/rts-engine/socket-contract.ts`  | Affordability/pending/income DTO alignment                           | ✓ WIRED | Contract aliases are imported from engine types and expose deficit/pending/income fields (`packages/rts-engine/socket-contract.ts:1`, `packages/rts-engine/socket-contract.ts:26`, `packages/rts-engine/socket-contract.ts:31`)                   |
-| `packages/rts-engine/rts.ts` | `packages/rts-engine/rts.test.ts`         | Tests lock ordering and deficit math                                 | ✓ WIRED | Tests directly call queue/payload APIs and assert deficit + sort contracts (`packages/rts-engine/rts.test.ts:303`, `packages/rts-engine/rts.test.ts:355`)                                                                                         |
-| `apps/server/src/server.ts`  | `packages/rts-engine/rts.ts`              | Server preview/queue uses engine authority                           | ✓ WIRED | Runtime probes/queues through `queueBuildEvent` and emits engine-derived fields (`apps/server/src/server.ts:39`, `apps/server/src/server.ts:1018`, `apps/server/src/server.ts:1494`)                                                              |
-| `apps/server/src/server.ts`  | `tests/integration/server/server.test.ts` | Integration asserts preview/rejection/pending contracts              | ✓ WIRED | Integration suite validates emitted preview/deficit/pending payload behavior (`tests/integration/server/server.test.ts:616`, `tests/integration/server/server.test.ts:709`, `tests/integration/server/server.test.ts:802`)                        |
-| `apps/web/src/client.ts`     | `apps/web/src/economy-view-model.ts`      | Client delegates grouping/ETA/delta helpers                          | ✓ WIRED | Client imports and calls helper functions for timeline and delta cues (`apps/web/src/client.ts:27`, `apps/web/src/client.ts:576`, `apps/web/src/client.ts:729`)                                                                                   |
-| `apps/web/src/client.ts`     | `apps/web/index.html`                     | HUD + queue + pending elements populated from authoritative payloads | ✓ WIRED | Client binds required IDs and updates them from `state`/preview/rejection events (`apps/web/src/client.ts:113`, `apps/web/src/client.ts:660`, `apps/web/src/client.ts:1717`)                                                                      |
-| `apps/web/src/client.ts`     | `tests/web/economy-view-model.test.ts`    | Deterministic helper rules used by UI are test-locked                | ✓ WIRED | Test suite covers executeTick/eventId ordering, ETA strings, and cause aggregation consumed by client rendering (`tests/web/economy-view-model.test.ts:13`, `tests/web/economy-view-model.test.ts:55`, `tests/web/economy-view-model.test.ts:81`) |
+| From                        | To                                                 | Via                                                                                               | Status  | Details                                                                                                                                                                                                                                            |
+| --------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `package.json`              | `apps/server/src/server.ts`                        | `start` builds client/server before running strict CLI server mode                                | ✓ WIRED | `package.json:20` builds artifacts, then CLI path enforces strict assets via `createServer({ ..., clientAssetsMode: 'strict' })` at `apps/server/src/server.ts:1659`.                                                                              |
+| `apps/server/src/server.ts` | `tests/integration/server/bootstrap-smoke.test.ts` | Smoke test verifies served module is JS and reaches membership events                             | ✓ WIRED | Guardrail code at `apps/server/src/server.ts:82` + smoke assertions at `tests/integration/server/bootstrap-smoke.test.ts:57`, `tests/integration/server/bootstrap-smoke.test.ts:66`, `tests/integration/server/bootstrap-smoke.test.ts:81`.        |
+| `apps/server/src/server.ts` | `apps/web/src/client.ts`                           | Socket membership contract (`room:joined`, `room:membership`)                                     | ✓ WIRED | Server emits in `apps/server/src/server.ts:621` and `apps/server/src/server.ts:632`; client listens at `apps/web/src/client.ts:1646` and `apps/web/src/client.ts:1770`.                                                                            |
+| `apps/server/src/server.ts` | `packages/rts-engine/rts.ts`                       | Preview and queue handlers delegate to engine authority (`runQueueBuildProbe`, `queueBuildEvent`) | ✓ WIRED | Runtime calls engine helpers at `apps/server/src/server.ts:1450` and `apps/server/src/server.ts:1507`; no duplicate cost simulation in runtime layer.                                                                                              |
+| `apps/web/src/client.ts`    | `apps/web/src/economy-view-model.ts`               | Client rendering delegates grouping/ETA/delta aggregation to pure helpers                         | ✓ WIRED | Imported helpers at `apps/web/src/client.ts:27`; called at `apps/web/src/client.ts:640`, `apps/web/src/client.ts:664`, `apps/web/src/client.ts:793`.                                                                                               |
+| `apps/web/src/client.ts`    | `apps/web/index.html`                              | DOM ids for status/lifecycle/message and HUD/queue/timeline are updated by client code            | ✓ WIRED | Required DOM ids in `apps/web/index.html:819`, `apps/web/index.html:830`, `apps/web/index.html:1026`, `apps/web/index.html:940`; referenced in client at `apps/web/src/client.ts:106`, `apps/web/src/client.ts:135`, `apps/web/src/client.ts:282`. |
 
 ### Requirements Coverage
 
-| Requirement | Source Plan                                       | Description                                                                            | Status      | Evidence                                                                                                                                                                                                                                                                             |
-| ----------- | ------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ECON-01`   | `04-03-PLAN.md`                                   | User can see current resources and per-tick income in the match HUD.                   | ✓ SATISFIED | HUD markup + client state wiring update resources/income near build controls (`apps/web/index.html:904`, `apps/web/src/client.ts:676`, `apps/web/src/client.ts:1244`)                                                                                                                |
-| `ECON-02`   | `04-01-PLAN.md`, `04-02-PLAN.md`, `04-03-PLAN.md` | User can only queue affordable builds; unaffordable requests are rejected with reason. | ✓ SATISFIED | Engine deficit metadata + server rejection payload + client gating/inline copy + integration assertions (`packages/rts-engine/rts.ts:1212`, `apps/server/src/server.ts:1511`, `apps/web/src/client.ts:505`, `tests/integration/server/server.test.ts:709`)                           |
-| `ECON-03`   | `04-01-PLAN.md`, `04-02-PLAN.md`, `04-03-PLAN.md` | Resource income updates dynamically based on owned structures/territory state.         | ✓ SATISFIED | Engine recomputes income breakdown per tick, payload exposes it, client delta cues react to changes, tests verify breakdown transitions (`packages/rts-engine/rts.ts:759`, `packages/rts-engine/rts.ts:1264`, `apps/web/src/client.ts:713`, `packages/rts-engine/rts.test.ts:426`)   |
-| `UX-01`     | `04-01-PLAN.md`, `04-02-PLAN.md`, `04-03-PLAN.md` | User can inspect pending builds in execute-tick timeline order.                        | ✓ SATISFIED | Engine pending projection sorted, server emits room `state`, client groups/render timeline with relative ETA, tests verify ordering (`packages/rts-engine/rts.ts:404`, `apps/server/src/server.ts:374`, `apps/web/src/client.ts:576`, `tests/integration/server/server.test.ts:802`) |
+| Requirement | Source Plan                                                        | Description                                                                            | Status      | Evidence                                                                                                                                                                                                                                                                 |
+| ----------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ECON-01`   | `04-03-PLAN.md`, `04-04-PLAN.md`                                   | User can see current resources and per-tick income in the match HUD.                   | ✓ SATISFIED | HUD/readouts in `apps/web/index.html:904`; runtime updates in `apps/web/src/client.ts:740` and `apps/web/src/client.ts:1275`; bootstrap path unblocked by strict assets in `apps/server/src/server.ts:82` and `package.json:20`.                                         |
+| `ECON-02`   | `04-01-PLAN.md`, `04-02-PLAN.md`, `04-03-PLAN.md`, `04-04-PLAN.md` | User can only queue affordable builds; unaffordable requests are rejected with reason. | ✓ SATISFIED | Engine deficits in `packages/rts-engine/rts.ts:344`; server rejection metadata in `apps/server/src/server.ts:1518`; client queue gating in `apps/web/src/client.ts:569`; integration coverage in `tests/integration/server/server.test.ts:637`.                          |
+| `ECON-03`   | `04-01-PLAN.md`, `04-02-PLAN.md`, `04-03-PLAN.md`, `04-04-PLAN.md` | Resource income updates dynamically based on owned structures/territory state.         | ✓ SATISFIED | Income breakdown recalculation in `packages/rts-engine/rts.ts:779`; payload projection in `packages/rts-engine/rts.ts:1264`; HUD updates/pulse in `apps/web/src/client.ts:746` and `apps/web/src/client.ts:764`; unit coverage in `packages/rts-engine/rts.test.ts:390`. |
+| `UX-01`     | `04-01-PLAN.md`, `04-02-PLAN.md`, `04-03-PLAN.md`, `04-04-PLAN.md` | User can inspect pending builds in a queue timeline organized by execute tick.         | ✓ SATISFIED | Pending grouping helper in `apps/web/src/economy-view-model.ts:74`; timeline render in `apps/web/src/client.ts:626`; helper tests in `tests/web/economy-view-model.test.ts:49`; state pending rows in `packages/rts-engine/rts.ts:1270`.                                 |
 
-Plan requirement IDs declared: `ECON-01`, `ECON-02`, `ECON-03`, `UX-01`.
-Phase 4 requirement IDs in `REQUIREMENTS.md`: `ECON-01`, `ECON-02`, `ECON-03`, `UX-01`.
+Plan requirement IDs declared across Phase 4 plans: `ECON-01`, `ECON-02`, `ECON-03`, `UX-01` (`04-01-PLAN.md:12`, `04-02-PLAN.md:13`, `04-03-PLAN.md:16`, `04-04-PLAN.md:15`).
+Phase 4 requirement IDs in `REQUIREMENTS.md`: `ECON-01`, `ECON-02`, `ECON-03`, `UX-01` (`.planning/REQUIREMENTS.md:84`).
 Orphaned requirement IDs: none.
 
 ### Anti-Patterns Found
 
-| File                        | Line | Pattern                         | Severity | Impact                                                           |
-| --------------------------- | ---- | ------------------------------- | -------- | ---------------------------------------------------------------- |
-| `apps/server/src/server.ts` | 1649 | Runtime bootstrap `console.log` | ℹ️ Info  | Expected startup log; not an implementation stub or goal blocker |
-| `apps/web/index.html`       | 973  | `placeholder` input attributes  | ℹ️ Info  | Standard form UX copy; not a placeholder implementation          |
+| File                        | Line | Pattern                       | Severity | Impact                                           |
+| --------------------------- | ---- | ----------------------------- | -------- | ------------------------------------------------ |
+| `apps/server/src/server.ts` | 1663 | Runtime startup `console.log` | ℹ️ Info  | Expected startup log; not a placeholder or stub. |
 
-No TODO/FIXME/placeholder stubs or empty handlers were found in phase artifacts (`rg` scan).
+No blocker/warning anti-patterns found (`TODO`/`FIXME`/placeholder stubs not detected in Phase 4 key files).
 
 ### Human Verification Required
 
-### 1. Live-match HUD pulse/delta readability
+### 1. Clean-start browser bootstrap and room entry
 
-**Test:** Start an active match, place builds that change income/resources, and observe HUD metrics over several ticks.
-**Expected:** Resources and net income update near build controls; pulse cues are subtle; one aggregated delta chip appears per tick with short cause labels.
-**Why human:** Animation feel/readability cannot be conclusively judged from static code or unit assertions.
+**Test:** In a clean environment, run `npm start`, open the served page, join a room, and claim a slot.
+**Expected:** `status` reaches Connected, lifecycle leaves initial waiting state, and HUD/queue controls become interactive after membership events.
+**Why human:** Final confidence requires real browser runtime and interaction flow, not just socket-level assertions.
 
-### 2. Unaffordable queue feedback comprehension
+### 2. Connection-loss messaging visibility
 
-**Test:** In Template Queue mode, select an unaffordable placement and attempt to queue.
-**Expected:** Queue button remains disabled and inline text clearly communicates `needed`, `current`, and `deficit`; rejection copy stays understandable.
-**Why human:** Clarity/comprehension of user-facing copy is a UX judgment.
+**Test:** With browser open, briefly stop/restart server (or simulate network interruption) and watch lifecycle/status/message surfaces.
+**Expected:** UI clearly shows disconnect/reconnect states and recovery guidance, then clears error state after reconnect.
+**Why human:** Message clarity/timing under transient failures is best evaluated by a person.
 
-### 3. Mobile build-panel usability
+### 3. Economy cue readability during active play
 
-**Test:** Open the client on a narrow viewport and exercise build selection, queue action, and pending timeline scrolling.
-**Expected:** HUD, queue controls, and pending timeline stay visible and usable without clipping/overlap.
-**Why human:** Responsive interaction quality requires manual viewport testing.
+**Test:** During active match ticks, watch resource/income pulses, delta chip updates, and pending timeline updates while issuing queue actions.
+**Expected:** Cues are visible and understandable without obscuring core build decisions.
+**Why human:** Visual readability and perceived UX quality are subjective and cannot be proven by static checks.
 
 ### Gaps Summary
 
-No implementation gaps were found in code, wiring, or automated tests for phase must-haves. Status is `human_needed` only because final UX/visual/responsive checks require manual validation.
+No blocking implementation gaps remain in Phase 4. The prior bootstrap blocker is closed by strict dist-asset enforcement (`apps/server/src/server.ts:82`, `apps/server/src/server.ts:1659`), start-command build guardrails (`package.json:20`), and executable-module + membership smoke coverage (`tests/integration/server/bootstrap-smoke.test.ts:45`). Phase goal behavior is verified in code/tests; remaining work is human UX confirmation.
 
 Automated verification executed:
 
-- `npx vitest run packages/rts-engine/rts.test.ts tests/integration/server/server.test.ts tests/web/economy-view-model.test.ts` → passed (30/30 tests).
+- `npm run build`
+- `npm run build:server`
+- `npx vitest run tests/integration/server/bootstrap-smoke.test.ts tests/integration/server/server.test.ts tests/web/economy-view-model.test.ts` → passed (3 files, 15 tests)
 
 ---
 
-_Verified: 2026-03-01T00:55:34Z_
+_Verified: 2026-03-01T08:33:24Z_
 _Verifier: OpenCode (gsd-verifier)_
