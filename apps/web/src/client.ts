@@ -6,6 +6,8 @@ import type {
   BuildQueuedPayload,
   ChatMessagePayload,
   ClientToServerEvents,
+  DestroyOutcomePayload,
+  DestroyQueuedPayload,
   MembershipParticipant,
   MatchFinishedPayload,
   PlayerProfilePayload,
@@ -45,6 +47,8 @@ import {
   clearDestroySelection,
   createDestroyViewModelState,
   refreshDestroySelection,
+  registerDestroyOutcome,
+  registerDestroyQueued,
   selectDestroyStructure,
   syncDestroyPending,
   type DestroySelectableStructure,
@@ -57,6 +61,7 @@ type TemplateSummary = StructureTemplateSummary;
 type TeamPayload = StatePayload['teams'][number];
 type BuildPreview = BuildPreviewPayload;
 type BuildOutcome = BuildOutcomePayload;
+type DestroyOutcome = DestroyOutcomePayload;
 
 interface VisibleStructure {
   teamId: number;
@@ -324,6 +329,7 @@ let bootstrapMembershipTimeoutId: number | null = null;
 let connectionIssueVisible = false;
 let lastConnectionErrorSignature: string | null = null;
 let lastBuildErrorToast: { signature: string; at: number } | null = null;
+let pendingReconnectSyncNotice = false;
 let destroyViewState: DestroyViewModelState = createDestroyViewModelState();
 let visibleStructures: VisibleStructure[] = [];
 let structureCellIndex = new Map<string, VisibleStructure>();
@@ -552,6 +558,28 @@ function describeBuildFailureReason(reason: string | undefined): string {
   return 'validation failed';
 }
 
+function describeDestroyFailureReason(reason: string | undefined): string {
+  if (reason === 'wrong-owner') {
+    return 'wrong owner';
+  }
+  if (reason === 'invalid-target') {
+    return 'invalid target';
+  }
+  if (reason === 'invalid-lifecycle-state') {
+    return 'invalid lifecycle state';
+  }
+  if (reason === 'invalid-delay') {
+    return 'invalid delay';
+  }
+  if (reason === 'team-defeated') {
+    return 'team defeated';
+  }
+  if (reason === 'match-finished') {
+    return 'match finished';
+  }
+  return 'destroy rejected';
+}
+
 function describePreviewReason(reason: string | undefined): string {
   if (!reason) {
     return 'Preview reason: legal placement';
@@ -597,6 +625,10 @@ function setQueueFeedbackOverride(message: string, isError: boolean): void {
 
 function resetDestroyFeedbackOverride(): void {
   destroyFeedbackOverride = null;
+}
+
+function setDestroyFeedbackOverride(message: string, isError: boolean): void {
+  destroyFeedbackOverride = { text: message, isError };
 }
 
 function shouldDeduplicateBuildErrorToast(
@@ -2082,6 +2114,7 @@ socket.on('connect', () => {
 
 socket.on('disconnect', (reason) => {
   clearBootstrapMembershipTimeout();
+  pendingReconnectSyncNotice = reason !== 'io client disconnect';
   updateConnectionIssue(
     'Disconnected',
     'connection lost',
@@ -2155,6 +2188,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   latestOutcomeTimelineMetadata = null;
   currentMembership = null;
   lastBuildErrorToast = null;
+  pendingReconnectSyncNotice = false;
   clearSelectedTemplatePlacement();
   resetEconomyTracking();
   resetDestroyInteractionState();
@@ -2199,6 +2233,7 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   latestOutcomeTimelineMetadata = null;
   currentMembership = null;
   lastBuildErrorToast = null;
+  pendingReconnectSyncNotice = false;
   clearSelectedTemplatePlacement();
   resetEconomyTracking();
   resetDestroyInteractionState();
@@ -2250,6 +2285,16 @@ socket.on('room:error', (payload: RoomErrorPayload) => {
   ) {
     setQueueFeedbackOverride(
       `Cannot queue here: ${describeBuildFailureReason(payload.reason)}.`,
+      true,
+    );
+  } else if (
+    payload.reason === 'wrong-owner' ||
+    payload.reason === 'invalid-target' ||
+    payload.reason === 'invalid-lifecycle-state' ||
+    payload.reason === 'invalid-delay'
+  ) {
+    setDestroyFeedbackOverride(
+      `Destroy rejected: ${describeDestroyFailureReason(payload.reason)}.`,
       true,
     );
   }
@@ -2402,6 +2447,53 @@ socket.on('build:queued', (payload: BuildQueuedPayload) => {
   updateQueueAffordabilityUi();
 });
 
+socket.on('destroy:outcome', (payload: DestroyOutcome) => {
+  if (payload.roomId !== currentRoomId || currentTeamId === null) {
+    return;
+  }
+
+  if (payload.teamId !== currentTeamId) {
+    return;
+  }
+
+  destroyViewState = registerDestroyOutcome(destroyViewState, {
+    structureKey: payload.structureKey,
+    outcome: payload.outcome,
+  });
+
+  if (payload.outcome === 'rejected') {
+    const rejectionCopy = `Destroy #${payload.eventId} rejected: ${describeDestroyFailureReason(payload.reason)}.`;
+    setDestroyFeedbackOverride(rejectionCopy, true);
+    setMessage(rejectionCopy, true);
+    addToast(rejectionCopy, true);
+  } else {
+    const successCopy = `Destroy applied for ${payload.structureKey}.`;
+    setDestroyFeedbackOverride(successCopy, false);
+    setMessage(successCopy);
+    addToast('Structure destroyed.');
+  }
+
+  updateDestroyUi();
+});
+
+socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
+  destroyViewState = registerDestroyQueued(
+    destroyViewState,
+    payload.structureKey,
+  );
+
+  const feedback = payload.idempotent
+    ? `Destroy already pending for ${payload.structureKey}.`
+    : `Destroy queued (#${payload.eventId}) for tick ${payload.executeTick}.`;
+
+  setDestroyFeedbackOverride(feedback, false);
+  setMessage(feedback);
+  if (!payload.idempotent) {
+    addToast(feedback);
+  }
+  updateDestroyUi();
+});
+
 socket.on('state', (payload: StatePayload) => {
   gridWidth = payload.width;
   gridHeight = payload.height;
@@ -2412,6 +2504,11 @@ socket.on('state', (payload: StatePayload) => {
   }
   if (payload.roomName !== currentRoomName) {
     currentRoomName = payload.roomName;
+  }
+
+  if (pendingReconnectSyncNotice) {
+    pendingReconnectSyncNotice = false;
+    addToast('Reconnected, state synced.');
   }
 
   updateTeamStats(payload);
