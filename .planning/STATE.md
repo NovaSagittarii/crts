@@ -10,10 +10,10 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 ## Current Position
 
 **Current Milestone:** v0.0.2 Gameplay Expansion
-**Phase:** 10 of 12 (Match Screen Transition Split)
-**Plan:** 1 of 1
-**Current Plan:** 1
-**Total Plans in Phase:** 1
+**Phase:** 11 of 12 (Camera and Build-Zone Visualization)
+**Plan:** 2 of 2
+**Current Plan:** 2
+**Total Plans in Phase:** 2
 **Status:** Phase complete — ready for verification
 **Last Activity:** 2026-03-02
 **Progress:** [██████████] 100%
@@ -22,9 +22,9 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 
 **Velocity:**
 
-- Completed phases: 9
-- Completed plans: 24
-- Completed tasks: 64
+- Completed phases: 10
+- Completed plans: 26
+- Completed tasks: 69
 - Shipped milestones: 1 (`v0.0.1`)
 
 **By Phase:**
@@ -40,8 +40,8 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 | 7     | 1/1   | Complete    |
 | 8     | 3/3   | Complete    |
 | 9     | 3/3   | Complete    |
-| 10    | 0/TBD | Not started |
-| 11    | 0/TBD | Not started |
+| 10    | 1/1   | Complete    |
+| 11    | 2/2   | Complete    |
 | 12    | 0/TBD | Not started |
 
 **Recent Trend:**
@@ -53,7 +53,12 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 - v0.0.2 Phase 9 Plan 01 shipped deterministic destroy queue primitives with passing unit quality gates.
 - v0.0.2 Phase 9 Plan 02 shipped server destroy runtime and reconnect determinism gates with passing integration quality gates.
 - v0.0.2 Phase 9 Plan 03 shipped web destroy controls and reconnect sync UX with passing web and build quality gates.
-| Phase 10 P01 | 13m 22s | 3 tasks | 4 files |
+- v0.0.2 Phase 10 Plan 01 shipped authoritative lobby/in-game screen routing with reconnect-safe transition messaging.
+- v0.0.2 Phase 11 Plan 01 shipped shared build-zone and camera helper foundations with deterministic unit/web coverage.
+- v0.0.2 Phase 11 Plan 02 shipped in-match camera controls and authoritative local union-zone overlays with passing web/build gates.
+  | Phase 10 P01 | 13m 22s | 3 tasks | 4 files |
+  | Phase 11 P01 | 9m | 2 tasks | 6 files |
+  | Phase 11 P02 | 16m | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -83,10 +88,13 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 - [Phase 10]: Use a dedicated match-screen view-model pathway to dedupe lifecycle transition banners across membership and lifecycle events.
 - [Phase 10]: Keep one shared chat surface outside lobby and in-game screen containers so unsent drafts persist across authoritative transitions.
 - [Phase 10]: Remove finished-state local lobby override controls so finished status stays mapped to in-game results until host restart.
+- [Phase 11]: Centralize build-zone contributor and coverage semantics in shared #rts-engine helpers so legality and visualization cannot drift.
+- [Phase 11]: Route camera input through pure reducers and inverse pointer mapping to preserve placement/destroy targeting precision across pan and zoom.
+- [Phase 11]: Render local union-zone overlays from authoritative structures with subtle idle styling and stronger placement emphasis while keeping preview invalid cues top priority.
 
 ### Pending Todos
 
-- Continue plan+execute cycle through Phases 10-12 with auto-advance on.
+- Continue plan+execute cycle through Phase 12 with auto-advance on.
 - After Phase 12 execution, run consolidated human verification/UAT across milestone flows.
 
 ### Blockers/Concerns
@@ -96,6 +104,6 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 
 ## Session Continuity
 
-**Last session:** 2026-03-02T07:41:20.364Z
-**Stopped At:** Completed 10-01-PLAN.md
+**Last session:** 2026-03-02T08:54:00.000Z
+**Stopped At:** Completed 11-02-PLAN.md
 **Resume File:** None

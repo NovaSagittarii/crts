@@ -21,7 +21,7 @@ v0.0.2 expands deterministic gameplay through structure integrity rules, base-ge
 - [x] **Phase 8: Transform Placement Consistency** - Add rotate/mirror placement with preview, queue, and simulation parity. (completed 2026-03-02)
 - [x] **Phase 9: Destroy Flow and Determinism Gates** - Deliver authoritative destroy outcomes and two-client/reconnect determinism coverage. (completed 2026-03-02)
 - [x] **Phase 10: Match Screen Transition Split** - Separate lobby and in-game screens with explicit match-state navigation. (completed 2026-03-02)
-- [ ] **Phase 11: Camera and Build-Zone Visualization** - Add pan/zoom with accurate controls and live union-zone outlines.
+- [x] **Phase 11: Camera and Build-Zone Visualization** - Add pan/zoom with accurate controls and live union-zone outlines. (completed 2026-03-02)
 - [ ] **Phase 12: Structure Hover and Tactical Overlays** - Provide structure details/actions plus grid-adjacent economy/build/team overlays.
 
 ## Phase Details
@@ -114,11 +114,11 @@ Plans:
 2. Screen transitions happen only from authoritative match-state changes.
 3. Reconnecting players land on the correct screen for the current match state.
 
-**Plans**: 1 plans
+**Plans**: 1/1 plans complete
 
 Plans:
 
-- [ ] 10-01-PLAN.md — Split web navigation into authoritative lobby/in-game screens with reconnect-safe transitions, shared right-docked chat, and shared edge status messaging.
+- [x] 10-01-PLAN.md — Split web navigation into authoritative lobby/in-game screens with reconnect-safe transitions, shared right-docked chat, and shared edge status messaging.
 
 ### Phase 11: Camera and Build-Zone Visualization
 
@@ -132,7 +132,12 @@ Plans:
 3. While placing structures, the player sees the authoritative union build-radius outline.
 4. The union-zone outline updates when structures are added or destroyed.
 
-**Plans**: TBD
+**Plans**: 2/2 plans complete
+
+Plans:
+
+- [x] 11-01-PLAN.md — Extract shared build-zone/camera math helpers with deterministic tests for contributor union and zoom-anchor precision.
+- [x] 11-02-PLAN.md — Wire camera controls and live local-team union-zone rendering into the in-game canvas with authoritative update parity.
 
 ### Phase 12: Structure Hover and Tactical Overlays
 
@@ -156,6 +161,6 @@ Plans:
 | 7. Authoritative Union Build Zones        | 1/1            | Complete    | 2026-03-02 |
 | 8. Transform Placement Consistency        | 3/3            | Complete    | 2026-03-02 |
 | 9. Destroy Flow and Determinism Gates     | 3/3            | Complete    | 2026-03-02 |
-| 10. Match Screen Transition Split         | 1/1 | Complete   | 2026-03-02 |
-| 11. Camera and Build-Zone Visualization   | 0/TBD          | Not started | -          |
+| 10. Match Screen Transition Split         | 1/1            | Complete    | 2026-03-02 |
+| 11. Camera and Build-Zone Visualization   | 2/2            | Complete    | 2026-03-02 |
 | 12. Structure Hover and Tactical Overlays | 0/TBD          | Not started | -          |

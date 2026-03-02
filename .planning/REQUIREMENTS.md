@@ -24,10 +24,10 @@ Requirements for milestone `v0.0.2 Gameplay Expansion`.
 ### Match UI and Navigation
 
 - [x] **UI-01**: Player transitions between lobby and in-game screens through explicit match-state transitions (no combined dual-purpose screen).
-- [ ] **UI-02**: Player can pan and zoom the map during a match without losing placement/control accuracy.
+- [x] **UI-02**: Player can pan and zoom the map during a match without losing placement/control accuracy.
 - [ ] **UI-03**: Player can hover a structure to view details and available actions.
 - [ ] **UI-04**: Player can access economy, build options, and team information in grid-adjacent overlays while playing.
-- [ ] **UI-05**: Player sees the union build-radius outline while placing structures.
+- [x] **UI-05**: Player sees the union build-radius outline while placing structures.
 - [x] **QUAL-04**: Player gets deterministic outcomes for v0.0.2 structure/build/destroy behaviors across two-client integration scenarios and reconnect cases.
 
 ## v2 Requirements
@@ -70,8 +70,8 @@ Mapped during roadmap creation.
 | STRUCT-02   | Phase 9  | Complete |
 | QUAL-04     | Phase 9  | Complete |
 | UI-01       | Phase 10 | Complete |
-| UI-02       | Phase 11 | Pending  |
-| UI-05       | Phase 11 | Pending  |
+| UI-02       | Phase 11 | Complete |
+| UI-05       | Phase 11 | Complete |
 | UI-03       | Phase 12 | Pending  |
 | UI-04       | Phase 12 | Pending  |
 
@@ -85,4 +85,4 @@ Mapped during roadmap creation.
 ---
 
 _Requirements defined: 2026-03-01_
-_Last updated: 2026-03-02 after completing Phase 7 execution_
+_Last updated: 2026-03-02 after completing Phase 11 execution_
