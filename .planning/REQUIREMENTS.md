@@ -9,9 +9,9 @@ Requirements for milestone `v0.0.2 Gameplay Expansion`.
 
 ### Structure Systems
 
-- [ ] **STRUCT-01**: Player-owned structures run template-wide integrity checks every K ticks, and failed checks consume structure HP to restore integrity deterministically.
+- [x] **STRUCT-01**: Player-owned structures run template-wide integrity checks every K ticks, and failed checks consume structure HP to restore integrity deterministically.
 - [ ] **STRUCT-02**: Player can destroy an owned structure from in-match controls and receive an authoritative destroy outcome.
-- [ ] **BASE-01**: Match starts with a canonical 5x5 base footprint composed of four 2x2 blocks (16 total base cells) that is used consistently for breach gameplay.
+- [x] **BASE-01**: Match starts with a canonical 5x5 base footprint composed of four 2x2 blocks (16 total base cells) that is used consistently for breach gameplay.
 
 ### Build Rules and Placement Controls
 
@@ -58,22 +58,22 @@ Explicit exclusions for `v0.0.2`.
 
 Mapped during roadmap creation.
 
-| Requirement | Phase    | Status  |
-| ----------- | -------- | ------- |
-| BASE-01     | Phase 6  | Pending |
-| STRUCT-01   | Phase 6  | Pending |
-| BUILD-01    | Phase 7  | Pending |
-| BUILD-02    | Phase 7  | Pending |
-| XFORM-01    | Phase 8  | Pending |
-| XFORM-02    | Phase 8  | Pending |
-| QUAL-03     | Phase 8  | Pending |
-| STRUCT-02   | Phase 9  | Pending |
-| QUAL-04     | Phase 9  | Pending |
-| UI-01       | Phase 10 | Pending |
-| UI-02       | Phase 11 | Pending |
-| UI-05       | Phase 11 | Pending |
-| UI-03       | Phase 12 | Pending |
-| UI-04       | Phase 12 | Pending |
+| Requirement | Phase    | Status   |
+| ----------- | -------- | -------- |
+| BASE-01     | Phase 6  | Complete |
+| STRUCT-01   | Phase 6  | Complete |
+| BUILD-01    | Phase 7  | Pending  |
+| BUILD-02    | Phase 7  | Pending  |
+| XFORM-01    | Phase 8  | Pending  |
+| XFORM-02    | Phase 8  | Pending  |
+| QUAL-03     | Phase 8  | Pending  |
+| STRUCT-02   | Phase 9  | Pending  |
+| QUAL-04     | Phase 9  | Pending  |
+| UI-01       | Phase 10 | Pending  |
+| UI-02       | Phase 11 | Pending  |
+| UI-05       | Phase 11 | Pending  |
+| UI-03       | Phase 12 | Pending  |
+| UI-04       | Phase 12 | Pending  |
 
 **Coverage:**
 
@@ -85,4 +85,4 @@ Mapped during roadmap creation.
 ---
 
 _Requirements defined: 2026-03-01_
-_Last updated: 2026-03-01 after roadmap creation for milestone v0.0.2_
+_Last updated: 2026-03-02 after completing Phase 6 execution_

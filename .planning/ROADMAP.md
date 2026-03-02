@@ -16,7 +16,7 @@ v0.0.2 expands deterministic gameplay through structure integrity rules, base-ge
 - Integer phases (6, 7, 8...) are planned milestone work.
 - Decimal phases (for example 8.1) are reserved for urgent insertions.
 
-- [ ] **Phase 6: Base Geometry and Integrity Core** - Ship canonical 5x5 base behavior and deterministic template-wide integrity repair.
+- [x] **Phase 6: Base Geometry and Integrity Core** - Ship canonical 5x5 base behavior and deterministic template-wide integrity repair. (completed 2026-03-02)
 - [ ] **Phase 7: Authoritative Union Build Zones** - Enforce radius-15 union-zone build eligibility from owned structures.
 - [ ] **Phase 8: Transform Placement Consistency** - Add rotate/mirror placement with preview, queue, and simulation parity.
 - [ ] **Phase 9: Destroy Flow and Determinism Gates** - Deliver authoritative destroy outcomes and two-client/reconnect determinism coverage.
@@ -38,12 +38,12 @@ v0.0.2 expands deterministic gameplay through structure integrity rules, base-ge
 3. All player-owned structure templates run integrity checks on a fixed K-tick cadence during active matches.
 4. When an integrity check fails, the structure loses HP and integrity is restored with deterministic outcomes across identical runs.
 
-**Plans**: 2 plans
+**Plans**: 2/2 plans complete
 
 Plans:
 
-- [ ] 06-01-PLAN.md — Canonicalize 5x5 base geometry helpers and wire spawn/territory/breach math to shared footprint logic.
-- [ ] 06-02-PLAN.md — Implement template-wide integrity HP/repair rules and lock deterministic defeat/base-intact behavior with integration coverage.
+- [x] 06-01-PLAN.md — Canonicalize 5x5 base geometry helpers and wire spawn/territory/breach math to shared footprint logic.
+- [x] 06-02-PLAN.md — Implement template-wide integrity HP/repair rules and lock deterministic defeat/base-intact behavior with integration coverage.
 
 ### Phase 7: Authoritative Union Build Zones
 
@@ -130,12 +130,12 @@ Plans:
 
 ## Progress
 
-| Phase                                     | Plans Complete | Status      | Completed |
-| ----------------------------------------- | -------------- | ----------- | --------- |
-| 6. Base Geometry and Integrity Core       | 0/TBD          | Not started | -         |
-| 7. Authoritative Union Build Zones        | 0/TBD          | Not started | -         |
-| 8. Transform Placement Consistency        | 0/TBD          | Not started | -         |
-| 9. Destroy Flow and Determinism Gates     | 0/TBD          | Not started | -         |
-| 10. Match Screen Transition Split         | 0/TBD          | Not started | -         |
-| 11. Camera and Build-Zone Visualization   | 0/TBD          | Not started | -         |
-| 12. Structure Hover and Tactical Overlays | 0/TBD          | Not started | -         |
+| Phase                                     | Plans Complete | Status      | Completed  |
+| ----------------------------------------- | -------------- | ----------- | ---------- |
+| 6. Base Geometry and Integrity Core       | 2/2            | Complete    | 2026-03-02 |
+| 7. Authoritative Union Build Zones        | 0/TBD          | Not started | -          |
+| 8. Transform Placement Consistency        | 0/TBD          | Not started | -          |
+| 9. Destroy Flow and Determinism Gates     | 0/TBD          | Not started | -          |
+| 10. Match Screen Transition Split         | 0/TBD          | Not started | -          |
+| 11. Camera and Build-Zone Visualization   | 0/TBD          | Not started | -          |
+| 12. Structure Hover and Tactical Overlays | 0/TBD          | Not started | -          |
