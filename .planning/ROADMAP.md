@@ -151,7 +151,12 @@ Plans:
 3. Overlay and hover data remain synchronized with authoritative match updates.
 4. Structure actions selected from interaction surfaces provide immediate authoritative feedback to the player.
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+
+- [ ] 12-01-PLAN.md — Establish deterministic hover/pin and tactical overlay projection helpers with focused web tests.
+- [ ] 12-02-PLAN.md — Wire structure inspector interactions and adjacent Economy/Build/Team overlays into responsive in-game runtime surfaces.
 
 ## Progress
 
@@ -163,4 +168,4 @@ Plans:
 | 9. Destroy Flow and Determinism Gates     | 3/3            | Complete    | 2026-03-02 |
 | 10. Match Screen Transition Split         | 1/1            | Complete    | 2026-03-02 |
 | 11. Camera and Build-Zone Visualization   | 2/2            | Complete    | 2026-03-02 |
-| 12. Structure Hover and Tactical Overlays | 0/TBD          | Not started | -          |
+| 12. Structure Hover and Tactical Overlays | 1/2 | In Progress|  |

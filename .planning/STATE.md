@@ -16,7 +16,7 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 **Total Plans in Phase:** 2
 **Status:** Phase complete — ready for verification
 **Last Activity:** 2026-03-02
-**Progress:** [██████████] 100%
+**Progress:** [██████████] 97%
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ See: .planning/PROJECT.md (updated 2026-03-01)
   | Phase 10 P01 | 13m 22s | 3 tasks | 4 files |
   | Phase 11 P01 | 9m | 2 tasks | 6 files |
   | Phase 11 P02 | 16m | 3 tasks | 3 files |
+| Phase 12 P01 | 6m 53s | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -91,6 +92,8 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 - [Phase 11]: Centralize build-zone contributor and coverage semantics in shared #rts-engine helpers so legality and visualization cannot drift.
 - [Phase 11]: Route camera input through pure reducers and inverse pointer mapping to preserve placement/destroy targeting precision across pan and zoom.
 - [Phase 11]: Render local union-zone overlays from authoritative structures with subtle idle styling and stronger placement emphasis while keeping preview invalid cues top priority.
+- [Phase 12]: Keep hover/pin semantics in a pure reducer with explicit tick/reconcile actions so runtime code does not duplicate timing rules.
+- [Phase 12]: Track tactical overlay highlights as timestamp metadata keyed by metric deltas instead of local gameplay simulation state.
 
 ### Pending Todos
 
@@ -104,6 +107,6 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 
 ## Session Continuity
 
-**Last session:** 2026-03-02T08:54:00.000Z
-**Stopped At:** Completed 11-02-PLAN.md
+**Last session:** 2026-03-02T09:37:35.717Z
+**Stopped At:** Completed 12-01-PLAN.md
 **Resume File:** None
