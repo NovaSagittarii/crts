@@ -89,7 +89,7 @@ export function packGridBits(
   grid: Uint8Array,
   width: number,
   height: number,
-): Uint8Array {
+): ArrayBuffer {
   const cellCount = width * height;
   const packed = new Uint8Array(Math.ceil(cellCount / 8));
 
@@ -103,22 +103,23 @@ export function packGridBits(
     packed[byteIndex] |= 1 << (7 - bitIndex);
   }
 
-  return packed;
+  return packed.buffer;
 }
 
 export function unpackGridBits(
-  packed: Uint8Array,
+  packed: ArrayBuffer,
   width: number,
   height: number,
 ): Uint8Array {
   const cellCount = width * height;
+  const view = new Uint8Array(packed);
   const unpacked = new Uint8Array(cellCount);
 
   for (let index = 0; index < cellCount; index += 1) {
     const byteIndex = index >> 3;
     const bitIndex = index & 7;
     const mask = 1 << (7 - bitIndex);
-    unpacked[index] = packed[byteIndex] & mask ? 1 : 0;
+    unpacked[index] = view[byteIndex] & mask ? 1 : 0;
   }
 
   return unpacked;

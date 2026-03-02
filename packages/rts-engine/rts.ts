@@ -311,7 +311,7 @@ export interface RoomStatePayload {
   height: number;
   generation: number;
   tick: number;
-  grid: Uint8Array;
+  grid: ArrayBuffer; // bit-packed
   teams: TeamPayload[];
 }
 

@@ -1757,7 +1757,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       height,
       generation: 0,
       tick: 0,
-      grid: new Uint8Array(Math.ceil((width * height) / 8)),
+      grid: new ArrayBuffer(Math.ceil((width * height) / 8)),
       teams: [],
     };
   }
