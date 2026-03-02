@@ -4,8 +4,13 @@ import type {
   BuildPreviewProjection,
   BuildRejectionReason,
   BuildQueuePayload,
+  DestroyOutcome,
+  DestroyQueuePayload,
+  DestroyRejectionReason,
   PendingBuildPayload,
+  PendingDestroyPayload,
   RoomStatePayload,
+  StructurePayload,
   StructureTemplateSummary,
   TeamIncomeBreakdown,
 } from './rts.js';
@@ -24,12 +29,21 @@ export interface BuildQueuedPayload {
   executeTick: number;
 }
 
+export interface DestroyQueuedPayload {
+  eventId: number;
+  executeTick: number;
+  structureKey: string;
+  idempotent: boolean;
+}
+
 export type BuildAffordabilityPayload = Pick<
   AffordabilityResult,
   'affordable' | 'needed' | 'current' | 'deficit'
 >;
 
 export type PendingBuildStatePayload = PendingBuildPayload;
+export type PendingDestroyStatePayload = PendingDestroyPayload;
+export type StructureStatePayload = StructurePayload;
 export type TeamIncomeBreakdownPayload = TeamIncomeBreakdown;
 
 export type BuildPreviewRequestPayload = Pick<
@@ -56,8 +70,13 @@ export interface BuildPreviewPayload extends BuildAffordabilityPayload {
 }
 
 export type BuildOutcomeRejectionReason = BuildRejectionReason;
+export type DestroyOutcomeRejectionReason = DestroyRejectionReason;
 
 export interface BuildOutcomePayload extends BuildOutcome {
+  roomId: string;
+}
+
+export interface DestroyOutcomePayload extends DestroyOutcome {
   roomId: string;
 }
 
@@ -213,6 +232,7 @@ export interface ClientToServerEvents {
   'chat:send': (payload: ChatSendPayload) => void;
   'build:preview': (payload: BuildPreviewRequestPayload) => void;
   'build:queue': (payload: BuildQueuePayload) => void;
+  'destroy:queue': (payload: DestroyQueuePayload) => void;
   'cell:update': (payload: CellUpdatePayload) => void;
 }
 
@@ -231,5 +251,7 @@ export interface ServerToClientEvents {
   'build:preview': (payload: BuildPreviewPayload) => void;
   'build:queued': (payload: BuildQueuedPayload) => void;
   'build:outcome': (payload: BuildOutcomePayload) => void;
+  'destroy:queued': (payload: DestroyQueuedPayload) => void;
+  'destroy:outcome': (payload: DestroyOutcomePayload) => void;
   'player:profile': (payload: PlayerProfilePayload) => void;
 }

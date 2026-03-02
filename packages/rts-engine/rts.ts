@@ -53,6 +53,7 @@ export interface StructureTemplate {
   income: number;
   buildArea: number;
   checks: Vector2[];
+  requiresDestroyConfirm?: boolean;
 }
 
 export interface StructureTemplateSummary {
@@ -73,6 +74,11 @@ export interface BuildQueuePayload {
   transform?: PlacementTransformInput;
 }
 
+export interface DestroyQueuePayload {
+  structureKey: string;
+  delayTicks?: number;
+}
+
 export interface BuildEvent {
   id: number;
   teamId: number;
@@ -81,6 +87,14 @@ export interface BuildEvent {
   x: number;
   y: number;
   transform: PlacementTransformState;
+  executeTick: number;
+}
+
+export interface DestroyEvent {
+  id: number;
+  teamId: number;
+  playerId: string;
+  structureKey: string;
   executeTick: number;
 }
 
@@ -108,6 +122,21 @@ export interface BuildPreviewProjection {
   bounds: PlacementBounds;
 }
 
+export interface StructurePayload {
+  key: string;
+  templateId: string;
+  templateName: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  hp: number;
+  active: boolean;
+  isCore: boolean;
+  requiresDestroyConfirm: boolean;
+  footprint: Vector2[];
+}
+
 export interface BuildStats {
   queued: number;
   applied: number;
@@ -121,6 +150,9 @@ export interface TimelineEvent {
     | 'build-queued'
     | 'build-applied'
     | 'build-rejected'
+    | 'destroy-queued'
+    | 'destroy-applied'
+    | 'destroy-rejected'
     | 'core-damaged'
     | 'core-destroyed'
     | 'integrity-resolved'
@@ -141,6 +173,14 @@ export type BuildRejectionReason =
   | 'template-compare-failed'
   | 'unknown-template';
 
+export type DestroyRejectionReason =
+  | 'invalid-delay'
+  | 'invalid-lifecycle-state'
+  | 'invalid-target'
+  | 'match-finished'
+  | 'team-defeated'
+  | 'wrong-owner';
+
 export interface BuildOutcome {
   eventId: number;
   teamId: number;
@@ -150,6 +190,17 @@ export interface BuildOutcome {
   needed?: number;
   current?: number;
   deficit?: number;
+  executeTick: number;
+  resolvedTick: number;
+}
+
+export interface DestroyOutcome {
+  eventId: number;
+  teamId: number;
+  structureKey: string;
+  templateId: string;
+  outcome: 'destroyed' | 'rejected';
+  reason?: DestroyRejectionReason;
   executeTick: number;
   resolvedTick: number;
 }
@@ -177,6 +228,17 @@ export interface PendingBuildPayload {
   y: number;
 }
 
+export interface PendingDestroyPayload {
+  eventId: number;
+  executeTick: number;
+  structureKey: string;
+  templateId: string;
+  templateName: string;
+  x: number;
+  y: number;
+  requiresDestroyConfirm: boolean;
+}
+
 export interface TeamState {
   id: number;
   name: string;
@@ -190,6 +252,7 @@ export interface TeamState {
   defeated: boolean;
   structures: Map<string, StructureInstance>;
   pendingBuildEvents: BuildEvent[];
+  pendingDestroyEvents: DestroyEvent[];
   buildStats: BuildStats;
 }
 
@@ -235,6 +298,8 @@ export interface TeamPayload {
   income: number;
   incomeBreakdown: TeamIncomeBreakdown;
   pendingBuilds: PendingBuildPayload[];
+  pendingDestroys: PendingDestroyPayload[];
+  structures: StructurePayload[];
   defeated: boolean;
   baseTopLeft: Vector2;
   baseIntact: boolean;
@@ -267,11 +332,22 @@ export interface QueueBuildResult {
   bounds?: PlacementBounds;
 }
 
+export interface QueueDestroyResult {
+  accepted: boolean;
+  error?: string;
+  reason?: DestroyRejectionReason;
+  eventId?: number;
+  executeTick?: number;
+  structureKey?: string;
+  idempotent?: boolean;
+}
+
 export interface RoomTickResult {
   appliedBuilds: number;
   defeatedTeams: number[];
   outcome: MatchOutcome | null;
   buildOutcomes: BuildOutcome[];
+  destroyOutcomes: DestroyOutcome[];
 }
 
 export interface CreateRoomOptions {
@@ -290,6 +366,7 @@ interface StructureTemplateRowsOptions {
   income?: number;
   buildArea?: number;
   checks?: Vector2[];
+  requiresDestroyConfirm?: boolean;
 }
 
 const CORE_TEMPLATE_ID = '__core__';
@@ -357,6 +434,7 @@ function createTemplateFromRows(
     income: options.income ?? 0,
     buildArea: options.buildArea ?? 0,
     checks: options.checks ?? [],
+    requiresDestroyConfirm: options.requiresDestroyConfirm ?? false,
   };
 }
 
@@ -366,6 +444,7 @@ const CORE_STRUCTURE_TEMPLATE = createTemplateFromRows({
   rows: ['##.##', '##.##', '.....', '##.##', '##.##'],
   buildArea: 0,
   checks: [],
+  requiresDestroyConfirm: true,
 });
 
 function appendTimelineEvent(
@@ -417,8 +496,46 @@ function rejectBuild(
   });
 }
 
+function rejectDestroy(
+  room: RoomState,
+  team: TeamState,
+  reason: DestroyRejectionReason,
+  eventId?: number,
+  structureKey?: string,
+): void {
+  const metadata: Record<string, number | string | boolean> = { reason };
+  if (eventId !== undefined) {
+    metadata.eventId = eventId;
+  }
+  if (structureKey) {
+    metadata.structureKey = structureKey;
+  }
+
+  appendTimelineEvent(room, {
+    teamId: team.id,
+    type: 'destroy-rejected',
+    metadata,
+  });
+}
+
 function insertBuildEventSorted(queue: BuildEvent[], event: BuildEvent): void {
   const compare = compareBuildEvents;
+  let insertIndex = queue.length;
+  for (let index = queue.length - 1; index >= 0; index -= 1) {
+    if (compare(queue[index], event) <= 0) {
+      break;
+    }
+    insertIndex = index;
+  }
+
+  queue.splice(insertIndex, 0, event);
+}
+
+function insertDestroyEventSorted(
+  queue: DestroyEvent[],
+  event: DestroyEvent,
+): void {
+  const compare = compareDestroyEvents;
   let insertIndex = queue.length;
   for (let index = queue.length - 1; index >= 0; index -= 1) {
     if (compare(queue[index], event) <= 0) {
@@ -434,7 +551,15 @@ function compareBuildEvents(a: BuildEvent, b: BuildEvent): number {
   return a.executeTick - b.executeTick || a.id - b.id;
 }
 
+function compareDestroyEvents(a: DestroyEvent, b: DestroyEvent): number {
+  return a.executeTick - b.executeTick || a.id - b.id;
+}
+
 function compareBuildOutcomes(a: BuildOutcome, b: BuildOutcome): number {
+  return a.executeTick - b.executeTick || a.eventId - b.eventId;
+}
+
+function compareDestroyOutcomes(a: DestroyOutcome, b: DestroyOutcome): number {
   return a.executeTick - b.executeTick || a.eventId - b.eventId;
 }
 
@@ -455,6 +580,79 @@ function projectPendingBuilds(
       y: event.y,
     };
   });
+}
+
+function projectPendingDestroys(
+  room: RoomState,
+  team: TeamState,
+): PendingDestroyPayload[] {
+  const pending = [...team.pendingDestroyEvents];
+  pending.sort(compareDestroyEvents);
+  return pending.map((event) => {
+    const structure = team.structures.get(event.structureKey);
+    const template = structure ? getStructureTemplate(room, structure) : null;
+
+    return {
+      eventId: event.id,
+      executeTick: event.executeTick,
+      structureKey: event.structureKey,
+      templateId: structure?.templateId ?? 'unknown',
+      templateName: template?.name ?? structure?.templateId ?? 'Unknown',
+      x: structure?.x ?? 0,
+      y: structure?.y ?? 0,
+      requiresDestroyConfirm: Boolean(template?.requiresDestroyConfirm),
+    };
+  });
+}
+
+function projectStructures(
+  room: RoomState,
+  team: TeamState,
+): StructurePayload[] {
+  const orderedStructures = [...team.structures.values()].sort(
+    compareStructuresByKey,
+  );
+  const projected: StructurePayload[] = [];
+
+  for (const structure of orderedStructures) {
+    if (structure.hp <= 0) {
+      continue;
+    }
+
+    const template = getStructureTemplate(room, structure);
+    if (!template) {
+      continue;
+    }
+
+    const transformedTemplate = projectTemplateWithTransform(
+      template,
+      structure.transform,
+    );
+    const projection = projectPlacementToWorld(
+      transformedTemplate,
+      structure.x,
+      structure.y,
+      room.width,
+      room.height,
+    );
+
+    projected.push({
+      key: structure.key,
+      templateId: structure.templateId,
+      templateName: template.name,
+      x: structure.x,
+      y: structure.y,
+      width: transformedTemplate.width,
+      height: transformedTemplate.height,
+      hp: structure.hp,
+      active: structure.active,
+      isCore: structure.isCore,
+      requiresDestroyConfirm: Boolean(template.requiresDestroyConfirm),
+      footprint: projection.occupiedCells,
+    });
+  }
+
+  return projected;
 }
 
 function recordRejectedBuildOutcome(
@@ -483,6 +681,25 @@ function recordRejectedBuildOutcome(
   buildOutcomes.push(outcome);
 }
 
+function recordRejectedDestroyOutcome(
+  destroyOutcomes: DestroyOutcome[],
+  event: DestroyEvent,
+  reason: DestroyRejectionReason,
+  resolvedTick: number,
+  templateId = 'unknown',
+): void {
+  destroyOutcomes.push({
+    eventId: event.id,
+    teamId: event.teamId,
+    structureKey: event.structureKey,
+    templateId,
+    outcome: 'rejected',
+    reason,
+    executeTick: event.executeTick,
+    resolvedTick,
+  });
+}
+
 function drainPendingBuildEvents(
   room: RoomState,
   teams: TeamState[],
@@ -509,6 +726,39 @@ function drainPendingBuildEvents(
   }
 }
 
+function drainPendingDestroyEvents(
+  room: RoomState,
+  teams: TeamState[],
+  reason: DestroyRejectionReason,
+  resolvedTick: number,
+  destroyOutcomes: DestroyOutcome[],
+): void {
+  const pendingEvents: DestroyEvent[] = [];
+  for (const team of teams) {
+    pendingEvents.push(...team.pendingDestroyEvents);
+    team.pendingDestroyEvents = [];
+  }
+
+  pendingEvents.sort(compareDestroyEvents);
+
+  for (const event of pendingEvents) {
+    const team = room.teams.get(event.teamId);
+    if (!team) {
+      continue;
+    }
+
+    const target = team.structures.get(event.structureKey);
+    rejectDestroy(room, team, reason, event.id, event.structureKey);
+    recordRejectedDestroyOutcome(
+      destroyOutcomes,
+      event,
+      reason,
+      resolvedTick,
+      target?.templateId ?? 'unknown',
+    );
+  }
+}
+
 function getStructureTemplate(
   room: RoomState,
   structure: StructureInstance,
@@ -524,6 +774,19 @@ function getCoreStructure(team: TeamState): StructureInstance | null {
   for (const structure of team.structures.values()) {
     if (structure.isCore) {
       return structure;
+    }
+  }
+
+  return null;
+}
+
+function findStructureOwnerTeam(
+  room: RoomState,
+  structureKey: string,
+): TeamState | null {
+  for (const team of room.teams.values()) {
+    if (team.structures.has(structureKey)) {
+      return team;
     }
   }
 
@@ -1238,6 +1501,7 @@ function applyTeamEconomyAndQueue(
   team: TeamState,
   acceptedEvents: AcceptedBuildEvent[],
   buildOutcomes: BuildOutcome[],
+  destroyOutcomes: DestroyOutcome[],
 ): void {
   if (team.defeated) {
     team.income = 0;
@@ -1289,6 +1553,71 @@ function applyTeamEconomyAndQueue(
     team.resources += elapsed * team.income;
     team.lastIncomeTick = room.tick;
   }
+
+  const deferredDestroys: DestroyEvent[] = [];
+  for (const event of team.pendingDestroyEvents) {
+    if (event.executeTick > room.tick) {
+      deferredDestroys.push(event);
+      continue;
+    }
+
+    const structure = team.structures.get(event.structureKey);
+    if (!structure) {
+      rejectDestroy(room, team, 'invalid-target', event.id, event.structureKey);
+      recordRejectedDestroyOutcome(
+        destroyOutcomes,
+        event,
+        'invalid-target',
+        room.tick,
+      );
+      continue;
+    }
+
+    if (structure.hp <= 0) {
+      rejectDestroy(
+        room,
+        team,
+        'invalid-lifecycle-state',
+        event.id,
+        event.structureKey,
+      );
+      recordRejectedDestroyOutcome(
+        destroyOutcomes,
+        event,
+        'invalid-lifecycle-state',
+        room.tick,
+        structure.templateId,
+      );
+      continue;
+    }
+
+    structure.hp = 0;
+    structure.active = false;
+    structure.buildRadius = 0;
+
+    appendTimelineEvent(room, {
+      teamId: team.id,
+      type: 'destroy-applied',
+      metadata: {
+        eventId: event.id,
+        structureKey: event.structureKey,
+        templateId: structure.templateId,
+        isCore: structure.isCore,
+      },
+    });
+
+    destroyOutcomes.push({
+      eventId: event.id,
+      teamId: team.id,
+      structureKey: event.structureKey,
+      templateId: structure.templateId,
+      outcome: 'destroyed',
+      executeTick: event.executeTick,
+      resolvedTick: room.tick,
+    });
+  }
+
+  team.pendingDestroyEvents = deferredDestroys;
 
   const deferred: BuildEvent[] = [];
   for (const event of team.pendingBuildEvents) {
@@ -1539,6 +1868,7 @@ export function addPlayerToRoom(
     defeated: false,
     structures,
     pendingBuildEvents: [],
+    pendingDestroyEvents: [],
     buildStats: {
       queued: 0,
       applied: 0,
@@ -1689,6 +2019,139 @@ export function queueBuildEvent(
   };
 }
 
+export function queueDestroyEvent(
+  room: RoomState,
+  playerId: string,
+  payload: DestroyQueuePayload,
+): QueueDestroyResult {
+  const player = room.players.get(playerId);
+  if (!player) {
+    return {
+      accepted: false,
+      error: 'Player is not in this room',
+    };
+  }
+
+  const team = room.teams.get(player.teamId);
+  if (!team) {
+    return {
+      accepted: false,
+      error: 'Team is not available',
+    };
+  }
+
+  if (team.defeated) {
+    rejectDestroy(room, team, 'team-defeated');
+    return {
+      accepted: false,
+      error: 'Team is defeated',
+      reason: 'team-defeated',
+    };
+  }
+
+  const structureKey =
+    typeof payload.structureKey === 'string' ? payload.structureKey.trim() : '';
+  if (!structureKey) {
+    rejectDestroy(room, team, 'invalid-target');
+    return {
+      accepted: false,
+      error: 'Invalid structure target',
+      reason: 'invalid-target',
+    };
+  }
+
+  const duplicate = team.pendingDestroyEvents.find(
+    (event) => event.structureKey === structureKey,
+  );
+  if (duplicate) {
+    return {
+      accepted: true,
+      eventId: duplicate.id,
+      executeTick: duplicate.executeTick,
+      structureKey,
+      idempotent: true,
+    };
+  }
+
+  const ownerTeam = findStructureOwnerTeam(room, structureKey);
+  if (!ownerTeam) {
+    rejectDestroy(room, team, 'invalid-target', undefined, structureKey);
+    return {
+      accepted: false,
+      error: 'Target structure does not exist',
+      reason: 'invalid-target',
+      structureKey,
+    };
+  }
+
+  if (ownerTeam.id !== team.id) {
+    rejectDestroy(room, team, 'wrong-owner', undefined, structureKey);
+    return {
+      accepted: false,
+      error: 'Cannot destroy structures owned by another team',
+      reason: 'wrong-owner',
+      structureKey,
+    };
+  }
+
+  const structure = ownerTeam.structures.get(structureKey);
+  if (!structure || structure.hp <= 0) {
+    rejectDestroy(
+      room,
+      team,
+      'invalid-lifecycle-state',
+      undefined,
+      structureKey,
+    );
+    return {
+      accepted: false,
+      error: 'Target structure is not destroyable',
+      reason: 'invalid-lifecycle-state',
+      structureKey,
+    };
+  }
+
+  const delay = Number(payload.delayTicks ?? 1);
+  if (!Number.isInteger(delay)) {
+    rejectDestroy(room, team, 'invalid-delay', undefined, structureKey);
+    return {
+      accepted: false,
+      error: 'delayTicks must be an integer',
+      reason: 'invalid-delay',
+      structureKey,
+    };
+  }
+
+  const clampedDelay = Math.max(1, Math.min(MAX_DELAY_TICKS, delay));
+  const event: DestroyEvent = {
+    id: room.nextBuildEventId,
+    teamId: team.id,
+    playerId,
+    structureKey,
+    executeTick: room.tick + clampedDelay,
+  };
+  room.nextBuildEventId += 1;
+
+  insertDestroyEventSorted(team.pendingDestroyEvents, event);
+  appendTimelineEvent(room, {
+    teamId: team.id,
+    type: 'destroy-queued',
+    metadata: {
+      eventId: event.id,
+      executeTick: event.executeTick,
+      structureKey,
+    },
+  });
+
+  return {
+    accepted: true,
+    eventId: event.id,
+    executeTick: event.executeTick,
+    structureKey,
+    idempotent: false,
+  };
+}
+
 export function createRoomStatePayload(room: RoomState): RoomStatePayload {
   const teams: TeamPayload[] = [];
   for (const team of room.teams.values()) {
@@ -1705,6 +2168,8 @@ export function createRoomStatePayload(room: RoomState): RoomStatePayload {
         activeStructureCount: team.incomeBreakdown.activeStructureCount,
       },
       pendingBuilds: projectPendingBuilds(room, team),
+      pendingDestroys: projectPendingDestroys(room, team),
+      structures: projectStructures(room, team),
       defeated: team.defeated,
       baseTopLeft: {
         x: team.baseTopLeft.x,
@@ -1898,9 +2363,16 @@ export function createCanonicalMatchOutcome(
 export function tickRoom(room: RoomState): RoomTickResult {
   const acceptedEvents: AcceptedBuildEvent[] = [];
   const buildOutcomes: BuildOutcome[] = [];
+  const destroyOutcomes: DestroyOutcome[] = [];
 
   for (const team of room.teams.values()) {
-    applyTeamEconomyAndQueue(room, team, acceptedEvents, buildOutcomes);
+    applyTeamEconomyAndQueue(
+      room,
+      team,
+      acceptedEvents,
+      buildOutcomes,
+      destroyOutcomes,
+    );
   }
 
   acceptedEvents.sort(compareBuildEvents);
@@ -1976,6 +2448,13 @@ export function tickRoom(room: RoomState): RoomTickResult {
         room.tick,
         buildOutcomes,
       );
+      drainPendingDestroyEvents(
+        room,
+        [team],
+        'team-defeated',
+        room.tick,
+        destroyOutcomes,
+      );
       defeatedTeams.push(team.id);
       appendTimelineEvent(room, {
         teamId: team.id,
@@ -1991,7 +2470,8 @@ export function tickRoom(room: RoomState): RoomTickResult {
 
   if (outcome) {
     const teamsWithPending = [...room.teams.values()].filter(
-      ({ pendingBuildEvents }) => pendingBuildEvents.length > 0,
+      ({ pendingBuildEvents, pendingDestroyEvents }) =>
+        pendingBuildEvents.length > 0 || pendingDestroyEvents.length > 0,
     );
     drainPendingBuildEvents(
       room,
@@ -2000,14 +2480,23 @@ export function tickRoom(room: RoomState): RoomTickResult {
       room.tick,
       buildOutcomes,
     );
+    drainPendingDestroyEvents(
+      room,
+      teamsWithPending,
+      'match-finished',
+      room.tick,
+      destroyOutcomes,
+    );
   }
 
   buildOutcomes.sort(compareBuildOutcomes);
+  destroyOutcomes.sort(compareDestroyOutcomes);
 
   return {
     appliedBuilds,
     defeatedTeams,
     outcome,
     buildOutcomes,
+    destroyOutcomes,
   };
 }
