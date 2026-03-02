@@ -38,6 +38,18 @@ import {
   toPlacementTransformInput,
   type PlacementTransformViewState,
 } from './placement-transform-view-model.js';
+import {
+  armDestroyConfirm,
+  cancelDestroyConfirm,
+  canQueueDestroy,
+  clearDestroySelection,
+  createDestroyViewModelState,
+  refreshDestroySelection,
+  selectDestroyStructure,
+  syncDestroyPending,
+  type DestroySelectableStructure,
+  type DestroyViewModelState,
+} from './destroy-view-model.js';
 
 type RoomListEntry = RoomListEntryPayload;
 type StatePayload = RoomStatePayload;
@@ -45,6 +57,22 @@ type TemplateSummary = StructureTemplateSummary;
 type TeamPayload = StatePayload['teams'][number];
 type BuildPreview = BuildPreviewPayload;
 type BuildOutcome = BuildOutcomePayload;
+
+interface VisibleStructure {
+  teamId: number;
+  key: string;
+  templateId: string;
+  templateName: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  hp: number;
+  active: boolean;
+  isCore: boolean;
+  requiresDestroyConfirm: boolean;
+  footprint: Cell[];
+}
 
 interface SelectedTemplatePlacement {
   templateId: string;
@@ -134,6 +162,17 @@ const previewReasonEl = getRequiredElement<HTMLElement>('preview-reason');
 const queueCostEl = getRequiredElement<HTMLElement>('queue-cost');
 const queueFeedbackEl = getRequiredElement<HTMLElement>('queue-feedback');
 const queueBuildButton = getRequiredElement<HTMLButtonElement>('queue-build');
+const destroySelectionEl = getRequiredElement<HTMLElement>('destroy-selection');
+const destroyFeedbackEl = getRequiredElement<HTMLElement>('destroy-feedback');
+const destroyQueueButton =
+  getRequiredElement<HTMLButtonElement>('destroy-queue');
+const destroyConfirmPanelEl = getRequiredElement<HTMLDivElement>(
+  'destroy-confirm-panel',
+);
+const destroyConfirmButton =
+  getRequiredElement<HTMLButtonElement>('destroy-confirm');
+const destroyCancelButton =
+  getRequiredElement<HTMLButtonElement>('destroy-cancel');
 const pendingTimelineEl =
   getRequiredElement<HTMLDivElement>('pending-timeline');
 const messageEl = getRequiredElement<HTMLElement>('message');
@@ -279,11 +318,15 @@ let latestEconomyDeltaCue: AggregatedIncomeDelta | null = null;
 let latestEconomyDeltaTick: number | null = null;
 let latestEconomyDeltaSamples: IncomeDeltaSample[] = [];
 let queueFeedbackOverride: { text: string; isError: boolean } | null = null;
+let destroyFeedbackOverride: { text: string; isError: boolean } | null = null;
 let lifecycleConnectionNotice: string | null = null;
 let bootstrapMembershipTimeoutId: number | null = null;
 let connectionIssueVisible = false;
 let lastConnectionErrorSignature: string | null = null;
 let lastBuildErrorToast: { signature: string; at: number } | null = null;
+let destroyViewState: DestroyViewModelState = createDestroyViewModelState();
+let visibleStructures: VisibleStructure[] = [];
+let structureCellIndex = new Map<string, VisibleStructure>();
 
 const BUILD_ERROR_TOAST_DEDUPE_MS = 800;
 
@@ -552,6 +595,10 @@ function setQueueFeedbackOverride(message: string, isError: boolean): void {
   queueFeedbackOverride = { text: message, isError };
 }
 
+function resetDestroyFeedbackOverride(): void {
+  destroyFeedbackOverride = null;
+}
+
 function shouldDeduplicateBuildErrorToast(
   payload: RoomErrorPayload,
   message: string,
@@ -590,6 +637,176 @@ function clearSelectedTemplatePlacement(): void {
   previewPending = false;
   lastPreviewRefreshTick = null;
   resetQueueFeedbackOverride();
+}
+
+function resetDestroyInteractionState(): void {
+  destroyViewState = clearDestroySelection(createDestroyViewModelState());
+  visibleStructures = [];
+  structureCellIndex = new Map<string, VisibleStructure>();
+  resetDestroyFeedbackOverride();
+}
+
+function mapVisibleStructureToSelectable(
+  structure: VisibleStructure,
+): DestroySelectableStructure {
+  return {
+    key: structure.key,
+    teamId: structure.teamId,
+    templateName: structure.templateName,
+    requiresDestroyConfirm: structure.requiresDestroyConfirm,
+  };
+}
+
+function getVisibleStructureByKey(key: string): VisibleStructure | null {
+  return visibleStructures.find((structure) => structure.key === key) ?? null;
+}
+
+function getStructureAtCell(cell: Cell): VisibleStructure | null {
+  return structureCellIndex.get(`${cell.x},${cell.y}`) ?? null;
+}
+
+function syncVisibleStructures(payload: StatePayload): void {
+  const nextStructures: VisibleStructure[] = [];
+  const nextIndex = new Map<string, VisibleStructure>();
+
+  const sortedTeams = [...payload.teams].sort(
+    (left, right) => left.id - right.id,
+  );
+  for (const team of sortedTeams) {
+    for (const structure of team.structures) {
+      const visible: VisibleStructure = {
+        teamId: team.id,
+        key: structure.key,
+        templateId: structure.templateId,
+        templateName: structure.templateName,
+        x: structure.x,
+        y: structure.y,
+        width: structure.width,
+        height: structure.height,
+        hp: structure.hp,
+        active: structure.active,
+        isCore: structure.isCore,
+        requiresDestroyConfirm: structure.requiresDestroyConfirm,
+        footprint: structure.footprint,
+      };
+      nextStructures.push(visible);
+
+      for (const footprintCell of visible.footprint) {
+        const indexKey = `${footprintCell.x},${footprintCell.y}`;
+        if (!nextIndex.has(indexKey)) {
+          nextIndex.set(indexKey, visible);
+        }
+      }
+    }
+  }
+
+  visibleStructures = nextStructures;
+  structureCellIndex = nextIndex;
+
+  const selectedKey = destroyViewState.selectedKey;
+  const selectedStructure = selectedKey
+    ? getVisibleStructureByKey(selectedKey)
+    : null;
+  destroyViewState = refreshDestroySelection(
+    destroyViewState,
+    selectedStructure
+      ? mapVisibleStructureToSelectable(selectedStructure)
+      : null,
+    currentTeamId,
+  );
+
+  const pendingForTeam =
+    payload.teams.find(({ id }) => id === currentTeamId)?.pendingDestroys ?? [];
+  destroyViewState = syncDestroyPending(
+    destroyViewState,
+    pendingForTeam.map(({ structureKey }) => structureKey),
+  );
+}
+
+function selectDestroyStructureAtCell(cell: Cell): boolean {
+  const structure = getStructureAtCell(cell);
+  if (!structure) {
+    return false;
+  }
+
+  destroyViewState = selectDestroyStructure(
+    destroyViewState,
+    mapVisibleStructureToSelectable(structure),
+    currentTeamId,
+  );
+  resetDestroyFeedbackOverride();
+
+  const ownerLabel =
+    currentTeamId !== null && structure.teamId === currentTeamId
+      ? 'owned'
+      : `team ${structure.teamId}`;
+  setMessage(
+    `Selected ${structure.templateName} (${structure.key}) [${ownerLabel}] for destroy actions.`,
+  );
+  return true;
+}
+
+function updateDestroyUi(): void {
+  destroyQueueButton.hidden = false;
+  destroyConfirmPanelEl.hidden = true;
+  destroyQueueButton.disabled = true;
+  destroyConfirmButton.disabled = true;
+  destroyCancelButton.disabled = true;
+  destroyConfirmButton.textContent = 'Arm Confirm Destroy';
+
+  const selectedKey = destroyViewState.selectedKey;
+  const selectedStructure = selectedKey
+    ? getVisibleStructureByKey(selectedKey)
+    : null;
+
+  let selectionCopy =
+    'Select a structure on the board to enable destroy actions.';
+  if (selectedStructure) {
+    selectionCopy = `Selected: ${selectedStructure.templateName} (${selectedStructure.key})`;
+  }
+  destroySelectionEl.textContent = selectionCopy;
+
+  let feedback =
+    'Destroy action is disabled until an owned structure is selected.';
+  let isError = false;
+
+  if (!canMutateGameplay()) {
+    feedback =
+      'Destroy action is read-only until you are an active, non-defeated player.';
+  } else if (!selectedStructure) {
+    feedback =
+      'Select any structure cell on the board to inspect destroy actions.';
+  } else if (!destroyViewState.selectedOwned) {
+    feedback = 'Destroy controls are hidden for non-owned structures.';
+    isError = true;
+  } else if (
+    destroyViewState.pendingStructureKeys.includes(selectedStructure.key)
+  ) {
+    feedback =
+      'Destroy pending for selected structure. You may retarget another structure.';
+  } else if (selectedStructure.requiresDestroyConfirm) {
+    destroyQueueButton.hidden = true;
+    destroyConfirmPanelEl.hidden = false;
+    destroyConfirmButton.disabled = false;
+    destroyCancelButton.disabled = !destroyViewState.confirmArmed;
+    destroyConfirmButton.textContent = destroyViewState.confirmArmed
+      ? 'Confirm Destroy Now'
+      : 'Arm Confirm Destroy';
+    feedback = destroyViewState.confirmArmed
+      ? 'Confirm destroy to submit the authoritative request.'
+      : 'Core destroy requires confirmation before queue submission.';
+  } else {
+    destroyQueueButton.disabled = false;
+    feedback = 'Ready to queue destroy request for selected structure.';
+  }
+
+  if (destroyFeedbackOverride) {
+    feedback = destroyFeedbackOverride.text;
+    isError = destroyFeedbackOverride.isError;
+  }
+
+  destroyFeedbackEl.textContent = feedback;
+  destroyFeedbackEl.classList.toggle('queue-feedback--error', isError);
 }
 
 function updateTransformIndicator(): void {
@@ -690,6 +907,7 @@ function updateQueueAffordabilityUi(): void {
   queueBuildButton.disabled = disabled;
   queueFeedbackEl.textContent = feedback;
   queueFeedbackEl.classList.toggle('queue-feedback--error', isError);
+  updateDestroyUi();
 }
 
 function emitBuildPreviewForSelectedPlacement(): void {
@@ -707,6 +925,25 @@ function emitBuildPreviewForSelectedPlacement(): void {
   latestBuildPreview = null;
   socket.emit('build:preview', previewRequest);
   updateQueueAffordabilityUi();
+}
+
+function emitDestroyQueueForSelection(): void {
+  if (!canMutateGameplay()) {
+    setMessage('Destroy controls are disabled in read-only mode.', true);
+    return;
+  }
+
+  const structureKey = destroyViewState.selectedKey;
+  if (!structureKey || !canQueueDestroy(destroyViewState)) {
+    updateDestroyUi();
+    return;
+  }
+
+  resetDestroyFeedbackOverride();
+  socket.emit('destroy:queue', {
+    structureKey,
+  });
+  updateDestroyUi();
 }
 
 function applyTransformControl(
@@ -1094,6 +1331,9 @@ function updateReadOnlyExperience(): void {
   transformMirrorHorizontalButton.disabled = !gameplayAllowed;
   transformMirrorVerticalButton.disabled = !gameplayAllowed;
   cancelBuildModeButton.disabled = !gameplayAllowed;
+  destroyQueueButton.disabled = !gameplayAllowed;
+  destroyConfirmButton.disabled = !gameplayAllowed;
+  destroyCancelButton.disabled = !gameplayAllowed;
   canvas.classList.toggle('canvas--locked', !gameplayAllowed);
   canvas.setAttribute('aria-disabled', gameplayAllowed ? 'false' : 'true');
 
@@ -1102,6 +1342,7 @@ function updateReadOnlyExperience(): void {
 
   if (!bannerCopy) {
     updateQueueAffordabilityUi();
+    updateDestroyUi();
     return;
   }
 
@@ -1112,6 +1353,7 @@ function updateReadOnlyExperience(): void {
   spectatorBannerTitleEl.textContent = bannerCopy.title;
   spectatorBannerTextEl.textContent = bannerCopy.text;
   updateQueueAffordabilityUi();
+  updateDestroyUi();
 }
 
 function syncCurrentTeamIdFromState(payload: StatePayload): void {
@@ -1790,6 +2032,11 @@ canvas.addEventListener('pointerdown', (event) => {
   const cell = pointerToCell(event);
   if (!cell) return;
 
+  if (selectDestroyStructureAtCell(cell)) {
+    updateDestroyUi();
+    return;
+  }
+
   if (templateMode) {
     chooseTemplatePlacement(cell);
     return;
@@ -1910,6 +2157,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   lastBuildErrorToast = null;
   clearSelectedTemplatePlacement();
   resetEconomyTracking();
+  resetDestroyInteractionState();
   availableTemplates = payload.templates;
   selectedTemplateId = payload.templates[0]?.id ?? '';
   updateTemplateOptions();
@@ -1929,6 +2177,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   gridBytes = decodeBase64ToBytes(payload.state.grid);
   generationEl.textContent = payload.state.generation.toString();
   updateTeamStats(payload.state);
+  syncVisibleStructures(payload.state);
   renderSpawnMarkers(payload.state);
   resizeCanvas();
   render();
@@ -1952,6 +2201,7 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   lastBuildErrorToast = null;
   clearSelectedTemplatePlacement();
   resetEconomyTracking();
+  resetDestroyInteractionState();
   applyRoomStatus('lobby');
   renderFinishedResults();
 
@@ -2019,6 +2269,7 @@ socket.on('room:error', (payload: RoomErrorPayload) => {
     addToast(message, true);
   }
   updateQueueAffordabilityUi();
+  updateDestroyUi();
 });
 
 socket.on('room:membership', (payload: RoomMembershipPayload) => {
@@ -2164,6 +2415,7 @@ socket.on('state', (payload: StatePayload) => {
   }
 
   updateTeamStats(payload);
+  syncVisibleStructures(payload);
   renderSpawnMarkers(payload);
   resizeCanvas();
   render();
@@ -2301,6 +2553,26 @@ queueBuildButton.addEventListener('click', () => {
   updateQueueAffordabilityUi();
 });
 
+destroyQueueButton.addEventListener('click', () => {
+  emitDestroyQueueForSelection();
+});
+
+destroyConfirmButton.addEventListener('click', () => {
+  if (!destroyViewState.confirmArmed) {
+    destroyViewState = armDestroyConfirm(destroyViewState);
+    updateDestroyUi();
+    return;
+  }
+
+  emitDestroyQueueForSelection();
+});
+
+destroyCancelButton.addEventListener('click', () => {
+  destroyViewState = cancelDestroyConfirm(destroyViewState);
+  resetDestroyFeedbackOverride();
+  updateDestroyUi();
+});
+
 finishedMinimizeButton.addEventListener('click', () => {
   isFinishedPanelMinimized = !isFinishedPanelMinimized;
   updateFinishedPanelState();
@@ -2348,6 +2620,7 @@ refreshRoomsButton.addEventListener('click', () => {
 updateTransformIndicator();
 updateTemplateOptions();
 resetEconomyTracking();
+resetDestroyInteractionState();
 updateLobbyControls();
 renderFinishedResults();
 updateLifecycleUi();

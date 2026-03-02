@@ -314,6 +314,16 @@
         font-family: 'IBM Plex Mono', 'Courier New', monospace;
       }
 
+      .destroy-confirm-panel {
+        margin-top: 8px;
+        border: 1px solid rgba(224, 122, 122, 0.42);
+        border-radius: 10px;
+        background: rgba(224, 122, 122, 0.08);
+        padding: 8px;
+        display: grid;
+        gap: 8px;
+      }
+
       .queue-cost--affordable {
         color: var(--accent);
       }
@@ -986,6 +996,28 @@
           </button>
           <p id="queue-feedback" class="queue-feedback">
             Queue action is disabled until placement preview returns.
+          </p>
+
+          <h3>Destroy Action</h3>
+          <p id="destroy-selection" class="queue-placement">
+            Select a structure on the board to enable destroy actions.
+          </p>
+          <button id="destroy-queue" type="button" disabled>
+            Destroy Selected Structure
+          </button>
+          <div id="destroy-confirm-panel" class="destroy-confirm-panel" hidden>
+            <p class="queue-feedback queue-feedback--error">
+              Core destroy requires confirmation before queue submission.
+            </p>
+            <div class="button-row">
+              <button id="destroy-confirm" type="button">
+                Arm Confirm Destroy
+              </button>
+              <button id="destroy-cancel" type="button" disabled>Cancel</button>
+            </div>
+          </div>
+          <p id="destroy-feedback" class="queue-feedback">
+            Destroy action is disabled until an owned structure is selected.
           </p>
 
           <h3>Pending Timeline</h3>
