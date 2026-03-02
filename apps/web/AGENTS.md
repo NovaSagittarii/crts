@@ -13,6 +13,7 @@ These rules apply to `apps/web/*`.
 - Do not implement simulation rules in the client; consume server `state` payloads.
 - Keep socket event names/payloads aligned with `apps/server/AGENTS.md`.
 - Validate and sanitize user-entered values before emitting events.
+- Treat gameplay mutation as queue-driven: `build:queue` is the accepted path, while `cell:update` is legacy/debug and should expect `queue-only-mutation-path` rejection.
 - Keep UI responsive for desktop and mobile viewport sizes.
 
 ## Event Usage
@@ -31,14 +32,14 @@ Client emits:
 - `chat:send`
 - `build:preview`
 - `build:queue`
-- `cell:update`
+- `cell:update` (legacy/debug; production gameplay path is `build:queue`)
 
 Client listens for:
 
 - `state`
 - `room:list`
 - `room:joined`
-- `room:left`
+- `room:left` (payload room id may be `null`)
 - `room:membership`
 - `room:slot-claimed`
 - `room:countdown`

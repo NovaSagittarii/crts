@@ -7,20 +7,28 @@ This is a TypeScript multiplayer Conway's Game of Life + RTS prototype using Soc
 ```text
 apps/
   server/src/server.ts
+  server/src/lobby-session.ts
   web/index.html
   web/src/client.ts
+  web/src/economy-view-model.ts
 
 packages/
   conway-core/grid.ts
   conway-core/grid.test.ts
   conway-core/index.ts
+  rts-engine/geometry.ts
   rts-engine/lobby.ts
+  rts-engine/lobby.test.ts
+  rts-engine/match-lifecycle.ts
   rts-engine/rts.ts
   rts-engine/rts.test.ts
+  rts-engine/socket-contract.ts
+  rts-engine/spawn.ts
   rts-engine/index.ts
 
 tests/
-  integration/server/server.test.ts
+  integration/server/*.test.ts
+  web/economy-view-model.test.ts
 ```
 
 ## Nested AGENTS.md Layout
@@ -47,6 +55,7 @@ When editing a file, follow the nearest AGENTS.md plus this root file.
 - Keep runtime bootstrapping and socket lifecycle in `apps/*`
 - Prefer co-located unit tests in `packages/*` as `*.test.ts` (legacy: `packages/*/test`)
 - Keep cross-runtime behavior tests in `tests/integration`
+- Keep app-level helper/view-model checks in `tests/web` when package co-location is not a fit
 
 ## Module Entry Points / Aliases
 
@@ -62,11 +71,14 @@ npm run dev
 npm run dev:server
 npm run build
 npm run build:server
+npm run preview
 npm run start
 
 npm test
 npm run test:unit
 npm run test:integration
+npm run test:integration:serial
+npm run test:quality
 npm run test:watch
 
 npm run format

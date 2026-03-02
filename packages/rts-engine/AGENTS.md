@@ -8,7 +8,7 @@ These rules apply to `packages/rts-engine/*`.
 
 ## Invariants
 
-- Defeat condition is base integrity breach (team 2x2 base no longer intact).
+- Defeat condition is core health resolution reaching zero (core integrity checks can damage/restore HP before defeat).
 - Queue validation must reject invalid player/team/template/payload/bounds/territory cases.
 - Build delay is clamped to the configured range.
 - Tick order stays deterministic:
@@ -16,11 +16,12 @@ These rules apply to `packages/rts-engine/*`.
   2. apply accepted templates
   3. apply legacy cell updates
   4. step Conway grid
-  5. evaluate base integrity defeat
+  5. resolve core integrity checks and mark defeated teams
+  6. compute match outcome and drain pending queue entries as `match-finished` rejections when finished
 
 ## Rules
 
-- Keep this package free of Socket.IO, Express, and DOM concerns.
+- Keep this package free of Socket.IO runtime wiring, Express, and DOM concerns (shared transport contract types are allowed).
 - Keep room payload builders stable and explicitly typed.
 - Prefer deterministic behavior over convenience randomness.
 - Add/adjust unit tests for every rule change in room/team/economy logic.

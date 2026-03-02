@@ -30,8 +30,8 @@ Server emits:
 - `state` room-scoped `RoomStatePayload`
 - `room:list` `RoomListEntry[]` with room code/status/spectator counts
 - `room:joined` `{ roomId, roomCode, roomName, playerId, playerName, teamId|null, templates, state }`
-- `room:left` `{ roomId }`
-- `room:membership` `{ revision, status, hostSessionId, slots, participants, ... }`
+- `room:left` `{ roomId|null }` (`null` when the session had no active room)
+- `room:membership` `{ revision, status, hostSessionId, slots, participants, heldSlots, countdownSecondsRemaining, ... }`
 - `room:slot-claimed` `{ roomId, slotId, teamId }`
 - `room:countdown` `{ roomId, secondsRemaining }`
 - `room:match-started` `{ roomId }`
@@ -55,7 +55,7 @@ Lifecycle/status contract:
 - `room:cancel-countdown` is host-only and only legal while status is `countdown`.
 - Gameplay mutations are queue-only: accepted mutations must enter through `build:queue`, and `cell:update` is an explicit rejected bypass path.
 
-Common `room:error.reason` values:
+Common (not exhaustive) `room:error.reason` values:
 
 - `not-host`: host-only action attempted by non-host session.
 - `invalid-transition`: lifecycle action rejected for current room status.
@@ -69,6 +69,17 @@ Common `room:error.reason` values:
 - `invalid-delay`: `build:queue` delay value was not an integer.
 - `unknown-template`: `build:queue` referenced a template that is not available.
 - `insufficient-resources`: queue request was unaffordable; payload includes exact `needed/current/deficit` values.
+- `not-in-room`: request requires membership in a room.
+- `room-not-found`: join request targeted an unknown room id/code.
+- `invalid-slot`: slot claim payload or slot id was invalid.
+- `slot-held`: slot is currently held for a disconnected player during reconnect grace.
+- `invalid-ready`: ready-toggle payload was malformed.
+- `countdown-locked`: ready/slot mutation attempted while countdown is running.
+- `match-started`: lobby mutation attempted after match became active.
+- `invalid-chat`: chat payload was empty or invalid.
+- `invalid-build`: build/cell payload was malformed.
+- `team-defeated` / `team-unavailable` / `build-rejected`: queue request failed deterministic placement/team checks.
+- `session-replaced`: session auth token was replaced by a newer socket connection.
 
 ## Rules
 
