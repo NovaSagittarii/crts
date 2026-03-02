@@ -15,6 +15,7 @@ import {
 import type {
   BuildOutcomePayload,
   BuildQueuedPayload,
+  PlacementTransformInput,
   RoomErrorPayload,
   RoomJoinedPayload,
   RoomMembershipPayload,
@@ -158,6 +159,7 @@ function collectCandidatePlacements(
   template: RoomJoinedPayload['templates'][number],
   roomWidth: number,
   roomHeight: number,
+  transform?: PlacementTransformInput,
 ): Cell[] {
   const placements: Cell[] = [];
   const baseCenter = getBaseCenter(team.baseTopLeft);
@@ -165,6 +167,7 @@ function collectCandidatePlacements(
   const baseTop = team.baseTopLeft.y;
   const baseRight = baseLeft + BASE_FOOTPRINT_WIDTH;
   const baseBottom = baseTop + BASE_FOOTPRINT_HEIGHT;
+  const transformedSize = estimateTransformedTemplateSize(template, transform);
 
   for (let y = -10; y <= 10; y += 2) {
     for (let x = -10; x <= 10; x += 2) {
@@ -174,24 +177,24 @@ function collectCandidatePlacements(
         continue;
       }
       if (
-        buildX + template.width > roomWidth ||
-        buildY + template.height > roomHeight
+        buildX + transformedSize.width > roomWidth ||
+        buildY + transformedSize.height > roomHeight
       ) {
         continue;
       }
 
       const intersectsBase =
         buildX < baseRight &&
-        buildX + template.width > baseLeft &&
+        buildX + transformedSize.width > baseLeft &&
         buildY < baseBottom &&
-        buildY + template.height > baseTop;
+        buildY + transformedSize.height > baseTop;
       if (intersectsBase) {
         continue;
       }
 
       let fullyInsideBuildZone = true;
-      for (let ty = 0; ty < template.height; ty += 1) {
-        for (let tx = 0; tx < template.width; tx += 1) {
+      for (let ty = 0; ty < transformedSize.height; ty += 1) {
+        for (let tx = 0; tx < transformedSize.width; tx += 1) {
           const dx = buildX + tx - baseCenter.x;
           const dy = buildY + ty - baseCenter.y;
           if (dx * dx + dy * dy > BUILD_ZONE_RADIUS * BUILD_ZONE_RADIUS) {
@@ -213,6 +216,35 @@ function collectCandidatePlacements(
   }
 
   return placements;
+}
+
+function estimateTransformedTemplateSize(
+  template: RoomJoinedPayload['templates'][number],
+  transform: PlacementTransformInput | undefined,
+): { width: number; height: number } {
+  const operations = transform?.operations ?? [];
+  let quarterTurns = 0;
+  for (const operation of operations) {
+    if (operation === 'rotate') {
+      quarterTurns = (quarterTurns + 1) % 4;
+    }
+  }
+
+  if (quarterTurns % 2 === 1) {
+    return {
+      width: template.height,
+      height: template.width,
+    };
+  }
+
+  return {
+    width: template.width,
+    height: template.height,
+  };
+}
+
+interface QueueBuildAttempt {
+  transform?: PlacementTransformInput;
 }
 
 function waitForBuildQueueResponse(
@@ -369,35 +401,41 @@ async function queueValidHostBuild(
     throw new Error('Expected block template to be available');
   }
 
-  const placements = collectCandidatePlacements(
-    match.hostTeam,
-    blockTemplate,
-    match.hostJoined.state.width,
-    match.hostJoined.state.height,
-  );
+  const attempts: QueueBuildAttempt[] = [{ transform: undefined }];
 
-  for (const placement of placements) {
-    const queueResponsePromise = waitForBuildQueueResponse(match.host);
-    match.host.emit('build:queue', {
-      templateId: blockTemplate.id,
-      x: placement.x,
-      y: placement.y,
-      delayTicks: 12,
-    });
-
-    const response = await queueResponsePromise;
-    if ('error' in response) {
-      continue;
-    }
-
-    const outcome = await waitForBuildOutcome(
-      match.host,
-      response.queued.eventId,
+  for (const attempt of attempts) {
+    const placements = collectCandidatePlacements(
+      match.hostTeam,
+      blockTemplate,
+      match.hostJoined.state.width,
+      match.hostJoined.state.height,
+      attempt.transform,
     );
-    return {
-      queued: response.queued,
-      outcome,
-    };
+
+    for (const placement of placements) {
+      const queueResponsePromise = waitForBuildQueueResponse(match.host);
+      match.host.emit('build:queue', {
+        templateId: blockTemplate.id,
+        x: placement.x,
+        y: placement.y,
+        transform: attempt.transform,
+        delayTicks: 12,
+      });
+
+      const response = await queueResponsePromise;
+      if ('error' in response) {
+        continue;
+      }
+
+      const outcome = await waitForBuildOutcome(
+        match.host,
+        response.queued.eventId,
+      );
+      return {
+        queued: response.queued,
+        outcome,
+      };
+    }
   }
 
   throw new Error('Unable to queue a valid build for QUAL-02 scenario');

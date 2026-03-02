@@ -620,6 +620,51 @@ describe('GameServer', () => {
     await server.stop();
   }, 20_000);
 
+  test('refreshes rejected queue preview with the same anchor and transform', async () => {
+    const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
+    const port = await server.start();
+
+    const setup = await setupActiveMatch(port);
+    const transformOperations = ['rotate', 'mirror-horizontal'] as const;
+
+    const refreshedPreviewPromise = waitForEvent(
+      setup.host,
+      'build:preview',
+      4_000,
+    ) as Promise<unknown>;
+
+    setup.host.emit('build:queue', {
+      templateId: 'block',
+      x: setup.guestTeam.baseTopLeft.x,
+      y: setup.guestTeam.baseTopLeft.y,
+      transform: {
+        operations: [...transformOperations],
+      },
+      delayTicks: 1,
+    });
+
+    const rejection = (await waitForEvent(
+      setup.host,
+      'room:error',
+    )) as RoomError;
+    expect(rejection.reason).toBe('outside-territory');
+
+    const refreshedPreview = (await refreshedPreviewPromise) as BuildPreview;
+
+    expect(refreshedPreview.templateId).toBe('block');
+    expect(refreshedPreview.x).toBe(setup.guestTeam.baseTopLeft.x);
+    expect(refreshedPreview.y).toBe(setup.guestTeam.baseTopLeft.y);
+    expect(refreshedPreview.transform.operations).toEqual(transformOperations);
+    expect(refreshedPreview.reason).toBe('outside-territory');
+    expect(refreshedPreview.bounds.x).toBe(setup.guestTeam.baseTopLeft.x);
+    expect(refreshedPreview.bounds.y).toBe(setup.guestTeam.baseTopLeft.y);
+    expect(refreshedPreview.illegalCells.length).toBeGreaterThan(0);
+
+    setup.host.close();
+    setup.guest.close();
+    await server.stop();
+  }, 20_000);
+
   test('returns affordability preview payloads for valid build placements', async () => {
     const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
     const port = await server.start();
@@ -660,6 +705,15 @@ describe('GameServer', () => {
     expect(preview.templateId).toBe(blockTemplate.id);
     expect(preview.x).toBe(previewTarget.x);
     expect(preview.y).toBe(previewTarget.y);
+    expect(preview.transform.operations).toEqual([]);
+    expect(preview.bounds).toEqual({
+      x: previewTarget.x,
+      y: previewTarget.y,
+      width: blockTemplate.width,
+      height: blockTemplate.height,
+    });
+    expect(preview.footprint.length).toBeGreaterThan(0);
+    expect(preview.illegalCells).toEqual([]);
     expect(Number.isInteger(preview.needed)).toBe(true);
     expect(Number.isInteger(preview.current)).toBe(true);
     expect(Number.isInteger(preview.deficit)).toBe(true);
