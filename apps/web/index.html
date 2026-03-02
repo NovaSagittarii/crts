@@ -206,7 +206,8 @@
         color: var(--muted);
       }
 
-      .control label {
+      .control label,
+      .tactical-rail label {
         display: block;
         margin-bottom: 8px;
         font-size: 13px;
@@ -215,7 +216,10 @@
 
       .control input,
       .control select,
-      .control button {
+      .control button,
+      .tactical-rail input,
+      .tactical-rail select,
+      .tactical-rail button {
         width: 100%;
         border-radius: 10px;
         border: 1px solid var(--panel-border);
@@ -225,16 +229,19 @@
         font: inherit;
       }
 
-      .control button {
+      .control button,
+      .tactical-rail button {
         margin-top: 6px;
         cursor: pointer;
       }
 
-      .control button:hover {
+      .control button:hover,
+      .tactical-rail button:hover {
         border-color: var(--accent);
       }
 
-      .control button:disabled {
+      .control button:disabled,
+      .tactical-rail button:disabled {
         opacity: 0.5;
         cursor: not-allowed;
       }
@@ -626,6 +633,239 @@
         box-shadow: 0 24px 60px rgba(10, 12, 20, 0.45);
       }
 
+      .ingame-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+        gap: 16px;
+        align-items: start;
+      }
+
+      .tactical-rail {
+        border: 1px solid var(--panel-border);
+        border-radius: 16px;
+        background: rgba(12, 18, 33, 0.9);
+        padding: 12px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .tactical-mobile-tabs {
+        display: none;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+      }
+
+      .tactical-mobile-tab {
+        border-radius: 10px;
+        border: 1px solid var(--panel-border);
+        background: #0d1321;
+        color: var(--muted);
+        font: inherit;
+        font-size: 12px;
+        padding: 7px 8px;
+        cursor: pointer;
+      }
+
+      .tactical-mobile-tab.is-active {
+        border-color: rgba(70, 213, 182, 0.7);
+        color: var(--text);
+        background: rgba(70, 213, 182, 0.14);
+      }
+
+      .structure-inspector {
+        border: 1px solid rgba(154, 167, 189, 0.32);
+        border-radius: 12px;
+        padding: 10px;
+        background: rgba(8, 13, 24, 0.75);
+        display: grid;
+        gap: 8px;
+      }
+
+      .structure-inspector h2 {
+        margin: 0;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+
+      .inspector-status {
+        margin: 0;
+        font-size: 13px;
+      }
+
+      .inspector-status--pinned {
+        color: var(--accent);
+      }
+
+      .inspector-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .inspector-metric {
+        border: 1px solid rgba(154, 167, 189, 0.25);
+        border-radius: 8px;
+        padding: 6px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .inspector-metric span {
+        display: block;
+        font-size: 10px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .inspector-metric strong {
+        display: block;
+        margin-top: 4px;
+        font-size: 12px;
+      }
+
+      .inspector-action-hint {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .inspector-action-hint--pending {
+        color: var(--warn);
+      }
+
+      .tactical-section {
+        border: 1px solid rgba(154, 167, 189, 0.32);
+        border-radius: 12px;
+        background: rgba(7, 11, 21, 0.75);
+      }
+
+      .tactical-section summary {
+        list-style: none;
+        cursor: pointer;
+        padding: 9px 10px;
+      }
+
+      .tactical-section summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .tactical-section-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .tactical-section-title {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+
+      .tactical-pending-badge {
+        border-radius: 999px;
+        border: 1px solid rgba(248, 192, 108, 0.55);
+        background: rgba(248, 192, 108, 0.16);
+        color: var(--warn);
+        padding: 2px 8px;
+        font-size: 11px;
+        font-family: 'IBM Plex Mono', 'Courier New', monospace;
+      }
+
+      .tactical-pending-badge.is-hidden {
+        display: none;
+      }
+
+      .tactical-section__body {
+        border-top: 1px solid rgba(154, 167, 189, 0.2);
+        padding: 10px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .tactical-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .tactical-summary-item {
+        border: 1px solid rgba(154, 167, 189, 0.24);
+        border-radius: 9px;
+        padding: 7px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .tactical-summary-item span {
+        display: block;
+        color: var(--muted);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .tactical-summary-item strong {
+        display: block;
+        margin-top: 4px;
+        font-size: 13px;
+        font-family: 'IBM Plex Mono', 'Courier New', monospace;
+      }
+
+      .tactical-summary-item--highlight {
+        border-color: rgba(70, 213, 182, 0.66);
+        box-shadow: 0 0 0 1px rgba(70, 213, 182, 0.28) inset;
+      }
+
+      .tactical-detail-list {
+        display: grid;
+        gap: 6px;
+      }
+
+      .tactical-detail-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        font-size: 12px;
+      }
+
+      .tactical-detail-row span {
+        color: var(--muted);
+      }
+
+      .tactical-detail-row strong {
+        text-align: right;
+        font-family: 'IBM Plex Mono', 'Courier New', monospace;
+        font-size: 12px;
+      }
+
+      .tactical-sync-hint {
+        margin: 0;
+        border-radius: 10px;
+        border: 1px solid rgba(94, 201, 255, 0.5);
+        background: rgba(94, 201, 255, 0.14);
+        color: #9fe2ff;
+        padding: 7px 9px;
+        font-size: 12px;
+      }
+
+      .tactical-sync-hint.is-hidden {
+        display: none;
+      }
+
+      .section-feedback {
+        margin: 0;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .section-feedback--pending {
+        color: var(--warn);
+      }
+
       .camera-shell {
         display: grid;
         gap: 10px;
@@ -931,6 +1171,10 @@
           grid-template-columns: 1fr;
         }
 
+        .ingame-layout {
+          grid-template-columns: 1fr;
+        }
+
         .chat-shell {
           position: static;
         }
@@ -974,8 +1218,32 @@
           grid-template-columns: 1fr;
         }
 
+        .inspector-grid,
+        .tactical-summary-grid {
+          grid-template-columns: 1fr;
+        }
+
         .transform-controls__row {
           grid-template-columns: 1fr;
+        }
+
+        .tactical-mobile-tabs {
+          display: grid;
+        }
+
+        .tactical-rail[data-mobile-tab='economy'] .tactical-section,
+        .tactical-rail[data-mobile-tab='build'] .tactical-section,
+        .tactical-rail[data-mobile-tab='team'] .tactical-section {
+          display: none;
+        }
+
+        .tactical-rail[data-mobile-tab='economy']
+          .tactical-section[data-overlay-section='economy'],
+        .tactical-rail[data-mobile-tab='build']
+          .tactical-section[data-overlay-section='build'],
+        .tactical-rail[data-mobile-tab='team']
+          .tactical-section[data-overlay-section='team'] {
+          display: block;
         }
 
         .toast-stack {
@@ -1159,166 +1427,334 @@
             </section>
 
             <section id="ingame-screen" class="match-screen" aria-hidden="true">
-              <div class="controls controls--ingame">
-                <div class="control">
-                  <h2>Build</h2>
-                  <label>
-                    Mode
-                    <select id="build-mode">
-                      <option value="paint">Paint Cells</option>
-                      <option value="template">Template Queue</option>
-                    </select>
-                  </label>
-                  <label>
-                    Template
-                    <select id="template-select"></select>
-                  </label>
-                  <label>
-                    Delay (ticks)
-                    <input
-                      id="build-delay"
-                      type="number"
-                      min="1"
-                      max="20"
-                      value="2"
-                    />
-                  </label>
+              <div class="ingame-layout">
+                <div class="board">
+                  <div class="camera-shell">
+                    <div class="camera-strip">
+                      <span id="camera-zoom" class="camera-pill"
+                        >Zoom: <strong>100%</strong></span
+                      >
+                      <span id="camera-status" class="camera-pill"
+                        >Camera: ready</span
+                      >
+                    </div>
+                    <p class="camera-hint">
+                      Camera controls: right-drag pan, wheel/pinch zoom, arrows
+                      or WASD pan, <strong>+</strong>/<strong>-</strong> zoom,
+                      <strong>F</strong> reset to base.
+                    </p>
+                    <div
+                      id="grid-viewport"
+                      class="grid-viewport"
+                      role="region"
+                      aria-label="In-match grid viewport"
+                    >
+                      <canvas id="grid"></canvas>
+                    </div>
+                  </div>
+                </div>
 
-                  <div class="economy-hud">
-                    <div class="economy-hud__row">
-                      <div class="economy-hud__metric">
-                        <span>Resources</span>
-                        <strong id="hud-resources" class="economy-value"
-                          >-</strong
+                <aside
+                  id="tactical-rail"
+                  class="tactical-rail"
+                  data-mobile-tab="economy"
+                >
+                  <section id="structure-inspector" class="structure-inspector">
+                    <h2>Structure Inspector</h2>
+                    <p id="structure-inspector-status" class="inspector-status">
+                      Hover a structure to inspect details. Click or tap to pin
+                      and unlock actions.
+                    </p>
+                    <div class="inspector-grid">
+                      <div class="inspector-metric">
+                        <span>Template</span>
+                        <strong id="structure-inspector-template">-</strong>
+                      </div>
+                      <div class="inspector-metric">
+                        <span>Owner</span>
+                        <strong id="structure-inspector-owner">-</strong>
+                      </div>
+                      <div class="inspector-metric">
+                        <span>Integrity</span>
+                        <strong id="structure-inspector-health">-</strong>
+                      </div>
+                      <div class="inspector-metric">
+                        <span>State</span>
+                        <strong id="structure-inspector-state">-</strong>
+                      </div>
+                    </div>
+                    <p
+                      id="structure-inspector-action-hint"
+                      class="inspector-action-hint"
+                    >
+                      Pin an owned structure to queue destroy actions.
+                    </p>
+                    <p id="destroy-selection" class="queue-placement">
+                      Select a structure on the board to enable destroy actions.
+                    </p>
+                    <button id="destroy-queue" type="button" disabled>
+                      Destroy Selected Structure
+                    </button>
+                    <div
+                      id="destroy-confirm-panel"
+                      class="destroy-confirm-panel"
+                      hidden
+                    >
+                      <p class="queue-feedback queue-feedback--error">
+                        Core destroy requires confirmation before queue
+                        submission.
+                      </p>
+                      <div class="button-row">
+                        <button id="destroy-confirm" type="button">
+                          Arm Confirm Destroy
+                        </button>
+                        <button id="destroy-cancel" type="button" disabled>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                    <p id="destroy-feedback" class="queue-feedback">
+                      Destroy action is disabled until an owned structure is
+                      selected.
+                    </p>
+                  </section>
+
+                  <div
+                    class="tactical-mobile-tabs"
+                    role="tablist"
+                    aria-label="Tactical overlay sections"
+                  >
+                    <button
+                      id="overlay-tab-economy"
+                      class="tactical-mobile-tab is-active"
+                      type="button"
+                      data-overlay-tab="economy"
+                      role="tab"
+                      aria-selected="true"
+                    >
+                      Economy
+                    </button>
+                    <button
+                      id="overlay-tab-build"
+                      class="tactical-mobile-tab"
+                      type="button"
+                      data-overlay-tab="build"
+                      role="tab"
+                      aria-selected="false"
+                    >
+                      Build
+                    </button>
+                    <button
+                      id="overlay-tab-team"
+                      class="tactical-mobile-tab"
+                      type="button"
+                      data-overlay-tab="team"
+                      role="tab"
+                      aria-selected="false"
+                    >
+                      Team
+                    </button>
+                  </div>
+
+                  <details
+                    class="tactical-section"
+                    data-overlay-section="economy"
+                    open
+                  >
+                    <summary>
+                      <div class="tactical-section-head">
+                        <span class="tactical-section-title">Economy</span>
+                        <span
+                          id="overlay-pending-economy"
+                          class="tactical-pending-badge is-hidden"
+                          >Pending</span
                         >
                       </div>
-                      <div class="economy-hud__metric">
-                        <span>Net Income</span>
-                        <strong id="hud-income" class="economy-value">-</strong>
+                    </summary>
+                    <div class="tactical-section__body">
+                      <div
+                        id="overlay-summary-economy"
+                        class="tactical-summary-grid"
+                      ></div>
+                      <div
+                        id="overlay-details-economy"
+                        class="tactical-detail-list"
+                      ></div>
+
+                      <div class="economy-hud">
+                        <div class="economy-hud__row">
+                          <div class="economy-hud__metric">
+                            <span>Resources</span>
+                            <strong id="hud-resources" class="economy-value"
+                              >-</strong
+                            >
+                          </div>
+                          <div class="economy-hud__metric">
+                            <span>Net Income</span>
+                            <strong id="hud-income" class="economy-value"
+                              >-</strong
+                            >
+                          </div>
+                        </div>
+                        <p
+                          id="hud-delta-chip"
+                          class="economy-delta-chip is-hidden"
+                        ></p>
+                        <details id="income-breakdown" class="income-breakdown">
+                          <summary>Income Breakdown</summary>
+                          <div class="income-breakdown__grid">
+                            <div class="income-breakdown__row">
+                              <span>Base</span>
+                              <strong id="income-breakdown-base">-</strong>
+                            </div>
+                            <div class="income-breakdown__row">
+                              <span>Structures</span>
+                              <strong id="income-breakdown-structures"
+                                >-</strong
+                              >
+                            </div>
+                            <div class="income-breakdown__row">
+                              <span>Active Structures</span>
+                              <strong id="income-breakdown-active">-</strong>
+                            </div>
+                          </div>
+                        </details>
                       </div>
                     </div>
-                    <p
-                      id="hud-delta-chip"
-                      class="economy-delta-chip is-hidden"
-                    ></p>
-                    <details id="income-breakdown" class="income-breakdown">
-                      <summary>Income Breakdown</summary>
-                      <div class="income-breakdown__grid">
-                        <div class="income-breakdown__row">
-                          <span>Base</span>
-                          <strong id="income-breakdown-base">-</strong>
-                        </div>
-                        <div class="income-breakdown__row">
-                          <span>Structures</span>
-                          <strong id="income-breakdown-structures">-</strong>
-                        </div>
-                        <div class="income-breakdown__row">
-                          <span>Active Structures</span>
-                          <strong id="income-breakdown-active">-</strong>
-                        </div>
+                  </details>
+
+                  <details
+                    class="tactical-section"
+                    data-overlay-section="build"
+                    open
+                  >
+                    <summary>
+                      <div class="tactical-section-head">
+                        <span class="tactical-section-title">Build</span>
+                        <span
+                          id="overlay-pending-build"
+                          class="tactical-pending-badge is-hidden"
+                          >Pending</span
+                        >
                       </div>
-                    </details>
-                  </div>
+                    </summary>
+                    <div class="tactical-section__body">
+                      <div
+                        id="overlay-summary-build"
+                        class="tactical-summary-grid"
+                      ></div>
+                      <div
+                        id="overlay-details-build"
+                        class="tactical-detail-list"
+                      ></div>
 
-                  <h3>Template Queue Action</h3>
-                  <div class="transform-controls">
-                    <div class="transform-controls__row">
-                      <button id="transform-rotate" type="button">
-                        Rotate 90deg
+                      <label>
+                        Mode
+                        <select id="build-mode">
+                          <option value="paint">Paint Cells</option>
+                          <option value="template">Template Queue</option>
+                        </select>
+                      </label>
+                      <label>
+                        Template
+                        <select id="template-select"></select>
+                      </label>
+                      <label>
+                        Delay (ticks)
+                        <input
+                          id="build-delay"
+                          type="number"
+                          min="1"
+                          max="20"
+                          value="2"
+                        />
+                      </label>
+
+                      <div class="transform-controls">
+                        <div class="transform-controls__row">
+                          <button id="transform-rotate" type="button">
+                            Rotate 90deg
+                          </button>
+                          <button
+                            id="transform-mirror-horizontal"
+                            type="button"
+                          >
+                            Mirror Horizontal
+                          </button>
+                        </div>
+                        <div class="transform-controls__row">
+                          <button id="transform-mirror-vertical" type="button">
+                            Mirror Vertical
+                          </button>
+                          <button id="cancel-build-mode" type="button">
+                            Cancel Build Mode
+                          </button>
+                        </div>
+                        <p
+                          id="transform-indicator"
+                          class="queue-feedback transform-indicator"
+                        >
+                          Transform: default orientation.
+                        </p>
+                      </div>
+
+                      <p id="queue-placement" class="queue-placement">
+                        Select a board placement while in Template Queue mode.
+                      </p>
+                      <p id="preview-reason" class="queue-feedback">
+                        Preview reason: --
+                      </p>
+                      <p id="queue-cost" class="queue-cost">Cost: --</p>
+                      <button id="queue-build" type="button" disabled>
+                        Queue Selected Placement
                       </button>
-                      <button id="transform-mirror-horizontal" type="button">
-                        Mirror Horizontal
-                      </button>
+                      <p id="queue-feedback" class="queue-feedback">
+                        Queue action is disabled until placement preview
+                        returns.
+                      </p>
+                      <p id="overlay-feedback-build" class="section-feedback">
+                        No recent build action.
+                      </p>
                     </div>
-                    <div class="transform-controls__row">
-                      <button id="transform-mirror-vertical" type="button">
-                        Mirror Vertical
-                      </button>
-                      <button id="cancel-build-mode" type="button">
-                        Cancel Build Mode
-                      </button>
-                    </div>
-                    <p
-                      id="transform-indicator"
-                      class="queue-feedback transform-indicator"
-                    >
-                      Transform: default orientation.
-                    </p>
-                  </div>
+                  </details>
 
-                  <p id="queue-placement" class="queue-placement">
-                    Select a board placement while in Template Queue mode.
-                  </p>
-                  <p id="preview-reason" class="queue-feedback">
-                    Preview reason: --
-                  </p>
-                  <p id="queue-cost" class="queue-cost">Cost: --</p>
-                  <button id="queue-build" type="button" disabled>
-                    Queue Selected Placement
-                  </button>
-                  <p id="queue-feedback" class="queue-feedback">
-                    Queue action is disabled until placement preview returns.
-                  </p>
-
-                  <h3>Destroy Action</h3>
-                  <p id="destroy-selection" class="queue-placement">
-                    Select a structure on the board to enable destroy actions.
-                  </p>
-                  <button id="destroy-queue" type="button" disabled>
-                    Destroy Selected Structure
-                  </button>
-                  <div
-                    id="destroy-confirm-panel"
-                    class="destroy-confirm-panel"
-                    hidden
+                  <details
+                    class="tactical-section"
+                    data-overlay-section="team"
+                    open
                   >
-                    <p class="queue-feedback queue-feedback--error">
-                      Core destroy requires confirmation before queue
-                      submission.
-                    </p>
-                    <div class="button-row">
-                      <button id="destroy-confirm" type="button">
-                        Arm Confirm Destroy
-                      </button>
-                      <button id="destroy-cancel" type="button" disabled>
-                        Cancel
-                      </button>
+                    <summary>
+                      <div class="tactical-section-head">
+                        <span class="tactical-section-title">Team</span>
+                        <span
+                          id="overlay-pending-team"
+                          class="tactical-pending-badge is-hidden"
+                          >Pending</span
+                        >
+                      </div>
+                    </summary>
+                    <div class="tactical-section__body">
+                      <div
+                        id="overlay-summary-team"
+                        class="tactical-summary-grid"
+                      ></div>
+                      <div
+                        id="overlay-details-team"
+                        class="tactical-detail-list"
+                      ></div>
+                      <p id="overlay-feedback-team" class="section-feedback">
+                        No recent team action.
+                      </p>
+                      <p class="tactical-section-title">Pending Timeline</p>
+                      <div id="pending-timeline" class="pending-timeline"></div>
                     </div>
-                  </div>
-                  <p id="destroy-feedback" class="queue-feedback">
-                    Destroy action is disabled until an owned structure is
-                    selected.
-                  </p>
+                  </details>
 
-                  <h3>Pending Timeline</h3>
-                  <div id="pending-timeline" class="pending-timeline"></div>
-                </div>
-              </div>
-
-              <div class="board">
-                <div class="camera-shell">
-                  <div class="camera-strip">
-                    <span id="camera-zoom" class="camera-pill"
-                      >Zoom: <strong>100%</strong></span
-                    >
-                    <span id="camera-status" class="camera-pill"
-                      >Camera: ready</span
-                    >
-                  </div>
-                  <p class="camera-hint">
-                    Camera controls: right-drag pan, wheel/pinch zoom, arrows or
-                    WASD pan, <strong>+</strong>/<strong>-</strong> zoom,
-                    <strong>F</strong> reset to base.
-                  </p>
-                  <div
-                    id="grid-viewport"
-                    class="grid-viewport"
-                    role="region"
-                    aria-label="In-match grid viewport"
-                  >
-                    <canvas id="grid"></canvas>
-                  </div>
-                </div>
+                  <p
+                    id="tactical-sync-hint"
+                    class="tactical-sync-hint is-hidden"
+                  ></p>
+                </aside>
               </div>
             </section>
           </div>
