@@ -75,7 +75,13 @@ Plans:
 3. Preview legality for transformed and non-transformed placements matches queue acceptance or rejection.
 4. Accepted transformed placements resolve in simulation using the same footprint and orientation the player previewed.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+
+- [ ] 08-01-PLAN.md — Build canonical transform-aware engine placement pipeline with matrix composition, wrapped-footprint legality, and persisted transform metadata.
+- [ ] 08-02-PLAN.md — Extend server preview/queue runtime to transform-aware payloads and lock authoritative parity with integration coverage.
+- [ ] 08-03-PLAN.md — Implement web rotate/mirror/cancel placement controls with transformed preview rendering and queue feedback parity.
 
 ### Phase 9: Destroy Flow and Determinism Gates
 
@@ -138,7 +144,7 @@ Plans:
 | ----------------------------------------- | -------------- | ----------- | ---------- |
 | 6. Base Geometry and Integrity Core       | 2/2            | Complete    | 2026-03-02 |
 | 7. Authoritative Union Build Zones        | 1/1            | Complete    | 2026-03-02 |
-| 8. Transform Placement Consistency        | 0/TBD          | Not started | -          |
+| 8. Transform Placement Consistency        | 0/3            | Not started | -          |
 | 9. Destroy Flow and Determinism Gates     | 0/TBD          | Not started | -          |
 | 10. Match Screen Transition Split         | 0/TBD          | Not started | -          |
 | 11. Camera and Build-Zone Visualization   | 0/TBD          | Not started | -          |
