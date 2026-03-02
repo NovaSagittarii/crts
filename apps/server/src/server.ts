@@ -25,14 +25,18 @@ import {
   type BuildPreviewPayload,
   type BuildPreviewRequestPayload,
   type BuildQueuePayload,
+  type DestroyQueuePayload,
   type CellUpdatePayload as SocketCellUpdatePayload,
   type ChatSendPayload,
   type ClientToServerEvents,
+  type DestroyOutcomePayload,
+  type DestroyQueuedPayload,
   type LifecyclePreconditions,
   type MatchFinishedPayload,
   type PlacementTransformInput,
   type PlacementTransformOperation,
   type QueueBuildResult,
+  type QueueDestroyResult,
   createDefaultTemplates,
   createRoomState,
   createRoomStatePayload,
@@ -41,6 +45,7 @@ import {
   transitionMatchLifecycle,
   type PlayerProfilePayload,
   queueBuildEvent,
+  queueDestroyEvent,
   removePlayerFromRoom,
   renamePlayerInRoom,
   type RoomClaimSlotPayload,
@@ -219,6 +224,31 @@ function parseBuildPayload(payload: unknown): BuildQueuePayload | null {
         ? undefined
         : Number((payload as { delayTicks?: unknown }).delayTicks),
     transform,
+  };
+}
+
+function parseDestroyPayload(payload: unknown): DestroyQueuePayload | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const structureKeyValue = (payload as { structureKey?: unknown })
+    .structureKey;
+  if (typeof structureKeyValue !== 'string') {
+    return null;
+  }
+
+  const structureKey = structureKeyValue.trim();
+  if (!structureKey) {
+    return null;
+  }
+
+  return {
+    structureKey,
+    delayTicks:
+      (payload as { delayTicks?: unknown }).delayTicks === undefined
+        ? undefined
+        : Number((payload as { delayTicks?: unknown }).delayTicks),
   };
 }
 
@@ -461,6 +491,15 @@ export function createServer(options: ServerOptions = {}): GameServer {
   ): void {
     for (const outcome of outcomes) {
       io.to(roomChannel(room.state.id)).emit('build:outcome', outcome);
+    }
+  }
+
+  function emitDestroyOutcomes(
+    room: RuntimeRoom,
+    outcomes: DestroyOutcomePayload[],
+  ): void {
+    for (const outcome of outcomes) {
+      io.to(roomChannel(room.state.id)).emit('destroy:outcome', outcome);
     }
   }
 
@@ -1076,6 +1115,16 @@ export function createServer(options: ServerOptions = {}): GameServer {
     return mapQueueBuildErrorReason(result.error);
   }
 
+  function resolveQueueDestroyRejectionReason(
+    result: QueueDestroyResult,
+  ): string {
+    if (result.reason) {
+      return result.reason;
+    }
+
+    return 'destroy-rejected';
+  }
+
   function runQueueBuildProbe(
     roomState: RoomState,
     playerId: string,
@@ -1630,6 +1679,49 @@ export function createServer(options: ServerOptions = {}): GameServer {
       socket.emit('build:queued', queued);
     });
 
+    socket.on('destroy:queue', (payload: unknown) => {
+      if (!ensureCurrentSocket(socket, session)) {
+        return;
+      }
+
+      const room = getRoomOrNull(session.roomId);
+      if (!room) {
+        roomError(socket, 'Join a room first', 'not-in-room');
+        return;
+      }
+
+      const gate = assertGameplayMutationAllowed(room, session.id);
+      if (!gate.allowed) {
+        roomError(
+          socket,
+          gate.message ?? 'Gameplay mutation rejected',
+          gate.reason,
+        );
+        return;
+      }
+
+      const parsedPayload = parseDestroyPayload(payload);
+      if (!parsedPayload) {
+        roomError(socket, 'Invalid destroy payload', 'invalid-build');
+        return;
+      }
+
+      const result = queueDestroyEvent(room.state, session.id, parsedPayload);
+      if (!result.accepted) {
+        const reason = resolveQueueDestroyRejectionReason(result);
+        roomError(socket, result.error ?? 'Destroy rejected', reason);
+        return;
+      }
+
+      const queued: DestroyQueuedPayload = {
+        eventId: result.eventId ?? -1,
+        executeTick: result.executeTick ?? room.state.tick,
+        structureKey: result.structureKey ?? parsedPayload.structureKey,
+        idempotent: Boolean(result.idempotent),
+      };
+      socket.emit('destroy:queued', queued);
+    });
+
     socket.on('cell:update', (payload: unknown) => {
       if (!ensureCurrentSocket(socket, session)) {
         return;
@@ -1679,7 +1771,13 @@ export function createServer(options: ServerOptions = {}): GameServer {
             ...outcome,
             roomId: room.state.id,
           }));
+        const destroyOutcomes: DestroyOutcomePayload[] =
+          tickResult.destroyOutcomes.map((outcome) => ({
+            ...outcome,
+            roomId: room.state.id,
+          }));
         emitBuildOutcomes(room, buildOutcomes);
+        emitDestroyOutcomes(room, destroyOutcomes);
 
         if (tickResult.outcome) {
           const transition = transitionMatchLifecycle(room.status, 'finish');
