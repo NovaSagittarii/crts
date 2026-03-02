@@ -53,6 +53,7 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 - v0.0.2 Phase 9 Plan 01 shipped deterministic destroy queue primitives with passing unit quality gates.
 - v0.0.2 Phase 9 Plan 02 shipped server destroy runtime and reconnect determinism gates with passing integration quality gates.
 - v0.0.2 Phase 9 Plan 03 shipped web destroy controls and reconnect sync UX with passing web and build quality gates.
+| Phase 10 P01 | 13m 22s | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,9 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 - [Phase 09]: Drive destroy ownership/confirmation/pending UI projection from authoritative structures and pendingDestroys state payloads.
 - [Phase 09]: Gate explicit destroy queued/outcome feedback to the acting team so opponents rely on authoritative board updates.
 - [Phase 09]: Show a one-shot reconnect synced toast after the first post-reconnect authoritative state payload.
+- [Phase 10]: Use a dedicated match-screen view-model pathway to dedupe lifecycle transition banners across membership and lifecycle events.
+- [Phase 10]: Keep one shared chat surface outside lobby and in-game screen containers so unsent drafts persist across authoritative transitions.
+- [Phase 10]: Remove finished-state local lobby override controls so finished status stays mapped to in-game results until host restart.
 
 ### Pending Todos
 
@@ -92,6 +96,6 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 
 ## Session Continuity
 
-**Last session:** 2026-03-02T06:55:42.139Z
-**Stopped At:** Completed 09-03-PLAN.md
+**Last session:** 2026-03-02T07:41:20.364Z
+**Stopped At:** Completed 10-01-PLAN.md
 **Resume File:** None

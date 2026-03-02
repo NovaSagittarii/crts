@@ -23,7 +23,7 @@ Requirements for milestone `v0.0.2 Gameplay Expansion`.
 
 ### Match UI and Navigation
 
-- [ ] **UI-01**: Player transitions between lobby and in-game screens through explicit match-state transitions (no combined dual-purpose screen).
+- [x] **UI-01**: Player transitions between lobby and in-game screens through explicit match-state transitions (no combined dual-purpose screen).
 - [ ] **UI-02**: Player can pan and zoom the map during a match without losing placement/control accuracy.
 - [ ] **UI-03**: Player can hover a structure to view details and available actions.
 - [ ] **UI-04**: Player can access economy, build options, and team information in grid-adjacent overlays while playing.
@@ -69,7 +69,7 @@ Mapped during roadmap creation.
 | QUAL-03     | Phase 8  | Complete |
 | STRUCT-02   | Phase 9  | Complete |
 | QUAL-04     | Phase 9  | Complete |
-| UI-01       | Phase 10 | Pending  |
+| UI-01       | Phase 10 | Complete |
 | UI-02       | Phase 11 | Pending  |
 | UI-05       | Phase 11 | Pending  |
 | UI-03       | Phase 12 | Pending  |
