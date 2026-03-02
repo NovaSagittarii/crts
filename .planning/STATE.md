@@ -11,10 +11,12 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 
 **Current Milestone:** v0.0.2 Gameplay Expansion
 **Phase:** 9 of 12 (Destroy Flow and Determinism Gates)
-**Plan:** 1 of 3
-**Status:** In progress
-**Last Activity:** 2026-03-02 - Completed Phase 9 Plan 01 execution (destroy queue engine primitives, deterministic unit coverage, and requirements closure for STRUCT-02/QUAL-04).
-**Progress:** [█████████░] 92%
+**Plan:** 3 of 3
+**Current Plan:** 3
+**Total Plans in Phase:** 3
+**Status:** Ready to execute
+**Last Activity:** 2026-03-02
+**Progress:** [██████████] 96%
 
 ## Performance Metrics
 
@@ -49,6 +51,7 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 - v0.0.2 Phase 7 shipped authoritative union build-zone legality with passing quality gates.
 - v0.0.2 Phase 8 shipped transform-aware preview/queue/apply parity across engine, server, and web with passing quality gates.
 - v0.0.2 Phase 9 Plan 01 shipped deterministic destroy queue primitives with passing unit quality gates.
+  | Phase 09 P02 | 14m 1s | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -70,6 +73,8 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 - [Phase 08]: Web build panel keeps persistent transform history with explicit non-color legality labels.
 - [Phase 09]: Keep destroy reason taxonomy in #rts-engine and forward it through socket contracts without runtime remapping.
 - [Phase 09]: Treat same-team same-target pending destroy requests as idempotent while allowing different-target retargets during pending state.
+- [Phase 09]: Keep destroy queue payload parsing/runtime gating in apps/server while preserving engine authority for reject reasons to avoid taxonomy drift.
+- [Phase 09]: Assert reconnect determinism via authoritative state parity (pendingDestroys and structures) in addition to destroy outcome event equality.
 
 ### Pending Todos
 
@@ -83,6 +88,6 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 
 ## Session Continuity
 
-**Last session:** 2026-03-02T06:23:45.125Z
-**Stopped At:** Completed 09-01-PLAN.md
+**Last session:** 2026-03-02T06:43:06.105Z
+**Stopped At:** Completed 09-02-PLAN.md
 **Resume File:** None
