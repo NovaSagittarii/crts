@@ -13,9 +13,9 @@ describe('spawn', () => {
       height: 80,
       teamCount: 4,
       orientationSeed: 1337,
-      baseWidth: 2,
-      baseHeight: 2,
-      minWrappedDistance: 8,
+      baseWidth: 5,
+      baseHeight: 5,
+      minWrappedDistance: 15,
     };
 
     const first = createTorusSpawnLayout(options);
@@ -39,13 +39,13 @@ describe('spawn', () => {
 
   test('keeps team bases separated using wrapped torus distance checks', () => {
     const spawns = createTorusSpawnLayout({
-      width: 48,
-      height: 48,
+      width: 60,
+      height: 60,
       teamCount: 4,
       orientationSeed: 2026,
-      baseWidth: 2,
-      baseHeight: 2,
-      minWrappedDistance: 7,
+      baseWidth: 5,
+      baseHeight: 5,
+      minWrappedDistance: 15,
     });
 
     for (let index = 0; index < spawns.length; index += 1) {
@@ -53,17 +53,17 @@ describe('spawn', () => {
         const current = spawns[index];
         const candidate = spawns[other];
         const dx = wrappedDelta(
-          current.topLeft.x + 1,
-          candidate.topLeft.x + 1,
-          48,
+          current.topLeft.x + 2.5,
+          candidate.topLeft.x + 2.5,
+          60,
         );
         const dy = wrappedDelta(
-          current.topLeft.y + 1,
-          candidate.topLeft.y + 1,
-          48,
+          current.topLeft.y + 2.5,
+          candidate.topLeft.y + 2.5,
+          60,
         );
         const distance = Math.sqrt(dx * dx + dy * dy);
-        expect(distance).toBeGreaterThanOrEqual(7);
+        expect(distance).toBeGreaterThanOrEqual(15);
       }
     }
   });
@@ -79,9 +79,9 @@ describe('spawn', () => {
       height: 64,
       teamCount: 4,
       orientationSeed: initialSeed,
-      baseWidth: 2,
-      baseHeight: 2,
-      minWrappedDistance: 8,
+      baseWidth: 5,
+      baseHeight: 5,
+      minWrappedDistance: 15,
     }).map(({ topLeft }) => `${topLeft.x},${topLeft.y}`);
 
     const rematchLayout = createTorusSpawnLayout({
@@ -89,9 +89,9 @@ describe('spawn', () => {
       height: 64,
       teamCount: 4,
       orientationSeed: rematchSeed,
-      baseWidth: 2,
-      baseHeight: 2,
-      minWrappedDistance: 8,
+      baseWidth: 5,
+      baseHeight: 5,
+      minWrappedDistance: 15,
     }).map(({ topLeft }) => `${topLeft.x},${topLeft.y}`);
 
     expect(rematchLayout).not.toEqual(firstLayout);

@@ -2,6 +2,13 @@ import { describe, expect, test } from 'vitest';
 
 import { decodeGridBase64 } from '#conway-core';
 import {
+  BASE_FOOTPRINT_HEIGHT,
+  BASE_FOOTPRINT_WIDTH,
+  getBaseCenter,
+  getCanonicalBaseCells,
+  isCanonicalBaseCell,
+} from './geometry.js';
+import {
   addPlayerToRoom,
   createCanonicalMatchOutcome,
   createDefaultTemplates,
@@ -15,6 +22,7 @@ import {
   removePlayerFromRoom,
   renamePlayerInRoom,
   tickRoom,
+  type StructureTemplate,
 } from './rts.js';
 
 interface Cell {
@@ -73,6 +81,30 @@ function getBuildOutcomes(
   );
 }
 
+function getStructureByTemplateId(
+  team: ReturnType<typeof addPlayerToRoom>,
+  templateId: string,
+): {
+  key: string;
+  hp: number;
+  active: boolean;
+  buildRadius: number;
+} | null {
+  const structure = [...team.structures.values()].find(
+    (candidate) => candidate.templateId === templateId,
+  );
+  if (!structure) {
+    return null;
+  }
+
+  return {
+    key: structure.key,
+    hp: structure.hp,
+    active: structure.active,
+    buildRadius: structure.buildRadius,
+  };
+}
+
 describe('rts', () => {
   test('provides default structure templates with expected metadata', () => {
     const templates = createDefaultTemplates();
@@ -128,27 +160,19 @@ describe('rts', () => {
 
     const payload = createRoomStatePayload(room);
     const base = team.baseTopLeft;
-    expect(getCellAlive(payload.grid, room.width, room.height, base)).toBe(
-      true,
-    );
-    expect(
-      getCellAlive(payload.grid, room.width, room.height, {
-        x: base.x + 1,
-        y: base.y,
-      }),
-    ).toBe(true);
-    expect(
-      getCellAlive(payload.grid, room.width, room.height, {
-        x: base.x,
-        y: base.y + 1,
-      }),
-    ).toBe(true);
-    expect(
-      getCellAlive(payload.grid, room.width, room.height, {
-        x: base.x + 1,
-        y: base.y + 1,
-      }),
-    ).toBe(true);
+    const baseCells = getCanonicalBaseCells(base);
+    expect(baseCells).toHaveLength(16);
+
+    for (let localY = 0; localY < BASE_FOOTPRINT_HEIGHT; localY += 1) {
+      for (let localX = 0; localX < BASE_FOOTPRINT_WIDTH; localX += 1) {
+        const expectedAlive = isCanonicalBaseCell(localX, localY);
+        const alive = getCellAlive(payload.grid, room.width, room.height, {
+          x: base.x + localX,
+          y: base.y + localY,
+        });
+        expect(alive).toBe(expectedAlive);
+      }
+    }
 
     const rooms = listRooms(new Map([[room.id, room]]));
     expect(rooms).toEqual([
@@ -225,16 +249,15 @@ describe('rts', () => {
     expect(blockTemplate).toBeDefined();
     const blockWidth = blockTemplate?.width ?? 0;
     const blockHeight = blockTemplate?.height ?? 0;
-    const baseCenterX = team.baseTopLeft.x + 1;
-    const baseCenterY = team.baseTopLeft.y + 1;
+    const baseCenter = getBaseCenter(team.baseTopLeft);
 
     for (let y = 0; y <= room.height - blockHeight; y += 1) {
       for (let x = 0; x <= room.width - blockWidth; x += 1) {
         const centerX = x + Math.floor(blockWidth / 2);
         const centerY = y + Math.floor(blockHeight / 2);
         if (
-          Math.abs(centerX - baseCenterX) > team.territoryRadius ||
-          Math.abs(centerY - baseCenterY) > team.territoryRadius
+          Math.abs(centerX - baseCenter.x) > team.territoryRadius ||
+          Math.abs(centerY - baseCenter.y) > team.territoryRadius
         ) {
           outsideTerritoryCoordinate = { x, y };
           break;
@@ -260,8 +283,8 @@ describe('rts', () => {
 
     const invalidDelay = queueBuildEvent(room, 'p1', {
       templateId: 'block',
-      x: team.baseTopLeft.x + 2,
-      y: team.baseTopLeft.y + 2,
+      x: team.baseTopLeft.x + 6,
+      y: team.baseTopLeft.y + 6,
       delayTicks: 1.5,
     });
     expect(invalidDelay.accepted).toBe(false);
@@ -272,8 +295,8 @@ describe('rts', () => {
 
     const delayLow = queueBuildEvent(room, 'p1', {
       templateId: 'block',
-      x: team.baseTopLeft.x + 2,
-      y: team.baseTopLeft.y + 2,
+      x: team.baseTopLeft.x + 6,
+      y: team.baseTopLeft.y + 6,
       delayTicks: 0,
     });
     expect(delayLow.accepted).toBe(true);
@@ -281,8 +304,8 @@ describe('rts', () => {
 
     const delayHigh = queueBuildEvent(room, 'p1', {
       templateId: 'block',
-      x: team.baseTopLeft.x + 4,
-      y: team.baseTopLeft.y + 4,
+      x: team.baseTopLeft.x + 8,
+      y: team.baseTopLeft.y + 8,
       delayTicks: 999,
     });
     expect(delayHigh.accepted).toBe(true);
@@ -589,29 +612,20 @@ describe('rts', () => {
     const teamOne = addPlayerToRoom(room, 'p1', 'Alice');
     const teamTwo = addPlayerToRoom(room, 'p2', 'Bob');
     const base = teamOne.baseTopLeft;
-
-    const baseCells = [
-      { x: base.x, y: base.y },
-      { x: base.x + 1, y: base.y },
-      { x: base.x, y: base.y + 1 },
-      { x: base.x + 1, y: base.y + 1 },
-    ];
-    const initialHp = getCoreStructure(teamOne).hp;
+    const baseCells = getCanonicalBaseCells(base);
 
     let result = tickRoom(room);
     expect(result.outcome).toBeNull();
 
-    for (let cycle = 0; cycle < initialHp; cycle += 1) {
-      for (const cell of baseCells) {
-        queueLegacyCellUpdate(room, {
-          x: cell.x,
-          y: cell.y,
-          alive: 0,
-        });
-      }
-
-      result = tickRoom(room);
+    for (const cell of baseCells) {
+      queueLegacyCellUpdate(room, {
+        x: cell.x,
+        y: cell.y,
+        alive: 0,
+      });
     }
+
+    result = tickRoom(room);
 
     expect(result.defeatedTeams).toEqual([teamOne.id]);
     expect(result.outcome).not.toBeNull();
@@ -792,7 +806,128 @@ describe('rts', () => {
     expect(generator?.buildRadius).toBe(0);
   });
 
-  test('consumes core hp on breach checks and defeats team when hp reaches zero', () => {
+  test('[STRUCT-01] tracks templates without checks using default integrity masks', () => {
+    const sentinelTemplate: StructureTemplate = {
+      id: 'sentinel',
+      name: 'Sentinel',
+      width: 1,
+      height: 1,
+      cells: new Uint8Array([1]),
+      activationCost: 0,
+      income: 0,
+      buildArea: 0,
+      checks: [],
+    };
+    const room = createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 40,
+      height: 40,
+      templates: [...createDefaultTemplates(), sentinelTemplate],
+    });
+    const team = addPlayerToRoom(room, 'p1', 'Alice');
+
+    const placement = {
+      x: team.baseTopLeft.x + 8,
+      y: team.baseTopLeft.y + 8,
+    };
+    const queued = queueBuildEvent(room, 'p1', {
+      templateId: 'sentinel',
+      x: placement.x,
+      y: placement.y,
+      delayTicks: 1,
+    });
+    expect(queued.accepted).toBe(true);
+
+    tickRoom(room);
+    tickRoom(room);
+
+    const repaired = getStructureByTemplateId(team, 'sentinel');
+    expect(repaired).not.toBeNull();
+    expect(repaired?.hp).toBe(1);
+    expect(repaired?.active).toBe(true);
+
+    const repairedPayload = createRoomStatePayload(room);
+    expect(
+      getCellAlive(repairedPayload.grid, room.width, room.height, placement),
+    ).toBe(true);
+
+    tickRoom(room);
+
+    const destroyed = getStructureByTemplateId(team, 'sentinel');
+    expect(destroyed).not.toBeNull();
+    expect(destroyed?.hp).toBe(0);
+    expect(destroyed?.active).toBe(false);
+    expect(destroyed?.buildRadius).toBe(0);
+
+    const outcomes = room.timelineEvents
+      .filter(
+        ({ type, metadata }) =>
+          type === 'integrity-resolved' &&
+          metadata?.structureKey === repaired?.key,
+      )
+      .map(({ metadata }) => metadata?.category);
+    expect(outcomes).toEqual(['repaired', 'destroyed-debris']);
+  });
+
+  test('[STRUCT-01] applies full restoration cost for destroyed non-core structures', () => {
+    const room = createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 40,
+      height: 40,
+    });
+    const team = addPlayerToRoom(room, 'p1', 'Alice');
+
+    const placement = {
+      x: team.baseTopLeft.x + 8,
+      y: team.baseTopLeft.y + 8,
+    };
+    const queued = queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x: placement.x,
+      y: placement.y,
+      delayTicks: 1,
+    });
+    expect(queued.accepted).toBe(true);
+
+    tickRoom(room);
+    tickRoom(room);
+
+    const placed = getStructureByTemplateId(team, 'block');
+    expect(placed).not.toBeNull();
+    expect(placed?.hp).toBe(2);
+
+    const blockCells = [
+      { x: placement.x, y: placement.y },
+      { x: placement.x + 1, y: placement.y },
+      { x: placement.x, y: placement.y + 1 },
+      { x: placement.x + 1, y: placement.y + 1 },
+    ];
+    for (const cell of blockCells) {
+      queueLegacyCellUpdate(room, {
+        x: cell.x,
+        y: cell.y,
+        alive: 0,
+      });
+    }
+
+    tickRoom(room);
+
+    const destroyed = getStructureByTemplateId(team, 'block');
+    expect(destroyed).not.toBeNull();
+    expect(destroyed?.hp).toBe(-2);
+    expect(destroyed?.active).toBe(false);
+
+    const payload = createRoomStatePayload(room);
+    for (const cell of blockCells) {
+      expect(getCellAlive(payload.grid, room.width, room.height, cell)).toBe(
+        false,
+      );
+    }
+  });
+
+  test('applies full base restoration cost to core hp and defeats on breach', () => {
     const room = createRoomState({
       id: '1',
       name: 'Alpha',
@@ -800,36 +935,8 @@ describe('rts', () => {
       height: 30,
     });
     const team = addPlayerToRoom(room, 'p1', 'Alice');
-    const core = getCoreStructure(team);
-    const base = team.baseTopLeft;
-
-    expect(core.hp).toBeGreaterThan(1);
-    const initialHp = core.hp;
-
-    const baseCells = [
-      { x: base.x, y: base.y },
-      { x: base.x + 1, y: base.y },
-      { x: base.x, y: base.y + 1 },
-      { x: base.x + 1, y: base.y + 1 },
-    ];
-
-    for (let cycle = 0; cycle < initialHp - 1; cycle += 1) {
-      for (const cell of baseCells) {
-        queueLegacyCellUpdate(room, {
-          x: cell.x,
-          y: cell.y,
-          alive: 0,
-        });
-      }
-
-      const tickResult = tickRoom(room);
-      const updatedCore = getCoreStructure(team);
-
-      expect(tickResult.defeatedTeams).toHaveLength(0);
-      expect(updatedCore.hp).toBe(initialHp - (cycle + 1));
-      expect(updatedCore.active).toBe(true);
-      expect(team.defeated).toBe(false);
-    }
+    const initialHp = getCoreStructure(team).hp;
+    const baseCells = getCanonicalBaseCells(team.baseTopLeft);
 
     for (const cell of baseCells) {
       queueLegacyCellUpdate(room, {
@@ -839,16 +946,20 @@ describe('rts', () => {
       });
     }
 
-    const finalTick = tickRoom(room);
-    const finalCore = getCoreStructure(team);
+    const result = tickRoom(room);
+    const core = getCoreStructure(team);
 
-    expect(finalTick.defeatedTeams).toEqual([team.id]);
-    expect(finalCore.hp).toBe(0);
-    expect(finalCore.active).toBe(false);
+    expect(result.defeatedTeams).toEqual([team.id]);
+    expect(core.hp).toBe(initialHp - baseCells.length);
+    expect(core.active).toBe(false);
     expect(team.defeated).toBe(true);
+
+    const payload = createRoomStatePayload(room);
+    const payloadTeam = payload.teams.find(({ id }) => id === team.id);
+    expect(payloadTeam?.baseIntact).toBe(false);
   });
 
-  test('marks team defeated when core hp is exhausted by repeated breaches', () => {
+  test('marks team defeated and drains pending queue when core is breached', () => {
     const room = createRoomState({
       id: '1',
       name: 'Alpha',
@@ -858,34 +969,44 @@ describe('rts', () => {
     const team = addPlayerToRoom(room, 'p1', 'Alice');
     const base = team.baseTopLeft;
 
-    const queued = queueBuildEvent(room, 'p1', {
-      templateId: 'block',
-      x: base.x + 2,
-      y: base.y + 2,
-      delayTicks: 20,
-    });
-    expect(queued.accepted).toBe(true);
+    const blockTemplate = room.templateMap.get('block');
+    expect(blockTemplate).toBeDefined();
 
-    const baseCells = [
-      { x: base.x, y: base.y },
-      { x: base.x + 1, y: base.y },
-      { x: base.x, y: base.y + 1 },
-      { x: base.x + 1, y: base.y + 1 },
-    ];
-    const initialHp = getCoreStructure(team).hp;
-    let result = tickRoom(room);
-
-    for (let cycle = 0; cycle < initialHp; cycle += 1) {
-      for (const cell of baseCells) {
-        queueLegacyCellUpdate(room, {
-          x: cell.x,
-          y: cell.y,
-          alive: 0,
+    let queued: ReturnType<typeof queueBuildEvent> | null = null;
+    for (
+      let y = 0;
+      y <= room.height - (blockTemplate?.height ?? 0) && !queued;
+      y += 1
+    ) {
+      for (let x = 0; x <= room.width - (blockTemplate?.width ?? 0); x += 1) {
+        const result = queueBuildEvent(room, 'p1', {
+          templateId: 'block',
+          x,
+          y,
+          delayTicks: 20,
         });
+        if (result.accepted) {
+          queued = result;
+          break;
+        }
       }
-
-      result = tickRoom(room);
     }
+
+    expect(queued?.accepted).toBe(true);
+    if (!queued) {
+      throw new Error('Expected at least one valid queued build before breach');
+    }
+
+    const baseCells = getCanonicalBaseCells(base);
+    for (const cell of baseCells) {
+      queueLegacyCellUpdate(room, {
+        x: cell.x,
+        y: cell.y,
+        alive: 0,
+      });
+    }
+
+    const result = tickRoom(room);
 
     const terminalOutcomes = getBuildOutcomes(result);
     const pendingOutcome = terminalOutcomes.find(
@@ -908,8 +1029,8 @@ describe('rts', () => {
 
     const afterDefeat = queueBuildEvent(room, 'p1', {
       templateId: 'block',
-      x: base.x + 4,
-      y: base.y + 4,
+      x: base.x + 10,
+      y: base.y + 10,
     });
     expect(afterDefeat.accepted).toBe(false);
     expect(afterDefeat.error).toMatch(/defeated/i);

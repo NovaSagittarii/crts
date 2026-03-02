@@ -5,6 +5,7 @@ import {
   createServer,
   type GameServer,
 } from '../../../apps/server/src/server.js';
+import { BASE_FOOTPRINT_HEIGHT, BASE_FOOTPRINT_WIDTH } from '#rts-engine';
 
 import type {
   BuildOutcomePayload,
@@ -154,6 +155,11 @@ function collectCandidatePlacements(
   roomHeight: number,
 ): Cell[] {
   const placements: Cell[] = [];
+  const baseLeft = team.baseTopLeft.x;
+  const baseTop = team.baseTopLeft.y;
+  const baseRight = baseLeft + BASE_FOOTPRINT_WIDTH;
+  const baseBottom = baseTop + BASE_FOOTPRINT_HEIGHT;
+
   for (let y = -10; y <= 10; y += 2) {
     for (let x = -10; x <= 10; x += 2) {
       const buildX = team.baseTopLeft.x + x;
@@ -167,7 +173,13 @@ function collectCandidatePlacements(
       ) {
         continue;
       }
-      if (buildX === team.baseTopLeft.x && buildY === team.baseTopLeft.y) {
+
+      const intersectsBase =
+        buildX < baseRight &&
+        buildX + template.width > baseLeft &&
+        buildY < baseBottom &&
+        buildY + template.height > baseTop;
+      if (intersectsBase) {
         continue;
       }
 

@@ -128,6 +128,37 @@ async function waitForState(
   throw new Error('State condition not met in allotted attempts');
 }
 
+function waitForBuildQueueResponse(
+  socket: Socket,
+  timeoutMs = 2500,
+): Promise<{ queued: BuildQueuedPayload } | { error: RoomErrorPayload }> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timed out waiting for build queue response'));
+    }, timeoutMs);
+
+    function cleanup(): void {
+      clearTimeout(timer);
+      socket.off('build:queued', onQueued);
+      socket.off('room:error', onError);
+    }
+
+    function onQueued(payload: BuildQueuedPayload): void {
+      cleanup();
+      resolve({ queued: payload });
+    }
+
+    function onError(payload: RoomErrorPayload): void {
+      cleanup();
+      resolve({ error: payload });
+    }
+
+    socket.once('build:queued', onQueued);
+    socket.once('room:error', onError);
+  });
+}
+
 async function setupConnectedPair(
   connect: () => Socket,
 ): Promise<ConnectedPair> {
@@ -230,20 +261,39 @@ async function moveToActive(pair: ConnectedPair): Promise<ActiveMatch> {
 async function breachGuestCore(
   match: ActiveMatch,
 ): Promise<MatchFinishedPayload> {
-  for (let delayTicks = 1; delayTicks <= 4; delayTicks += 1) {
+  const breachCandidates = [
+    { x: match.guestBaseTopLeft.x, y: match.guestBaseTopLeft.y },
+    { x: match.guestBaseTopLeft.x + 2, y: match.guestBaseTopLeft.y },
+    { x: match.guestBaseTopLeft.x, y: match.guestBaseTopLeft.y + 2 },
+    { x: match.guestBaseTopLeft.x + 2, y: match.guestBaseTopLeft.y + 2 },
+  ];
+
+  let accepted = 0;
+  for (const candidate of breachCandidates) {
     match.guest.emit('build:queue', {
       templateId: 'glider',
-      x: match.guestBaseTopLeft.x,
-      y: match.guestBaseTopLeft.y,
-      delayTicks,
+      x: candidate.x,
+      y: candidate.y,
+      delayTicks: accepted + 1,
     });
 
-    const queued = await waitForEvent<BuildQueuedPayload>(
-      match.guest,
-      'build:queued',
-    );
+    const response = await waitForBuildQueueResponse(match.guest);
+    if ('error' in response) {
+      continue;
+    }
+
+    const queued = response.queued;
     expect(queued.eventId).toBeGreaterThan(0);
     expect(queued.executeTick).toBeGreaterThan(0);
+    accepted += 1;
+
+    if (accepted >= 2) {
+      break;
+    }
+  }
+
+  if (accepted === 0) {
+    throw new Error('Expected at least one accepted breach queue event');
   }
 
   return waitForEvent<MatchFinishedPayload>(

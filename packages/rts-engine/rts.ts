@@ -10,8 +10,25 @@ import {
   type MatchOutcome,
   type TeamOutcomeSnapshot,
 } from './match-lifecycle.js';
-import type { Vector2 } from './geometry.js';
-import { createTorusSpawnLayout } from './spawn.js';
+import {
+  BASE_FOOTPRINT_HEIGHT,
+  BASE_FOOTPRINT_WIDTH,
+  getBaseCenter,
+  isCanonicalBaseCell,
+  type Vector2,
+} from './geometry.js';
+import {
+  CORE_STARTING_HP,
+  DEFAULT_SPAWN_CAPACITY,
+  DEFAULT_STARTING_RESOURCES,
+  DEFAULT_TEAM_TERRITORY_RADIUS,
+  INTEGRITY_CHECK_INTERVAL_TICKS,
+  INTEGRITY_HP_COST_PER_CELL,
+  MAX_DELAY_TICKS,
+  SPAWN_MIN_WRAPPED_DISTANCE,
+  STRUCTURE_STARTING_HP,
+} from './gameplay-rules.js';
+import { createTorusSpawnLayout, wrappedDelta } from './spawn.js';
 
 export interface StructureTemplate {
   id: string;
@@ -78,6 +95,7 @@ export interface TimelineEvent {
     | 'build-rejected'
     | 'core-damaged'
     | 'core-destroyed'
+    | 'integrity-resolved'
     | 'team-defeated';
   metadata?: Record<string, number | string | boolean>;
 }
@@ -242,15 +260,7 @@ interface StructureTemplateRowsOptions {
   checks?: Vector2[];
 }
 
-const BASE_BLOCK_WIDTH = 2;
-const BASE_BLOCK_HEIGHT = 2;
-const DEFAULT_STARTING_RESOURCES = 40;
-const DEFAULT_TEAM_TERRITORY_RADIUS = 12;
-const DEFAULT_SPAWN_CAPACITY = 2;
-const MAX_DELAY_TICKS = 20;
 const CORE_TEMPLATE_ID = '__core__';
-const CORE_STARTING_HP = 3;
-const CORE_RESTORE_INTERVAL_TICKS = 1;
 
 function hashSpawnSeed(roomId: string, width: number, height: number): number {
   let hash = 2166136261;
@@ -321,14 +331,9 @@ function createTemplateFromRows(
 const CORE_STRUCTURE_TEMPLATE = createTemplateFromRows({
   id: CORE_TEMPLATE_ID,
   name: 'Core',
-  rows: ['##', '##'],
+  rows: ['##.##', '##.##', '.....', '##.##', '##.##'],
   buildArea: 0,
-  checks: [
-    { x: 0, y: 0 },
-    { x: 1, y: 0 },
-    { x: 0, y: 1 },
-    { x: 1, y: 1 },
-  ],
+  checks: [],
 });
 
 function appendTimelineEvent(
@@ -560,12 +565,11 @@ function isTeamTerritoryPlacementValid(
 ): boolean {
   const templateCenterX = x + Math.floor(template.width / 2);
   const templateCenterY = y + Math.floor(template.height / 2);
-  const baseCenterX = team.baseTopLeft.x + 1;
-  const baseCenterY = team.baseTopLeft.y + 1;
+  const baseCenter = getBaseCenter(team.baseTopLeft);
   const radius = team.territoryRadius;
   return (
-    Math.abs(templateCenterX - baseCenterX) <= radius &&
-    Math.abs(templateCenterY - baseCenterY) <= radius
+    Math.abs(templateCenterX - baseCenter.x) <= radius &&
+    Math.abs(templateCenterY - baseCenter.y) <= radius
   );
 }
 
@@ -624,29 +628,96 @@ function applyTemplate(
   return true;
 }
 
+interface IntegrityMaskCell {
+  x: number;
+  y: number;
+  expected: number;
+}
+
+interface IntegrityMismatchCell {
+  x: number;
+  y: number;
+  expected: number;
+}
+
+const integrityMaskCache = new WeakMap<
+  StructureTemplate,
+  IntegrityMaskCell[]
+>();
+
+function getIntegrityMaskCells(
+  template: StructureTemplate,
+): readonly IntegrityMaskCell[] {
+  const cached = integrityMaskCache.get(template);
+  if (cached) {
+    return cached;
+  }
+
+  const mask: IntegrityMaskCell[] = [];
+  if (template.checks.length > 0) {
+    for (const check of template.checks) {
+      mask.push({
+        x: check.x,
+        y: check.y,
+        expected: templateCellAt(template, check.x, check.y),
+      });
+    }
+  } else {
+    for (let y = 0; y < template.height; y += 1) {
+      for (let x = 0; x < template.width; x += 1) {
+        const expected = templateCellAt(template, x, y);
+        if (expected === 1) {
+          mask.push({ x, y, expected });
+        }
+      }
+    }
+  }
+
+  integrityMaskCache.set(template, mask);
+  return mask;
+}
+
+function collectIntegrityMismatches(
+  room: RoomState,
+  structure: StructureInstance,
+  template: StructureTemplate,
+): IntegrityMismatchCell[] {
+  const mismatches: IntegrityMismatchCell[] = [];
+
+  for (const check of getIntegrityMaskCells(template)) {
+    const x = structure.x + check.x;
+    const y = structure.y + check.y;
+    const actual = gridCellAt(room.grid, room.width, room.height, x, y);
+    if (actual !== check.expected) {
+      mismatches.push({ x, y, expected: check.expected });
+    }
+  }
+
+  return mismatches;
+}
+
+function restoreIntegrityMismatches(
+  room: RoomState,
+  mismatches: readonly IntegrityMismatchCell[],
+): void {
+  for (const mismatch of mismatches) {
+    setGridCell(
+      room.grid,
+      room.width,
+      room.height,
+      mismatch.x,
+      mismatch.y,
+      mismatch.expected,
+    );
+  }
+}
+
 function checkStructureIntegrity(
   room: RoomState,
   structure: StructureInstance,
   template: StructureTemplate,
 ): boolean {
-  if (template.checks.length === 0) {
-    return false;
-  }
-
-  for (const check of template.checks) {
-    const gx = structure.x + check.x;
-    const gy = structure.y + check.y;
-    if (gx < 0 || gy < 0 || gx >= room.width || gy >= room.height) {
-      return false;
-    }
-    const expected = templateCellAt(template, check.x, check.y);
-    const actual = gridCellAt(room.grid, room.width, room.height, gx, gy);
-    if (expected !== actual) {
-      return false;
-    }
-  }
-
-  return true;
+  return collectIntegrityMismatches(room, structure, template).length === 0;
 }
 
 function isBaseIntact(room: RoomState, team: TeamState): boolean {
@@ -659,19 +730,18 @@ function isBaseIntact(room: RoomState, team: TeamState): boolean {
 }
 
 function countTerritoryCells(room: RoomState, team: TeamState): number {
-  const centerX = team.baseTopLeft.x + 1;
-  const centerY = team.baseTopLeft.y + 1;
+  const center = getBaseCenter(team.baseTopLeft);
   const radius = team.territoryRadius;
 
   let count = 0;
   for (
-    let y = Math.max(0, centerY - radius);
-    y <= Math.min(room.height - 1, centerY + radius);
+    let y = Math.max(0, center.y - radius);
+    y <= Math.min(room.height - 1, center.y + radius);
     y += 1
   ) {
     for (
-      let x = Math.max(0, centerX - radius);
-      x <= Math.min(room.width - 1, centerX + radius);
+      let x = Math.max(0, center.x - radius);
+      x <= Math.min(room.width - 1, center.x + radius);
       x += 1
     ) {
       if (gridCellAt(room.grid, room.width, room.height, x, y) === 1) {
@@ -684,8 +754,12 @@ function countTerritoryCells(room: RoomState, team: TeamState): number {
 }
 
 function seedBase(room: RoomState, baseTopLeft: Vector2): void {
-  for (let by = 0; by < BASE_BLOCK_HEIGHT; by += 1) {
-    for (let bx = 0; bx < BASE_BLOCK_WIDTH; bx += 1) {
+  for (let by = 0; by < BASE_FOOTPRINT_HEIGHT; by += 1) {
+    for (let bx = 0; bx < BASE_FOOTPRINT_WIDTH; bx += 1) {
+      if (!isCanonicalBaseCell(bx, by)) {
+        continue;
+      }
+
       setGridCell(
         room.grid,
         room.width,
@@ -698,11 +772,104 @@ function seedBase(room: RoomState, baseTopLeft: Vector2): void {
   }
 }
 
-function pickSpawnPosition(room: RoomState, teamId: number): Vector2 {
-  const occupied = new Set<string>();
-  for (const team of room.teams.values()) {
-    occupied.add(`${team.baseTopLeft.x},${team.baseTopLeft.y}`);
+function hasSpawnSeparation(
+  room: RoomState,
+  candidate: Vector2,
+  occupied: readonly Vector2[],
+): boolean {
+  for (const current of occupied) {
+    if (candidate.x === current.x && candidate.y === current.y) {
+      return false;
+    }
+
+    const dx = wrappedDelta(
+      candidate.x + BASE_FOOTPRINT_WIDTH / 2,
+      current.x + BASE_FOOTPRINT_WIDTH / 2,
+      room.width,
+    );
+    const dy = wrappedDelta(
+      candidate.y + BASE_FOOTPRINT_HEIGHT / 2,
+      current.y + BASE_FOOTPRINT_HEIGHT / 2,
+      room.height,
+    );
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    if (distance < SPAWN_MIN_WRAPPED_DISTANCE) {
+      return false;
+    }
   }
+
+  return true;
+}
+
+function greatestCommonDivisor(a: number, b: number): number {
+  let left = Math.abs(a);
+  let right = Math.abs(b);
+
+  while (right !== 0) {
+    const remainder = left % right;
+    left = right;
+    right = remainder;
+  }
+
+  return left;
+}
+
+function pickDeterministicFallbackSpawn(
+  room: RoomState,
+  teamId: number,
+  occupied: readonly Vector2[],
+): Vector2 {
+  const spanX = room.width - BASE_FOOTPRINT_WIDTH + 1;
+  const spanY = room.height - BASE_FOOTPRINT_HEIGHT + 1;
+  if (spanX <= 0 || spanY <= 0) {
+    throw new Error('Spawn footprint does not fit in room bounds');
+  }
+
+  const totalPositions = spanX * spanY;
+  const seed =
+    (room.spawnOrientationSeed ^ Math.imul(teamId + 1, 0x9e37_79b1)) >>> 0;
+  const start = seed % totalPositions;
+
+  let step = seed % totalPositions || 1;
+  while (greatestCommonDivisor(step, totalPositions) !== 1) {
+    step = (step + 1) % totalPositions;
+    if (step === 0) {
+      step = 1;
+    }
+  }
+
+  let firstUnoccupied: Vector2 | null = null;
+  for (let offset = 0; offset < totalPositions; offset += 1) {
+    const index = (start + offset * step) % totalPositions;
+    const candidate = {
+      x: index % spanX,
+      y: Math.floor(index / spanX),
+    };
+
+    const occupiedTopLeft = occupied.some(
+      (position) => position.x === candidate.x && position.y === candidate.y,
+    );
+    if (occupiedTopLeft) {
+      continue;
+    }
+
+    if (!firstUnoccupied) {
+      firstUnoccupied = candidate;
+    }
+    if (hasSpawnSeparation(room, candidate, occupied)) {
+      return candidate;
+    }
+  }
+
+  if (firstUnoccupied) {
+    return firstUnoccupied;
+  }
+
+  throw new Error('Unable to allocate deterministic spawn position');
+}
+
+function pickSpawnPosition(room: RoomState, teamId: number): Vector2 {
+  const occupied = [...room.teams.values()].map((team) => team.baseTopLeft);
 
   const preferredCapacity = Math.max(
     DEFAULT_SPAWN_CAPACITY,
@@ -711,27 +878,33 @@ function pickSpawnPosition(room: RoomState, teamId: number): Vector2 {
   );
 
   for (let expansion = 0; expansion <= 6; expansion += 1) {
-    const layout = createTorusSpawnLayout({
-      width: room.width,
-      height: room.height,
-      teamCount: preferredCapacity + expansion,
-      orientationSeed: room.spawnOrientationSeed,
-      baseWidth: BASE_BLOCK_WIDTH,
-      baseHeight: BASE_BLOCK_HEIGHT,
-      minWrappedDistance: BASE_BLOCK_WIDTH + 1,
-    });
+    let layout;
+    try {
+      layout = createTorusSpawnLayout({
+        width: room.width,
+        height: room.height,
+        teamCount: preferredCapacity + expansion,
+        orientationSeed: room.spawnOrientationSeed,
+        baseWidth: BASE_FOOTPRINT_WIDTH,
+        baseHeight: BASE_FOOTPRINT_HEIGHT,
+        minWrappedDistance: SPAWN_MIN_WRAPPED_DISTANCE,
+      });
+    } catch {
+      continue;
+    }
 
     const startIndex = (teamId - 1) % layout.length;
     for (let offset = 0; offset < layout.length; offset += 1) {
       const candidate = layout[(startIndex + offset) % layout.length].topLeft;
-      if (occupied.has(`${candidate.x},${candidate.y}`)) {
+      if (!hasSpawnSeparation(room, candidate, occupied)) {
         continue;
       }
+
       return candidate;
     }
   }
 
-  throw new Error('Unable to allocate deterministic spawn position');
+  return pickDeterministicFallbackSpawn(room, teamId, occupied);
 }
 
 function applyTeamEconomyAndQueue(
@@ -878,19 +1051,16 @@ function applyTeamEconomyAndQueue(
 
     team.resources -= buildCost;
     acceptedEvents.push(event);
-
-    if (template.checks.length > 0) {
-      team.structures.set(key, {
-        key,
-        templateId: template.id,
-        x: event.x,
-        y: event.y,
-        active: false,
-        hp: 1,
-        isCore: false,
-        buildRadius: 0,
-      });
-    }
+    team.structures.set(key, {
+      key,
+      templateId: template.id,
+      x: event.x,
+      y: event.y,
+      active: false,
+      hp: STRUCTURE_STARTING_HP,
+      isCore: false,
+      buildRadius: 0,
+    });
   }
 
   team.pendingBuildEvents = deferred;
@@ -1289,61 +1459,137 @@ export function createRoomStatePayload(room: RoomState): RoomStatePayload {
   };
 }
 
-function resolveCoreRestoreChecks(room: RoomState): Map<number, number> {
+type IntegrityOutcomeCategory = 'repaired' | 'destroyed-debris' | 'core-defeat';
+
+function compareStructuresByKey(
+  left: StructureInstance,
+  right: StructureInstance,
+): number {
+  if (left.key < right.key) {
+    return -1;
+  }
+  if (left.key > right.key) {
+    return 1;
+  }
+  return 0;
+}
+
+function resolveIntegrityChecks(room: RoomState): Map<number, number> {
   const coreHpBeforeResolution = new Map<number, number>();
 
   if (
-    CORE_RESTORE_INTERVAL_TICKS <= 0 ||
-    room.tick % CORE_RESTORE_INTERVAL_TICKS !== 0
+    INTEGRITY_CHECK_INTERVAL_TICKS <= 0 ||
+    room.tick % INTEGRITY_CHECK_INTERVAL_TICKS !== 0
   ) {
     return coreHpBeforeResolution;
   }
 
-  for (const team of room.teams.values()) {
+  const orderedTeams = [...room.teams.values()].sort((left, right) => {
+    return left.id - right.id;
+  });
+
+  for (const team of orderedTeams) {
     if (team.defeated) {
       continue;
     }
 
-    const core = getCoreStructure(team);
-    if (!core || core.hp <= 0) {
-      continue;
+    const orderedStructures = [...team.structures.values()].sort(
+      compareStructuresByKey,
+    );
+
+    for (const structure of orderedStructures) {
+      if (structure.hp <= 0) {
+        structure.active = false;
+        structure.buildRadius = 0;
+        continue;
+      }
+
+      const template = getStructureTemplate(room, structure);
+      if (!template) {
+        structure.active = false;
+        structure.buildRadius = 0;
+        continue;
+      }
+
+      const mismatches = collectIntegrityMismatches(room, structure, template);
+      if (mismatches.length === 0) {
+        structure.active = true;
+        structure.buildRadius = structure.isCore ? 0 : template.buildArea;
+        continue;
+      }
+
+      const restoreCost = mismatches.length * INTEGRITY_HP_COST_PER_CELL;
+      const hpBefore = structure.hp;
+
+      if (structure.isCore && !coreHpBeforeResolution.has(team.id)) {
+        coreHpBeforeResolution.set(team.id, hpBefore);
+      }
+
+      structure.hp -= restoreCost;
+      if (structure.isCore) {
+        appendTimelineEvent(room, {
+          teamId: team.id,
+          type: 'core-damaged',
+          metadata: {
+            hpBefore,
+            hpAfter: structure.hp,
+            restoreCost,
+          },
+        });
+      }
+
+      if (structure.hp > 0) {
+        restoreIntegrityMismatches(room, mismatches);
+        structure.active = true;
+        structure.buildRadius = structure.isCore ? 0 : template.buildArea;
+
+        appendTimelineEvent(room, {
+          teamId: team.id,
+          type: 'integrity-resolved',
+          metadata: {
+            structureKey: structure.key,
+            category: 'repaired',
+            restoreCost,
+            hpBefore,
+            hpAfter: structure.hp,
+            isCore: structure.isCore,
+          },
+        });
+        continue;
+      }
+
+      structure.active = false;
+      structure.buildRadius = 0;
+
+      const category: IntegrityOutcomeCategory = structure.isCore
+        ? 'core-defeat'
+        : 'destroyed-debris';
+
+      appendTimelineEvent(room, {
+        teamId: team.id,
+        type: 'integrity-resolved',
+        metadata: {
+          structureKey: structure.key,
+          category,
+          restoreCost,
+          hpBefore,
+          hpAfter: structure.hp,
+          isCore: structure.isCore,
+        },
+      });
+
+      if (structure.isCore) {
+        appendTimelineEvent(room, {
+          teamId: team.id,
+          type: 'core-destroyed',
+          metadata: {
+            hpBefore,
+            hpAfter: structure.hp,
+            restoreCost,
+          },
+        });
+      }
     }
-
-    const intact = checkStructureIntegrity(room, core, CORE_STRUCTURE_TEMPLATE);
-    if (intact) {
-      core.active = true;
-      core.buildRadius = 0;
-      continue;
-    }
-
-    const hpBefore = core.hp;
-    coreHpBeforeResolution.set(team.id, hpBefore);
-    core.hp = Math.max(0, core.hp - 1);
-    core.buildRadius = 0;
-
-    appendTimelineEvent(room, {
-      teamId: team.id,
-      type: 'core-damaged',
-      metadata: {
-        hpBefore,
-        hpAfter: core.hp,
-      },
-    });
-
-    if (core.hp > 0) {
-      applyTemplate(room, CORE_STRUCTURE_TEMPLATE, core.x, core.y);
-      core.active = true;
-      continue;
-    }
-
-    core.active = false;
-    appendTimelineEvent(room, {
-      teamId: team.id,
-      type: 'core-destroyed',
-      metadata: {
-        hpBefore,
-      },
-    });
   }
 
   return coreHpBeforeResolution;
@@ -1431,7 +1677,7 @@ export function tickRoom(room: RoomState): RoomTickResult {
   room.tick += 1;
   room.generation += 1;
 
-  const coreHpBeforeResolution = resolveCoreRestoreChecks(room);
+  const coreHpBeforeResolution = resolveIntegrityChecks(room);
   const defeatedTeams: number[] = [];
   for (const team of room.teams.values()) {
     const core = getCoreStructure(team);

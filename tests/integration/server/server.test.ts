@@ -3,6 +3,7 @@ import { io, type Socket } from 'socket.io-client';
 
 import { createServer } from '../../../apps/server/src/server.js';
 import { decodeGridBase64 } from '#conway-core';
+import { BASE_FOOTPRINT_HEIGHT, BASE_FOOTPRINT_WIDTH } from '#rts-engine';
 import type {
   BuildPreviewPayload,
   BuildOutcomePayload,
@@ -238,6 +239,11 @@ function collectCandidatePlacements(
   roomHeight: number,
 ): Cell[] {
   const placements: Cell[] = [];
+  const baseLeft = team.baseTopLeft.x;
+  const baseTop = team.baseTopLeft.y;
+  const baseRight = baseLeft + BASE_FOOTPRINT_WIDTH;
+  const baseBottom = baseTop + BASE_FOOTPRINT_HEIGHT;
+
   for (let y = -10; y <= 10; y += 2) {
     for (let x = -10; x <= 10; x += 2) {
       const buildX = team.baseTopLeft.x + x;
@@ -251,7 +257,13 @@ function collectCandidatePlacements(
       ) {
         continue;
       }
-      if (buildX === team.baseTopLeft.x && buildY === team.baseTopLeft.y) {
+
+      const intersectsBase =
+        buildX < baseRight &&
+        buildX + template.width > baseLeft &&
+        buildY < baseBottom &&
+        buildY + template.height > baseTop;
+      if (intersectsBase) {
         continue;
       }
 
@@ -655,35 +667,13 @@ describe('GameServer', () => {
     );
     expect(placements.length).toBeGreaterThan(0);
 
-    let drainPlacement: Cell | null = null;
-    for (const placement of placements) {
+    let insufficient: { error: RoomError } | null = null;
+    for (let attempt = 0; attempt < placements.length; attempt += 1) {
+      const placement = placements[attempt];
       setup.host.emit('build:queue', {
         templateId: expensiveTemplate.id,
         x: placement.x,
         y: placement.y,
-        delayTicks: 1,
-      });
-
-      const response = await waitForBuildQueueResponse(setup.host, 4_000);
-      if ('error' in response) {
-        continue;
-      }
-
-      drainPlacement = placement;
-      await collectBuildOutcomes(setup.host, [response.queued.eventId], 8_000);
-      break;
-    }
-
-    if (!drainPlacement) {
-      throw new Error('Unable to find a valid placement to drain resources');
-    }
-
-    let insufficient: { error: RoomError } | null = null;
-    for (let attempt = 0; attempt < 24; attempt += 1) {
-      setup.host.emit('build:queue', {
-        templateId: expensiveTemplate.id,
-        x: drainPlacement.x,
-        y: drainPlacement.y,
         delayTicks: 1,
       });
 
@@ -857,14 +847,19 @@ describe('GameServer', () => {
       throw new Error('Expected block template to be available');
     }
 
-    const buildX = Math.min(
-      52 - blockTemplate.width,
-      initialTeam.baseTopLeft.x + 4,
+    const placements = collectCandidatePlacements(
+      initialTeam,
+      blockTemplate,
+      setup.hostJoined.state.width,
+      setup.hostJoined.state.height,
     );
-    const buildY = Math.min(
-      52 - blockTemplate.height,
-      initialTeam.baseTopLeft.y + 4,
-    );
+    const selectedPlacement = placements[0];
+    if (!selectedPlacement) {
+      throw new Error('Expected at least one valid block placement');
+    }
+
+    const buildX = selectedPlacement.x;
+    const buildY = selectedPlacement.y;
 
     const blockCells: Cell[] = [
       { x: buildX, y: buildY },
