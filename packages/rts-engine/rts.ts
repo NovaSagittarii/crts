@@ -31,6 +31,17 @@ import {
   STRUCTURE_STARTING_HP,
 } from './gameplay-rules.js';
 import { createTorusSpawnLayout, wrappedDelta } from './spawn.js';
+import {
+  createIdentityPlacementTransform,
+  normalizePlacementTransform,
+  projectPlacementToWorld,
+  projectTemplateWithTransform,
+  wrapCoordinate,
+  type PlacementBounds,
+  type PlacementTransformInput,
+  type PlacementTransformState,
+  type TransformedTemplate,
+} from './placement-transform.js';
 
 export interface StructureTemplate {
   id: string;
@@ -59,6 +70,7 @@ export interface BuildQueuePayload {
   x: number;
   y: number;
   delayTicks?: number;
+  transform?: PlacementTransformInput;
 }
 
 export interface BuildEvent {
@@ -68,11 +80,13 @@ export interface BuildEvent {
   templateId: string;
   x: number;
   y: number;
+  transform: PlacementTransformState;
   executeTick: number;
 }
 
 interface AcceptedBuildEvent extends BuildEvent {
   structureKey: string;
+  projection: BuildPlacementProjectionResult;
 }
 
 export interface StructureInstance {
@@ -80,10 +94,18 @@ export interface StructureInstance {
   templateId: string;
   x: number;
   y: number;
+  transform: PlacementTransformState;
   active: boolean;
   hp: number;
   isCore: boolean;
   buildRadius: number;
+}
+
+export interface BuildPreviewProjection {
+  transform: PlacementTransformState;
+  footprint: Vector2[];
+  illegalCells: Vector2[];
+  bounds: PlacementBounds;
 }
 
 export interface BuildStats {
@@ -113,8 +135,8 @@ export type BuildRejectionReason =
   | 'invalid-delay'
   | 'match-finished'
   | 'occupied-site'
-  | 'out-of-bounds'
   | 'outside-territory'
+  | 'template-exceeds-map-size'
   | 'team-defeated'
   | 'template-compare-failed'
   | 'unknown-template';
@@ -239,6 +261,10 @@ export interface QueueBuildResult {
   deficit?: number;
   eventId?: number;
   executeTick?: number;
+  transform?: PlacementTransformState;
+  footprint?: Vector2[];
+  illegalCells?: Vector2[];
+  bounds?: PlacementBounds;
 }
 
 export interface RoomTickResult {
@@ -504,14 +530,6 @@ function getCoreStructure(team: TeamState): StructureInstance | null {
   return null;
 }
 
-function templateCellAt(
-  template: StructureTemplate,
-  x: number,
-  y: number,
-): number {
-  return template.cells[y * template.width + x];
-}
-
 function gridCellAt(
   grid: Uint8Array,
   width: number,
@@ -539,28 +557,23 @@ function setGridCell(
   grid[y * width + x] = value ? 1 : 0;
 }
 
-function inBounds(
+function transformedTemplateFitsRoom(
   room: RoomState,
+  transformedTemplate: Pick<TransformedTemplate, 'width' | 'height'>,
+): boolean {
+  return (
+    transformedTemplate.width <= room.width &&
+    transformedTemplate.height <= room.height
+  );
+}
+
+function createStructureKey(
   x: number,
   y: number,
   width: number,
   height: number,
-): boolean {
-  if (x < 0 || y < 0) {
-    return false;
-  }
-  if (x + width > room.width || y + height > room.height) {
-    return false;
-  }
-  return true;
-}
-
-function createStructureKey(
-  template: StructureTemplate,
-  x: number,
-  y: number,
 ): string {
-  return `${x},${y},${template.width},${template.height}`;
+  return `${x},${y},${width},${height}`;
 }
 
 interface BuildZoneContributor {
@@ -587,9 +600,14 @@ function collectBuildZoneContributors(
       continue;
     }
 
+    const transformedTemplate = projectTemplateWithTransform(
+      template,
+      structure.transform,
+    );
+
     contributors.push({
-      centerX: structure.x + Math.floor(template.width / 2),
-      centerY: structure.y + Math.floor(template.height / 2),
+      centerX: structure.x + Math.floor(transformedTemplate.width / 2),
+      centerY: structure.y + Math.floor(transformedTemplate.height / 2),
     });
   }
 
@@ -611,60 +629,124 @@ function isBuildZoneCoveredByContributor(
   return Math.max(Math.abs(dx), Math.abs(dy)) <= BUILD_ZONE_RADIUS;
 }
 
-function isTeamBuildZonePlacementValid(
+function collectIllegalBuildZoneCells(
+  room: RoomState,
+  team: TeamState,
+  areaCells: readonly Vector2[],
+): Vector2[] {
+  const contributors = collectBuildZoneContributors(room, team);
+  if (contributors.length === 0) {
+    return [...areaCells];
+  }
+
+  const illegalCells: Vector2[] = [];
+  for (const cell of areaCells) {
+    let covered = false;
+    for (const contributor of contributors) {
+      if (isBuildZoneCoveredByContributor(contributor, cell.x, cell.y)) {
+        covered = true;
+        break;
+      }
+    }
+
+    if (!covered) {
+      illegalCells.push(cell);
+    }
+  }
+
+  return illegalCells;
+}
+
+interface BuildPlacementProjectionResult {
+  transform: PlacementTransformState;
+  transformedTemplate: TransformedTemplate;
+  bounds: PlacementBounds;
+  areaCells: Vector2[];
+  footprint: Vector2[];
+  checks: Vector2[];
+  illegalCells: Vector2[];
+}
+
+interface BuildPlacementValidationResult {
+  projection: BuildPlacementProjectionResult;
+  reason?: BuildRejectionReason;
+}
+
+function projectBuildPlacement(
   room: RoomState,
   team: TeamState,
   template: StructureTemplate,
   x: number,
   y: number,
-): boolean {
-  const contributors = collectBuildZoneContributors(room, team);
-  if (contributors.length === 0) {
-    return false;
+  transformInput: PlacementTransformInput | null | undefined,
+): BuildPlacementValidationResult {
+  const transform = normalizePlacementTransform(transformInput);
+  const transformedTemplate = projectTemplateWithTransform(template, transform);
+  const bounds: PlacementBounds = {
+    x,
+    y,
+    width: transformedTemplate.width,
+    height: transformedTemplate.height,
+  };
+
+  if (!transformedTemplateFitsRoom(room, transformedTemplate)) {
+    return {
+      projection: {
+        transform,
+        transformedTemplate,
+        bounds,
+        areaCells: [],
+        footprint: [],
+        checks: [],
+        illegalCells: [],
+      },
+      reason: 'template-exceeds-map-size',
+    };
   }
 
-  for (let ty = 0; ty < template.height; ty += 1) {
-    for (let tx = 0; tx < template.width; tx += 1) {
-      const cellX = x + tx;
-      const cellY = y + ty;
-      let covered = false;
+  const projected = projectPlacementToWorld(
+    transformedTemplate,
+    x,
+    y,
+    room.width,
+    room.height,
+  );
+  const illegalCells = collectIllegalBuildZoneCells(
+    room,
+    team,
+    projected.areaCells,
+  );
 
-      for (const contributor of contributors) {
-        if (isBuildZoneCoveredByContributor(contributor, cellX, cellY)) {
-          covered = true;
-          break;
-        }
-      }
-
-      if (!covered) {
-        return false;
-      }
-    }
-  }
-
-  return true;
+  return {
+    projection: {
+      transform,
+      transformedTemplate,
+      bounds,
+      areaCells: projected.areaCells,
+      footprint: projected.occupiedCells,
+      checks: projected.checks,
+      illegalCells,
+    },
+    reason: illegalCells.length > 0 ? 'outside-territory' : undefined,
+  };
 }
 
 function compareTemplate(
   room: RoomState,
-  template: StructureTemplate,
-  x: number,
-  y: number,
+  transformedTemplate: TransformedTemplate,
+  bounds: PlacementBounds,
 ): number {
-  if (!inBounds(room, x, y, template.width, template.height)) {
-    return -1;
-  }
-
   let diffCount = 0;
-  for (let ty = 0; ty < template.height; ty += 1) {
-    for (let tx = 0; tx < template.width; tx += 1) {
-      const templateCell = templateCellAt(template, tx, ty);
+  for (let ty = 0; ty < transformedTemplate.height; ty += 1) {
+    for (let tx = 0; tx < transformedTemplate.width; tx += 1) {
+      const templateCell =
+        transformedTemplate.cells[ty * transformedTemplate.width + tx];
       const roomCell = gridCellAt(
         room.grid,
         room.width,
         room.height,
-        x + tx,
-        y + ty,
+        wrapCoordinate(bounds.x + tx, room.width),
+        wrapCoordinate(bounds.y + ty, room.height),
       );
       if (templateCell !== roomCell) {
         diffCount += 1;
@@ -676,23 +758,18 @@ function compareTemplate(
 
 function applyTemplate(
   room: RoomState,
-  template: StructureTemplate,
-  x: number,
-  y: number,
+  transformedTemplate: TransformedTemplate,
+  bounds: PlacementBounds,
 ): boolean {
-  if (!inBounds(room, x, y, template.width, template.height)) {
-    return false;
-  }
-
-  for (let ty = 0; ty < template.height; ty += 1) {
-    for (let tx = 0; tx < template.width; tx += 1) {
+  for (let ty = 0; ty < transformedTemplate.height; ty += 1) {
+    for (let tx = 0; tx < transformedTemplate.width; tx += 1) {
       setGridCell(
         room.grid,
         room.width,
         room.height,
-        x + tx,
-        y + ty,
-        templateCellAt(template, tx, ty),
+        wrapCoordinate(bounds.x + tx, room.width),
+        wrapCoordinate(bounds.y + ty, room.height),
+        transformedTemplate.cells[ty * transformedTemplate.width + tx],
       );
     }
   }
@@ -712,40 +789,32 @@ interface IntegrityMismatchCell {
   expected: number;
 }
 
-const integrityMaskCache = new WeakMap<
-  StructureTemplate,
-  IntegrityMaskCell[]
->();
-
 function getIntegrityMaskCells(
+  structure: StructureInstance,
   template: StructureTemplate,
 ): readonly IntegrityMaskCell[] {
-  const cached = integrityMaskCache.get(template);
-  if (cached) {
-    return cached;
-  }
+  const transformedTemplate = projectTemplateWithTransform(
+    template,
+    structure.transform,
+  );
+
+  const sourceChecks =
+    template.checks.length > 0
+      ? transformedTemplate.checks
+      : transformedTemplate.occupiedCells;
 
   const mask: IntegrityMaskCell[] = [];
-  if (template.checks.length > 0) {
-    for (const check of template.checks) {
-      mask.push({
-        x: check.x,
-        y: check.y,
-        expected: templateCellAt(template, check.x, check.y),
-      });
-    }
-  } else {
-    for (let y = 0; y < template.height; y += 1) {
-      for (let x = 0; x < template.width; x += 1) {
-        const expected = templateCellAt(template, x, y);
-        if (expected === 1) {
-          mask.push({ x, y, expected });
-        }
-      }
-    }
+  for (const check of sourceChecks) {
+    mask.push({
+      x: check.x,
+      y: check.y,
+      expected:
+        transformedTemplate.cells[
+          check.y * transformedTemplate.width + check.x
+        ],
+    });
   }
 
-  integrityMaskCache.set(template, mask);
   return mask;
 }
 
@@ -756,9 +825,9 @@ function collectIntegrityMismatches(
 ): IntegrityMismatchCell[] {
   const mismatches: IntegrityMismatchCell[] = [];
 
-  for (const check of getIntegrityMaskCells(template)) {
-    const x = structure.x + check.x;
-    const y = structure.y + check.y;
+  for (const check of getIntegrityMaskCells(structure, template)) {
+    const x = wrapCoordinate(structure.x + check.x, room.width);
+    const y = wrapCoordinate(structure.y + check.y, room.height);
     const actual = gridCellAt(room.grid, room.width, room.height, x, y);
     if (actual !== check.expected) {
       mismatches.push({ x, y, expected: check.expected });
@@ -979,6 +1048,191 @@ function pickSpawnPosition(room: RoomState, teamId: number): Vector2 {
   return pickDeterministicFallbackSpawn(room, teamId, occupied);
 }
 
+interface EvaluatedBuildPlacement {
+  projection: BuildPlacementProjectionResult;
+  affordability?: AffordabilityResult;
+  diffCells?: number;
+  reason?: BuildRejectionReason;
+}
+
+function createEmptyBuildProjection(
+  x: number,
+  y: number,
+  transformInput: PlacementTransformInput | null | undefined,
+): BuildPreviewProjection {
+  const safeX = Number.isFinite(x) ? x : 0;
+  const safeY = Number.isFinite(y) ? y : 0;
+  return {
+    transform: normalizePlacementTransform(transformInput),
+    footprint: [],
+    illegalCells: [],
+    bounds: {
+      x: safeX,
+      y: safeY,
+      width: 0,
+      height: 0,
+    },
+  };
+}
+
+function evaluateBuildPlacement(
+  room: RoomState,
+  team: TeamState,
+  template: StructureTemplate,
+  x: number,
+  y: number,
+  transformInput: PlacementTransformInput | null | undefined,
+): EvaluatedBuildPlacement {
+  const projectedPlacement = projectBuildPlacement(
+    room,
+    team,
+    template,
+    x,
+    y,
+    transformInput,
+  );
+
+  if (projectedPlacement.reason) {
+    return {
+      projection: projectedPlacement.projection,
+      reason: projectedPlacement.reason,
+    };
+  }
+
+  let diffCells: number;
+  try {
+    diffCells = compareTemplate(
+      room,
+      projectedPlacement.projection.transformedTemplate,
+      projectedPlacement.projection.bounds,
+    );
+  } catch {
+    return {
+      projection: projectedPlacement.projection,
+      reason: 'template-compare-failed',
+    };
+  }
+
+  const needed = diffCells + template.activationCost;
+  const affordability = evaluateAffordability(needed, team.resources);
+
+  if (!affordability.affordable) {
+    return {
+      projection: projectedPlacement.projection,
+      diffCells,
+      affordability,
+      reason: 'insufficient-resources',
+    };
+  }
+
+  return {
+    projection: projectedPlacement.projection,
+    diffCells,
+    affordability,
+  };
+}
+
+export function previewBuildPlacement(
+  room: RoomState,
+  playerId: string,
+  payload: BuildQueuePayload,
+): QueueBuildResult {
+  const x = Number(payload.x);
+  const y = Number(payload.y);
+
+  const player = room.players.get(playerId);
+  if (!player) {
+    return {
+      accepted: false,
+      error: 'Player is not in this room',
+      ...createEmptyBuildProjection(x, y, payload.transform),
+    };
+  }
+
+  const team = room.teams.get(player.teamId);
+  if (!team) {
+    return {
+      accepted: false,
+      error: 'Team is not available',
+      ...createEmptyBuildProjection(x, y, payload.transform),
+    };
+  }
+
+  if (team.defeated) {
+    return {
+      accepted: false,
+      error: 'Team is defeated',
+      reason: 'team-defeated',
+      ...createEmptyBuildProjection(x, y, payload.transform),
+      affordable: false,
+      needed: 0,
+      current: team.resources,
+      deficit: 0,
+    };
+  }
+
+  const template = room.templateMap.get(payload.templateId);
+  if (!template) {
+    return {
+      accepted: false,
+      error: 'Unknown template',
+      reason: 'unknown-template',
+      ...createEmptyBuildProjection(x, y, payload.transform),
+      affordable: false,
+      needed: 0,
+      current: team.resources,
+      deficit: 0,
+    };
+  }
+
+  if (!Number.isInteger(x) || !Number.isInteger(y)) {
+    return {
+      accepted: false,
+      error: 'x and y must be integers',
+      reason: 'invalid-coordinates',
+      ...createEmptyBuildProjection(x, y, payload.transform),
+      affordable: false,
+      needed: 0,
+      current: team.resources,
+      deficit: 0,
+    };
+  }
+
+  const evaluation = evaluateBuildPlacement(
+    room,
+    team,
+    template,
+    x,
+    y,
+    payload.transform,
+  );
+
+  const result: QueueBuildResult = {
+    accepted: evaluation.reason === undefined,
+    reason: evaluation.reason,
+    transform: evaluation.projection.transform,
+    footprint: evaluation.projection.footprint,
+    illegalCells: evaluation.projection.illegalCells,
+    bounds: evaluation.projection.bounds,
+    affordable: evaluation.affordability?.affordable ?? false,
+    needed: evaluation.affordability?.needed ?? 0,
+    current: evaluation.affordability?.current ?? team.resources,
+    deficit: evaluation.affordability?.deficit ?? 0,
+  };
+
+  if (evaluation.reason === 'outside-territory') {
+    result.error = 'Outside build zone - build closer to your structures.';
+  } else if (evaluation.reason === 'template-exceeds-map-size') {
+    result.error = 'Template exceeds map size';
+  } else if (evaluation.reason === 'insufficient-resources') {
+    result.error = 'Insufficient resources';
+  } else if (evaluation.reason === 'template-compare-failed') {
+    result.error = 'Unable to compare template with current state';
+  }
+
+  return result;
+}
+
 function applyTeamEconomyAndQueue(
   room: RoomState,
   team: TeamState,
@@ -1055,31 +1309,31 @@ function applyTeamEconomyAndQueue(
       continue;
     }
 
-    if (
-      !isTeamBuildZonePlacementValid(room, team, template, event.x, event.y)
-    ) {
-      rejectBuild(room, team, 'outside-territory', event.id);
+    const evaluation = evaluateBuildPlacement(
+      room,
+      team,
+      template,
+      event.x,
+      event.y,
+      event.transform,
+    );
+    if (evaluation.reason && evaluation.reason !== 'insufficient-resources') {
+      rejectBuild(room, team, evaluation.reason, event.id);
       recordRejectedBuildOutcome(
         buildOutcomes,
         event,
-        'outside-territory',
+        evaluation.reason,
         room.tick,
       );
       continue;
     }
 
-    if (!inBounds(room, event.x, event.y, template.width, template.height)) {
-      rejectBuild(room, team, 'out-of-bounds', event.id);
-      recordRejectedBuildOutcome(
-        buildOutcomes,
-        event,
-        'out-of-bounds',
-        room.tick,
-      );
-      continue;
-    }
-
-    const key = createStructureKey(template, event.x, event.y);
+    const key = createStructureKey(
+      event.x,
+      event.y,
+      evaluation.projection.bounds.width,
+      evaluation.projection.bounds.height,
+    );
     const isReservedInTick = acceptedEvents.some((candidate) => {
       return candidate.teamId === team.id && candidate.structureKey === key;
     });
@@ -1094,21 +1348,8 @@ function applyTeamEconomyAndQueue(
       continue;
     }
 
-    const diffCells = compareTemplate(room, template, event.x, event.y);
-    if (diffCells < 0) {
-      rejectBuild(room, team, 'template-compare-failed', event.id);
-      recordRejectedBuildOutcome(
-        buildOutcomes,
-        event,
-        'template-compare-failed',
-        room.tick,
-      );
-      continue;
-    }
-
-    const buildCost = diffCells + template.activationCost;
-    const affordability = evaluateAffordability(buildCost, team.resources);
-    if (!affordability.affordable) {
+    const affordability = evaluation.affordability;
+    if (!affordability || !affordability.affordable) {
       rejectBuild(
         room,
         team,
@@ -1126,10 +1367,11 @@ function applyTeamEconomyAndQueue(
       continue;
     }
 
-    team.resources -= buildCost;
+    team.resources -= affordability.needed;
     acceptedEvents.push({
       ...event,
       structureKey: key,
+      projection: evaluation.projection,
     });
   }
 
@@ -1260,9 +1502,10 @@ export function addPlayerToRoom(
 
   const baseTopLeft = pickSpawnPosition(room, teamId);
   const coreKey = createStructureKey(
-    CORE_STRUCTURE_TEMPLATE,
     baseTopLeft.x,
     baseTopLeft.y,
+    CORE_STRUCTURE_TEMPLATE.width,
+    CORE_STRUCTURE_TEMPLATE.height,
   );
 
   const structures = new Map<string, StructureInstance>();
@@ -1271,6 +1514,7 @@ export function addPlayerToRoom(
     templateId: CORE_TEMPLATE_ID,
     x: baseTopLeft.x,
     y: baseTopLeft.y,
+    transform: createIdentityPlacementTransform(),
     active: true,
     hp: CORE_STARTING_HP,
     isCore: true,
@@ -1379,97 +1623,49 @@ export function queueBuildEvent(
     };
   }
 
-  if (team.defeated) {
-    rejectBuild(room, team, 'team-defeated');
-    return {
-      accepted: false,
-      error: 'Team is defeated',
-      reason: 'team-defeated',
-    };
-  }
+  const preview = previewBuildPlacement(room, playerId, payload);
+  if (!preview.accepted) {
+    if (preview.reason) {
+      const affordability =
+        preview.reason === 'insufficient-resources' &&
+        typeof preview.needed === 'number' &&
+        typeof preview.current === 'number' &&
+        typeof preview.deficit === 'number'
+          ? {
+              affordable: false,
+              needed: preview.needed,
+              current: preview.current,
+              deficit: preview.deficit,
+            }
+          : undefined;
 
-  const template = room.templateMap.get(payload.templateId);
-  if (!template) {
-    rejectBuild(room, team, 'unknown-template');
-    return {
-      accepted: false,
-      error: 'Unknown template',
-      reason: 'unknown-template',
-    };
-  }
-
-  const x = Number(payload.x);
-  const y = Number(payload.y);
-  if (!Number.isInteger(x) || !Number.isInteger(y)) {
-    rejectBuild(room, team, 'invalid-coordinates');
-    return {
-      accepted: false,
-      error: 'x and y must be integers',
-      reason: 'invalid-coordinates',
-    };
-  }
-
-  if (!isTeamBuildZonePlacementValid(room, team, template, x, y)) {
-    rejectBuild(room, team, 'outside-territory');
-    return {
-      accepted: false,
-      error: 'Outside build zone - build closer to your structures.',
-      reason: 'outside-territory',
-    };
-  }
-
-  if (!inBounds(room, x, y, template.width, template.height)) {
-    rejectBuild(room, team, 'out-of-bounds');
-    return {
-      accepted: false,
-      error: 'Placement is out of bounds',
-      reason: 'out-of-bounds',
-    };
+      rejectBuild(room, team, preview.reason, undefined, affordability);
+    }
+    return preview;
   }
 
   const delay = Number(payload.delayTicks ?? 2);
   if (!Number.isInteger(delay)) {
     rejectBuild(room, team, 'invalid-delay');
     return {
+      ...preview,
       accepted: false,
       error: 'delayTicks must be an integer',
       reason: 'invalid-delay',
     };
   }
 
-  const diffCells = compareTemplate(room, template, x, y);
-  if (diffCells < 0) {
-    rejectBuild(room, team, 'template-compare-failed');
-    return {
-      accepted: false,
-      error: 'Unable to compare template with current state',
-      reason: 'template-compare-failed',
-    };
-  }
-
-  const needed = diffCells + template.activationCost;
-  const affordability = evaluateAffordability(needed, team.resources);
-  if (!affordability.affordable) {
-    rejectBuild(room, team, 'insufficient-resources', undefined, affordability);
-    return {
-      accepted: false,
-      error: 'Insufficient resources',
-      reason: 'insufficient-resources',
-      affordable: affordability.affordable,
-      needed: affordability.needed,
-      current: affordability.current,
-      deficit: affordability.deficit,
-    };
-  }
-
   const clampedDelay = Math.max(1, Math.min(MAX_DELAY_TICKS, delay));
+  const x = Number(payload.x);
+  const y = Number(payload.y);
   const event: BuildEvent = {
     id: room.nextBuildEventId,
     teamId: team.id,
     playerId,
-    templateId: template.id,
+    templateId: payload.templateId,
     x,
     y,
+    transform: preview.transform ?? createIdentityPlacementTransform(),
     executeTick: room.tick + clampedDelay,
   };
   room.nextBuildEventId += 1;
@@ -1486,6 +1682,7 @@ export function queueBuildEvent(
   });
 
   return {
+    ...preview,
     accepted: true,
     eventId: event.id,
     executeTick: event.executeTick,
@@ -1716,12 +1913,19 @@ export function tickRoom(room: RoomState): RoomTickResult {
       continue;
     }
 
-    if (applyTemplate(room, template, event.x, event.y)) {
+    if (
+      applyTemplate(
+        room,
+        event.projection.transformedTemplate,
+        event.projection.bounds,
+      )
+    ) {
       team.structures.set(event.structureKey, {
         key: event.structureKey,
         templateId: template.id,
         x: event.x,
         y: event.y,
+        transform: event.projection.transform,
         active: false,
         hp: STRUCTURE_STARTING_HP,
         isCore: false,

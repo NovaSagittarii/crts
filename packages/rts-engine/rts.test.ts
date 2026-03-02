@@ -18,6 +18,7 @@ import {
   createTeamOutcomeSnapshots,
   createTemplateSummaries,
   listRooms,
+  previewBuildPlacement,
   queueBuildEvent,
   queueLegacyCellUpdate,
   removePlayerFromRoom,
@@ -87,7 +88,7 @@ function probeQueueBuild(
   playerId: string,
   payload: { templateId: string; x: number; y: number; delayTicks?: number },
 ): ReturnType<typeof queueBuildEvent> {
-  const probeRoom = structuredClone(room) as ReturnType<typeof createRoomState>;
+  const probeRoom = structuredClone(room);
   return queueBuildEvent(probeRoom, playerId, payload);
 }
 
@@ -405,6 +406,79 @@ describe('rts', () => {
     });
     expect(footprintOverflow.accepted).toBe(false);
     expect(footprintOverflow.reason).toBe('outside-territory');
+  });
+
+  test('accepts torus-wrapped placements and rejects transformed templates that exceed map size', () => {
+    const wideTemplate: StructureTemplate = {
+      id: 'wide-6',
+      name: 'Wide 6',
+      width: 6,
+      height: 1,
+      cells: new Uint8Array([1, 1, 1, 1, 1, 1]),
+      activationCost: 0,
+      income: 0,
+      buildArea: 0,
+      checks: [],
+    };
+
+    const room = createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 5,
+      height: 5,
+      templates: [...createDefaultTemplates(), wideTemplate],
+    });
+    addPlayerToRoom(room, 'p1', 'Alice');
+
+    const wrappedPreview = previewBuildPlacement(room, 'p1', {
+      templateId: 'block',
+      x: 4,
+      y: 4,
+    });
+
+    expect(wrappedPreview.accepted).toBe(true);
+    expect(wrappedPreview.reason).toBeUndefined();
+    expect(wrappedPreview.bounds).toEqual({
+      x: 4,
+      y: 4,
+      width: 2,
+      height: 2,
+    });
+    expect(
+      new Set(
+        (wrappedPreview.footprint ?? []).map((cell) => `${cell.x},${cell.y}`),
+      ),
+    ).toEqual(new Set(['4,4', '0,4', '4,0', '0,0']));
+
+    const overflowPayload = {
+      templateId: wideTemplate.id,
+      x: 0,
+      y: 0,
+      transform: {
+        operations: ['rotate' as const],
+      },
+    };
+
+    const overflowPreview = previewBuildPlacement(room, 'p1', overflowPayload);
+    expect(overflowPreview.accepted).toBe(false);
+    expect(overflowPreview.reason).toBe('template-exceeds-map-size');
+    expect(overflowPreview.transform?.operations).toEqual(['rotate']);
+    expect(overflowPreview.bounds).toEqual({
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 6,
+    });
+    expect(overflowPreview.footprint).toEqual([]);
+    expect(overflowPreview.illegalCells).toEqual([]);
+
+    const overflowQueue = queueBuildEvent(room, 'p1', overflowPayload);
+    expect(overflowQueue.accepted).toBe(false);
+    expect(overflowQueue.reason).toBe('template-exceeds-map-size');
+    expect(overflowQueue.transform?.operations).toEqual(['rotate']);
+    expect(room.timelineEvents.at(-1)?.metadata?.reason).toBe(
+      'template-exceeds-map-size',
+    );
   });
 
   test('[BUILD-01] updates union-zone eligibility after build completion and structure destruction', () => {
