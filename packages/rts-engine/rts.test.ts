@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'vitest';
 
-import { decodeGridBase64 } from '#conway-core';
 import {
   BASE_FOOTPRINT_HEIGHT,
   BASE_FOOTPRINT_WIDTH,
@@ -63,12 +62,11 @@ function getCoreStructure(team: ReturnType<typeof addPlayerToRoom>): {
 }
 
 function getCellAlive(
-  encodedGrid: string,
+  grid: Uint8Array,
   width: number,
   height: number,
   cell: Cell,
 ): boolean {
-  const grid = decodeGridBase64(encodedGrid, width * height);
   return grid[cell.y * width + cell.x] === 1;
 }
 

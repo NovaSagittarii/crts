@@ -52,7 +52,7 @@ interface ActiveMatch extends ConnectedPair {
   guestTeamId: number;
   hostBaseTopLeft: { x: number; y: number };
   guestBaseTopLeft: { x: number; y: number };
-  initialGrid: string;
+  initialGrid: Uint8Array;
 }
 
 function createClient(port: number, options: ClientOptions = {}): Socket {
@@ -653,7 +653,7 @@ describe('server match lifecycle contract', () => {
       (payload) => payload.roomId === setup.room.roomId,
       40,
     );
-    expect(restartedState.grid).toBe(match.initialGrid);
+    expect(restartedState.grid).toStrictEqual(match.initialGrid);
     expect(restartedState.tick).toBeLessThan(4);
     expect(
       restartedState.teams.every(({ resources }) => resources === 40),

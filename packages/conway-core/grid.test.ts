@@ -1,13 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import {
-  applyUpdates,
-  createGrid,
-  decodeGridBase64,
-  encodeGridBase64,
-  stepGrid,
-  type CellUpdate,
-} from './grid.js';
+import { applyUpdates, createGrid, stepGrid, type CellUpdate } from './grid.js';
 
 interface Cell {
   x: number;
@@ -178,49 +171,5 @@ describe('grid', () => {
 
     expect([...grid]).toEqual(before);
     expect(next).not.toBe(grid);
-  });
-
-  test('encodes and decodes base64 grid payloads', () => {
-    const width = 6;
-    const height = 4;
-    const grid = createGrid({ width, height });
-    setCells(
-      grid,
-      width,
-      [
-        { x: 0, y: 0 },
-        { x: 5, y: 0 },
-        { x: 1, y: 2 },
-        { x: 4, y: 3 },
-      ],
-      1,
-    );
-
-    const encoded = encodeGridBase64(grid);
-    const decoded = decodeGridBase64(encoded, width * height);
-
-    expect([...decoded]).toEqual([...grid]);
-  });
-
-  test('preserves non-byte-aligned grids through base64 roundtrip', () => {
-    const width = 3;
-    const height = 3;
-    const grid = createGrid({ width, height });
-    setCells(
-      grid,
-      width,
-      [
-        { x: 0, y: 0 },
-        { x: 2, y: 0 },
-        { x: 1, y: 1 },
-        { x: 0, y: 2 },
-      ],
-      1,
-    );
-
-    const encoded = encodeGridBase64(grid);
-    const decoded = decodeGridBase64(encoded, width * height);
-
-    expect([...decoded]).toEqual([...grid]);
   });
 });

@@ -1846,15 +1846,6 @@ function renderRoomList(rooms: RoomListEntry[]): void {
   }
 }
 
-function decodeBase64ToBytes(encoded: string): Uint8Array {
-  const binary = atob(encoded);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
-
 function getBit(bytes: Uint8Array, index: number): boolean {
   const byteIndex = index >> 3;
   const bitIndex = index & 7;
@@ -2730,7 +2721,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
 
   gridWidth = payload.state.width;
   gridHeight = payload.state.height;
-  gridBytes = decodeBase64ToBytes(payload.state.grid);
+  gridBytes = payload.state.grid;
   generationEl.textContent = payload.state.generation.toString();
   updateTeamStats(payload.state);
   syncVisibleStructures(payload.state);
@@ -3030,7 +3021,7 @@ socket.on('state', (payload: StatePayload) => {
 
   gridWidth = payload.width;
   gridHeight = payload.height;
-  gridBytes = decodeBase64ToBytes(payload.grid);
+  gridBytes = payload.grid;
   generationEl.textContent = payload.generation.toString();
   if (payload.roomId !== currentRoomId) {
     currentRoomId = payload.roomId;
