@@ -130,6 +130,7 @@ const incomeBreakdownActiveEl = getRequiredElement<HTMLElement>(
   'income-breakdown-active',
 );
 const queuePlacementEl = getRequiredElement<HTMLElement>('queue-placement');
+const previewReasonEl = getRequiredElement<HTMLElement>('preview-reason');
 const queueCostEl = getRequiredElement<HTMLElement>('queue-cost');
 const queueFeedbackEl = getRequiredElement<HTMLElement>('queue-feedback');
 const queueBuildButton = getRequiredElement<HTMLButtonElement>('queue-build');
@@ -508,6 +509,14 @@ function describeBuildFailureReason(reason: string | undefined): string {
   return 'validation failed';
 }
 
+function describePreviewReason(reason: string | undefined): string {
+  if (!reason) {
+    return 'Preview reason: legal placement';
+  }
+
+  return `Preview reason: ${describeBuildFailureReason(reason)}.`;
+}
+
 function formatDeficitCopy(
   needed: number,
   current: number,
@@ -622,8 +631,18 @@ function updateQueueAffordabilityUi(): void {
 
   queueCostEl.classList.remove('queue-cost--affordable', 'queue-cost--blocked');
   if (!latestBuildPreview) {
+    previewReasonEl.textContent =
+      'Preview reason: awaiting authoritative preview.';
+    previewReasonEl.classList.remove('queue-feedback--error');
     queueCostEl.textContent = 'Cost: --';
   } else {
+    previewReasonEl.textContent = describePreviewReason(
+      latestBuildPreview.reason,
+    );
+    previewReasonEl.classList.toggle(
+      'queue-feedback--error',
+      Boolean(latestBuildPreview.reason),
+    );
     queueCostEl.textContent = `Cost: ${latestBuildPreview.needed} | Current: ${latestBuildPreview.current}`;
     queueCostEl.classList.add(
       latestBuildPreview.affordable
@@ -1415,11 +1434,21 @@ function renderBuildPreviewOverlay(): void {
     latestBuildPreview.illegalCells.map(({ x, y }) => `${x},${y}`),
   );
 
+  for (const cell of latestBuildPreview.illegalCells) {
+    ctx.fillStyle = 'rgba(224, 122, 122, 0.36)';
+    ctx.fillRect(
+      cell.x * cellSize + 1,
+      cell.y * cellSize + 1,
+      Math.max(1, cellSize - 2),
+      Math.max(1, cellSize - 2),
+    );
+  }
+
   for (const cell of latestBuildPreview.footprint) {
     const isIllegal = illegalCellKeys.has(`${cell.x},${cell.y}`);
     ctx.fillStyle = isIllegal
       ? 'rgba(224, 122, 122, 0.72)'
-      : 'rgba(70, 213, 182, 0.42)';
+      : 'rgba(70, 213, 182, 0.52)';
     ctx.fillRect(
       cell.x * cellSize + 1,
       cell.y * cellSize + 1,
