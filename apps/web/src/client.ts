@@ -92,6 +92,16 @@ import {
   type StructureInteractionAction,
   type StructureInteractionState,
 } from './structure-interaction-view-model.js';
+import {
+  createTacticalOverlayState,
+  DEFAULT_SYNC_STALE_THRESHOLD_MS,
+  deriveTacticalOverlayState,
+  type TacticalOverlayDetailRow,
+  type TacticalOverlaySection,
+  type TacticalOverlaySummaryItem,
+  type TacticalOverlayTeamSnapshot,
+  type TacticalOverlayState,
+} from './tactical-overlay-view-model.js';
 
 type RoomListEntry = RoomListEntryPayload;
 type StatePayload = RoomStatePayload;
@@ -235,6 +245,49 @@ const structureInspectorStateEl = getRequiredElement<HTMLElement>(
 const structureInspectorActionHintEl = getRequiredElement<HTMLElement>(
   'structure-inspector-action-hint',
 );
+const tacticalRailEl = getRequiredElement<HTMLElement>('tactical-rail');
+const tacticalSyncHintEl =
+  getRequiredElement<HTMLElement>('tactical-sync-hint');
+const overlaySummaryEconomyEl = getRequiredElement<HTMLDivElement>(
+  'overlay-summary-economy',
+);
+const overlaySummaryBuildEl = getRequiredElement<HTMLDivElement>(
+  'overlay-summary-build',
+);
+const overlaySummaryTeamEl = getRequiredElement<HTMLDivElement>(
+  'overlay-summary-team',
+);
+const overlayDetailsEconomyEl = getRequiredElement<HTMLDivElement>(
+  'overlay-details-economy',
+);
+const overlayDetailsBuildEl = getRequiredElement<HTMLDivElement>(
+  'overlay-details-build',
+);
+const overlayDetailsTeamEl = getRequiredElement<HTMLDivElement>(
+  'overlay-details-team',
+);
+const overlayPendingEconomyEl = getRequiredElement<HTMLElement>(
+  'overlay-pending-economy',
+);
+const overlayPendingBuildEl = getRequiredElement<HTMLElement>(
+  'overlay-pending-build',
+);
+const overlayPendingTeamEl = getRequiredElement<HTMLElement>(
+  'overlay-pending-team',
+);
+const overlayFeedbackBuildEl = getRequiredElement<HTMLElement>(
+  'overlay-feedback-build',
+);
+const overlayFeedbackTeamEl = getRequiredElement<HTMLElement>(
+  'overlay-feedback-team',
+);
+const overlayTabEconomyButton = getRequiredElement<HTMLButtonElement>(
+  'overlay-tab-economy',
+);
+const overlayTabBuildButton =
+  getRequiredElement<HTMLButtonElement>('overlay-tab-build');
+const overlayTabTeamButton =
+  getRequiredElement<HTMLButtonElement>('overlay-tab-team');
 const pendingTimelineEl =
   getRequiredElement<HTMLDivElement>('pending-timeline');
 const messageEl = getRequiredElement<HTMLElement>('message');
@@ -405,6 +458,17 @@ let destroyViewState: DestroyViewModelState = createDestroyViewModelState();
 let structureInteractionState: StructureInteractionState =
   createStructureInteractionState();
 let structureHoverTickTimeoutId: number | null = null;
+let tacticalOverlayState: TacticalOverlayState = createTacticalOverlayState();
+let tacticalOverlayTickTimeoutId: number | null = null;
+let activeOverlayTab: 'economy' | 'build' | 'team' = 'economy';
+let latestTacticalTeamSnapshot: TeamPayload | null = null;
+let lastAuthoritativeStateAtMs: number | null = null;
+let overlayBuildFeedbackCopy = 'No recent build action.';
+let overlayBuildFeedbackPending = false;
+let overlayBuildFeedbackIsError = false;
+let overlayTeamFeedbackCopy = 'No recent team action.';
+let overlayTeamFeedbackPending = false;
+let overlayTeamFeedbackIsError = false;
 let visibleStructures: VisibleStructure[] = [];
 let structureCellIndex = new Map<string, VisibleStructure>();
 let localBuildZoneCells: Cell[] = [];
@@ -549,6 +613,7 @@ function updateReconnectIndicator(): void {
     reconnectIndicatorEl.classList.add('is-hidden');
     reconnectIndicatorEl.textContent = '';
     clearReconnectNoticeTimeout();
+    renderTacticalOverlay();
     return;
   }
 
@@ -563,6 +628,8 @@ function updateReconnectIndicator(): void {
       updateReconnectIndicator();
     }, RECONNECT_NOTICE_MS);
   }
+
+  renderTacticalOverlay();
 }
 
 function updateVisibleMatchScreen(): void {
@@ -1073,6 +1140,272 @@ function updateStructureHoverStateForPointer(event: PointerEvent): void {
   );
 }
 
+function clearTacticalOverlayTickTimeout(): void {
+  if (tacticalOverlayTickTimeoutId === null) {
+    return;
+  }
+
+  window.clearTimeout(tacticalOverlayTickTimeoutId);
+  tacticalOverlayTickTimeoutId = null;
+}
+
+function scheduleTacticalOverlayTick(nowMs: number): void {
+  clearTacticalOverlayTickTimeout();
+
+  let nextTickAt: number | null = null;
+  for (const highlightUntil of Object.values(
+    tacticalOverlayState.highlightUntilByMetric,
+  )) {
+    if (highlightUntil > nowMs) {
+      nextTickAt =
+        nextTickAt === null
+          ? highlightUntil
+          : Math.min(nextTickAt, highlightUntil);
+    }
+  }
+
+  if (
+    lastAuthoritativeStateAtMs !== null &&
+    !matchScreenState.reconnectNotice
+  ) {
+    const staleTickAt =
+      lastAuthoritativeStateAtMs + DEFAULT_SYNC_STALE_THRESHOLD_MS + 1;
+    if (staleTickAt > nowMs) {
+      nextTickAt =
+        nextTickAt === null ? staleTickAt : Math.min(nextTickAt, staleTickAt);
+    }
+  }
+
+  if (nextTickAt === null) {
+    return;
+  }
+
+  tacticalOverlayTickTimeoutId = window.setTimeout(
+    () => {
+      tacticalOverlayTickTimeoutId = null;
+      renderTacticalOverlay(Date.now());
+    },
+    Math.max(0, nextTickAt - nowMs),
+  );
+}
+
+function setOverlayPendingBadge(
+  element: HTMLElement,
+  pendingCount: number,
+): void {
+  if (pendingCount <= 0) {
+    element.classList.add('is-hidden');
+    element.textContent = 'Pending';
+    return;
+  }
+
+  element.classList.remove('is-hidden');
+  element.textContent = `Pending ${pendingCount}`;
+}
+
+function renderTacticalSummaryItems(
+  container: HTMLElement,
+  items: readonly TacticalOverlaySummaryItem[],
+): void {
+  container.innerHTML = '';
+
+  if (items.length === 0) {
+    return;
+  }
+
+  for (const item of items) {
+    const card = document.createElement('article');
+    card.className = 'tactical-summary-item';
+    card.classList.toggle('tactical-summary-item--highlight', item.highlighted);
+
+    const labelEl = document.createElement('span');
+    labelEl.textContent = item.label;
+    const valueEl = document.createElement('strong');
+    valueEl.textContent = item.value;
+
+    card.append(labelEl, valueEl);
+    container.append(card);
+  }
+}
+
+function renderTacticalDetailRows(
+  container: HTMLElement,
+  rows: readonly TacticalOverlayDetailRow[],
+): void {
+  container.innerHTML = '';
+
+  for (const row of rows) {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'tactical-detail-row';
+
+    const labelEl = document.createElement('span');
+    labelEl.textContent = row.label;
+    const valueEl = document.createElement('strong');
+    valueEl.textContent = row.value;
+
+    rowEl.append(labelEl, valueEl);
+    container.append(rowEl);
+  }
+}
+
+function renderOverlayFeedbackRows(): void {
+  overlayFeedbackBuildEl.textContent = overlayBuildFeedbackCopy;
+  overlayFeedbackBuildEl.classList.toggle(
+    'section-feedback--pending',
+    overlayBuildFeedbackPending,
+  );
+  overlayFeedbackBuildEl.classList.toggle(
+    'queue-feedback--error',
+    overlayBuildFeedbackIsError,
+  );
+
+  overlayFeedbackTeamEl.textContent = overlayTeamFeedbackCopy;
+  overlayFeedbackTeamEl.classList.toggle(
+    'section-feedback--pending',
+    overlayTeamFeedbackPending,
+  );
+  overlayFeedbackTeamEl.classList.toggle(
+    'queue-feedback--error',
+    overlayTeamFeedbackIsError,
+  );
+}
+
+function setActiveOverlayTab(tabId: 'economy' | 'build' | 'team'): void {
+  activeOverlayTab = tabId;
+  tacticalRailEl.dataset.mobileTab = tabId;
+
+  const tabs = [
+    { id: 'economy', button: overlayTabEconomyButton },
+    { id: 'build', button: overlayTabBuildButton },
+    { id: 'team', button: overlayTabTeamButton },
+  ] as const;
+
+  for (const tab of tabs) {
+    const isActive = tab.id === tabId;
+    tab.button.classList.toggle('is-active', isActive);
+    tab.button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  }
+}
+
+function toTacticalOverlayTeamSnapshot(
+  team: TeamPayload | null,
+): TacticalOverlayTeamSnapshot | null {
+  if (!team) {
+    return null;
+  }
+
+  return {
+    id: team.id,
+    name: `Team ${team.id}`,
+    defeated: team.defeated,
+    baseIntact: team.baseIntact,
+    resources: team.resources,
+    income: team.income,
+    incomeBreakdown: team.incomeBreakdown,
+    pendingBuilds: team.pendingBuilds,
+    pendingDestroys: team.pendingDestroys,
+    structures: team.structures.map((structure) => ({
+      key: structure.key,
+      active: structure.active,
+    })),
+  };
+}
+
+function renderTacticalSection(
+  section: TacticalOverlaySection | undefined,
+  summaryEl: HTMLElement,
+  detailEl: HTMLElement,
+): void {
+  if (!section) {
+    summaryEl.innerHTML = '';
+    detailEl.innerHTML = '';
+    return;
+  }
+
+  renderTacticalSummaryItems(summaryEl, section.summaryItems);
+  renderTacticalDetailRows(detailEl, section.detailRows);
+}
+
+function renderTacticalOverlay(nowMs = Date.now()): void {
+  tacticalOverlayState = deriveTacticalOverlayState(tacticalOverlayState, {
+    nowMs,
+    team: toTacticalOverlayTeamSnapshot(latestTacticalTeamSnapshot),
+    templates: availableTemplates,
+    selectedTemplateId: selectedTemplateId || null,
+    previewReasonCopy: previewReasonEl.textContent,
+    latestActionCopy: overlayTeamFeedbackCopy,
+    sync: {
+      reconnectPending: Boolean(matchScreenState.reconnectNotice),
+      lastAuthoritativeUpdateAtMs: lastAuthoritativeStateAtMs,
+      staleThresholdMs: DEFAULT_SYNC_STALE_THRESHOLD_MS,
+      hintCopy: 'Syncing tactical data from server updates...',
+    },
+  });
+
+  const sections = new Map(
+    tacticalOverlayState.sections.map((section) => [section.id, section]),
+  );
+  const economySection = sections.get('economy');
+  const buildSection = sections.get('build');
+  const teamSection = sections.get('team');
+
+  renderTacticalSection(
+    economySection,
+    overlaySummaryEconomyEl,
+    overlayDetailsEconomyEl,
+  );
+  renderTacticalSection(
+    buildSection,
+    overlaySummaryBuildEl,
+    overlayDetailsBuildEl,
+  );
+  renderTacticalSection(
+    teamSection,
+    overlaySummaryTeamEl,
+    overlayDetailsTeamEl,
+  );
+
+  const buildPendingCount =
+    (buildSection?.pendingBadgeCount ?? 0) +
+    (overlayBuildFeedbackPending ? 1 : 0);
+  const teamPendingCount =
+    (teamSection?.pendingBadgeCount ?? 0) +
+    (overlayTeamFeedbackPending ? 1 : 0);
+
+  setOverlayPendingBadge(
+    overlayPendingEconomyEl,
+    economySection?.pendingBadgeCount ?? 0,
+  );
+  setOverlayPendingBadge(overlayPendingBuildEl, buildPendingCount);
+  setOverlayPendingBadge(overlayPendingTeamEl, teamPendingCount);
+
+  if (tacticalOverlayState.syncHint.visible) {
+    tacticalSyncHintEl.classList.remove('is-hidden');
+    tacticalSyncHintEl.textContent =
+      tacticalOverlayState.syncHint.copy ?? 'Syncing tactical data...';
+  } else {
+    tacticalSyncHintEl.classList.add('is-hidden');
+    tacticalSyncHintEl.textContent = '';
+  }
+
+  renderOverlayFeedbackRows();
+  scheduleTacticalOverlayTick(nowMs);
+}
+
+function resetTacticalOverlayState(): void {
+  clearTacticalOverlayTickTimeout();
+  tacticalOverlayState = createTacticalOverlayState();
+  latestTacticalTeamSnapshot = null;
+  lastAuthoritativeStateAtMs = null;
+  overlayBuildFeedbackCopy = 'No recent build action.';
+  overlayBuildFeedbackPending = false;
+  overlayBuildFeedbackIsError = false;
+  overlayTeamFeedbackCopy = 'No recent team action.';
+  overlayTeamFeedbackPending = false;
+  overlayTeamFeedbackIsError = false;
+  renderTacticalOverlay();
+}
+
 function syncVisibleStructures(payload: StatePayload): void {
   const nextStructures: VisibleStructure[] = [];
   const nextIndex = new Map<string, VisibleStructure>();
@@ -1314,6 +1647,10 @@ function updateDestroyUi(): void {
     );
     destroyFeedbackEl.textContent = feedback;
     destroyFeedbackEl.classList.toggle('queue-feedback--error', isError);
+    overlayTeamFeedbackCopy = feedback;
+    overlayTeamFeedbackIsError = isError;
+    renderOverlayFeedbackRows();
+    renderTacticalOverlay(nowMs);
     return;
   }
 
@@ -1371,6 +1708,10 @@ function updateDestroyUi(): void {
   );
   destroyFeedbackEl.textContent = feedback;
   destroyFeedbackEl.classList.toggle('queue-feedback--error', isError);
+  overlayTeamFeedbackCopy = feedback;
+  overlayTeamFeedbackIsError = isError;
+  renderOverlayFeedbackRows();
+  renderTacticalOverlay(nowMs);
 }
 
 function updateTransformIndicator(): void {
@@ -1471,6 +1812,9 @@ function updateQueueAffordabilityUi(): void {
   queueBuildButton.disabled = disabled;
   queueFeedbackEl.textContent = feedback;
   queueFeedbackEl.classList.toggle('queue-feedback--error', isError);
+  overlayBuildFeedbackCopy = feedback;
+  overlayBuildFeedbackIsError = isError;
+  renderOverlayFeedbackRows();
   updateDestroyUi();
 }
 
@@ -1504,6 +1848,10 @@ function emitDestroyQueueForSelection(): void {
   }
 
   resetDestroyFeedbackOverride();
+  setDestroyFeedbackOverride('Submitting destroy request...', false);
+  overlayTeamFeedbackPending = true;
+  overlayTeamFeedbackIsError = false;
+  overlayTeamFeedbackCopy = 'Submitting destroy request...';
   socket.emit('destroy:queue', {
     structureKey,
   });
@@ -2393,6 +2741,7 @@ function updateTeamStats(payload: StatePayload): void {
 
   if (currentTeamId === null) {
     latestLocalBaseTopLeft = null;
+    latestTacticalTeamSnapshot = null;
     currentTeamDefeated = false;
     teamEl.textContent = 'Spectator';
     resourcesEl.textContent = '-';
@@ -2406,6 +2755,7 @@ function updateTeamStats(payload: StatePayload): void {
   const team = payload.teams.find(({ id }) => id === currentTeamId);
   if (!team) {
     latestLocalBaseTopLeft = null;
+    latestTacticalTeamSnapshot = null;
     currentTeamDefeated = false;
     teamEl.textContent = '#?';
     resourcesEl.textContent = '-';
@@ -2417,6 +2767,7 @@ function updateTeamStats(payload: StatePayload): void {
   }
 
   currentTeamDefeated = team.defeated;
+  latestTacticalTeamSnapshot = team;
   latestLocalBaseTopLeft = {
     x: team.baseTopLeft.x,
     y: team.baseTopLeft.y,
@@ -2986,6 +3337,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   clearSelectedTemplatePlacement();
   resetEconomyTracking();
   resetDestroyInteractionState();
+  resetTacticalOverlayState();
   availableTemplates = payload.templates;
   selectedTemplateId = payload.templates[0]?.id ?? '';
   updateTemplateOptions();
@@ -3002,6 +3354,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   gridWidth = payload.state.width;
   gridHeight = payload.state.height;
   gridBytes = payload.state.grid;
+  lastAuthoritativeStateAtMs = Date.now();
   generationEl.textContent = payload.state.generation.toString();
   updateTeamStats(payload.state);
   syncVisibleStructures(payload.state);
@@ -3036,6 +3389,7 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   clearSelectedTemplatePlacement();
   resetEconomyTracking();
   resetDestroyInteractionState();
+  resetTacticalOverlayState();
   cameraState = createCameraViewState();
   updateCameraStatus();
   applyRoomStatus('lobby');
@@ -3077,6 +3431,9 @@ socket.on('room:error', (payload: RoomErrorPayload) => {
     );
     message = `Queue rejected. ${deficitCopy}`;
     setQueueFeedbackOverride(deficitCopy, true);
+    overlayBuildFeedbackPending = false;
+    overlayBuildFeedbackCopy = deficitCopy;
+    overlayBuildFeedbackIsError = true;
   } else if (
     payload.reason === 'outside-territory' ||
     payload.reason === 'template-exceeds-map-size' ||
@@ -3088,6 +3445,9 @@ socket.on('room:error', (payload: RoomErrorPayload) => {
       `Cannot queue here: ${describeBuildFailureReason(payload.reason)}.`,
       true,
     );
+    overlayBuildFeedbackPending = false;
+    overlayBuildFeedbackCopy = `Cannot queue here: ${describeBuildFailureReason(payload.reason)}.`;
+    overlayBuildFeedbackIsError = true;
   } else if (
     payload.reason === 'wrong-owner' ||
     payload.reason === 'invalid-target' ||
@@ -3098,6 +3458,9 @@ socket.on('room:error', (payload: RoomErrorPayload) => {
       `Destroy rejected: ${describeDestroyFailureReason(payload.reason)}.`,
       true,
     );
+    overlayTeamFeedbackPending = false;
+    overlayTeamFeedbackCopy = `Destroy rejected: ${describeDestroyFailureReason(payload.reason)}.`;
+    overlayTeamFeedbackIsError = true;
   }
 
   if (payload.reason === 'defeated') {
@@ -3228,19 +3591,26 @@ socket.on('build:outcome', (payload: BuildOutcome) => {
         : `Build #${payload.eventId} rejected: ${describeBuildFailureReason(payload.reason)}.`;
 
     setQueueFeedbackOverride(rejectionCopy, true);
+    overlayBuildFeedbackPending = false;
+    overlayBuildFeedbackCopy = rejectionCopy;
+    overlayBuildFeedbackIsError = true;
     setMessage(rejectionCopy, true);
   } else {
     resetQueueFeedbackOverride();
+    overlayBuildFeedbackPending = false;
+    overlayBuildFeedbackCopy = `Build #${payload.eventId} applied.`;
+    overlayBuildFeedbackIsError = false;
+    setQueueFeedbackOverride(overlayBuildFeedbackCopy, false);
   }
 
   updateQueueAffordabilityUi();
 });
 
 socket.on('build:queued', (payload: BuildQueuedPayload) => {
-  setQueueFeedbackOverride(
-    `Queued event #${payload.eventId} for execute tick ${payload.executeTick}.`,
-    false,
-  );
+  overlayBuildFeedbackPending = false;
+  overlayBuildFeedbackIsError = false;
+  overlayBuildFeedbackCopy = `Queued event #${payload.eventId} for execute tick ${payload.executeTick}.`;
+  setQueueFeedbackOverride(overlayBuildFeedbackCopy, false);
   addToast(`Queued #${payload.eventId} for tick ${payload.executeTick}.`);
   setMessage(
     `Build queued (#${payload.eventId}) for tick ${payload.executeTick}.`,
@@ -3265,11 +3635,17 @@ socket.on('destroy:outcome', (payload: DestroyOutcome) => {
   if (payload.outcome === 'rejected') {
     const rejectionCopy = `Destroy #${payload.eventId} rejected: ${describeDestroyFailureReason(payload.reason)}.`;
     setDestroyFeedbackOverride(rejectionCopy, true);
+    overlayTeamFeedbackPending = false;
+    overlayTeamFeedbackCopy = rejectionCopy;
+    overlayTeamFeedbackIsError = true;
     setMessage(rejectionCopy, true);
     addToast(rejectionCopy, true);
   } else {
     const successCopy = `Destroy applied for ${payload.structureKey}.`;
     setDestroyFeedbackOverride(successCopy, false);
+    overlayTeamFeedbackPending = false;
+    overlayTeamFeedbackCopy = successCopy;
+    overlayTeamFeedbackIsError = false;
     setMessage(successCopy);
     addToast('Structure destroyed.');
   }
@@ -3287,6 +3663,9 @@ socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
     ? `Destroy already pending for ${payload.structureKey}.`
     : `Destroy queued (#${payload.eventId}) for tick ${payload.executeTick}.`;
 
+  overlayTeamFeedbackPending = false;
+  overlayTeamFeedbackCopy = feedback;
+  overlayTeamFeedbackIsError = false;
   setDestroyFeedbackOverride(feedback, false);
   setMessage(feedback);
   if (!payload.idempotent) {
@@ -3302,6 +3681,7 @@ socket.on('state', (payload: StatePayload) => {
   gridWidth = payload.width;
   gridHeight = payload.height;
   gridBytes = payload.grid;
+  lastAuthoritativeStateAtMs = Date.now();
   generationEl.textContent = payload.generation.toString();
   if (payload.roomId !== currentRoomId) {
     currentRoomId = payload.roomId;
@@ -3443,6 +3823,10 @@ queueBuildButton.addEventListener('click', () => {
   }
 
   resetQueueFeedbackOverride();
+  setQueueFeedbackOverride('Submitting build queue request...', false);
+  overlayBuildFeedbackPending = true;
+  overlayBuildFeedbackIsError = false;
+  overlayBuildFeedbackCopy = 'Submitting build queue request...';
   socket.emit('build:queue', {
     templateId: queueRequest.templateId,
     x: queueRequest.x,
@@ -3509,10 +3893,24 @@ refreshRoomsButton.addEventListener('click', () => {
   socket.emit('room:list');
 });
 
+overlayTabEconomyButton.addEventListener('click', () => {
+  setActiveOverlayTab('economy');
+});
+
+overlayTabBuildButton.addEventListener('click', () => {
+  setActiveOverlayTab('build');
+});
+
+overlayTabTeamButton.addEventListener('click', () => {
+  setActiveOverlayTab('team');
+});
+
 updateTransformIndicator();
 updateTemplateOptions();
 resetEconomyTracking();
 resetDestroyInteractionState();
+setActiveOverlayTab(activeOverlayTab);
+resetTacticalOverlayState();
 updateVisibleMatchScreen();
 updateReconnectIndicator();
 updateLobbyControls();
