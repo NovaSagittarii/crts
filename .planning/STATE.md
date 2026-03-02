@@ -5,44 +5,44 @@
 See: .planning/PROJECT.md (updated 2026-03-01)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Execute Phases 8-12 in YOLO + auto-advance mode, then run one consolidated human verification pass.
+**Current focus:** Run consolidated human verification/UAT across the completed v0.0.2 milestone flows.
 
 ## Current Position
 
 **Current Milestone:** v0.0.2 Gameplay Expansion
-**Phase:** 11 of 12 (Camera and Build-Zone Visualization)
+**Phase:** 12 of 12 (Structure Hover and Tactical Overlays)
 **Plan:** 2 of 2
-**Current Plan:** 2
+**Current Plan:** Complete
 **Total Plans in Phase:** 2
-**Status:** Phase complete — ready for verification
+**Status:** Milestone implementation complete
 **Last Activity:** 2026-03-02
-**Progress:** [██████████] 97%
+**Progress:** [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Completed phases: 10
-- Completed plans: 26
-- Completed tasks: 69
+- Completed phases: 12
+- Completed plans: 30
+- Completed tasks: 74
 - Shipped milestones: 1 (`v0.0.1`)
 
 **By Phase:**
 
-| Phase | Plans | Status      |
-| ----- | ----- | ----------- |
-| 1     | 5/5   | Complete    |
-| 2     | 3/3   | Complete    |
-| 3     | 2/2   | Complete    |
-| 4     | 4/4   | Complete    |
-| 5     | 2/2   | Complete    |
-| 6     | 2/2   | Complete    |
-| 7     | 1/1   | Complete    |
-| 8     | 3/3   | Complete    |
-| 9     | 3/3   | Complete    |
-| 10    | 1/1   | Complete    |
-| 11    | 2/2   | Complete    |
-| 12    | 0/TBD | Not started |
+| Phase | Plans | Status   |
+| ----- | ----- | -------- |
+| 1     | 5/5   | Complete |
+| 2     | 3/3   | Complete |
+| 3     | 2/2   | Complete |
+| 4     | 4/4   | Complete |
+| 5     | 2/2   | Complete |
+| 6     | 2/2   | Complete |
+| 7     | 1/1   | Complete |
+| 8     | 3/3   | Complete |
+| 9     | 3/3   | Complete |
+| 10    | 1/1   | Complete |
+| 11    | 2/2   | Complete |
+| 12    | 2/2   | Complete |
 
 **Recent Trend:**
 
@@ -56,10 +56,8 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 - v0.0.2 Phase 10 Plan 01 shipped authoritative lobby/in-game screen routing with reconnect-safe transition messaging.
 - v0.0.2 Phase 11 Plan 01 shipped shared build-zone and camera helper foundations with deterministic unit/web coverage.
 - v0.0.2 Phase 11 Plan 02 shipped in-match camera controls and authoritative local union-zone overlays with passing web/build gates.
-  | Phase 10 P01 | 13m 22s | 3 tasks | 4 files |
-  | Phase 11 P01 | 9m | 2 tasks | 6 files |
-  | Phase 11 P02 | 16m | 3 tasks | 3 files |
-| Phase 12 P01 | 6m 53s | 2 tasks | 4 files |
+- v0.0.2 Phase 12 Plan 01 shipped deterministic structure interaction and tactical projection helpers with passing web/build gates.
+- v0.0.2 Phase 12 Plan 02 shipped board-adjacent structure inspector and responsive tactical overlays with authoritative feedback synchronization.
 
 ## Accumulated Context
 
@@ -94,11 +92,13 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 - [Phase 11]: Render local union-zone overlays from authoritative structures with subtle idle styling and stronger placement emphasis while keeping preview invalid cues top priority.
 - [Phase 12]: Keep hover/pin semantics in a pure reducer with explicit tick/reconcile actions so runtime code does not duplicate timing rules.
 - [Phase 12]: Track tactical overlay highlights as timestamp metadata keyed by metric deltas instead of local gameplay simulation state.
+- [Phase 12]: Bind destroy queue eligibility to pinned inspector state — Keeps hover previews read-only and prevents accidental actions without explicit pin intent
+- [Phase 12]: Schedule tactical overlay refresh ticks for highlight and sync-hint expiry — Maintains deterministic one-second visual cues without adding client-side simulation state
 
 ### Pending Todos
 
-- Continue plan+execute cycle through Phase 12 with auto-advance on.
-- After Phase 12 execution, run consolidated human verification/UAT across milestone flows.
+- Run consolidated human verification/UAT across milestone flows.
+- Prepare v0.0.2 milestone closeout once UAT is approved.
 
 ### Blockers/Concerns
 
@@ -107,6 +107,6 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 
 ## Session Continuity
 
-**Last session:** 2026-03-02T09:37:35.717Z
-**Stopped At:** Completed 12-01-PLAN.md
+**Last session:** 2026-03-02T10:12:52.666Z
+**Stopped At:** Completed 12-02-PLAN.md
 **Resume File:** None

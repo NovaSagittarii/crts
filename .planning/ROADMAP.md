@@ -22,7 +22,7 @@ v0.0.2 expands deterministic gameplay through structure integrity rules, base-ge
 - [x] **Phase 9: Destroy Flow and Determinism Gates** - Deliver authoritative destroy outcomes and two-client/reconnect determinism coverage. (completed 2026-03-02)
 - [x] **Phase 10: Match Screen Transition Split** - Separate lobby and in-game screens with explicit match-state navigation. (completed 2026-03-02)
 - [x] **Phase 11: Camera and Build-Zone Visualization** - Add pan/zoom with accurate controls and live union-zone outlines. (completed 2026-03-02)
-- [ ] **Phase 12: Structure Hover and Tactical Overlays** - Provide structure details/actions plus grid-adjacent economy/build/team overlays.
+- [x] **Phase 12: Structure Hover and Tactical Overlays** - Provide structure details/actions plus grid-adjacent economy/build/team overlays. (completed 2026-03-02)
 
 ## Phase Details
 
@@ -151,21 +151,21 @@ Plans:
 3. Overlay and hover data remain synchronized with authoritative match updates.
 4. Structure actions selected from interaction surfaces provide immediate authoritative feedback to the player.
 
-**Plans**: 2 plans
+**Plans**: 2/2 plans complete
 
 Plans:
 
-- [ ] 12-01-PLAN.md — Establish deterministic hover/pin and tactical overlay projection helpers with focused web tests.
-- [ ] 12-02-PLAN.md — Wire structure inspector interactions and adjacent Economy/Build/Team overlays into responsive in-game runtime surfaces.
+- [x] 12-01-PLAN.md — Establish deterministic hover/pin and tactical overlay projection helpers with focused web tests.
+- [x] 12-02-PLAN.md — Wire structure inspector interactions and adjacent Economy/Build/Team overlays into responsive in-game runtime surfaces.
 
 ## Progress
 
-| Phase                                     | Plans Complete | Status      | Completed  |
-| ----------------------------------------- | -------------- | ----------- | ---------- |
-| 6. Base Geometry and Integrity Core       | 2/2            | Complete    | 2026-03-02 |
-| 7. Authoritative Union Build Zones        | 1/1            | Complete    | 2026-03-02 |
-| 8. Transform Placement Consistency        | 3/3            | Complete    | 2026-03-02 |
-| 9. Destroy Flow and Determinism Gates     | 3/3            | Complete    | 2026-03-02 |
-| 10. Match Screen Transition Split         | 1/1            | Complete    | 2026-03-02 |
-| 11. Camera and Build-Zone Visualization   | 2/2            | Complete    | 2026-03-02 |
-| 12. Structure Hover and Tactical Overlays | 1/2 | In Progress|  |
+| Phase                                     | Plans Complete | Status   | Completed  |
+| ----------------------------------------- | -------------- | -------- | ---------- |
+| 6. Base Geometry and Integrity Core       | 2/2            | Complete | 2026-03-02 |
+| 7. Authoritative Union Build Zones        | 1/1            | Complete | 2026-03-02 |
+| 8. Transform Placement Consistency        | 3/3            | Complete | 2026-03-02 |
+| 9. Destroy Flow and Determinism Gates     | 3/3            | Complete | 2026-03-02 |
+| 10. Match Screen Transition Split         | 1/1            | Complete | 2026-03-02 |
+| 11. Camera and Build-Zone Visualization   | 2/2            | Complete | 2026-03-02 |
+| 12. Structure Hover and Tactical Overlays | 2/2            | Complete | 2026-03-02 |

@@ -18,7 +18,7 @@ affects: [apps/web/src/client.ts, tests/web, phase-12-plan-02-runtime-wiring]
 tech-stack:
   added: []
   patterns:
-    - Pure reducer-style interaction state in `apps/web/src/*-view-model.ts`
+    - Pure reducer-style interaction state in `apps/web/src/structure-interaction-view-model.ts` and `apps/web/src/tactical-overlay-view-model.ts`
     - Authoritative payload projection-first overlay view models with typed summary/detail outputs
 
 key-files:
