@@ -17,9 +17,9 @@ Requirements for milestone `v0.0.2 Gameplay Expansion`.
 
 - [x] **BUILD-01**: Player can place structures only when the placement footprint lies within the union of build-radius zones from owned structures.
 - [x] **BUILD-02**: Build-radius value for union-zone checks is fixed to 15 for this milestone.
-- [ ] **XFORM-01**: Player can rotate a structure template before preview/queue placement.
-- [ ] **XFORM-02**: Player can mirror a structure template before preview/queue placement.
-- [ ] **QUAL-03**: Player sees consistent placement legality between preview, queued result, and applied simulation outcome for standard and transformed placements.
+- [x] **XFORM-01**: Player can rotate a structure template before preview/queue placement.
+- [x] **XFORM-02**: Player can mirror a structure template before preview/queue placement.
+- [x] **QUAL-03**: Player sees consistent placement legality between preview, queued result, and applied simulation outcome for standard and transformed placements.
 
 ### Match UI and Navigation
 
@@ -64,9 +64,9 @@ Mapped during roadmap creation.
 | STRUCT-01   | Phase 6  | Complete |
 | BUILD-01    | Phase 7  | Complete |
 | BUILD-02    | Phase 7  | Complete |
-| XFORM-01    | Phase 8  | Pending  |
-| XFORM-02    | Phase 8  | Pending  |
-| QUAL-03     | Phase 8  | Pending  |
+| XFORM-01    | Phase 8  | Complete |
+| XFORM-02    | Phase 8  | Complete |
+| QUAL-03     | Phase 8  | Complete |
 | STRUCT-02   | Phase 9  | Pending  |
 | QUAL-04     | Phase 9  | Pending  |
 | UI-01       | Phase 10 | Pending  |
