@@ -84,37 +84,3 @@ export function stepGrid(
 
   return next;
 }
-
-export function encodeGridBase64(grid: Uint8Array): string {
-  const byteLength = Math.ceil(grid.length / 8);
-  const bytes = new Uint8Array(byteLength);
-
-  for (let i = 0; i < grid.length; i += 1) {
-    if (!grid[i]) continue;
-
-    const byteIndex = i >> 3;
-    const bitIndex = i & 7;
-    bytes[byteIndex] |= 1 << (7 - bitIndex);
-  }
-
-  return Buffer.from(bytes).toString('base64');
-}
-
-export function decodeGridBase64(
-  encoded: string,
-  expectedLength: number,
-): Uint8Array {
-  const bytes = Buffer.from(encoded, 'base64');
-  const grid = new Uint8Array(expectedLength);
-
-  for (let i = 0; i < expectedLength; i += 1) {
-    const byteIndex = i >> 3;
-    if (byteIndex >= bytes.length) break;
-
-    const bitIndex = i & 7;
-    const mask = 1 << (7 - bitIndex);
-    grid[i] = bytes[byteIndex] & mask ? 1 : 0;
-  }
-
-  return grid;
-}

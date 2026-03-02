@@ -2,7 +2,6 @@ import { describe, expect, test } from 'vitest';
 import { io, type Socket } from 'socket.io-client';
 
 import { createServer } from '../../../apps/server/src/server.js';
-import { decodeGridBase64 } from '#conway-core';
 import {
   BASE_FOOTPRINT_HEIGHT,
   BASE_FOOTPRINT_WIDTH,
@@ -80,8 +79,7 @@ function createClient(port: number): Socket {
 }
 
 function blockAlive(state: StatePayload, coords: Cell[]): boolean {
-  const grid = decodeGridBase64(state.grid, state.width * state.height);
-  return coords.every(({ x, y }) => grid[y * state.width + x] === 1);
+  return coords.every(({ x, y }) => state.grid[y * state.width + x] === 1);
 }
 
 function getTeam(state: StatePayload, teamId: number): TeamPayload {
