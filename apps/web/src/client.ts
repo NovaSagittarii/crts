@@ -54,6 +54,16 @@ import {
   type DestroySelectableStructure,
   type DestroyViewModelState,
 } from './destroy-view-model.js';
+import {
+  applyAuthoritativeStatus,
+  clearReconnectNotice,
+  createMatchScreenViewState,
+  getReconnectNoticeCopy,
+  markReconnectPending,
+  RECONNECT_NOTICE_MS,
+  SCREEN_TRANSITION_NOTICE_MS,
+  type MatchScreenViewState,
+} from './match-screen-view-model.js';
 
 type RoomListEntry = RoomListEntryPayload;
 type StatePayload = RoomStatePayload;
@@ -181,10 +191,16 @@ const destroyCancelButton =
 const pendingTimelineEl =
   getRequiredElement<HTMLDivElement>('pending-timeline');
 const messageEl = getRequiredElement<HTMLElement>('message');
+const lobbyScreenEl = getRequiredElement<HTMLElement>('lobby-screen');
+const ingameScreenEl = getRequiredElement<HTMLElement>('ingame-screen');
 const lobbyStatusEl = getRequiredElement<HTMLElement>('lobby-status');
 const lobbyCountdownEl = getRequiredElement<HTMLElement>('lobby-countdown');
 const lifecycleStatusLineEl = getRequiredElement<HTMLElement>(
   'lifecycle-status-line',
+);
+const edgeBannerEl = getRequiredElement<HTMLElement>('edge-banner');
+const reconnectIndicatorEl = getRequiredElement<HTMLElement>(
+  'reconnect-indicator',
 );
 const lobbyPlayerSlotsEl =
   getRequiredElement<HTMLDivElement>('lobby-player-slots');
@@ -212,9 +228,6 @@ const finishedComparatorEl = getRequiredElement<HTMLElement>(
 const restartStatusEl = getRequiredElement<HTMLElement>('restart-status');
 const finishedMinimizeButton =
   getRequiredElement<HTMLButtonElement>('finished-minimize');
-const finishedToggleViewButton = getRequiredElement<HTMLButtonElement>(
-  'finished-toggle-view',
-);
 const restartMatchButton =
   getRequiredElement<HTMLButtonElement>('restart-match');
 
@@ -300,6 +313,8 @@ let currentRoomCode = '-';
 let currentRoomName = '-';
 let currentTeamId: number | null = null;
 let currentRoomStatus: RoomStatus = 'lobby';
+let matchScreenState: MatchScreenViewState =
+  createMatchScreenViewState('lobby');
 let currentMembership: RoomMembershipPayload | null = null;
 let currentSessionId: string | null = persistedSessionId;
 let availableTemplates: TemplateSummary[] = [];
@@ -310,7 +325,6 @@ let templateMode = false;
 let countdownSecondsRemaining: number | null = null;
 let currentMatchFinished: MatchFinishedPayload | null = null;
 let isFinishedPanelMinimized = false;
-let isFinishedLobbyView = false;
 let currentTeamDefeated = false;
 let persistentDefeatReason: string | null = null;
 let latestOutcomeTimelineMetadata: unknown = null;
@@ -329,10 +343,11 @@ let bootstrapMembershipTimeoutId: number | null = null;
 let connectionIssueVisible = false;
 let lastConnectionErrorSignature: string | null = null;
 let lastBuildErrorToast: { signature: string; at: number } | null = null;
-let pendingReconnectSyncNotice = false;
 let destroyViewState: DestroyViewModelState = createDestroyViewModelState();
 let visibleStructures: VisibleStructure[] = [];
 let structureCellIndex = new Map<string, VisibleStructure>();
+let edgeBannerTimeoutId: number | null = null;
+let reconnectNoticeTimeoutId: number | null = null;
 
 const BUILD_ERROR_TOAST_DEDUPE_MS = 800;
 
@@ -357,6 +372,62 @@ function addToast(message: string, isError = false): void {
 function setMessage(message: string, isError = false): void {
   messageEl.textContent = message;
   messageEl.classList.toggle('message--error', isError);
+}
+
+function clearEdgeBannerTimeout(): void {
+  if (edgeBannerTimeoutId === null) {
+    return;
+  }
+  window.clearTimeout(edgeBannerTimeoutId);
+  edgeBannerTimeoutId = null;
+}
+
+function showEdgeBanner(message: string): void {
+  edgeBannerEl.textContent = message;
+  edgeBannerEl.classList.remove('is-hidden');
+  clearEdgeBannerTimeout();
+  edgeBannerTimeoutId = window.setTimeout(() => {
+    edgeBannerEl.classList.add('is-hidden');
+    edgeBannerTimeoutId = null;
+  }, SCREEN_TRANSITION_NOTICE_MS);
+}
+
+function clearReconnectNoticeTimeout(): void {
+  if (reconnectNoticeTimeoutId === null) {
+    return;
+  }
+  window.clearTimeout(reconnectNoticeTimeoutId);
+  reconnectNoticeTimeoutId = null;
+}
+
+function updateReconnectIndicator(): void {
+  const copy = getReconnectNoticeCopy(matchScreenState);
+  if (!copy) {
+    reconnectIndicatorEl.classList.add('is-hidden');
+    reconnectIndicatorEl.textContent = '';
+    clearReconnectNoticeTimeout();
+    return;
+  }
+
+  reconnectIndicatorEl.textContent = copy;
+  reconnectIndicatorEl.classList.remove('is-hidden');
+
+  if (matchScreenState.reconnectNotice === 'synced') {
+    clearReconnectNoticeTimeout();
+    reconnectNoticeTimeoutId = window.setTimeout(() => {
+      matchScreenState = clearReconnectNotice(matchScreenState);
+      reconnectNoticeTimeoutId = null;
+      updateReconnectIndicator();
+    }, RECONNECT_NOTICE_MS);
+  }
+}
+
+function updateVisibleMatchScreen(): void {
+  const showLobby = matchScreenState.screen === 'lobby';
+  lobbyScreenEl.classList.toggle('is-active', showLobby);
+  lobbyScreenEl.setAttribute('aria-hidden', showLobby ? 'false' : 'true');
+  ingameScreenEl.classList.toggle('is-active', !showLobby);
+  ingameScreenEl.setAttribute('aria-hidden', showLobby ? 'true' : 'false');
 }
 
 function clearBootstrapMembershipTimeout(): void {
@@ -1484,17 +1555,12 @@ function updateCountdownOverlay(): void {
 }
 
 function updateFinishedPanelState(): void {
-  const finishedVisible =
-    currentRoomStatus === 'finished' && !isFinishedLobbyView;
+  const finishedVisible = currentRoomStatus === 'finished';
 
   finishedPanelEl.classList.toggle('is-hidden', !finishedVisible);
   finishedPanelEl.classList.toggle(
     'finished-panel--minimized',
     isFinishedPanelMinimized,
-  );
-  finishedPanelEl.classList.toggle(
-    'finished-panel--lobby-view',
-    isFinishedLobbyView,
   );
   finishedPanelEl.dataset.timelineMetadata = latestOutcomeTimelineMetadata
     ? 'available'
@@ -1503,9 +1569,6 @@ function updateFinishedPanelState(): void {
   finishedMinimizeButton.textContent = isFinishedPanelMinimized
     ? 'Expand'
     : 'Minimize';
-  finishedToggleViewButton.textContent = isFinishedLobbyView
-    ? 'Back to Results'
-    : 'Return to Lobby View';
 
   const isHost = isCurrentUserHost();
   restartMatchButton.disabled = !isHost;
@@ -1530,10 +1593,11 @@ function updateLifecycleUi(): void {
 
 function applyRoomStatus(nextStatus: RoomStatus): void {
   const previousStatus = currentRoomStatus;
-  currentRoomStatus = nextStatus;
+  const resolution = applyAuthoritativeStatus(matchScreenState, nextStatus);
+  matchScreenState = resolution.state;
+  currentRoomStatus = resolution.state.status;
 
   if (nextStatus !== 'finished') {
-    isFinishedLobbyView = false;
     isFinishedPanelMinimized = false;
   }
 
@@ -1544,6 +1608,12 @@ function applyRoomStatus(nextStatus: RoomStatus): void {
     latestOutcomeTimelineMetadata = null;
     renderFinishedResults();
   }
+
+  updateVisibleMatchScreen();
+  if (resolution.transitionBannerCopy) {
+    showEdgeBanner(resolution.transitionBannerCopy);
+  }
+  updateReconnectIndicator();
 
   updateLifecycleUi();
 }
@@ -2114,7 +2184,10 @@ socket.on('connect', () => {
 
 socket.on('disconnect', (reason) => {
   clearBootstrapMembershipTimeout();
-  pendingReconnectSyncNotice = reason !== 'io client disconnect';
+  if (reason !== 'io client disconnect') {
+    matchScreenState = markReconnectPending(matchScreenState);
+    updateReconnectIndicator();
+  }
   updateConnectionIssue(
     'Disconnected',
     'connection lost',
@@ -2182,13 +2255,11 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   countdownSecondsRemaining = null;
   currentMatchFinished = null;
   isFinishedPanelMinimized = false;
-  isFinishedLobbyView = false;
   currentTeamDefeated = false;
   persistentDefeatReason = null;
   latestOutcomeTimelineMetadata = null;
   currentMembership = null;
   lastBuildErrorToast = null;
-  pendingReconnectSyncNotice = false;
   clearSelectedTemplatePlacement();
   resetEconomyTracking();
   resetDestroyInteractionState();
@@ -2197,7 +2268,6 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   updateTemplateOptions();
   playerNameEl.value = payload.playerName;
   chatLogEl.innerHTML = '';
-  applyRoomStatus('lobby');
   renderFinishedResults();
 
   setMessage(
@@ -2215,6 +2285,8 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   renderSpawnMarkers(payload.state);
   resizeCanvas();
   render();
+  updateVisibleMatchScreen();
+  updateReconnectIndicator();
   updateLobbyControls();
   updateLifecycleUi();
 });
@@ -2227,13 +2299,15 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   countdownSecondsRemaining = null;
   currentMatchFinished = null;
   isFinishedPanelMinimized = false;
-  isFinishedLobbyView = false;
   currentTeamDefeated = false;
   persistentDefeatReason = null;
   latestOutcomeTimelineMetadata = null;
   currentMembership = null;
   lastBuildErrorToast = null;
-  pendingReconnectSyncNotice = false;
+  clearEdgeBannerTimeout();
+  edgeBannerEl.classList.add('is-hidden');
+  matchScreenState = createMatchScreenViewState('lobby');
+  updateReconnectIndicator();
   clearSelectedTemplatePlacement();
   resetEconomyTracking();
   resetDestroyInteractionState();
@@ -2506,11 +2580,6 @@ socket.on('state', (payload: StatePayload) => {
     currentRoomName = payload.roomName;
   }
 
-  if (pendingReconnectSyncNotice) {
-    pendingReconnectSyncNotice = false;
-    addToast('Reconnected, state synced.');
-  }
-
   updateTeamStats(payload);
   syncVisibleStructures(payload);
   renderSpawnMarkers(payload);
@@ -2675,14 +2744,6 @@ finishedMinimizeButton.addEventListener('click', () => {
   updateFinishedPanelState();
 });
 
-finishedToggleViewButton.addEventListener('click', () => {
-  isFinishedLobbyView = !isFinishedLobbyView;
-  updateFinishedPanelState();
-  if (isFinishedLobbyView) {
-    addToast('Local lobby view enabled. You remain in the room for restart.');
-  }
-});
-
 restartMatchButton.addEventListener('click', () => {
   if (currentRoomStatus !== 'finished') {
     return;
@@ -2718,6 +2779,8 @@ updateTransformIndicator();
 updateTemplateOptions();
 resetEconomyTracking();
 resetDestroyInteractionState();
+updateVisibleMatchScreen();
+updateReconnectIndicator();
 updateLobbyControls();
 renderFinishedResults();
 updateLifecycleUi();
