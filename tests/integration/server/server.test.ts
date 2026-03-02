@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { io, type Socket } from 'socket.io-client';
 
 import { createServer } from '../../../apps/server/src/server.js';
+import { unpackGridBits } from '#conway-core';
 import {
   BASE_FOOTPRINT_HEIGHT,
   BASE_FOOTPRINT_WIDTH,
@@ -79,7 +80,8 @@ function createClient(port: number): Socket {
 }
 
 function blockAlive(state: StatePayload, coords: Cell[]): boolean {
-  return coords.every(({ x, y }) => state.grid[y * state.width + x] === 1);
+  const unpackedGrid = unpackGridBits(state.grid, state.width, state.height);
+  return coords.every(({ x, y }) => unpackedGrid[y * state.width + x] === 1);
 }
 
 function getTeam(state: StatePayload, teamId: number): TeamPayload {

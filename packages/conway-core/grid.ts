@@ -84,3 +84,42 @@ export function stepGrid(
 
   return next;
 }
+
+export function packGridBits(
+  grid: Uint8Array,
+  width: number,
+  height: number,
+): Uint8Array {
+  const cellCount = width * height;
+  const packed = new Uint8Array(Math.ceil(cellCount / 8));
+
+  for (let index = 0; index < cellCount; index += 1) {
+    if (grid[index] === 0) {
+      continue;
+    }
+
+    const byteIndex = index >> 3;
+    const bitIndex = index & 7;
+    packed[byteIndex] |= 1 << (7 - bitIndex);
+  }
+
+  return packed;
+}
+
+export function unpackGridBits(
+  packed: Uint8Array,
+  width: number,
+  height: number,
+): Uint8Array {
+  const cellCount = width * height;
+  const unpacked = new Uint8Array(cellCount);
+
+  for (let index = 0; index < cellCount; index += 1) {
+    const byteIndex = index >> 3;
+    const bitIndex = index & 7;
+    const mask = 1 << (7 - bitIndex);
+    unpacked[index] = packed[byteIndex] & mask ? 1 : 0;
+  }
+
+  return unpacked;
+}

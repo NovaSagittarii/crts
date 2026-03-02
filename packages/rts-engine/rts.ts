@@ -1,5 +1,5 @@
 import type { CellUpdate } from '#conway-core';
-import { applyUpdates, createGrid, stepGrid } from '#conway-core';
+import { applyUpdates, createGrid, packGridBits, stepGrid } from '#conway-core';
 import {
   determineMatchOutcome,
   type MatchOutcome,
@@ -2139,7 +2139,7 @@ export function createRoomStatePayload(room: RoomState): RoomStatePayload {
     height: room.height,
     generation: room.generation,
     tick: room.tick,
-    grid: room.grid,
+    grid: packGridBits(room.grid, room.width, room.height),
     teams,
   };
 }

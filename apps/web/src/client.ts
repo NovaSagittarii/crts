@@ -1,4 +1,5 @@
 import { io, type Socket } from 'socket.io-client';
+import { unpackGridBits } from '#conway-core';
 
 import type {
   BuildOutcomePayload,
@@ -2454,17 +2455,10 @@ function renderRoomList(rooms: RoomListEntry[]): void {
   }
 }
 
-function getBit(bytes: Uint8Array, index: number): boolean {
-  const byteIndex = index >> 3;
-  const bitIndex = index & 7;
-  const mask = 1 << (7 - bitIndex);
-  return (bytes[byteIndex] & mask) !== 0;
-}
-
 function getCell(x: number, y: number): number {
   if (!gridBytes) return 0;
   const idx = y * gridWidth + x;
-  return getBit(gridBytes, idx) ? 1 : 0;
+  return gridBytes[idx] ?? 0;
 }
 
 function chooseCellSize(width: number): number {
@@ -2689,7 +2683,7 @@ function render(): void {
   for (let y = 0; y < gridHeight; y += 1) {
     for (let x = 0; x < gridWidth; x += 1) {
       const idx = y * gridWidth + x;
-      if (!getBit(gridBytes, idx)) continue;
+      if (gridBytes[idx] !== 1) continue;
       ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
     }
   }
@@ -3353,7 +3347,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
 
   gridWidth = payload.state.width;
   gridHeight = payload.state.height;
-  gridBytes = payload.state.grid;
+  gridBytes = unpackGridBits(payload.state.grid, gridWidth, gridHeight);
   lastAuthoritativeStateAtMs = Date.now();
   generationEl.textContent = payload.state.generation.toString();
   updateTeamStats(payload.state);
@@ -3680,7 +3674,7 @@ socket.on('state', (payload: StatePayload) => {
 
   gridWidth = payload.width;
   gridHeight = payload.height;
-  gridBytes = payload.grid;
+  gridBytes = unpackGridBits(payload.grid, gridWidth, gridHeight);
   lastAuthoritativeStateAtMs = Date.now();
   generationEl.textContent = payload.generation.toString();
   if (payload.roomId !== currentRoomId) {

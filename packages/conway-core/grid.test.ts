@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'vitest';
 
-import { applyUpdates, createGrid, stepGrid, type CellUpdate } from './grid.js';
+import {
+  applyUpdates,
+  createGrid,
+  packGridBits,
+  stepGrid,
+  type CellUpdate,
+  unpackGridBits,
+} from './grid.js';
 
 interface Cell {
   x: number;
@@ -171,5 +178,49 @@ describe('grid', () => {
 
     expect([...grid]).toEqual(before);
     expect(next).not.toBe(grid);
+  });
+
+  test('packs byte-per-cell grids into a compact bit array', () => {
+    const width = 5;
+    const height = 2;
+    const grid = new Uint8Array([1, 0, 1, 1, 0, 0, 1, 0, 1, 0]);
+
+    const packed = packGridBits(grid, width, height);
+
+    expect([...packed]).toEqual([0b1011_0010, 0b1000_0000]);
+  });
+
+  test('unpacks bit arrays back into byte-per-cell grids', () => {
+    const width = 5;
+    const height = 2;
+    const packed = new Uint8Array([0b1011_0010, 0b1000_0000]);
+
+    const unpacked = unpackGridBits(packed, width, height);
+
+    expect([...unpacked]).toEqual([1, 0, 1, 1, 0, 0, 1, 0, 1, 0]);
+  });
+
+  test('round-trips between byte and packed representations', () => {
+    const width = 11;
+    const height = 7;
+    const grid = createGrid({ width, height });
+
+    setCells(
+      grid,
+      width,
+      [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 4, y: 2 },
+        { x: 6, y: 5 },
+        { x: 10, y: 6 },
+      ],
+      1,
+    );
+
+    const repacked = packGridBits(grid, width, height);
+    const unpacked = unpackGridBits(repacked, width, height);
+
+    expect([...unpacked]).toEqual([...grid]);
   });
 });
