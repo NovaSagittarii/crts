@@ -95,7 +95,13 @@ Plans:
 3. After an accepted destroy, both connected players observe the same structure removal and updated build eligibility.
 4. Two-client and reconnect scenarios preserve deterministic structure/build/destroy outcomes without client divergence.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+
+- [ ] 09-01-PLAN.md — Build deterministic engine destroy queue primitives, rejection taxonomy, and reconnect-safe structure projection.
+- [ ] 09-02-PLAN.md — Wire server destroy runtime and add two-client plus reconnect determinism integration gates.
+- [ ] 09-03-PLAN.md — Add web destroy controls with owned-selection gating, base confirmation, pending feedback, and reconnect sync UX.
 
 ### Phase 10: Match Screen Transition Split
 
@@ -145,7 +151,7 @@ Plans:
 | 6. Base Geometry and Integrity Core       | 2/2            | Complete    | 2026-03-02 |
 | 7. Authoritative Union Build Zones        | 1/1            | Complete    | 2026-03-02 |
 | 8. Transform Placement Consistency        | 3/3            | Complete    | 2026-03-02 |
-| 9. Destroy Flow and Determinism Gates     | 0/TBD          | Not started | -          |
+| 9. Destroy Flow and Determinism Gates     | 1/3 | In Progress|  |
 | 10. Match Screen Transition Split         | 0/TBD          | Not started | -          |
 | 11. Camera and Build-Zone Visualization   | 0/TBD          | Not started | -          |
 | 12. Structure Hover and Tactical Overlays | 0/TBD          | Not started | -          |

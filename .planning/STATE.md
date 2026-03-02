@@ -10,19 +10,19 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 ## Current Position
 
 **Current Milestone:** v0.0.2 Gameplay Expansion
-**Phase:** 8 of 12 (Transform Placement Consistency)
-**Plan:** 3 of 3
-**Status:** Phase complete - ready for Phase 9 planning
-**Last Activity:** 2026-03-02 - Completed Phase 8 execution (08-01, 08-02, 08-03) with unit/integration/build verification and requirements closure for XFORM-01/XFORM-02/QUAL-03.
-**Progress:** [██████████] 100%
+**Phase:** 9 of 12 (Destroy Flow and Determinism Gates)
+**Plan:** 1 of 3
+**Status:** In progress
+**Last Activity:** 2026-03-02 - Completed Phase 9 Plan 01 execution (destroy queue engine primitives, deterministic unit coverage, and requirements closure for STRUCT-02/QUAL-04).
+**Progress:** [█████████░] 92%
 
 ## Performance Metrics
 
 **Velocity:**
 
 - Completed phases: 8
-- Completed plans: 22
-- Completed tasks: 60
+- Completed plans: 23
+- Completed tasks: 62
 - Shipped milestones: 1 (`v0.0.1`)
 
 **By Phase:**
@@ -37,7 +37,7 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 | 6     | 2/2   | Complete    |
 | 7     | 1/1   | Complete    |
 | 8     | 3/3   | Complete    |
-| 9     | 0/TBD | Not started |
+| 9     | 1/3   | In Progress |
 | 10    | 0/TBD | Not started |
 | 11    | 0/TBD | Not started |
 | 12    | 0/TBD | Not started |
@@ -48,6 +48,7 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 - v0.0.2 Phase 6 shipped backend geometry + integrity foundations with passing unit/integration quality gates.
 - v0.0.2 Phase 7 shipped authoritative union build-zone legality with passing quality gates.
 - v0.0.2 Phase 8 shipped transform-aware preview/queue/apply parity across engine, server, and web with passing quality gates.
+- v0.0.2 Phase 9 Plan 01 shipped deterministic destroy queue primitives with passing unit quality gates.
 
 ## Accumulated Context
 
@@ -67,6 +68,8 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 - [Phase 08]: Use explicit template-exceeds-map-size reason for oversize transformed templates while keeping outside-territory for zone failures.
 - [Phase 08]: Queue rejection now emits immediate authoritative preview refresh for the same anchor and transform.
 - [Phase 08]: Web build panel keeps persistent transform history with explicit non-color legality labels.
+- [Phase 09]: Keep destroy reason taxonomy in #rts-engine and forward it through socket contracts without runtime remapping.
+- [Phase 09]: Treat same-team same-target pending destroy requests as idempotent while allowing different-target retargets during pending state.
 
 ### Pending Todos
 
@@ -80,6 +83,6 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 
 ## Session Continuity
 
-**Last session:** 2026-03-02T05:20:26.360Z
-**Stopped At:** Completed 08-03-PLAN.md
+**Last session:** 2026-03-02T06:23:45.125Z
+**Stopped At:** Completed 09-01-PLAN.md
 **Resume File:** None

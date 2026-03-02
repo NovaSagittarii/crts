@@ -10,7 +10,7 @@ Requirements for milestone `v0.0.2 Gameplay Expansion`.
 ### Structure Systems
 
 - [x] **STRUCT-01**: Player-owned structures run template-wide integrity checks every K ticks, and failed checks consume structure HP to restore integrity deterministically.
-- [ ] **STRUCT-02**: Player can destroy an owned structure from in-match controls and receive an authoritative destroy outcome.
+- [x] **STRUCT-02**: Player can destroy an owned structure from in-match controls and receive an authoritative destroy outcome.
 - [x] **BASE-01**: Match starts with a canonical 5x5 base footprint composed of four 2x2 blocks (16 total base cells) that is used consistently for breach gameplay.
 
 ### Build Rules and Placement Controls
@@ -28,7 +28,7 @@ Requirements for milestone `v0.0.2 Gameplay Expansion`.
 - [ ] **UI-03**: Player can hover a structure to view details and available actions.
 - [ ] **UI-04**: Player can access economy, build options, and team information in grid-adjacent overlays while playing.
 - [ ] **UI-05**: Player sees the union build-radius outline while placing structures.
-- [ ] **QUAL-04**: Player gets deterministic outcomes for v0.0.2 structure/build/destroy behaviors across two-client integration scenarios and reconnect cases.
+- [x] **QUAL-04**: Player gets deterministic outcomes for v0.0.2 structure/build/destroy behaviors across two-client integration scenarios and reconnect cases.
 
 ## v2 Requirements
 
@@ -67,8 +67,8 @@ Mapped during roadmap creation.
 | XFORM-01    | Phase 8  | Complete |
 | XFORM-02    | Phase 8  | Complete |
 | QUAL-03     | Phase 8  | Complete |
-| STRUCT-02   | Phase 9  | Pending  |
-| QUAL-04     | Phase 9  | Pending  |
+| STRUCT-02   | Phase 9  | Complete |
+| QUAL-04     | Phase 9  | Complete |
 | UI-01       | Phase 10 | Pending  |
 | UI-02       | Phase 11 | Pending  |
 | UI-05       | Phase 11 | Pending  |
