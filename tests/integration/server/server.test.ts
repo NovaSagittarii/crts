@@ -13,6 +13,8 @@ import type {
   BuildPreviewPayload,
   BuildOutcomePayload,
   BuildQueuedPayload,
+  DestroyOutcomePayload,
+  DestroyQueuedPayload,
   RoomJoinedPayload,
   RoomMembershipPayload,
   RoomErrorPayload,
@@ -29,6 +31,8 @@ type RoomListEntry = RoomListEntryPayload;
 type BuildPreview = BuildPreviewPayload;
 type BuildQueued = BuildQueuedPayload;
 type BuildOutcome = BuildOutcomePayload;
+type DestroyQueued = DestroyQueuedPayload;
+type DestroyOutcome = DestroyOutcomePayload;
 type RoomError = RoomErrorPayload;
 
 interface Cell {
@@ -224,6 +228,88 @@ function collectBuildOutcomes(
     }
 
     socket.on('build:outcome', onOutcome);
+  });
+}
+
+function waitForDestroyQueueResponse(
+  socket: Socket,
+  timeoutMs = 2000,
+): Promise<{ queued: DestroyQueued } | { error: RoomError }> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timed out waiting for destroy queue response'));
+    }, timeoutMs);
+
+    function cleanup(): void {
+      clearTimeout(timer);
+      socket.off('destroy:queued', onQueued);
+      socket.off('room:error', onError);
+    }
+
+    function onQueued(payload: DestroyQueued): void {
+      cleanup();
+      resolve({ queued: payload });
+    }
+
+    function onError(payload: RoomError): void {
+      cleanup();
+      resolve({ error: payload });
+    }
+
+    socket.once('destroy:queued', onQueued);
+    socket.once('room:error', onError);
+  });
+}
+
+function collectDestroyOutcomes(
+  socket: Socket,
+  eventIds: number[],
+  timeoutMs = 8000,
+): Promise<Map<number, DestroyOutcome[]>> {
+  return new Promise((resolve, reject) => {
+    const expected = new Set(eventIds);
+    const outcomesById = new Map<number, DestroyOutcome[]>();
+    let settleTimer: NodeJS.Timeout | null = null;
+
+    function cleanup(): void {
+      clearTimeout(timeout);
+      if (settleTimer) {
+        clearTimeout(settleTimer);
+      }
+      socket.off('destroy:outcome', onOutcome);
+    }
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timed out collecting expected destroy outcomes'));
+    }, timeoutMs);
+
+    function maybeScheduleResolve(): void {
+      if (expected.size === 0 && !settleTimer) {
+        settleTimer = setTimeout(() => {
+          cleanup();
+          resolve(outcomesById);
+        }, 200);
+      }
+    }
+
+    function onOutcome(payload: DestroyOutcome): void {
+      if (
+        !expected.has(payload.eventId) &&
+        !outcomesById.has(payload.eventId)
+      ) {
+        return;
+      }
+
+      const current = outcomesById.get(payload.eventId) ?? [];
+      current.push(payload);
+      outcomesById.set(payload.eventId, current);
+      expected.delete(payload.eventId);
+      maybeScheduleResolve();
+    }
+
+    socket.on('destroy:outcome', onOutcome);
   });
 }
 
@@ -902,6 +988,183 @@ describe('GameServer', () => {
     setup.guest.close();
     await server.stop();
   }, 30_000);
+
+  test('queues owned destroys, rejects invalid requests, and emits one terminal outcome to both clients', async () => {
+    const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
+    const port = await server.start();
+
+    const setup = await setupActiveMatch(port);
+
+    const blockTemplate = setup.hostJoined.templates.find(
+      ({ id }) => id === 'block',
+    );
+    if (!blockTemplate) {
+      throw new Error('Expected block template to be available');
+    }
+
+    const placements = collectCandidatePlacements(
+      setup.hostTeam,
+      blockTemplate,
+      setup.hostJoined.state.width,
+      setup.hostJoined.state.height,
+    );
+    expect(placements.length).toBeGreaterThan(0);
+
+    let targetStructureKey: string | null = null;
+
+    for (const placement of placements) {
+      setup.host.emit('build:queue', {
+        templateId: blockTemplate.id,
+        x: placement.x,
+        y: placement.y,
+        delayTicks: 1,
+      });
+
+      const response = await waitForBuildQueueResponse(setup.host, 4_000);
+      if ('error' in response) {
+        continue;
+      }
+
+      const outcomesById = await collectBuildOutcomes(
+        setup.host,
+        [response.queued.eventId],
+        8_000,
+      );
+      const outcome = outcomesById.get(response.queued.eventId)?.[0];
+      if (!outcome || outcome.outcome !== 'applied') {
+        continue;
+      }
+
+      const builtState = await waitForCondition(
+        setup.host,
+        (state) => {
+          const hostTeamState = getTeamByPlayerId(
+            state,
+            setup.hostJoined.playerId,
+          );
+          return hostTeamState.structures.some(
+            (structure) =>
+              !structure.isCore &&
+              structure.templateId === blockTemplate.id &&
+              structure.hp > 0,
+          );
+        },
+        30,
+      );
+      const builtTeam = getTeamByPlayerId(
+        builtState,
+        setup.hostJoined.playerId,
+      );
+      const builtStructure = builtTeam.structures.find(
+        (structure) =>
+          !structure.isCore &&
+          structure.templateId === blockTemplate.id &&
+          structure.hp > 0,
+      );
+
+      if (builtStructure) {
+        targetStructureKey = builtStructure.key;
+        break;
+      }
+    }
+
+    expect(targetStructureKey).not.toBeNull();
+    if (!targetStructureKey) {
+      throw new Error(
+        'Expected an applied block structure to use as destroy target',
+      );
+    }
+
+    setup.host.emit('destroy:queue', {
+      structureKey: targetStructureKey,
+      delayTicks: 8,
+    });
+    const firstDestroyResponse = await waitForDestroyQueueResponse(setup.host);
+    if ('error' in firstDestroyResponse) {
+      throw new Error(
+        `Expected first destroy queue request to be accepted, received ${firstDestroyResponse.error.reason}`,
+      );
+    }
+
+    const firstDestroyQueued = firstDestroyResponse.queued;
+    expect(firstDestroyQueued.idempotent).toBe(false);
+
+    setup.host.emit('destroy:queue', {
+      structureKey: targetStructureKey,
+      delayTicks: 8,
+    });
+    const duplicateDestroyResponse = await waitForDestroyQueueResponse(
+      setup.host,
+    );
+    if ('error' in duplicateDestroyResponse) {
+      throw new Error(
+        `Expected duplicate destroy queue request to be idempotent, received ${duplicateDestroyResponse.error.reason}`,
+      );
+    }
+
+    expect(duplicateDestroyResponse.queued.idempotent).toBe(true);
+    expect(duplicateDestroyResponse.queued.eventId).toBe(
+      firstDestroyQueued.eventId,
+    );
+    expect(duplicateDestroyResponse.queued.executeTick).toBe(
+      firstDestroyQueued.executeTick,
+    );
+
+    setup.guest.emit('destroy:queue', {
+      structureKey: targetStructureKey,
+      delayTicks: 1,
+    });
+    const wrongOwnerResponse = await waitForDestroyQueueResponse(setup.guest);
+    expect('error' in wrongOwnerResponse).toBe(true);
+    if ('error' in wrongOwnerResponse) {
+      expect(wrongOwnerResponse.error.reason).toBe('wrong-owner');
+    }
+
+    setup.host.emit('destroy:queue', {
+      structureKey: 'missing-target-key',
+      delayTicks: 1,
+    });
+    const invalidTargetResponse = await waitForDestroyQueueResponse(setup.host);
+    expect('error' in invalidTargetResponse).toBe(true);
+    if ('error' in invalidTargetResponse) {
+      expect(invalidTargetResponse.error.reason).toBe('invalid-target');
+    }
+
+    const [hostOutcomesById, guestOutcomesById] = await Promise.all([
+      collectDestroyOutcomes(setup.host, [firstDestroyQueued.eventId], 12_000),
+      collectDestroyOutcomes(setup.guest, [firstDestroyQueued.eventId], 12_000),
+    ]);
+
+    const hostOutcomes = hostOutcomesById.get(firstDestroyQueued.eventId) ?? [];
+    const guestOutcomes =
+      guestOutcomesById.get(firstDestroyQueued.eventId) ?? [];
+    expect(hostOutcomes).toHaveLength(1);
+    expect(guestOutcomes).toHaveLength(1);
+
+    const hostOutcome = hostOutcomes[0];
+    const guestOutcome = guestOutcomes[0];
+    expect(guestOutcome).toEqual(hostOutcome);
+    expect(hostOutcome.outcome).toBe('destroyed');
+    expect(hostOutcome.structureKey).toBe(targetStructureKey);
+    expect(hostOutcome.executeTick).toBe(firstDestroyQueued.executeTick);
+    expect(hostOutcome.resolvedTick).toBeGreaterThanOrEqual(
+      hostOutcome.executeTick,
+    );
+
+    setup.host.emit('destroy:queue', {
+      structureKey: targetStructureKey,
+      delayTicks: 1,
+    });
+    const staleDestroyResponse = await waitForDestroyQueueResponse(setup.host);
+    expect('error' in staleDestroyResponse).toBe(true);
+    if ('error' in staleDestroyResponse) {
+      expect(staleDestroyResponse.error.reason).toBe('invalid-lifecycle-state');
+    }
+
+    setup.host.close();
+    setup.guest.close();
+    await server.stop();
+  }, 40_000);
 
   test('queues template builds and charges resources', async () => {
     const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
