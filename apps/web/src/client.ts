@@ -64,6 +64,20 @@ import {
   SCREEN_TRANSITION_NOTICE_MS,
   type MatchScreenViewState,
 } from './match-screen-view-model.js';
+import {
+  applyKeyboardPan,
+  applyPanDelta,
+  applyWheelZoomAtPoint,
+  CAMERA_DEFAULT_ZOOM,
+  CAMERA_KEYBOARD_ZOOM_FACTOR,
+  createCameraViewState,
+  normalizeWheelZoomFactor,
+  resetCameraToBase,
+  screenPointToCell,
+  type CameraPanDirection,
+  type CameraPoint,
+  type CameraViewState,
+} from './camera-view-model.js';
 
 type RoomListEntry = RoomListEntryPayload;
 type StatePayload = RoomStatePayload;
@@ -146,6 +160,7 @@ function generateStableIdFragment(): string {
 }
 
 const canvas = getRequiredElement<HTMLCanvasElement>('grid');
+const gridViewportEl = getRequiredElement<HTMLDivElement>('grid-viewport');
 const ctxRaw = canvas.getContext('2d');
 if (!ctxRaw) {
   throw new Error('Failed to initialize canvas 2d context');
@@ -191,6 +206,8 @@ const destroyCancelButton =
 const pendingTimelineEl =
   getRequiredElement<HTMLDivElement>('pending-timeline');
 const messageEl = getRequiredElement<HTMLElement>('message');
+const cameraStatusEl = getRequiredElement<HTMLElement>('camera-status');
+const cameraZoomEl = getRequiredElement<HTMLElement>('camera-zoom');
 const lobbyScreenEl = getRequiredElement<HTMLElement>('lobby-screen');
 const ingameScreenEl = getRequiredElement<HTMLElement>('ingame-screen');
 const lobbyStatusEl = getRequiredElement<HTMLElement>('lobby-status');
@@ -304,9 +321,18 @@ let gridWidth = 0;
 let gridHeight = 0;
 let gridBytes: Uint8Array | null = null;
 let cellSize = 6;
+let canvasRatio = window.devicePixelRatio || 1;
+let canvasCssWidth = 0;
+let canvasCssHeight = 0;
 let isDrawing = false;
+let drawingPointerId: number | null = null;
 let drawValue = true;
 let lastCell: Cell | null = null;
+let cameraState: CameraViewState = createCameraViewState();
+let isCameraPanning = false;
+let cameraPanPointerId: number | null = null;
+let lastCameraPanClientPoint: CameraPoint | null = null;
+let latestLocalBaseTopLeft: Cell | null = null;
 
 let currentRoomId = '-';
 let currentRoomCode = '-';
@@ -350,6 +376,7 @@ let edgeBannerTimeoutId: number | null = null;
 let reconnectNoticeTimeoutId: number | null = null;
 
 const BUILD_ERROR_TOAST_DEDUPE_MS = 800;
+const CAMERA_KEYBOARD_WORLD_STEP_CELLS = 8;
 
 function addToast(message: string, isError = false): void {
   const toast = document.createElement('div');
@@ -372,6 +399,81 @@ function addToast(message: string, isError = false): void {
 function setMessage(message: string, isError = false): void {
   messageEl.textContent = message;
   messageEl.classList.toggle('message--error', isError);
+}
+
+function getCanvasViewportPoint(event: MouseEvent | PointerEvent): CameraPoint {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
+  };
+}
+
+function getCanvasViewportCenter(): CameraPoint {
+  return {
+    x: canvasCssWidth / 2,
+    y: canvasCssHeight / 2,
+  };
+}
+
+function canUseCameraControls(): boolean {
+  return Boolean(gridBytes) && matchScreenState.screen === 'ingame';
+}
+
+function updateCameraStatus(): void {
+  cameraZoomEl.textContent = `Zoom: ${Math.round(cameraState.zoom * 100)}%`;
+  gridViewportEl.setAttribute(
+    'data-camera-active',
+    canUseCameraControls() ? 'true' : 'false',
+  );
+
+  if (!gridBytes || matchScreenState.screen !== 'ingame') {
+    cameraStatusEl.textContent = 'Camera: waiting for in-match state';
+    return;
+  }
+
+  if (isCameraPanning) {
+    cameraStatusEl.textContent = 'Camera: panning';
+    return;
+  }
+
+  cameraStatusEl.textContent = `Camera: offset (${Math.round(
+    cameraState.offsetX,
+  )}, ${Math.round(cameraState.offsetY)})`;
+}
+
+function resetCameraForCurrentTeam(): void {
+  if (!gridWidth || !gridHeight || !canvasCssWidth || !canvasCssHeight) {
+    return;
+  }
+
+  cameraState = resetCameraToBase({
+    viewport: {
+      x: canvasCssWidth,
+      y: canvasCssHeight,
+    },
+    grid: {
+      width: gridWidth,
+      height: gridHeight,
+    },
+    cellSize,
+    baseTopLeft: latestLocalBaseTopLeft,
+    zoom: CAMERA_DEFAULT_ZOOM,
+  });
+  updateCameraStatus();
+}
+
+function isFormElementFocused(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    target.isContentEditable
+  );
 }
 
 function clearEdgeBannerTimeout(): void {
@@ -428,6 +530,7 @@ function updateVisibleMatchScreen(): void {
   lobbyScreenEl.setAttribute('aria-hidden', showLobby ? 'false' : 'true');
   ingameScreenEl.classList.toggle('is-active', !showLobby);
   ingameScreenEl.setAttribute('aria-hidden', showLobby ? 'true' : 'false');
+  updateCameraStatus();
 }
 
 function clearBootstrapMembershipTimeout(): void {
@@ -1677,15 +1780,16 @@ function resizeCanvas(): void {
   if (!gridWidth || !gridHeight) return;
 
   cellSize = chooseCellSize(gridWidth);
-  const ratio = window.devicePixelRatio || 1;
-  const cssWidth = gridWidth * cellSize;
-  const cssHeight = gridHeight * cellSize;
+  canvasRatio = window.devicePixelRatio || 1;
+  canvasCssWidth = gridWidth * cellSize;
+  canvasCssHeight = gridHeight * cellSize;
 
-  canvas.style.width = `${cssWidth}px`;
-  canvas.style.height = `${cssHeight}px`;
-  canvas.width = Math.floor(cssWidth * ratio);
-  canvas.height = Math.floor(cssHeight * ratio);
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  canvas.style.width = `${canvasCssWidth}px`;
+  canvas.style.height = `${canvasCssHeight}px`;
+  canvas.width = Math.floor(canvasCssWidth * canvasRatio);
+  canvas.height = Math.floor(canvasCssHeight * canvasRatio);
+  ctx.setTransform(canvasRatio, 0, 0, canvasRatio, 0, 0);
+  updateCameraStatus();
 }
 
 function previewMatchesCurrentSelection(preview: BuildPreview): boolean {
@@ -1802,7 +1906,7 @@ function renderBuildPreviewOverlay(): void {
   }
 
   ctx.strokeStyle = 'rgba(248, 192, 108, 0.85)';
-  ctx.lineWidth = 1;
+  ctx.lineWidth = 1 / cameraState.zoom;
   for (const segment of getWrappedBoundsSegments(latestBuildPreview.bounds)) {
     ctx.strokeRect(
       segment.x * cellSize + 0.5,
@@ -1816,7 +1920,16 @@ function renderBuildPreviewOverlay(): void {
 function render(): void {
   if (!gridBytes) return;
 
+  ctx.setTransform(canvasRatio, 0, 0, canvasRatio, 0, 0);
+  ctx.clearRect(0, 0, canvasCssWidth, canvasCssHeight);
   ctx.fillStyle = '#05070d';
+  ctx.fillRect(0, 0, canvasCssWidth, canvasCssHeight);
+
+  ctx.save();
+  ctx.translate(cameraState.offsetX, cameraState.offsetY);
+  ctx.scale(cameraState.zoom, cameraState.zoom);
+
+  ctx.fillStyle = '#0b101b';
   ctx.fillRect(0, 0, gridWidth * cellSize, gridHeight * cellSize);
 
   ctx.fillStyle = '#46d5b6';
@@ -1829,14 +1942,17 @@ function render(): void {
   }
 
   renderBuildPreviewOverlay();
+  ctx.restore();
 }
 
 function pointerToCell(event: PointerEvent): Cell | null {
-  const rect = canvas.getBoundingClientRect();
-  const x = Math.floor((event.clientX - rect.left) / cellSize);
-  const y = Math.floor((event.clientY - rect.top) / cellSize);
-  if (x < 0 || y < 0 || x >= gridWidth || y >= gridHeight) return null;
-  return { x, y };
+  return screenPointToCell(cameraState, getCanvasViewportPoint(event), {
+    cellSize,
+    grid: {
+      width: gridWidth,
+      height: gridHeight,
+    },
+  });
 }
 
 function sendUpdate(x: number, y: number, alive: boolean): void {
@@ -1871,6 +1987,7 @@ function updateTeamStats(payload: StatePayload): void {
   roomCodeEl.textContent = currentRoomCode;
 
   if (currentTeamId === null) {
+    latestLocalBaseTopLeft = null;
     currentTeamDefeated = false;
     teamEl.textContent = 'Spectator';
     resourcesEl.textContent = '-';
@@ -1883,6 +2000,7 @@ function updateTeamStats(payload: StatePayload): void {
 
   const team = payload.teams.find(({ id }) => id === currentTeamId);
   if (!team) {
+    latestLocalBaseTopLeft = null;
     currentTeamDefeated = false;
     teamEl.textContent = '#?';
     resourcesEl.textContent = '-';
@@ -1894,6 +2012,10 @@ function updateTeamStats(payload: StatePayload): void {
   }
 
   currentTeamDefeated = team.defeated;
+  latestLocalBaseTopLeft = {
+    x: team.baseTopLeft.x,
+    y: team.baseTopLeft.y,
+  };
   if (currentTeamDefeated && !persistentDefeatReason) {
     persistentDefeatReason =
       'Your team was defeated. You are now spectating in read-only mode.';
@@ -2120,8 +2242,89 @@ function handleDraw(event: PointerEvent): void {
   sendUpdate(cell.x, cell.y, drawValue);
 }
 
+function getKeyboardPanDirection(key: string): CameraPanDirection | null {
+  if (key === 'ArrowLeft' || key === 'a' || key === 'A') {
+    return 'left';
+  }
+  if (key === 'ArrowRight' || key === 'd' || key === 'D') {
+    return 'right';
+  }
+  if (key === 'ArrowUp' || key === 'w' || key === 'W') {
+    return 'up';
+  }
+  if (key === 'ArrowDown' || key === 's' || key === 'S') {
+    return 'down';
+  }
+  return null;
+}
+
+function applyKeyboardZoom(zoomFactor: number): void {
+  if (!canUseCameraControls()) {
+    return;
+  }
+
+  cameraState = applyWheelZoomAtPoint(
+    cameraState,
+    getCanvasViewportCenter(),
+    zoomFactor,
+  );
+  updateCameraStatus();
+  render();
+}
+
+canvas.addEventListener('contextmenu', (event) => {
+  if (!canUseCameraControls()) {
+    return;
+  }
+
+  event.preventDefault();
+});
+
+canvas.addEventListener(
+  'wheel',
+  (event) => {
+    if (!canUseCameraControls()) {
+      return;
+    }
+
+    event.preventDefault();
+    const zoomFactor = normalizeWheelZoomFactor(event.deltaY, event.deltaMode);
+    cameraState = applyWheelZoomAtPoint(
+      cameraState,
+      getCanvasViewportPoint(event),
+      zoomFactor,
+    );
+    updateCameraStatus();
+    render();
+  },
+  { passive: false },
+);
+
 canvas.addEventListener('pointerdown', (event) => {
-  if (!gridBytes) return;
+  if (!gridBytes) {
+    return;
+  }
+
+  if (event.button === 2) {
+    if (!canUseCameraControls()) {
+      return;
+    }
+
+    event.preventDefault();
+    canvas.setPointerCapture(event.pointerId);
+    isCameraPanning = true;
+    cameraPanPointerId = event.pointerId;
+    lastCameraPanClientPoint = {
+      x: event.clientX,
+      y: event.clientY,
+    };
+    updateCameraStatus();
+    return;
+  }
+
+  if (event.button !== 0) {
+    return;
+  }
 
   if (!canMutateGameplay()) {
     setMessage(
@@ -2132,7 +2335,9 @@ canvas.addEventListener('pointerdown', (event) => {
   }
 
   const cell = pointerToCell(event);
-  if (!cell) return;
+  if (!cell) {
+    return;
+  }
 
   if (selectDestroyStructureAtCell(cell)) {
     updateDestroyUi();
@@ -2146,33 +2351,126 @@ canvas.addEventListener('pointerdown', (event) => {
 
   canvas.setPointerCapture(event.pointerId);
   isDrawing = true;
+  drawingPointerId = event.pointerId;
   drawValue = getCell(cell.x, cell.y) === 0;
   lastCell = null;
   handleDraw(event);
 });
 
 canvas.addEventListener('pointermove', (event) => {
-  if (!isDrawing) return;
+  if (isCameraPanning && cameraPanPointerId === event.pointerId) {
+    if (!lastCameraPanClientPoint) {
+      lastCameraPanClientPoint = {
+        x: event.clientX,
+        y: event.clientY,
+      };
+      return;
+    }
+
+    const deltaX = event.clientX - lastCameraPanClientPoint.x;
+    const deltaY = event.clientY - lastCameraPanClientPoint.y;
+    lastCameraPanClientPoint = {
+      x: event.clientX,
+      y: event.clientY,
+    };
+    cameraState = applyPanDelta(cameraState, deltaX, deltaY);
+    updateCameraStatus();
+    render();
+    return;
+  }
+
+  if (!isDrawing || drawingPointerId !== event.pointerId) {
+    return;
+  }
+
   handleDraw(event);
 });
 
-function stopDrawing(event: PointerEvent): void {
-  if (!isDrawing) return;
+function stopPointerInteraction(event: PointerEvent): void {
+  if (isCameraPanning && cameraPanPointerId === event.pointerId) {
+    isCameraPanning = false;
+    cameraPanPointerId = null;
+    lastCameraPanClientPoint = null;
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+    updateCameraStatus();
+    return;
+  }
+
+  if (!isDrawing || drawingPointerId !== event.pointerId) {
+    return;
+  }
+
   isDrawing = false;
+  drawingPointerId = null;
   lastCell = null;
-  if (event.pointerId) {
+  if (canvas.hasPointerCapture(event.pointerId)) {
     canvas.releasePointerCapture(event.pointerId);
   }
 }
 
-canvas.addEventListener('pointerup', stopDrawing);
-canvas.addEventListener('pointerleave', stopDrawing);
-canvas.addEventListener('pointercancel', stopDrawing);
+canvas.addEventListener('pointerup', stopPointerInteraction);
+canvas.addEventListener('pointerleave', stopPointerInteraction);
+canvas.addEventListener('pointercancel', stopPointerInteraction);
+
+window.addEventListener('keydown', (event) => {
+  if (!canUseCameraControls() || isFormElementFocused(event.target)) {
+    return;
+  }
+  if (event.metaKey || event.ctrlKey || event.altKey) {
+    return;
+  }
+
+  if (event.key === 'f' || event.key === 'F') {
+    event.preventDefault();
+    resetCameraForCurrentTeam();
+    render();
+    return;
+  }
+
+  if (
+    event.key === '+' ||
+    (event.key === '=' && event.shiftKey) ||
+    event.code === 'NumpadAdd'
+  ) {
+    event.preventDefault();
+    applyKeyboardZoom(CAMERA_KEYBOARD_ZOOM_FACTOR);
+    return;
+  }
+
+  if (
+    event.key === '-' ||
+    event.key === '_' ||
+    event.code === 'NumpadSubtract'
+  ) {
+    event.preventDefault();
+    applyKeyboardZoom(1 / CAMERA_KEYBOARD_ZOOM_FACTOR);
+    return;
+  }
+
+  const panDirection = getKeyboardPanDirection(event.key);
+  if (!panDirection) {
+    return;
+  }
+
+  event.preventDefault();
+  const panStep =
+    CAMERA_KEYBOARD_WORLD_STEP_CELLS * cellSize * cameraState.zoom;
+  cameraState = applyKeyboardPan(cameraState, panDirection, panStep);
+  updateCameraStatus();
+  render();
+});
 
 window.addEventListener('resize', () => {
   const previousCellSize = cellSize;
   resizeCanvas();
-  if (cellSize !== previousCellSize) render();
+  if (cellSize !== previousCellSize) {
+    resetCameraForCurrentTeam();
+  }
+  if (gridBytes) {
+    render();
+  }
 });
 
 socket.on('connect', () => {
@@ -2284,6 +2582,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   syncVisibleStructures(payload.state);
   renderSpawnMarkers(payload.state);
   resizeCanvas();
+  resetCameraForCurrentTeam();
   render();
   updateVisibleMatchScreen();
   updateReconnectIndicator();
@@ -2311,6 +2610,8 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   clearSelectedTemplatePlacement();
   resetEconomyTracking();
   resetDestroyInteractionState();
+  cameraState = createCameraViewState();
+  updateCameraStatus();
   applyRoomStatus('lobby');
   renderFinishedResults();
 
@@ -2569,6 +2870,9 @@ socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
 });
 
 socket.on('state', (payload: StatePayload) => {
+  const previousGridWidth = gridWidth;
+  const previousGridHeight = gridHeight;
+
   gridWidth = payload.width;
   gridHeight = payload.height;
   gridBytes = decodeBase64ToBytes(payload.grid);
@@ -2584,6 +2888,9 @@ socket.on('state', (payload: StatePayload) => {
   syncVisibleStructures(payload);
   renderSpawnMarkers(payload);
   resizeCanvas();
+  if (gridWidth !== previousGridWidth || gridHeight !== previousGridHeight) {
+    resetCameraForCurrentTeam();
+  }
   render();
   updateLifecycleUi();
 

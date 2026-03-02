@@ -10,6 +10,7 @@ import {
   CAMERA_MAX_ZOOM,
   CAMERA_MIN_ZOOM,
   createCameraViewState,
+  normalizeWheelZoomFactor,
   resetCameraToBase,
   screenPointToCell,
   screenPointToWorld,
@@ -24,6 +25,18 @@ describe('camera-view-model helpers', () => {
 
     expect(zoomedIn.zoom).toBe(CAMERA_MAX_ZOOM);
     expect(zoomedOut.zoom).toBe(CAMERA_MIN_ZOOM);
+  });
+
+  test('normalizes wheel deltas to bounded zoom factors for wheel and trackpad input', () => {
+    const mouseWheelOut = normalizeWheelZoomFactor(120, 0);
+    const mouseWheelIn = normalizeWheelZoomFactor(-120, 0);
+    const lineMode = normalizeWheelZoomFactor(3, 1);
+
+    expect(mouseWheelOut).toBeLessThan(1);
+    expect(mouseWheelIn).toBeGreaterThan(1);
+    expect(lineMode).toBeLessThan(1);
+    expect(mouseWheelOut).toBeGreaterThanOrEqual(0.8);
+    expect(mouseWheelIn).toBeLessThanOrEqual(1.25);
   });
 
   test('keeps cursor anchor world point stable after zoom updates', () => {
