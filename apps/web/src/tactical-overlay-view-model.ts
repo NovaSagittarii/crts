@@ -329,13 +329,13 @@ export function deriveTacticalOverlayState(
         label: 'Available Templates',
         value: `${input.templates.length}`,
       },
-      {
-        key: 'build-preview-copy',
-        label: 'Preview',
-        value:
-          normalizeOptionalCopy(input.previewReasonCopy) ??
-          'Awaiting latest authoritative preview.',
-      },
+      // {
+      //   key: 'build-preview-copy',
+      //   label: 'Preview',
+      //   value:
+      //     normalizeOptionalCopy(input.previewReasonCopy) ??
+      //     'Awaiting latest authoritative preview.',
+      // },
     ],
     pendingBadgeCount: pendingBuildCount,
     hasPendingBadge: pendingBuildCount > 0,
