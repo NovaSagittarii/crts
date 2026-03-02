@@ -8,6 +8,7 @@ import {
   getCanonicalBaseCells,
   isCanonicalBaseCell,
 } from './geometry.js';
+import { BUILD_ZONE_RADIUS } from './gameplay-rules.js';
 import {
   addPlayerToRoom,
   createCanonicalMatchOutcome,
@@ -79,6 +80,15 @@ function getBuildOutcomes(
       }
     ).buildOutcomes ?? []
   );
+}
+
+function probeQueueBuild(
+  room: ReturnType<typeof createRoomState>,
+  playerId: string,
+  payload: { templateId: string; x: number; y: number; delayTicks?: number },
+): ReturnType<typeof queueBuildEvent> {
+  const probeRoom = structuredClone(room) as ReturnType<typeof createRoomState>;
+  return queueBuildEvent(probeRoom, playerId, payload);
 }
 
 function getStructureByTemplateId(
@@ -241,31 +251,33 @@ describe('rts', () => {
       y: 79,
     });
     expect(outsideBounds.accepted).toBe(false);
-    expect(outsideBounds.reason).toBe('out-of-bounds');
-    expect(room.timelineEvents.at(-1)?.metadata?.reason).toBe('out-of-bounds');
+    expect(outsideBounds.reason).toBe('outside-territory');
+    expect(room.timelineEvents.at(-1)?.metadata?.reason).toBe(
+      'outside-territory',
+    );
 
-    let outsideTerritoryCoordinate: Cell | null = null;
     const blockTemplate = room.templateMap.get('block');
     expect(blockTemplate).toBeDefined();
     const blockWidth = blockTemplate?.width ?? 0;
     const blockHeight = blockTemplate?.height ?? 0;
     const baseCenter = getBaseCenter(team.baseTopLeft);
 
-    for (let y = 0; y <= room.height - blockHeight; y += 1) {
-      for (let x = 0; x <= room.width - blockWidth; x += 1) {
-        const centerX = x + Math.floor(blockWidth / 2);
-        const centerY = y + Math.floor(blockHeight / 2);
-        if (
-          Math.abs(centerX - baseCenter.x) > team.territoryRadius ||
-          Math.abs(centerY - baseCenter.y) > team.territoryRadius
-        ) {
-          outsideTerritoryCoordinate = { x, y };
-          break;
-        }
+    let outsideTerritoryCoordinate: Cell | null = null;
+    for (const direction of [1, -1] as const) {
+      const candidateX = baseCenter.x + direction * BUILD_ZONE_RADIUS;
+      const candidateY = Math.max(0, Math.min(baseCenter.y, room.height - 1));
+      if (candidateX < 0 || candidateX + blockWidth > room.width) {
+        continue;
       }
-      if (outsideTerritoryCoordinate) {
-        break;
+      if (candidateY + blockHeight > room.height) {
+        continue;
       }
+
+      outsideTerritoryCoordinate = {
+        x: candidateX,
+        y: candidateY,
+      };
+      break;
     }
 
     expect(outsideTerritoryCoordinate).not.toBeNull();
@@ -313,6 +325,203 @@ describe('rts', () => {
 
     const queued = room.teams.get(team.id)?.pendingBuildEvents ?? [];
     expect(queued.map(({ executeTick }) => executeTick)).toEqual([1, 20]);
+  });
+
+  test('[BUILD-02] enforces inclusive radius-15 union-zone checks', () => {
+    const probeTemplate: StructureTemplate = {
+      id: 'probe',
+      name: 'Probe',
+      width: 1,
+      height: 1,
+      cells: new Uint8Array([1]),
+      activationCost: 0,
+      income: 0,
+      buildArea: 0,
+      checks: [],
+    };
+
+    const room = createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 80,
+      height: 80,
+      templates: [...createDefaultTemplates(), probeTemplate],
+    });
+    const team = addPlayerToRoom(room, 'p1', 'Alice');
+    const baseCenter = getBaseCenter(team.baseTopLeft);
+    const blockTemplate = room.templateMap.get('block');
+    expect(blockTemplate).toBeDefined();
+
+    let direction: 1 | -1 | null = null;
+    for (const candidate of [1, -1] as const) {
+      const insideX = baseCenter.x + candidate * BUILD_ZONE_RADIUS;
+      const outsideX = baseCenter.x + candidate * (BUILD_ZONE_RADIUS + 1);
+      const blockX = baseCenter.x + candidate * BUILD_ZONE_RADIUS;
+      if (insideX < 0 || insideX >= room.width) {
+        continue;
+      }
+      if (outsideX < 0 || outsideX >= room.width) {
+        continue;
+      }
+      if (
+        blockX < 0 ||
+        blockX + (blockTemplate?.width ?? 0) > room.width ||
+        baseCenter.y + (blockTemplate?.height ?? 0) > room.height
+      ) {
+        continue;
+      }
+      direction = candidate;
+      break;
+    }
+
+    expect(direction).not.toBeNull();
+    if (direction === null) {
+      throw new Error('Unable to locate in-bounds boundary direction');
+    }
+
+    const y = Math.max(0, Math.min(baseCenter.y, room.height - 1));
+    const boundary = queueBuildEvent(room, 'p1', {
+      templateId: 'probe',
+      x: baseCenter.x + direction * BUILD_ZONE_RADIUS,
+      y,
+      delayTicks: 1,
+    });
+    expect(boundary.accepted).toBe(true);
+
+    const outside = queueBuildEvent(room, 'p1', {
+      templateId: 'probe',
+      x: baseCenter.x + direction * (BUILD_ZONE_RADIUS + 1),
+      y,
+      delayTicks: 1,
+    });
+    expect(outside.accepted).toBe(false);
+    expect(outside.reason).toBe('outside-territory');
+
+    const footprintOverflow = queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x: baseCenter.x + direction * BUILD_ZONE_RADIUS,
+      y,
+      delayTicks: 1,
+    });
+    expect(footprintOverflow.accepted).toBe(false);
+    expect(footprintOverflow.reason).toBe('outside-territory');
+  });
+
+  test('[BUILD-01] updates union-zone eligibility after build completion and structure destruction', () => {
+    const probeTemplate: StructureTemplate = {
+      id: 'probe',
+      name: 'Probe',
+      width: 1,
+      height: 1,
+      cells: new Uint8Array([1]),
+      activationCost: 0,
+      income: 0,
+      buildArea: 0,
+      checks: [],
+    };
+
+    const room = createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 120,
+      height: 120,
+      templates: [...createDefaultTemplates(), probeTemplate],
+    });
+    const team = addPlayerToRoom(room, 'p1', 'Alice');
+    const baseCenter = getBaseCenter(team.baseTopLeft);
+
+    let setup: {
+      contributorX: number;
+      contributorY: number;
+      remoteX: number;
+      remoteY: number;
+    } | null = null;
+
+    for (const direction of [1, -1] as const) {
+      const contributorX = baseCenter.x + direction * 13;
+      const contributorY = Math.max(0, Math.min(baseCenter.y, room.height - 2));
+      const contributorCenterX = contributorX + 1;
+      const contributorCenterY = contributorY + 1;
+      const remoteX = contributorCenterX + direction * BUILD_ZONE_RADIUS;
+      const remoteY = contributorCenterY;
+
+      if (contributorX < 0 || contributorX + 2 > room.width) {
+        continue;
+      }
+      if (remoteX < 0 || remoteX >= room.width) {
+        continue;
+      }
+
+      setup = {
+        contributorX,
+        contributorY,
+        remoteX,
+        remoteY,
+      };
+      break;
+    }
+
+    expect(setup).not.toBeNull();
+    if (!setup) {
+      throw new Error('Unable to derive union-zone expansion coordinates');
+    }
+
+    const beforeExpansion = probeQueueBuild(room, 'p1', {
+      templateId: 'probe',
+      x: setup.remoteX,
+      y: setup.remoteY,
+      delayTicks: 1,
+    });
+    expect(beforeExpansion.accepted).toBe(false);
+    expect(beforeExpansion.reason).toBe('outside-territory');
+
+    const contributor = queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x: setup.contributorX,
+      y: setup.contributorY,
+      delayTicks: 1,
+    });
+    expect(contributor.accepted).toBe(true);
+
+    tickRoom(room);
+    tickRoom(room);
+
+    const afterExpansion = probeQueueBuild(room, 'p1', {
+      templateId: 'probe',
+      x: setup.remoteX,
+      y: setup.remoteY,
+      delayTicks: 1,
+    });
+    expect(afterExpansion.accepted).toBe(true);
+
+    const blockCells = [
+      { x: setup.contributorX, y: setup.contributorY },
+      { x: setup.contributorX + 1, y: setup.contributorY },
+      { x: setup.contributorX, y: setup.contributorY + 1 },
+      { x: setup.contributorX + 1, y: setup.contributorY + 1 },
+    ];
+    for (const cell of blockCells) {
+      queueLegacyCellUpdate(room, {
+        x: cell.x,
+        y: cell.y,
+        alive: 0,
+      });
+    }
+
+    tickRoom(room);
+
+    const destroyedContributor = getStructureByTemplateId(team, 'block');
+    expect(destroyedContributor).not.toBeNull();
+    expect(destroyedContributor?.hp).toBeLessThanOrEqual(0);
+
+    const afterDestruction = probeQueueBuild(room, 'p1', {
+      templateId: 'probe',
+      x: setup.remoteX,
+      y: setup.remoteY,
+      delayTicks: 1,
+    });
+    expect(afterDestruction.accepted).toBe(false);
+    expect(afterDestruction.reason).toBe('outside-territory');
   });
 
   test('[QUAL-01] rejects insufficient resources with numeric deficit fields', () => {

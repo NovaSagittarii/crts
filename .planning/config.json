@@ -1,12 +1,21 @@
 {
-  "mode": "interactive",
+  "mode": "yolo",
   "depth": "standard",
   "parallelization": true,
   "commit_docs": true,
   "model_profile": "smart",
+  "profiles": {
+    "profile_type": "smart",
+    "models": {
+      "planning": "rightcode-codex/gpt-5.3-codex-xhigh",
+      "execution": "rightcode-codex/gpt-5.3-codex-high",
+      "verification": "rightcode-codex/gpt-5.3-codex"
+    }
+  },
   "workflow": {
     "research": true,
     "plan_check": true,
-    "verifier": true
+    "verifier": true,
+    "auto_advance": true
   }
 }

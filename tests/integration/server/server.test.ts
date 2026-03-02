@@ -3,7 +3,12 @@ import { io, type Socket } from 'socket.io-client';
 
 import { createServer } from '../../../apps/server/src/server.js';
 import { decodeGridBase64 } from '#conway-core';
-import { BASE_FOOTPRINT_HEIGHT, BASE_FOOTPRINT_WIDTH } from '#rts-engine';
+import {
+  BASE_FOOTPRINT_HEIGHT,
+  BASE_FOOTPRINT_WIDTH,
+  BUILD_ZONE_RADIUS,
+  getBaseCenter,
+} from '#rts-engine';
 import type {
   BuildPreviewPayload,
   BuildOutcomePayload,
@@ -239,6 +244,7 @@ function collectCandidatePlacements(
   roomHeight: number,
 ): Cell[] {
   const placements: Cell[] = [];
+  const baseCenter = getBaseCenter(team.baseTopLeft);
   const baseLeft = team.baseTopLeft.x;
   const baseTop = team.baseTopLeft.y;
   const baseRight = baseLeft + BASE_FOOTPRINT_WIDTH;
@@ -264,6 +270,25 @@ function collectCandidatePlacements(
         buildY < baseBottom &&
         buildY + template.height > baseTop;
       if (intersectsBase) {
+        continue;
+      }
+
+      let fullyInsideBuildZone = true;
+      for (let ty = 0; ty < template.height; ty += 1) {
+        for (let tx = 0; tx < template.width; tx += 1) {
+          const dx = buildX + tx - baseCenter.x;
+          const dy = buildY + ty - baseCenter.y;
+          if (dx * dx + dy * dy > BUILD_ZONE_RADIUS * BUILD_ZONE_RADIUS) {
+            fullyInsideBuildZone = false;
+            break;
+          }
+        }
+        if (!fullyInsideBuildZone) {
+          break;
+        }
+      }
+
+      if (!fullyInsideBuildZone) {
         continue;
       }
 
@@ -560,7 +585,7 @@ describe('GameServer', () => {
     await server.stop();
   }, 30_000);
 
-  test('returns explicit rejection reasons for out-of-bounds and outside-territory builds', async () => {
+  test('returns explicit rejection reasons for out-of-zone build attempts', async () => {
     const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
     const port = await server.start();
 
@@ -576,7 +601,7 @@ describe('GameServer', () => {
       setup.host,
       'room:error',
     )) as RoomError;
-    expect(outOfBounds.reason).toBe('out-of-bounds');
+    expect(outOfBounds.reason).toBe('outside-territory');
 
     setup.host.emit('build:queue', {
       templateId: 'block',

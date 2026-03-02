@@ -17,7 +17,7 @@ v0.0.2 expands deterministic gameplay through structure integrity rules, base-ge
 - Decimal phases (for example 8.1) are reserved for urgent insertions.
 
 - [x] **Phase 6: Base Geometry and Integrity Core** - Ship canonical 5x5 base behavior and deterministic template-wide integrity repair. (completed 2026-03-02)
-- [ ] **Phase 7: Authoritative Union Build Zones** - Enforce radius-15 union-zone build eligibility from owned structures.
+- [x] **Phase 7: Authoritative Union Build Zones** - Enforce radius-15 union-zone build eligibility from owned structures. (completed 2026-03-02)
 - [ ] **Phase 8: Transform Placement Consistency** - Add rotate/mirror placement with preview, queue, and simulation parity.
 - [ ] **Phase 9: Destroy Flow and Determinism Gates** - Deliver authoritative destroy outcomes and two-client/reconnect determinism coverage.
 - [ ] **Phase 10: Match Screen Transition Split** - Separate lobby and in-game screens with explicit match-state navigation.
@@ -57,7 +57,11 @@ Plans:
 3. Build-zone eligibility uses a fixed radius of 15 for all union-zone checks in this milestone.
 4. Build eligibility updates after structure creation and structure destruction events.
 
-**Plans**: TBD
+**Plans**: 1/1 plans complete
+
+Plans:
+
+- [x] 07-01-PLAN.md — Replace territory-center legality with authoritative full-footprint union-zone checks (radius 15), then align runtime feedback and deterministic integration fixtures.
 
 ### Phase 8: Transform Placement Consistency
 
@@ -133,7 +137,7 @@ Plans:
 | Phase                                     | Plans Complete | Status      | Completed  |
 | ----------------------------------------- | -------------- | ----------- | ---------- |
 | 6. Base Geometry and Integrity Core       | 2/2            | Complete    | 2026-03-02 |
-| 7. Authoritative Union Build Zones        | 0/TBD          | Not started | -          |
+| 7. Authoritative Union Build Zones        | 1/1            | Complete    | 2026-03-02 |
 | 8. Transform Placement Consistency        | 0/TBD          | Not started | -          |
 | 9. Destroy Flow and Determinism Gates     | 0/TBD          | Not started | -          |
 | 10. Match Screen Transition Split         | 0/TBD          | Not started | -          |

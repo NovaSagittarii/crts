@@ -18,6 +18,8 @@ import {
   type Vector2,
 } from './geometry.js';
 import {
+  BUILD_ZONE_DISTANCE_SHAPE,
+  BUILD_ZONE_RADIUS,
   CORE_STARTING_HP,
   DEFAULT_SPAWN_CAPACITY,
   DEFAULT_STARTING_RESOURCES,
@@ -67,6 +69,10 @@ export interface BuildEvent {
   x: number;
   y: number;
   executeTick: number;
+}
+
+interface AcceptedBuildEvent extends BuildEvent {
+  structureKey: string;
 }
 
 export interface StructureInstance {
@@ -557,20 +563,86 @@ function createStructureKey(
   return `${x},${y},${template.width},${template.height}`;
 }
 
-function isTeamTerritoryPlacementValid(
+interface BuildZoneContributor {
+  centerX: number;
+  centerY: number;
+}
+
+function collectBuildZoneContributors(
+  room: RoomState,
+  team: TeamState,
+): BuildZoneContributor[] {
+  const contributors: BuildZoneContributor[] = [];
+  const orderedStructures = [...team.structures.values()].sort(
+    compareStructuresByKey,
+  );
+
+  for (const structure of orderedStructures) {
+    if (structure.hp <= 0) {
+      continue;
+    }
+
+    const template = getStructureTemplate(room, structure);
+    if (!template) {
+      continue;
+    }
+
+    contributors.push({
+      centerX: structure.x + Math.floor(template.width / 2),
+      centerY: structure.y + Math.floor(template.height / 2),
+    });
+  }
+
+  return contributors;
+}
+
+function isBuildZoneCoveredByContributor(
+  contributor: BuildZoneContributor,
+  x: number,
+  y: number,
+): boolean {
+  const dx = x - contributor.centerX;
+  const dy = y - contributor.centerY;
+
+  if (BUILD_ZONE_DISTANCE_SHAPE === 'euclidean') {
+    return dx * dx + dy * dy <= BUILD_ZONE_RADIUS * BUILD_ZONE_RADIUS;
+  }
+
+  return Math.max(Math.abs(dx), Math.abs(dy)) <= BUILD_ZONE_RADIUS;
+}
+
+function isTeamBuildZonePlacementValid(
+  room: RoomState,
   team: TeamState,
   template: StructureTemplate,
   x: number,
   y: number,
 ): boolean {
-  const templateCenterX = x + Math.floor(template.width / 2);
-  const templateCenterY = y + Math.floor(template.height / 2);
-  const baseCenter = getBaseCenter(team.baseTopLeft);
-  const radius = team.territoryRadius;
-  return (
-    Math.abs(templateCenterX - baseCenter.x) <= radius &&
-    Math.abs(templateCenterY - baseCenter.y) <= radius
-  );
+  const contributors = collectBuildZoneContributors(room, team);
+  if (contributors.length === 0) {
+    return false;
+  }
+
+  for (let ty = 0; ty < template.height; ty += 1) {
+    for (let tx = 0; tx < template.width; tx += 1) {
+      const cellX = x + tx;
+      const cellY = y + ty;
+      let covered = false;
+
+      for (const contributor of contributors) {
+        if (isBuildZoneCoveredByContributor(contributor, cellX, cellY)) {
+          covered = true;
+          break;
+        }
+      }
+
+      if (!covered) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 function compareTemplate(
@@ -910,7 +982,7 @@ function pickSpawnPosition(room: RoomState, teamId: number): Vector2 {
 function applyTeamEconomyAndQueue(
   room: RoomState,
   team: TeamState,
-  acceptedEvents: BuildEvent[],
+  acceptedEvents: AcceptedBuildEvent[],
   buildOutcomes: BuildOutcome[],
 ): void {
   if (team.defeated) {
@@ -983,6 +1055,19 @@ function applyTeamEconomyAndQueue(
       continue;
     }
 
+    if (
+      !isTeamBuildZonePlacementValid(room, team, template, event.x, event.y)
+    ) {
+      rejectBuild(room, team, 'outside-territory', event.id);
+      recordRejectedBuildOutcome(
+        buildOutcomes,
+        event,
+        'outside-territory',
+        room.tick,
+      );
+      continue;
+    }
+
     if (!inBounds(room, event.x, event.y, template.width, template.height)) {
       rejectBuild(room, team, 'out-of-bounds', event.id);
       recordRejectedBuildOutcome(
@@ -994,19 +1079,11 @@ function applyTeamEconomyAndQueue(
       continue;
     }
 
-    if (!isTeamTerritoryPlacementValid(team, template, event.x, event.y)) {
-      rejectBuild(room, team, 'outside-territory', event.id);
-      recordRejectedBuildOutcome(
-        buildOutcomes,
-        event,
-        'outside-territory',
-        room.tick,
-      );
-      continue;
-    }
-
     const key = createStructureKey(template, event.x, event.y);
-    if (team.structures.has(key)) {
+    const isReservedInTick = acceptedEvents.some((candidate) => {
+      return candidate.teamId === team.id && candidate.structureKey === key;
+    });
+    if (team.structures.has(key) || isReservedInTick) {
       rejectBuild(room, team, 'occupied-site', event.id);
       recordRejectedBuildOutcome(
         buildOutcomes,
@@ -1050,16 +1127,9 @@ function applyTeamEconomyAndQueue(
     }
 
     team.resources -= buildCost;
-    acceptedEvents.push(event);
-    team.structures.set(key, {
-      key,
-      templateId: template.id,
-      x: event.x,
-      y: event.y,
-      active: false,
-      hp: STRUCTURE_STARTING_HP,
-      isCore: false,
-      buildRadius: 0,
+    acceptedEvents.push({
+      ...event,
+      structureKey: key,
     });
   }
 
@@ -1339,21 +1409,21 @@ export function queueBuildEvent(
     };
   }
 
+  if (!isTeamBuildZonePlacementValid(room, team, template, x, y)) {
+    rejectBuild(room, team, 'outside-territory');
+    return {
+      accepted: false,
+      error: 'Outside build zone - build closer to your structures.',
+      reason: 'outside-territory',
+    };
+  }
+
   if (!inBounds(room, x, y, template.width, template.height)) {
     rejectBuild(room, team, 'out-of-bounds');
     return {
       accepted: false,
       error: 'Placement is out of bounds',
       reason: 'out-of-bounds',
-    };
-  }
-
-  if (!isTeamTerritoryPlacementValid(team, template, x, y)) {
-    rejectBuild(room, team, 'outside-territory');
-    return {
-      accepted: false,
-      error: 'Placement is outside team territory',
-      reason: 'outside-territory',
     };
   }
 
@@ -1629,7 +1699,7 @@ export function createCanonicalMatchOutcome(
 }
 
 export function tickRoom(room: RoomState): RoomTickResult {
-  const acceptedEvents: BuildEvent[] = [];
+  const acceptedEvents: AcceptedBuildEvent[] = [];
   const buildOutcomes: BuildOutcome[] = [];
 
   for (const team of room.teams.values()) {
@@ -1647,6 +1717,17 @@ export function tickRoom(room: RoomState): RoomTickResult {
     }
 
     if (applyTemplate(room, template, event.x, event.y)) {
+      team.structures.set(event.structureKey, {
+        key: event.structureKey,
+        templateId: template.id,
+        x: event.x,
+        y: event.y,
+        active: false,
+        hp: STRUCTURE_STARTING_HP,
+        isCore: false,
+        buildRadius: 0,
+      });
+
       appliedBuilds += 1;
       team.buildStats.applied += 1;
       appendTimelineEvent(room, {

@@ -5,7 +5,12 @@ import {
   createServer,
   type GameServer,
 } from '../../../apps/server/src/server.js';
-import { BASE_FOOTPRINT_HEIGHT, BASE_FOOTPRINT_WIDTH } from '#rts-engine';
+import {
+  BASE_FOOTPRINT_HEIGHT,
+  BASE_FOOTPRINT_WIDTH,
+  BUILD_ZONE_RADIUS,
+  getBaseCenter,
+} from '#rts-engine';
 
 import type {
   BuildOutcomePayload,
@@ -155,6 +160,7 @@ function collectCandidatePlacements(
   roomHeight: number,
 ): Cell[] {
   const placements: Cell[] = [];
+  const baseCenter = getBaseCenter(team.baseTopLeft);
   const baseLeft = team.baseTopLeft.x;
   const baseTop = team.baseTopLeft.y;
   const baseRight = baseLeft + BASE_FOOTPRINT_WIDTH;
@@ -180,6 +186,25 @@ function collectCandidatePlacements(
         buildY < baseBottom &&
         buildY + template.height > baseTop;
       if (intersectsBase) {
+        continue;
+      }
+
+      let fullyInsideBuildZone = true;
+      for (let ty = 0; ty < template.height; ty += 1) {
+        for (let tx = 0; tx < template.width; tx += 1) {
+          const dx = buildX + tx - baseCenter.x;
+          const dy = buildY + ty - baseCenter.y;
+          if (dx * dx + dy * dy > BUILD_ZONE_RADIUS * BUILD_ZONE_RADIUS) {
+            fullyInsideBuildZone = false;
+            break;
+          }
+        }
+        if (!fullyInsideBuildZone) {
+          break;
+        }
+      }
+
+      if (!fullyInsideBuildZone) {
         continue;
       }
 
@@ -416,7 +441,7 @@ describe('QUAL-02 quality gate integration loop', () => {
       8000,
     );
 
-    for (let delayTicks = 1; delayTicks <= 4; delayTicks += 1) {
+    for (const delayTicks of [16, 17, 18, 19]) {
       const queueResponsePromise = waitForBuildQueueResponse(match.guest);
       match.guest.emit('build:queue', {
         templateId: 'glider',

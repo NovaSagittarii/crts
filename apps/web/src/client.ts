@@ -260,6 +260,9 @@ let lifecycleConnectionNotice: string | null = null;
 let bootstrapMembershipTimeoutId: number | null = null;
 let connectionIssueVisible = false;
 let lastConnectionErrorSignature: string | null = null;
+let lastBuildErrorToast: { signature: string; at: number } | null = null;
+
+const BUILD_ERROR_TOAST_DEDUPE_MS = 800;
 
 function addToast(message: string, isError = false): void {
   const toast = document.createElement('div');
@@ -451,7 +454,7 @@ function readDelayTicks(): number {
 
 function describeBuildFailureReason(reason: string | undefined): string {
   if (reason === 'outside-territory') {
-    return 'outside territory';
+    return 'outside build zone';
   }
   if (reason === 'out-of-bounds') {
     return 'out of bounds';
@@ -516,6 +519,38 @@ function resetQueueFeedbackOverride(): void {
 
 function setQueueFeedbackOverride(message: string, isError: boolean): void {
   queueFeedbackOverride = { text: message, isError };
+}
+
+function shouldDeduplicateBuildErrorToast(
+  payload: RoomErrorPayload,
+  message: string,
+): boolean {
+  if (
+    payload.reason !== 'outside-territory' &&
+    payload.reason !== 'out-of-bounds' &&
+    payload.reason !== 'occupied-site' &&
+    payload.reason !== 'unknown-template' &&
+    payload.reason !== 'invalid-coordinates' &&
+    payload.reason !== 'invalid-delay'
+  ) {
+    return false;
+  }
+
+  const signature = `${payload.reason}:${message}`;
+  const now = Date.now();
+  if (
+    lastBuildErrorToast &&
+    lastBuildErrorToast.signature === signature &&
+    now - lastBuildErrorToast.at < BUILD_ERROR_TOAST_DEDUPE_MS
+  ) {
+    return true;
+  }
+
+  lastBuildErrorToast = {
+    signature,
+    at: now,
+  };
+  return false;
 }
 
 function clearSelectedTemplatePlacement(): void {
@@ -1659,6 +1694,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   persistentDefeatReason = null;
   latestOutcomeTimelineMetadata = null;
   currentMembership = null;
+  lastBuildErrorToast = null;
   clearSelectedTemplatePlacement();
   resetEconomyTracking();
   availableTemplates = payload.templates;
@@ -1700,6 +1736,7 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   persistentDefeatReason = null;
   latestOutcomeTimelineMetadata = null;
   currentMembership = null;
+  lastBuildErrorToast = null;
   clearSelectedTemplatePlacement();
   resetEconomyTracking();
   applyRoomStatus('lobby');
@@ -1762,8 +1799,12 @@ socket.on('room:error', (payload: RoomErrorPayload) => {
     updateLifecycleUi();
   }
 
+  const suppressToast = shouldDeduplicateBuildErrorToast(payload, message);
+
   setMessage(message, true);
-  addToast(message, true);
+  if (!suppressToast) {
+    addToast(message, true);
+  }
   updateQueueAffordabilityUi();
 });
 

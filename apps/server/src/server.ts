@@ -963,6 +963,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return 'invalid-coordinates';
       case 'Placement is out of bounds':
         return 'out-of-bounds';
+      case 'Outside build zone - build closer to your structures.':
       case 'Placement is outside team territory':
         return 'outside-territory';
       case 'delayTicks must be an integer':

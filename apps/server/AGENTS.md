@@ -64,7 +64,7 @@ Common (not exhaustive) `room:error.reason` values:
 - `not-ready`: lobby start attempted before both slotted players are ready.
 - `queue-only-mutation-path`: direct `cell:update` gameplay bypass attempt was rejected.
 - `out-of-bounds`: `build:queue` payload coordinates exceeded room bounds.
-- `outside-territory`: `build:queue` payload targeted cells beyond team territory.
+- `outside-territory`: `build:queue` payload targeted cells beyond the team's union build zone.
 - `invalid-coordinates`: `build:queue` payload included non-integer coordinates.
 - `invalid-delay`: `build:queue` delay value was not an integer.
 - `unknown-template`: `build:queue` referenced a template that is not available.
