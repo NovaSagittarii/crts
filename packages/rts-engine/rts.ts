@@ -364,8 +364,9 @@ interface StructureTemplateRowsOptions {
   activationCost?: number;
   income?: number;
   buildArea?: number;
-  checks?: Vector2[];
   requiresDestroyConfirm?: boolean;
+  padding?: number;
+  checked?: boolean;
 }
 
 const CORE_TEMPLATE_ID = '__core__';
@@ -380,11 +381,13 @@ function hashSpawnSeed(roomId: string, width: number, height: number): number {
   return hash >>> 0;
 }
 
-function parseTemplateRows(rows: string[]): {
+interface PackedGrid {
   width: number;
   height: number;
   cells: Uint8Array;
-} {
+}
+
+function parseTemplateRows(rows: string[]): PackedGrid {
   if (rows.length === 0) {
     throw new Error('Template rows must not be empty');
   }
@@ -419,31 +422,58 @@ function parseTemplateRows(rows: string[]): {
   return { width, height, cells };
 }
 
-function createTemplateFromRows(
-  options: StructureTemplateRowsOptions,
-): StructureTemplate {
-  const parsed = parseTemplateRows(options.rows);
+function padTemplate(template: PackedGrid, padding: number): PackedGrid {
+  const paddedWidth = template.width + padding * 2;
+  const paddedHeight = template.height + padding * 2;
+  const paddedCells = new Uint8Array(paddedWidth * paddedHeight);
+  for (let i = 0; i < template.height; ++i) {
+    for (let j = 0; j < template.width; ++j) {
+      paddedCells[(i + padding) * paddedWidth + (j + padding)] =
+        template.cells[i * template.width + j];
+    }
+  }
   return {
-    id: options.id,
-    name: options.name,
-    width: parsed.width,
-    height: parsed.height,
-    cells: parsed.cells,
-    activationCost: options.activationCost ?? 0,
-    income: options.income ?? 0,
-    buildArea: options.buildArea ?? 0,
-    checks: options.checks ?? [],
-    requiresDestroyConfirm: options.requiresDestroyConfirm ?? false,
+    width: paddedWidth,
+    height: paddedHeight,
+    cells: paddedCells,
   };
 }
 
-const CORE_STRUCTURE_TEMPLATE = createTemplateFromRows({
+function createTemplateFromRows({
+  id,
+  name,
+  rows,
+  activationCost = 0,
+  income = 0,
+  requiresDestroyConfirm = false,
+  buildArea = 0,
+  padding = 0,
+  checked = false,
+}: StructureTemplateRowsOptions): StructureTemplate {
+  const parsed = parseTemplateRows(rows);
+  const padded = padTemplate(parsed, padding);
+  return {
+    id: id,
+    name: name,
+    width: padded.width,
+    height: padded.height,
+    cells: padded.cells,
+    activationCost: activationCost,
+    income: income,
+    buildArea: buildArea,
+    requiresDestroyConfirm: requiresDestroyConfirm,
+    checks: [], // TODO: implement checked and checks
+    // checked,
+  };
+}
+
+export const CORE_STRUCTURE_TEMPLATE = createTemplateFromRows({
   id: CORE_TEMPLATE_ID,
   name: 'Core',
   rows: ['##.##', '##.##', '.....', '##.##', '##.##'],
   buildArea: 0,
-  checks: [],
   requiresDestroyConfirm: true,
+  padding: 3,
 });
 
 function appendTimelineEvent(
@@ -1669,7 +1699,6 @@ export function createDefaultTemplates(): StructureTemplate[] {
       activationCost: 0,
       income: 0,
       buildArea: 0,
-      checks: [],
     }),
     createTemplateFromRows({
       id: 'generator',
@@ -1678,12 +1707,8 @@ export function createDefaultTemplates(): StructureTemplate[] {
       activationCost: 6,
       income: 2,
       buildArea: 2,
-      checks: [
-        { x: 0, y: 0 },
-        { x: 1, y: 0 },
-        { x: 0, y: 1 },
-        { x: 1, y: 1 },
-      ],
+      padding: 1,
+      checked: true,
     }),
     createTemplateFromRows({
       id: 'glider',
@@ -1692,7 +1717,6 @@ export function createDefaultTemplates(): StructureTemplate[] {
       activationCost: 2,
       income: 0,
       buildArea: 0,
-      checks: [],
     }),
     createTemplateFromRows({
       id: 'eater-1',
@@ -1701,7 +1725,6 @@ export function createDefaultTemplates(): StructureTemplate[] {
       activationCost: 4,
       income: 0,
       buildArea: 1,
-      checks: [],
     }),
   ];
 }

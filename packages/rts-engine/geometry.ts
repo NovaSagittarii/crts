@@ -1,18 +1,18 @@
+import { CORE_STRUCTURE_TEMPLATE } from './rts.js';
+
 export interface Vector2 {
   x: number;
   y: number;
 }
 
-export const BASE_FOOTPRINT_WIDTH = 5;
-export const BASE_FOOTPRINT_HEIGHT = 5;
-export const BASE_CENTER_OFFSET = 2;
+export const BASE_FOOTPRINT_WIDTH = CORE_STRUCTURE_TEMPLATE.width;
+export const BASE_FOOTPRINT_HEIGHT = CORE_STRUCTURE_TEMPLATE.height;
+export const BASE_CENTER_OFFSET = Math.floor(BASE_FOOTPRINT_WIDTH / 2);
 
 export function isCanonicalBaseCell(localX: number, localY: number): boolean {
-  const inHorizontalBand =
-    localX === 0 || localX === 1 || localX === 3 || localX === 4;
-  const inVerticalBand =
-    localY === 0 || localY === 1 || localY === 3 || localY === 4;
-  return inHorizontalBand && inVerticalBand;
+  return !!CORE_STRUCTURE_TEMPLATE.cells[
+    localY * BASE_FOOTPRINT_WIDTH + localX
+  ];
 }
 
 export function getBaseCenter(baseTopLeft: Vector2): Vector2 {
