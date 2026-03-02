@@ -20,6 +20,7 @@ import {
   listRooms,
   previewBuildPlacement,
   queueBuildEvent,
+  queueDestroyEvent,
   queueLegacyCellUpdate,
   removePlayerFromRoom,
   renamePlayerInRoom,
@@ -596,6 +597,253 @@ describe('rts', () => {
     });
     expect(afterDestruction.accepted).toBe(false);
     expect(afterDestruction.reason).toBe('outside-territory');
+  });
+
+  test('[STRUCT-02] validates destroy ownership rules, idempotency, and pending retargeting', () => {
+    const room = createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 90,
+      height: 90,
+    });
+    const teamOne = addPlayerToRoom(room, 'p1', 'Alice');
+    const teamTwo = addPlayerToRoom(room, 'p2', 'Bob');
+
+    const queuedBuild = queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x: teamOne.baseTopLeft.x + 8,
+      y: teamOne.baseTopLeft.y + 8,
+      delayTicks: 1,
+    });
+    expect(queuedBuild.accepted).toBe(true);
+
+    tickRoom(room);
+    tickRoom(room);
+
+    const ownStructure = getStructureByTemplateId(teamOne, 'block');
+    expect(ownStructure).not.toBeNull();
+    if (!ownStructure) {
+      throw new Error('Expected own block structure to exist');
+    }
+
+    const wrongOwner = queueDestroyEvent(room, 'p2', {
+      structureKey: ownStructure.key,
+      delayTicks: 2,
+    });
+    expect(wrongOwner.accepted).toBe(false);
+    expect(wrongOwner.reason).toBe('wrong-owner');
+
+    const invalidTarget = queueDestroyEvent(room, 'p1', {
+      structureKey: 'missing-structure-key',
+      delayTicks: 2,
+    });
+    expect(invalidTarget.accepted).toBe(false);
+    expect(invalidTarget.reason).toBe('invalid-target');
+
+    const first = queueDestroyEvent(room, 'p1', {
+      structureKey: ownStructure.key,
+      delayTicks: 3,
+    });
+    expect(first.accepted).toBe(true);
+    expect(first.idempotent).toBe(false);
+
+    const duplicate = queueDestroyEvent(room, 'p1', {
+      structureKey: ownStructure.key,
+      delayTicks: 3,
+    });
+    expect(duplicate.accepted).toBe(true);
+    expect(duplicate.idempotent).toBe(true);
+    expect(duplicate.eventId).toBe(first.eventId);
+    expect(duplicate.executeTick).toBe(first.executeTick);
+
+    const ownCore = getCoreStructure(teamOne);
+    const retarget = queueDestroyEvent(room, 'p1', {
+      structureKey: ownCore.key,
+      delayTicks: 3,
+    });
+    expect(retarget.accepted).toBe(true);
+    expect(retarget.eventId).not.toBe(first.eventId);
+    expect(teamOne.pendingDestroyEvents).toHaveLength(2);
+    expect(teamTwo.pendingDestroyEvents).toHaveLength(0);
+  });
+
+  test('[STRUCT-02] applies queued destroy outcomes and removes contributor build zone', () => {
+    const probeTemplate: StructureTemplate = {
+      id: 'probe',
+      name: 'Probe',
+      width: 1,
+      height: 1,
+      cells: new Uint8Array([1]),
+      activationCost: 0,
+      income: 0,
+      buildArea: 0,
+      checks: [],
+    };
+
+    const room = createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 120,
+      height: 120,
+      templates: [...createDefaultTemplates(), probeTemplate],
+    });
+    const team = addPlayerToRoom(room, 'p1', 'Alice');
+    const baseCenter = getBaseCenter(team.baseTopLeft);
+
+    let setup: {
+      contributorX: number;
+      contributorY: number;
+      remoteX: number;
+      remoteY: number;
+    } | null = null;
+
+    for (const direction of [1, -1] as const) {
+      const contributorX = baseCenter.x + direction * 13;
+      const contributorY = Math.max(0, Math.min(baseCenter.y, room.height - 2));
+      const contributorCenterX = contributorX + 1;
+      const contributorCenterY = contributorY + 1;
+      const remoteX = contributorCenterX + direction * BUILD_ZONE_RADIUS;
+      const remoteY = contributorCenterY;
+
+      if (contributorX < 0 || contributorX + 2 > room.width) {
+        continue;
+      }
+      if (remoteX < 0 || remoteX >= room.width) {
+        continue;
+      }
+
+      setup = {
+        contributorX,
+        contributorY,
+        remoteX,
+        remoteY,
+      };
+      break;
+    }
+
+    expect(setup).not.toBeNull();
+    if (!setup) {
+      throw new Error('Unable to derive contributor placement coordinates');
+    }
+
+    const contributor = queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x: setup.contributorX,
+      y: setup.contributorY,
+      delayTicks: 1,
+    });
+    expect(contributor.accepted).toBe(true);
+
+    tickRoom(room);
+    tickRoom(room);
+
+    const expanded = probeQueueBuild(room, 'p1', {
+      templateId: 'probe',
+      x: setup.remoteX,
+      y: setup.remoteY,
+      delayTicks: 1,
+    });
+    expect(expanded.accepted).toBe(true);
+
+    const builtContributor = getStructureByTemplateId(team, 'block');
+    expect(builtContributor).not.toBeNull();
+    if (!builtContributor) {
+      throw new Error('Expected contributor structure to exist before destroy');
+    }
+
+    const queuedDestroy = queueDestroyEvent(room, 'p1', {
+      structureKey: builtContributor.key,
+      delayTicks: 1,
+    });
+    expect(queuedDestroy.accepted).toBe(true);
+
+    const preDue = tickRoom(room);
+    expect(preDue.destroyOutcomes).toEqual([]);
+
+    const resolved = tickRoom(room);
+    expect(resolved.destroyOutcomes).toEqual([
+      {
+        eventId: queuedDestroy.eventId,
+        teamId: team.id,
+        structureKey: builtContributor.key,
+        templateId: 'block',
+        outcome: 'destroyed',
+        executeTick: queuedDestroy.executeTick,
+        resolvedTick: queuedDestroy.executeTick,
+      },
+    ]);
+
+    const afterDestroy = probeQueueBuild(room, 'p1', {
+      templateId: 'probe',
+      x: setup.remoteX,
+      y: setup.remoteY,
+      delayTicks: 1,
+    });
+    expect(afterDestroy.accepted).toBe(false);
+    expect(afterDestroy.reason).toBe('outside-territory');
+
+    const staleDestroy = queueDestroyEvent(room, 'p1', {
+      structureKey: builtContributor.key,
+      delayTicks: 1,
+    });
+    expect(staleDestroy.accepted).toBe(false);
+    expect(staleDestroy.reason).toBe('invalid-lifecycle-state');
+  });
+
+  test('[QUAL-04] keeps destroy outcomes deterministic across equal-run simulations', () => {
+    function runDestroySequence(): {
+      destroyOutcomes: ReturnType<typeof tickRoom>['destroyOutcomes'];
+      payload: ReturnType<typeof createRoomStatePayload>;
+    } {
+      const room = createRoomState({
+        id: 'deterministic-room',
+        name: 'Deterministic',
+        width: 80,
+        height: 80,
+      });
+      const team = addPlayerToRoom(room, 'p1', 'Alice');
+
+      const queuedBuild = queueBuildEvent(room, 'p1', {
+        templateId: 'block',
+        x: team.baseTopLeft.x + 8,
+        y: team.baseTopLeft.y + 8,
+        delayTicks: 1,
+      });
+      expect(queuedBuild.accepted).toBe(true);
+
+      tickRoom(room);
+      tickRoom(room);
+
+      const placed = getStructureByTemplateId(team, 'block');
+      if (!placed) {
+        throw new Error('Expected placed block before destroy sequence');
+      }
+
+      const queuedDestroy = queueDestroyEvent(room, 'p1', {
+        structureKey: placed.key,
+        delayTicks: 1,
+      });
+      expect(queuedDestroy.accepted).toBe(true);
+
+      tickRoom(room);
+      const resolved = tickRoom(room);
+
+      return {
+        destroyOutcomes: resolved.destroyOutcomes,
+        payload: createRoomStatePayload(room),
+      };
+    }
+
+    const firstRun = runDestroySequence();
+    const secondRun = runDestroySequence();
+
+    expect(firstRun.destroyOutcomes).toEqual(secondRun.destroyOutcomes);
+
+    const firstTeam = firstRun.payload.teams[0];
+    const secondTeam = secondRun.payload.teams[0];
+    expect(firstTeam?.pendingDestroys).toEqual([]);
+    expect(secondTeam?.pendingDestroys).toEqual([]);
+    expect(firstTeam?.structures).toEqual(secondTeam?.structures);
   });
 
   test('[QUAL-01] rejects insufficient resources with numeric deficit fields', () => {
