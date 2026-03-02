@@ -715,7 +715,7 @@ describe('GameServer', () => {
       setup.host,
       'build:preview',
       4_000,
-    ) as Promise<unknown>;
+    );
 
     setup.host.emit('build:queue', {
       templateId: 'block',
