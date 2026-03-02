@@ -187,7 +187,7 @@ describe('grid', () => {
 
     const packed = packGridBits(grid, width, height);
 
-    expect([...packed]).toEqual([0b1011_0010, 0b1000_0000]);
+    expect([...new Uint8Array(packed)]).toEqual([0b1011_0010, 0b1000_0000]);
   });
 
   test('unpacks bit arrays back into byte-per-cell grids', () => {
