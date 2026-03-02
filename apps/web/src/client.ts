@@ -54,7 +54,6 @@ import {
   refreshDestroySelection,
   registerDestroyOutcome,
   registerDestroyQueued,
-  selectDestroyStructure,
   syncDestroyPending,
   type DestroySelectableStructure,
   type DestroyViewModelState,
@@ -83,6 +82,16 @@ import {
   type CameraPoint,
   type CameraViewState,
 } from './camera-view-model.js';
+import {
+  canShowStructureActions,
+  createStructureInteractionState,
+  DEFAULT_HOVER_LEAVE_GRACE_MS,
+  reduceStructureInteraction,
+  selectActiveStructureKey,
+  selectStructureInteractionMode,
+  type StructureInteractionAction,
+  type StructureInteractionState,
+} from './structure-interaction-view-model.js';
 
 type RoomListEntry = RoomListEntryPayload;
 type StatePayload = RoomStatePayload;
@@ -208,6 +217,24 @@ const destroyConfirmButton =
   getRequiredElement<HTMLButtonElement>('destroy-confirm');
 const destroyCancelButton =
   getRequiredElement<HTMLButtonElement>('destroy-cancel');
+const structureInspectorStatusEl = getRequiredElement<HTMLElement>(
+  'structure-inspector-status',
+);
+const structureInspectorTemplateEl = getRequiredElement<HTMLElement>(
+  'structure-inspector-template',
+);
+const structureInspectorOwnerEl = getRequiredElement<HTMLElement>(
+  'structure-inspector-owner',
+);
+const structureInspectorHealthEl = getRequiredElement<HTMLElement>(
+  'structure-inspector-health',
+);
+const structureInspectorStateEl = getRequiredElement<HTMLElement>(
+  'structure-inspector-state',
+);
+const structureInspectorActionHintEl = getRequiredElement<HTMLElement>(
+  'structure-inspector-action-hint',
+);
 const pendingTimelineEl =
   getRequiredElement<HTMLDivElement>('pending-timeline');
 const messageEl = getRequiredElement<HTMLElement>('message');
@@ -375,6 +402,9 @@ let connectionIssueVisible = false;
 let lastConnectionErrorSignature: string | null = null;
 let lastBuildErrorToast: { signature: string; at: number } | null = null;
 let destroyViewState: DestroyViewModelState = createDestroyViewModelState();
+let structureInteractionState: StructureInteractionState =
+  createStructureInteractionState();
+let structureHoverTickTimeoutId: number | null = null;
 let visibleStructures: VisibleStructure[] = [];
 let structureCellIndex = new Map<string, VisibleStructure>();
 let localBuildZoneCells: Cell[] = [];
@@ -858,10 +888,13 @@ function clearSelectedTemplatePlacement(): void {
 
 function resetDestroyInteractionState(): void {
   destroyViewState = clearDestroySelection(createDestroyViewModelState());
+  structureInteractionState = createStructureInteractionState();
+  clearStructureHoverTickTimeout();
   visibleStructures = [];
   structureCellIndex = new Map<string, VisibleStructure>();
   clearLocalBuildZoneOverlay();
   resetDestroyFeedbackOverride();
+  renderStructureInspector();
 }
 
 function mapVisibleStructureToSelectable(
@@ -881,6 +914,163 @@ function getVisibleStructureByKey(key: string): VisibleStructure | null {
 
 function getStructureAtCell(cell: Cell): VisibleStructure | null {
   return structureCellIndex.get(`${cell.x},${cell.y}`) ?? null;
+}
+
+function clearStructureHoverTickTimeout(): void {
+  if (structureHoverTickTimeoutId === null) {
+    return;
+  }
+
+  window.clearTimeout(structureHoverTickTimeoutId);
+  structureHoverTickTimeoutId = null;
+}
+
+function scheduleStructureHoverTick(nowMs: number): void {
+  clearStructureHoverTickTimeout();
+
+  if (
+    structureInteractionState.pinnedKey ||
+    !structureInteractionState.hoverKey ||
+    structureInteractionState.hoverLeaveExpiresAtMs === null
+  ) {
+    return;
+  }
+
+  const delayMs = Math.max(
+    0,
+    structureInteractionState.hoverLeaveExpiresAtMs - nowMs,
+  );
+
+  structureHoverTickTimeoutId = window.setTimeout(() => {
+    structureHoverTickTimeoutId = null;
+    const tickNow = Date.now();
+    structureInteractionState = reduceStructureInteraction(
+      structureInteractionState,
+      {
+        type: 'tick',
+        atMs: tickNow,
+      },
+    );
+    syncDestroySelectionFromInteraction(tickNow);
+    renderStructureInspector(tickNow);
+    updateDestroyUi();
+  }, delayMs);
+}
+
+function syncDestroySelectionFromInteraction(nowMs: number): void {
+  const activeKey = selectActiveStructureKey(structureInteractionState, nowMs);
+  if (
+    !activeKey ||
+    !canShowStructureActions(structureInteractionState, nowMs)
+  ) {
+    destroyViewState = clearDestroySelection(destroyViewState);
+    return;
+  }
+
+  const activeStructure = getVisibleStructureByKey(activeKey);
+  if (!activeStructure) {
+    destroyViewState = clearDestroySelection(destroyViewState);
+    return;
+  }
+
+  destroyViewState = refreshDestroySelection(
+    destroyViewState,
+    mapVisibleStructureToSelectable(activeStructure),
+    currentTeamId,
+  );
+}
+
+function renderStructureInspector(nowMs = Date.now()): void {
+  const mode = selectStructureInteractionMode(structureInteractionState, nowMs);
+  const activeKey = selectActiveStructureKey(structureInteractionState, nowMs);
+  const activeStructure = activeKey
+    ? getVisibleStructureByKey(activeKey)
+    : null;
+
+  if (!activeStructure) {
+    structureInspectorStatusEl.textContent =
+      'Hover a structure to inspect details. Click or tap to pin and unlock actions.';
+    structureInspectorTemplateEl.textContent = '-';
+    structureInspectorOwnerEl.textContent = '-';
+    structureInspectorHealthEl.textContent = '-';
+    structureInspectorStateEl.textContent = '-';
+    structureInspectorStatusEl.classList.remove('inspector-status--pinned');
+    return;
+  }
+
+  structureInspectorTemplateEl.textContent = activeStructure.templateName;
+  structureInspectorOwnerEl.textContent =
+    currentTeamId !== null && activeStructure.teamId === currentTeamId
+      ? `Team ${activeStructure.teamId} (you)`
+      : `Team ${activeStructure.teamId}`;
+  structureInspectorHealthEl.textContent = `${activeStructure.hp} HP`;
+  structureInspectorStateEl.textContent = activeStructure.active
+    ? 'Active'
+    : 'Inactive';
+
+  if (mode === 'pinned') {
+    structureInspectorStatusEl.textContent =
+      'Pinned structure. Actions and outcomes stay anchored here.';
+  } else {
+    structureInspectorStatusEl.textContent =
+      'Hover preview only. Click or tap to pin this structure for actions.';
+  }
+
+  structureInspectorStatusEl.classList.toggle(
+    'inspector-status--pinned',
+    mode === 'pinned',
+  );
+}
+
+function applyStructureInteraction(
+  action: StructureInteractionAction,
+  nowMs = Date.now(),
+): void {
+  structureInteractionState = reduceStructureInteraction(
+    structureInteractionState,
+    action,
+  );
+  syncDestroySelectionFromInteraction(nowMs);
+  scheduleStructureHoverTick(nowMs);
+  renderStructureInspector(nowMs);
+  updateDestroyUi();
+}
+
+function updateStructureHoverStateForPointer(event: PointerEvent): void {
+  if (!gridBytes || matchScreenState.screen !== 'ingame') {
+    return;
+  }
+
+  const nowMs = Date.now();
+  structureInteractionState = reduceStructureInteraction(
+    structureInteractionState,
+    {
+      type: 'tick',
+      atMs: nowMs,
+    },
+  );
+
+  const cell = pointerToCell(event);
+  const structure = cell ? getStructureAtCell(cell) : null;
+  if (structure) {
+    applyStructureInteraction(
+      {
+        type: 'hover-enter',
+        structureKey: structure.key,
+      },
+      nowMs,
+    );
+    return;
+  }
+
+  applyStructureInteraction(
+    {
+      type: 'hover-leave',
+      atMs: nowMs,
+      graceMs: DEFAULT_HOVER_LEAVE_GRACE_MS,
+    },
+    nowMs,
+  );
 }
 
 function syncVisibleStructures(payload: StatePayload): void {
@@ -921,16 +1111,12 @@ function syncVisibleStructures(payload: StatePayload): void {
   visibleStructures = nextStructures;
   structureCellIndex = nextIndex;
 
-  const selectedKey = destroyViewState.selectedKey;
-  const selectedStructure = selectedKey
-    ? getVisibleStructureByKey(selectedKey)
-    : null;
-  destroyViewState = refreshDestroySelection(
-    destroyViewState,
-    selectedStructure
-      ? mapVisibleStructureToSelectable(selectedStructure)
-      : null,
-    currentTeamId,
+  structureInteractionState = reduceStructureInteraction(
+    structureInteractionState,
+    {
+      type: 'reconcile',
+      availableStructureKeys: nextStructures.map((structure) => structure.key),
+    },
   );
 
   const pendingForTeam =
@@ -939,6 +1125,12 @@ function syncVisibleStructures(payload: StatePayload): void {
     destroyViewState,
     pendingForTeam.map(({ structureKey }) => structureKey),
   );
+
+  const nowMs = Date.now();
+  syncDestroySelectionFromInteraction(nowMs);
+  scheduleStructureHoverTick(nowMs);
+  renderStructureInspector(nowMs);
+  updateDestroyUi();
 }
 
 function cellKey(x: number, y: number): number {
@@ -1033,10 +1225,22 @@ function selectDestroyStructureAtCell(cell: Cell): boolean {
     return false;
   }
 
-  destroyViewState = selectDestroyStructure(
-    destroyViewState,
-    mapVisibleStructureToSelectable(structure),
-    currentTeamId,
+  const nowMs = Date.now();
+  if (structureInteractionState.pinnedKey === structure.key) {
+    applyStructureInteraction({ type: 'unpin' }, nowMs);
+    resetDestroyFeedbackOverride();
+    setMessage(
+      `Unpinned ${structure.templateName} (${structure.key}). Hover to inspect, pin to act.`,
+    );
+    return true;
+  }
+
+  applyStructureInteraction(
+    {
+      type: 'pin',
+      structureKey: structure.key,
+    },
+    nowMs,
   );
   resetDestroyFeedbackOverride();
 
@@ -1045,12 +1249,22 @@ function selectDestroyStructureAtCell(cell: Cell): boolean {
       ? 'owned'
       : `team ${structure.teamId}`;
   setMessage(
-    `Selected ${structure.templateName} (${structure.key}) [${ownerLabel}] for destroy actions.`,
+    `Pinned ${structure.templateName} (${structure.key}) [${ownerLabel}] for inspector actions.`,
   );
   return true;
 }
 
 function updateDestroyUi(): void {
+  const nowMs = Date.now();
+  const canUsePinnedActions = canShowStructureActions(
+    structureInteractionState,
+    nowMs,
+  );
+  const activeKey = selectActiveStructureKey(structureInteractionState, nowMs);
+  const activeStructure = activeKey
+    ? getVisibleStructureByKey(activeKey)
+    : null;
+
   destroyQueueButton.hidden = false;
   destroyConfirmPanelEl.hidden = true;
   destroyQueueButton.disabled = true;
@@ -1063,31 +1277,66 @@ function updateDestroyUi(): void {
     ? getVisibleStructureByKey(selectedKey)
     : null;
 
-  let selectionCopy =
-    'Select a structure on the board to enable destroy actions.';
-  if (selectedStructure) {
-    selectionCopy = `Selected: ${selectedStructure.templateName} (${selectedStructure.key})`;
+  let selectionCopy = activeStructure
+    ? `Inspecting: ${activeStructure.templateName} (${activeStructure.key})`
+    : 'Select a structure on the board to enable destroy actions.';
+  if (selectedStructure && canUsePinnedActions) {
+    selectionCopy = `Pinned: ${selectedStructure.templateName} (${selectedStructure.key})`;
   }
   destroySelectionEl.textContent = selectionCopy;
 
-  let feedback =
-    'Destroy action is disabled until an owned structure is selected.';
+  let feedback = 'Pin an owned structure to enable destroy actions.';
   let isError = false;
+  let actionHint = 'Pin an owned structure to queue destroy actions.';
+  let actionHintPending = false;
+
+  if (!canUsePinnedActions) {
+    destroyQueueButton.hidden = true;
+    destroyConfirmPanelEl.hidden = true;
+
+    if (activeStructure) {
+      feedback = 'Hover preview is read-only. Click or tap to pin for actions.';
+      actionHint =
+        'Hover preview active. Pin this structure to unlock queue controls.';
+    } else {
+      feedback = 'Hover or pin a structure to inspect destroy options.';
+    }
+
+    if (destroyFeedbackOverride) {
+      feedback = destroyFeedbackOverride.text;
+      isError = destroyFeedbackOverride.isError;
+    }
+
+    structureInspectorActionHintEl.textContent = actionHint;
+    structureInspectorActionHintEl.classList.toggle(
+      'inspector-action-hint--pending',
+      false,
+    );
+    destroyFeedbackEl.textContent = feedback;
+    destroyFeedbackEl.classList.toggle('queue-feedback--error', isError);
+    return;
+  }
 
   if (!canMutateGameplay()) {
     feedback =
       'Destroy action is read-only until you are an active, non-defeated player.';
+    actionHint =
+      'Pinned in read-only mode. Actions unlock when you are active and alive.';
   } else if (!selectedStructure) {
     feedback =
       'Select any structure cell on the board to inspect destroy actions.';
+    actionHint = 'Pinned structure not found in latest state. Re-pin a target.';
   } else if (!destroyViewState.selectedOwned) {
     feedback = 'Destroy controls are hidden for non-owned structures.';
     isError = true;
+    actionHint = 'Pinned structure is not owned by your team.';
   } else if (
     destroyViewState.pendingStructureKeys.includes(selectedStructure.key)
   ) {
     feedback =
       'Destroy pending for selected structure. You may retarget another structure.';
+    actionHint = 'Destroy request pending for this structure.';
+    actionHintPending = true;
   } else if (selectedStructure.requiresDestroyConfirm) {
     destroyQueueButton.hidden = true;
     destroyConfirmPanelEl.hidden = false;
@@ -1099,16 +1348,27 @@ function updateDestroyUi(): void {
     feedback = destroyViewState.confirmArmed
       ? 'Confirm destroy to submit the authoritative request.'
       : 'Core destroy requires confirmation before queue submission.';
+    actionHint = destroyViewState.confirmArmed
+      ? 'Confirm armed. Submit destroy to queue the request.'
+      : 'Core structures require one extra confirmation step.';
   } else {
     destroyQueueButton.disabled = false;
     feedback = 'Ready to queue destroy request for selected structure.';
+    actionHint = 'Pinned and owned. Destroy action is ready.';
   }
 
   if (destroyFeedbackOverride) {
     feedback = destroyFeedbackOverride.text;
     isError = destroyFeedbackOverride.isError;
+    actionHint = destroyFeedbackOverride.text;
+    actionHintPending = !destroyFeedbackOverride.isError;
   }
 
+  structureInspectorActionHintEl.textContent = actionHint;
+  structureInspectorActionHintEl.classList.toggle(
+    'inspector-action-hint--pending',
+    actionHintPending,
+  );
   destroyFeedbackEl.textContent = feedback;
   destroyFeedbackEl.classList.toggle('queue-feedback--error', isError);
 }
@@ -2471,21 +2731,25 @@ canvas.addEventListener('pointerdown', (event) => {
     return;
   }
 
-  if (!canMutateGameplay()) {
-    setMessage(
-      'Board edits are read-only until you are an active, non-defeated player.',
-      true,
-    );
-    return;
-  }
-
   const cell = pointerToCell(event);
   if (!cell) {
     return;
   }
 
   if (selectDestroyStructureAtCell(cell)) {
-    updateDestroyUi();
+    return;
+  }
+
+  if (structureInteractionState.pinnedKey) {
+    applyStructureInteraction({ type: 'clear' });
+    resetDestroyFeedbackOverride();
+  }
+
+  if (!canMutateGameplay()) {
+    setMessage(
+      'Board edits are read-only until you are an active, non-defeated player.',
+      true,
+    );
     return;
   }
 
@@ -2524,11 +2788,12 @@ canvas.addEventListener('pointermove', (event) => {
     return;
   }
 
-  if (!isDrawing || drawingPointerId !== event.pointerId) {
+  if (isDrawing && drawingPointerId === event.pointerId) {
+    handleDraw(event);
     return;
   }
 
-  handleDraw(event);
+  updateStructureHoverStateForPointer(event);
 });
 
 function stopPointerInteraction(event: PointerEvent): void {
@@ -2540,18 +2805,33 @@ function stopPointerInteraction(event: PointerEvent): void {
       canvas.releasePointerCapture(event.pointerId);
     }
     updateCameraStatus();
+    if (event.type === 'pointerleave' || event.type === 'pointercancel') {
+      applyStructureInteraction({
+        type: 'hover-leave',
+        atMs: Date.now(),
+        graceMs: DEFAULT_HOVER_LEAVE_GRACE_MS,
+      });
+    }
     return;
   }
 
-  if (!isDrawing || drawingPointerId !== event.pointerId) {
+  if (isDrawing && drawingPointerId === event.pointerId) {
+    isDrawing = false;
+    drawingPointerId = null;
+    lastCell = null;
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+    updateStructureHoverStateForPointer(event);
     return;
   }
 
-  isDrawing = false;
-  drawingPointerId = null;
-  lastCell = null;
-  if (canvas.hasPointerCapture(event.pointerId)) {
-    canvas.releasePointerCapture(event.pointerId);
+  if (event.type === 'pointerleave' || event.type === 'pointercancel') {
+    applyStructureInteraction({
+      type: 'hover-leave',
+      atMs: Date.now(),
+      graceMs: DEFAULT_HOVER_LEAVE_GRACE_MS,
+    });
   }
 }
 
