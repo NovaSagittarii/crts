@@ -18,8 +18,6 @@ import {
   type Vector2,
 } from './geometry.js';
 import {
-  BUILD_ZONE_DISTANCE_SHAPE,
-  BUILD_ZONE_RADIUS,
   CORE_STARTING_HP,
   DEFAULT_SPAWN_CAPACITY,
   DEFAULT_STARTING_RESOURCES,
@@ -30,6 +28,12 @@ import {
   SPAWN_MIN_WRAPPED_DISTANCE,
   STRUCTURE_STARTING_HP,
 } from './gameplay-rules.js';
+import {
+  collectBuildZoneContributors,
+  collectIllegalBuildZoneCells,
+  type BuildZoneContributor,
+  type BuildZoneContributorProjectionInput,
+} from './build-zone.js';
 import { createTorusSpawnLayout, wrappedDelta } from './spawn.js';
 import {
   createIdentityPlacementTransform,
@@ -839,16 +843,11 @@ function createStructureKey(
   return `${x},${y},${width},${height}`;
 }
 
-interface BuildZoneContributor {
-  centerX: number;
-  centerY: number;
-}
-
-function collectBuildZoneContributors(
+function collectTeamBuildZoneContributors(
   room: RoomState,
   team: TeamState,
 ): BuildZoneContributor[] {
-  const contributors: BuildZoneContributor[] = [];
+  const contributorProjectionInputs: BuildZoneContributorProjectionInput[] = [];
   const orderedStructures = [...team.structures.values()].sort(
     compareStructuresByKey,
   );
@@ -868,56 +867,16 @@ function collectBuildZoneContributors(
       structure.transform,
     );
 
-    contributors.push({
-      centerX: structure.x + Math.floor(transformedTemplate.width / 2),
-      centerY: structure.y + Math.floor(transformedTemplate.height / 2),
+    contributorProjectionInputs.push({
+      x: structure.x,
+      y: structure.y,
+      width: transformedTemplate.width,
+      height: transformedTemplate.height,
+      hp: structure.hp,
     });
   }
 
-  return contributors;
-}
-
-function isBuildZoneCoveredByContributor(
-  contributor: BuildZoneContributor,
-  x: number,
-  y: number,
-): boolean {
-  const dx = x - contributor.centerX;
-  const dy = y - contributor.centerY;
-
-  if (BUILD_ZONE_DISTANCE_SHAPE === 'euclidean') {
-    return dx * dx + dy * dy <= BUILD_ZONE_RADIUS * BUILD_ZONE_RADIUS;
-  }
-
-  return Math.max(Math.abs(dx), Math.abs(dy)) <= BUILD_ZONE_RADIUS;
-}
-
-function collectIllegalBuildZoneCells(
-  room: RoomState,
-  team: TeamState,
-  areaCells: readonly Vector2[],
-): Vector2[] {
-  const contributors = collectBuildZoneContributors(room, team);
-  if (contributors.length === 0) {
-    return [...areaCells];
-  }
-
-  const illegalCells: Vector2[] = [];
-  for (const cell of areaCells) {
-    let covered = false;
-    for (const contributor of contributors) {
-      if (isBuildZoneCoveredByContributor(contributor, cell.x, cell.y)) {
-        covered = true;
-        break;
-      }
-    }
-
-    if (!covered) {
-      illegalCells.push(cell);
-    }
-  }
-
-  return illegalCells;
+  return collectBuildZoneContributors(contributorProjectionInputs);
 }
 
 interface BuildPlacementProjectionResult {
@@ -975,9 +934,8 @@ function projectBuildPlacement(
     room.height,
   );
   const illegalCells = collectIllegalBuildZoneCells(
-    room,
-    team,
     projected.areaCells,
+    collectTeamBuildZoneContributors(room, team),
   );
 
   return {

@@ -1,5 +1,6 @@
 export * from './geometry.js';
 export * from './gameplay-rules.js';
+export * from './build-zone.js';
 export * from './lobby.js';
 export * from './match-lifecycle.js';
 export * from './placement-transform.js';
