@@ -24,6 +24,11 @@ import type {
   StructureTemplateSummary,
   TeamIncomeBreakdownPayload,
 } from '#rts-engine';
+import {
+  collectBuildZoneContributors,
+  collectCoveredBuildZoneCells,
+  type BuildZoneContributorProjectionInput,
+} from '#rts-engine';
 
 import {
   aggregateIncomeDelta,
@@ -372,6 +377,12 @@ let lastBuildErrorToast: { signature: string; at: number } | null = null;
 let destroyViewState: DestroyViewModelState = createDestroyViewModelState();
 let visibleStructures: VisibleStructure[] = [];
 let structureCellIndex = new Map<string, VisibleStructure>();
+let localBuildZoneCells: Cell[] = [];
+let localBuildZoneCellKeys = new Set<number>();
+let localBuildZoneSignature = '';
+let cachedGridCells: Cell[] = [];
+let cachedGridCellWidth = 0;
+let cachedGridCellHeight = 0;
 let edgeBannerTimeoutId: number | null = null;
 let reconnectNoticeTimeoutId: number | null = null;
 
@@ -849,6 +860,7 @@ function resetDestroyInteractionState(): void {
   destroyViewState = clearDestroySelection(createDestroyViewModelState());
   visibleStructures = [];
   structureCellIndex = new Map<string, VisibleStructure>();
+  clearLocalBuildZoneOverlay();
   resetDestroyFeedbackOverride();
 }
 
@@ -927,6 +939,92 @@ function syncVisibleStructures(payload: StatePayload): void {
     destroyViewState,
     pendingForTeam.map(({ structureKey }) => structureKey),
   );
+}
+
+function cellKey(x: number, y: number): number {
+  return y * gridWidth + x;
+}
+
+function clearLocalBuildZoneOverlay(): void {
+  localBuildZoneCells = [];
+  localBuildZoneCellKeys = new Set<number>();
+  localBuildZoneSignature = '';
+}
+
+function getAllGridCells(): Cell[] {
+  if (
+    cachedGridCellWidth === gridWidth &&
+    cachedGridCellHeight === gridHeight &&
+    cachedGridCells.length > 0
+  ) {
+    return cachedGridCells;
+  }
+
+  const cells: Cell[] = [];
+  for (let y = 0; y < gridHeight; y += 1) {
+    for (let x = 0; x < gridWidth; x += 1) {
+      cells.push({ x, y });
+    }
+  }
+
+  cachedGridCellWidth = gridWidth;
+  cachedGridCellHeight = gridHeight;
+  cachedGridCells = cells;
+  return cells;
+}
+
+function buildLocalBuildZoneSignature(team: TeamPayload): string {
+  const orderedStructures = [...team.structures].sort((left, right) =>
+    left.key.localeCompare(right.key),
+  );
+
+  return orderedStructures
+    .map(
+      (structure) =>
+        `${structure.key}:${structure.x},${structure.y},${structure.width},${structure.height},${structure.hp}`,
+    )
+    .join('|');
+}
+
+function syncLocalBuildZoneOverlay(payload: StatePayload): void {
+  if (currentTeamId === null) {
+    clearLocalBuildZoneOverlay();
+    return;
+  }
+
+  const localTeam = payload.teams.find((team) => team.id === currentTeamId);
+  if (!localTeam) {
+    clearLocalBuildZoneOverlay();
+    return;
+  }
+
+  const signature = buildLocalBuildZoneSignature(localTeam);
+  if (signature === localBuildZoneSignature) {
+    return;
+  }
+
+  const contributorInputs: BuildZoneContributorProjectionInput[] = [
+    ...localTeam.structures,
+  ]
+    .sort((left, right) => left.key.localeCompare(right.key))
+    .map((structure) => ({
+      x: structure.x,
+      y: structure.y,
+      width: structure.width,
+      height: structure.height,
+      hp: structure.hp,
+    }));
+
+  const contributors = collectBuildZoneContributors(contributorInputs);
+  const coveredCells = collectCoveredBuildZoneCells(
+    getAllGridCells(),
+    contributors,
+  );
+  localBuildZoneCells = coveredCells;
+  localBuildZoneCellKeys = new Set(
+    coveredCells.map((cell) => cellKey(cell.x, cell.y)),
+  );
+  localBuildZoneSignature = signature;
 }
 
 function selectDestroyStructureAtCell(cell: Cell): boolean {
@@ -1870,6 +1968,60 @@ function getWrappedBoundsSegments(
   return segments;
 }
 
+function renderLocalBuildZoneOverlay(): void {
+  if (localBuildZoneCells.length === 0) {
+    return;
+  }
+
+  const placementEmphasis = templateMode;
+  ctx.fillStyle = placementEmphasis
+    ? 'rgba(94, 201, 255, 0.23)'
+    : 'rgba(94, 201, 255, 0.1)';
+
+  const fillInset = 0.6;
+  const fillSize = Math.max(1, cellSize - fillInset * 2);
+  for (const cell of localBuildZoneCells) {
+    ctx.fillRect(
+      cell.x * cellSize + fillInset,
+      cell.y * cellSize + fillInset,
+      fillSize,
+      fillSize,
+    );
+  }
+
+  ctx.strokeStyle = placementEmphasis
+    ? 'rgba(94, 201, 255, 0.86)'
+    : 'rgba(94, 201, 255, 0.42)';
+  ctx.lineWidth = 1 / cameraState.zoom;
+  ctx.beginPath();
+
+  for (const cell of localBuildZoneCells) {
+    const left = cell.x * cellSize;
+    const top = cell.y * cellSize;
+    const right = left + cellSize;
+    const bottom = top + cellSize;
+
+    if (!localBuildZoneCellKeys.has(cellKey(cell.x, cell.y - 1))) {
+      ctx.moveTo(left, top);
+      ctx.lineTo(right, top);
+    }
+    if (!localBuildZoneCellKeys.has(cellKey(cell.x + 1, cell.y))) {
+      ctx.moveTo(right, top);
+      ctx.lineTo(right, bottom);
+    }
+    if (!localBuildZoneCellKeys.has(cellKey(cell.x, cell.y + 1))) {
+      ctx.moveTo(left, bottom);
+      ctx.lineTo(right, bottom);
+    }
+    if (!localBuildZoneCellKeys.has(cellKey(cell.x - 1, cell.y))) {
+      ctx.moveTo(left, top);
+      ctx.lineTo(left, bottom);
+    }
+  }
+
+  ctx.stroke();
+}
+
 function renderBuildPreviewOverlay(): void {
   if (!templateMode || !latestBuildPreview) {
     return;
@@ -1931,6 +2083,8 @@ function render(): void {
 
   ctx.fillStyle = '#0b101b';
   ctx.fillRect(0, 0, gridWidth * cellSize, gridHeight * cellSize);
+
+  renderLocalBuildZoneOverlay();
 
   ctx.fillStyle = '#46d5b6';
   for (let y = 0; y < gridHeight; y += 1) {
@@ -2580,6 +2734,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   generationEl.textContent = payload.state.generation.toString();
   updateTeamStats(payload.state);
   syncVisibleStructures(payload.state);
+  syncLocalBuildZoneOverlay(payload.state);
   renderSpawnMarkers(payload.state);
   resizeCanvas();
   resetCameraForCurrentTeam();
@@ -2886,6 +3041,7 @@ socket.on('state', (payload: StatePayload) => {
 
   updateTeamStats(payload);
   syncVisibleStructures(payload);
+  syncLocalBuildZoneOverlay(payload);
   renderSpawnMarkers(payload);
   resizeCanvas();
   if (gridWidth !== previousGridWidth || gridHeight !== previousGridHeight) {
