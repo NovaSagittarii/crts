@@ -31,6 +31,13 @@ import {
   type AggregatedIncomeDelta,
   type IncomeDeltaSample,
 } from './economy-view-model.js';
+import {
+  applyPlacementTransformOperation,
+  createPlacementTransformViewState,
+  formatPlacementTransformIndicator,
+  toPlacementTransformInput,
+  type PlacementTransformViewState,
+} from './placement-transform-view-model.js';
 
 type RoomListEntry = RoomListEntryPayload;
 type StatePayload = RoomStatePayload;
@@ -173,6 +180,19 @@ const templateSelectEl =
   getRequiredElement<HTMLSelectElement>('template-select');
 const buildModeEl = getRequiredElement<HTMLSelectElement>('build-mode');
 const buildDelayEl = getRequiredElement<HTMLInputElement>('build-delay');
+const transformRotateButton =
+  getRequiredElement<HTMLButtonElement>('transform-rotate');
+const transformMirrorHorizontalButton = getRequiredElement<HTMLButtonElement>(
+  'transform-mirror-horizontal',
+);
+const transformMirrorVerticalButton = getRequiredElement<HTMLButtonElement>(
+  'transform-mirror-vertical',
+);
+const cancelBuildModeButton =
+  getRequiredElement<HTMLButtonElement>('cancel-build-mode');
+const transformIndicatorEl = getRequiredElement<HTMLElement>(
+  'transform-indicator',
+);
 
 const newRoomNameEl = getRequiredElement<HTMLInputElement>('new-room-name');
 const newRoomSizeEl = getRequiredElement<HTMLInputElement>('new-room-size');
@@ -239,6 +259,8 @@ let currentMembership: RoomMembershipPayload | null = null;
 let currentSessionId: string | null = persistedSessionId;
 let availableTemplates: TemplateSummary[] = [];
 let selectedTemplateId = '';
+let placementTransformState: PlacementTransformViewState =
+  createPlacementTransformViewState();
 let templateMode = false;
 let countdownSecondsRemaining: number | null = null;
 let currentMatchFinished: MatchFinishedPayload | null = null;
@@ -456,11 +478,11 @@ function describeBuildFailureReason(reason: string | undefined): string {
   if (reason === 'outside-territory') {
     return 'outside build zone';
   }
-  if (reason === 'out-of-bounds') {
-    return 'out of bounds';
-  }
   if (reason === 'occupied-site') {
     return 'occupied site';
+  }
+  if (reason === 'template-exceeds-map-size') {
+    return 'template exceeds map size';
   }
   if (reason === 'unknown-template') {
     return 'unknown template';
@@ -527,7 +549,7 @@ function shouldDeduplicateBuildErrorToast(
 ): boolean {
   if (
     payload.reason !== 'outside-territory' &&
-    payload.reason !== 'out-of-bounds' &&
+    payload.reason !== 'template-exceeds-map-size' &&
     payload.reason !== 'occupied-site' &&
     payload.reason !== 'unknown-template' &&
     payload.reason !== 'invalid-coordinates' &&
@@ -559,6 +581,30 @@ function clearSelectedTemplatePlacement(): void {
   previewPending = false;
   lastPreviewRefreshTick = null;
   resetQueueFeedbackOverride();
+}
+
+function updateTransformIndicator(): void {
+  transformIndicatorEl.textContent = formatPlacementTransformIndicator(
+    placementTransformState,
+  );
+}
+
+function buildPreviewRequestFromSelection(): {
+  templateId: string;
+  x: number;
+  y: number;
+  transform: ReturnType<typeof toPlacementTransformInput>;
+} | null {
+  if (!selectedTemplatePlacement) {
+    return null;
+  }
+
+  return {
+    templateId: selectedTemplatePlacement.templateId,
+    x: selectedTemplatePlacement.x,
+    y: selectedTemplatePlacement.y,
+    transform: toPlacementTransformInput(placementTransformState),
+  };
 }
 
 function updateQueuePlacementCopy(): void {
@@ -628,18 +674,53 @@ function updateQueueAffordabilityUi(): void {
 }
 
 function emitBuildPreviewForSelectedPlacement(): void {
-  if (!selectedTemplatePlacement || !templateMode || !canMutateGameplay()) {
+  if (!templateMode || !canMutateGameplay()) {
+    return;
+  }
+
+  const previewRequest = buildPreviewRequestFromSelection();
+  if (!previewRequest) {
     return;
   }
 
   resetQueueFeedbackOverride();
   previewPending = true;
   latestBuildPreview = null;
-  socket.emit('build:preview', {
-    templateId: selectedTemplatePlacement.templateId,
-    x: selectedTemplatePlacement.x,
-    y: selectedTemplatePlacement.y,
-  });
+  socket.emit('build:preview', previewRequest);
+  updateQueueAffordabilityUi();
+}
+
+function applyTransformControl(
+  operation: 'rotate' | 'mirror-horizontal' | 'mirror-vertical',
+  label: string,
+): void {
+  if (!canMutateGameplay()) {
+    setMessage('Transform controls are disabled in read-only mode.', true);
+    return;
+  }
+
+  placementTransformState = applyPlacementTransformOperation(
+    placementTransformState,
+    operation,
+  );
+  updateTransformIndicator();
+  setMessage(`${label} applied. Preview updated with authoritative legality.`);
+  emitBuildPreviewForSelectedPlacement();
+  render();
+  updateQueueAffordabilityUi();
+}
+
+function cancelTemplateBuildMode(): void {
+  if (!canMutateGameplay()) {
+    setMessage('Build mode is already read-only.', true);
+    return;
+  }
+
+  templateMode = false;
+  buildModeEl.value = 'paint';
+  clearSelectedTemplatePlacement();
+  setMessage('Build mode canceled. Returned to Paint Cells mode.');
+  render();
   updateQueueAffordabilityUi();
 }
 
@@ -990,6 +1071,10 @@ function updateReadOnlyExperience(): void {
   buildModeEl.disabled = !gameplayAllowed;
   templateSelectEl.disabled = !gameplayAllowed;
   buildDelayEl.disabled = !gameplayAllowed;
+  transformRotateButton.disabled = !gameplayAllowed;
+  transformMirrorHorizontalButton.disabled = !gameplayAllowed;
+  transformMirrorVerticalButton.disabled = !gameplayAllowed;
+  cancelBuildModeButton.disabled = !gameplayAllowed;
   canvas.classList.toggle('canvas--locked', !gameplayAllowed);
   canvas.setAttribute('aria-disabled', gameplayAllowed ? 'false' : 'true');
 
@@ -1240,6 +1325,121 @@ function resizeCanvas(): void {
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 }
 
+function previewMatchesCurrentSelection(preview: BuildPreview): boolean {
+  if (!selectedTemplatePlacement) {
+    return false;
+  }
+
+  if (
+    preview.templateId !== selectedTemplatePlacement.templateId ||
+    preview.x !== selectedTemplatePlacement.x ||
+    preview.y !== selectedTemplatePlacement.y
+  ) {
+    return false;
+  }
+
+  const previewOps = preview.transform.operations;
+  const activeOps = placementTransformState.operations;
+  if (previewOps.length !== activeOps.length) {
+    return false;
+  }
+
+  for (let index = 0; index < previewOps.length; index += 1) {
+    if (previewOps[index] !== activeOps[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function wrapCoordinate(value: number, size: number): number {
+  return ((value % size) + size) % size;
+}
+
+function splitWrappedSpan(
+  start: number,
+  length: number,
+  size: number,
+): Array<{ start: number; length: number }> {
+  if (length <= 0) {
+    return [];
+  }
+
+  const normalizedStart = wrapCoordinate(start, size);
+  if (normalizedStart + length <= size) {
+    return [{ start: normalizedStart, length }];
+  }
+
+  return [
+    { start: normalizedStart, length: size - normalizedStart },
+    { start: 0, length: normalizedStart + length - size },
+  ];
+}
+
+function getWrappedBoundsSegments(
+  bounds: BuildPreview['bounds'],
+): Array<{ x: number; y: number; width: number; height: number }> {
+  const xSpans = splitWrappedSpan(bounds.x, bounds.width, gridWidth);
+  const ySpans = splitWrappedSpan(bounds.y, bounds.height, gridHeight);
+
+  const segments: Array<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }> = [];
+  for (const xSpan of xSpans) {
+    for (const ySpan of ySpans) {
+      segments.push({
+        x: xSpan.start,
+        y: ySpan.start,
+        width: xSpan.length,
+        height: ySpan.length,
+      });
+    }
+  }
+
+  return segments;
+}
+
+function renderBuildPreviewOverlay(): void {
+  if (!templateMode || !latestBuildPreview) {
+    return;
+  }
+  if (!previewMatchesCurrentSelection(latestBuildPreview)) {
+    return;
+  }
+
+  const illegalCellKeys = new Set(
+    latestBuildPreview.illegalCells.map(({ x, y }) => `${x},${y}`),
+  );
+
+  for (const cell of latestBuildPreview.footprint) {
+    const isIllegal = illegalCellKeys.has(`${cell.x},${cell.y}`);
+    ctx.fillStyle = isIllegal
+      ? 'rgba(224, 122, 122, 0.72)'
+      : 'rgba(70, 213, 182, 0.42)';
+    ctx.fillRect(
+      cell.x * cellSize + 1,
+      cell.y * cellSize + 1,
+      Math.max(1, cellSize - 2),
+      Math.max(1, cellSize - 2),
+    );
+  }
+
+  ctx.strokeStyle = 'rgba(248, 192, 108, 0.85)';
+  ctx.lineWidth = 1;
+  for (const segment of getWrappedBoundsSegments(latestBuildPreview.bounds)) {
+    ctx.strokeRect(
+      segment.x * cellSize + 0.5,
+      segment.y * cellSize + 0.5,
+      segment.width * cellSize,
+      segment.height * cellSize,
+    );
+  }
+}
+
 function render(): void {
   if (!gridBytes) return;
 
@@ -1255,23 +1455,7 @@ function render(): void {
     }
   }
 
-  if (templateMode) {
-    const template = getSelectedTemplate();
-    if (
-      template &&
-      selectedTemplatePlacement &&
-      selectedTemplatePlacement.templateId === template.id
-    ) {
-      ctx.strokeStyle = 'rgba(70, 213, 182, 0.75)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(
-        selectedTemplatePlacement.x * cellSize + 0.5,
-        selectedTemplatePlacement.y * cellSize + 0.5,
-        template.width * cellSize,
-        template.height * cellSize,
-      );
-    }
-  }
+  renderBuildPreviewOverlay();
 }
 
 function pointerToCell(event: PointerEvent): Cell | null {
@@ -1780,7 +1964,7 @@ socket.on('room:error', (payload: RoomErrorPayload) => {
     setQueueFeedbackOverride(deficitCopy, true);
   } else if (
     payload.reason === 'outside-territory' ||
-    payload.reason === 'out-of-bounds' ||
+    payload.reason === 'template-exceeds-map-size' ||
     payload.reason === 'occupied-site' ||
     payload.reason === 'unknown-template' ||
     payload.reason === 'invalid-coordinates'
@@ -1884,15 +2068,11 @@ socket.on('build:preview', (payload: BuildPreview) => {
     return;
   }
 
-  if (payload.teamId !== currentTeamId || !selectedTemplatePlacement) {
+  if (payload.teamId !== currentTeamId) {
     return;
   }
 
-  if (
-    payload.templateId !== selectedTemplatePlacement.templateId ||
-    payload.x !== selectedTemplatePlacement.x ||
-    payload.y !== selectedTemplatePlacement.y
-  ) {
+  if (!previewMatchesCurrentSelection(payload)) {
     return;
   }
 
@@ -1900,6 +2080,7 @@ socket.on('build:preview', (payload: BuildPreview) => {
   latestBuildPreview = payload;
   resetQueueFeedbackOverride();
   updateQueueAffordabilityUi();
+  render();
 });
 
 socket.on('build:outcome', (payload: BuildOutcome) => {
@@ -1934,6 +2115,7 @@ socket.on('build:queued', (payload: BuildQueuedPayload) => {
     `Queued event #${payload.eventId} for execute tick ${payload.executeTick}.`,
     false,
   );
+  addToast(`Queued #${payload.eventId} for tick ${payload.executeTick}.`);
   setMessage(
     `Build queued (#${payload.eventId}) for tick ${payload.executeTick}.`,
   );
@@ -2002,6 +2184,22 @@ buildDelayEl.addEventListener('change', () => {
   readDelayTicks();
 });
 
+transformRotateButton.addEventListener('click', () => {
+  applyTransformControl('rotate', 'Rotate 90deg');
+});
+
+transformMirrorHorizontalButton.addEventListener('click', () => {
+  applyTransformControl('mirror-horizontal', 'Horizontal mirror');
+});
+
+transformMirrorVerticalButton.addEventListener('click', () => {
+  applyTransformControl('mirror-vertical', 'Vertical mirror');
+});
+
+cancelBuildModeButton.addEventListener('click', () => {
+  cancelTemplateBuildMode();
+});
+
 createRoomButton.addEventListener('click', () => {
   const size = Number(newRoomSizeEl.value);
   syncPlayerNameBeforeJoin();
@@ -2057,20 +2255,18 @@ startMatchButton.addEventListener('click', () => {
 });
 
 queueBuildButton.addEventListener('click', () => {
-  if (
-    !selectedTemplatePlacement ||
-    !latestBuildPreview ||
-    !latestBuildPreview.affordable
-  ) {
+  const queueRequest = buildPreviewRequestFromSelection();
+  if (!queueRequest || !latestBuildPreview || !latestBuildPreview.affordable) {
     updateQueueAffordabilityUi();
     return;
   }
 
   resetQueueFeedbackOverride();
   socket.emit('build:queue', {
-    templateId: selectedTemplatePlacement.templateId,
-    x: selectedTemplatePlacement.x,
-    y: selectedTemplatePlacement.y,
+    templateId: queueRequest.templateId,
+    x: queueRequest.x,
+    y: queueRequest.y,
+    transform: queueRequest.transform,
     delayTicks: readDelayTicks(),
   });
   updateQueueAffordabilityUi();
@@ -2120,6 +2316,7 @@ refreshRoomsButton.addEventListener('click', () => {
   socket.emit('room:list');
 });
 
+updateTransformIndicator();
 updateTemplateOptions();
 resetEconomyTracking();
 updateLobbyControls();

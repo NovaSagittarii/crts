@@ -281,6 +281,22 @@
         font-size: 12px;
       }
 
+      .transform-controls {
+        display: grid;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .transform-controls__row {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .transform-indicator {
+        min-height: 1.3em;
+      }
+
       .queue-placement,
       .queue-feedback {
         color: var(--muted);
@@ -789,6 +805,10 @@
           grid-template-columns: 1fr;
         }
 
+        .transform-controls__row {
+          grid-template-columns: 1fr;
+        }
+
         .toast-stack {
           right: 10px;
           left: 10px;
@@ -933,6 +953,29 @@
           </div>
 
           <h3>Template Queue Action</h3>
+          <div class="transform-controls">
+            <div class="transform-controls__row">
+              <button id="transform-rotate" type="button">Rotate 90deg</button>
+              <button id="transform-mirror-horizontal" type="button">
+                Mirror Horizontal
+              </button>
+            </div>
+            <div class="transform-controls__row">
+              <button id="transform-mirror-vertical" type="button">
+                Mirror Vertical
+              </button>
+              <button id="cancel-build-mode" type="button">
+                Cancel Build Mode
+              </button>
+            </div>
+            <p
+              id="transform-indicator"
+              class="queue-feedback transform-indicator"
+            >
+              Transform: default orientation.
+            </p>
+          </div>
+
           <p id="queue-placement" class="queue-placement">
             Select a board placement while in Template Queue mode.
           </p>
