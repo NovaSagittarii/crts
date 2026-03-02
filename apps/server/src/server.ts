@@ -30,11 +30,14 @@ import {
   type ClientToServerEvents,
   type LifecyclePreconditions,
   type MatchFinishedPayload,
+  type PlacementTransformInput,
+  type PlacementTransformOperation,
   type QueueBuildResult,
   createDefaultTemplates,
   createRoomState,
   createRoomStatePayload,
   createTemplateSummaries,
+  previewBuildPlacement,
   transitionMatchLifecycle,
   type PlayerProfilePayload,
   queueBuildEvent,
@@ -153,6 +156,70 @@ function parseReadyPayload(payload: unknown): boolean | null {
 
   const value = (payload as Partial<RoomSetReadyPayload>).ready;
   return typeof value === 'boolean' ? value : null;
+}
+
+const PLACEMENT_TRANSFORM_OPERATIONS = new Set<PlacementTransformOperation>([
+  'rotate',
+  'mirror-horizontal',
+  'mirror-vertical',
+]);
+
+function parsePlacementTransformInput(
+  value: unknown,
+): PlacementTransformInput | undefined | null {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const operationsValue = (value as { operations?: unknown }).operations;
+  if (!Array.isArray(operationsValue)) {
+    return null;
+  }
+
+  const operations: PlacementTransformOperation[] = [];
+  for (const candidate of operationsValue) {
+    if (typeof candidate !== 'string') {
+      return null;
+    }
+    if (
+      !PLACEMENT_TRANSFORM_OPERATIONS.has(
+        candidate as PlacementTransformOperation,
+      )
+    ) {
+      return null;
+    }
+    operations.push(candidate as PlacementTransformOperation);
+  }
+
+  return { operations };
+}
+
+function parseBuildPayload(payload: unknown): BuildQueuePayload | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const templateIdValue = (payload as { templateId?: unknown }).templateId;
+  const transform = parsePlacementTransformInput(
+    (payload as { transform?: unknown }).transform,
+  );
+  if (transform === null) {
+    return null;
+  }
+
+  return {
+    templateId: typeof templateIdValue === 'string' ? templateIdValue : '',
+    x: Number((payload as { x?: unknown }).x),
+    y: Number((payload as { y?: unknown }).y),
+    delayTicks:
+      (payload as { delayTicks?: unknown }).delayTicks === undefined
+        ? undefined
+        : Number((payload as { delayTicks?: unknown }).delayTicks),
+    transform,
+  };
 }
 
 function sanitizeChatMessage(value: unknown): string | null {
@@ -329,8 +396,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
         const hold = sessionCoordinator.getHold(participant.sessionId);
         const disconnected =
           participantSession !== null && !participantSession.connected;
-        const held =
-          disconnected && Boolean(hold && hold.roomId === room.state.id);
 
         return {
           sessionId: participant.sessionId,
@@ -961,11 +1026,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return 'unknown-template';
       case 'x and y must be integers':
         return 'invalid-coordinates';
-      case 'Placement is out of bounds':
-        return 'out-of-bounds';
       case 'Outside build zone - build closer to your structures.':
       case 'Placement is outside team territory':
         return 'outside-territory';
+      case 'Template exceeds map size':
+        return 'template-exceeds-map-size';
       case 'delayTicks must be an integer':
         return 'invalid-delay';
       case 'Team is defeated':
@@ -1015,62 +1080,74 @@ export function createServer(options: ServerOptions = {}): GameServer {
     roomState: RoomState,
     playerId: string,
     payload: BuildQueuePayload,
-    resourceOverride?: number,
   ): QueueBuildResult {
-    const probeState = structuredClone(roomState) as RoomState;
-
-    if (typeof resourceOverride === 'number') {
-      const probePlayer = probeState.players.get(playerId);
-      if (probePlayer) {
-        const probeTeam = probeState.teams.get(probePlayer.teamId);
-        if (probeTeam) {
-          probeTeam.resources = resourceOverride;
-        }
-      }
-    }
-
-    return queueBuildEvent(probeState, playerId, payload);
+    return previewBuildPlacement(roomState, playerId, payload);
   }
 
   function derivePreviewAffordability(
-    roomState: RoomState,
-    playerId: string,
-    payload: BuildPreviewRequestPayload,
     currentResources: number,
     previewResult: QueueBuildResult,
   ): Pick<
     BuildPreviewPayload,
     'affordable' | 'needed' | 'current' | 'deficit'
   > {
-    const directMetadata = getAffordabilityMetadata(previewResult);
-    if (previewResult.reason === 'insufficient-resources' && directMetadata) {
+    if (
+      typeof previewResult.affordable === 'boolean' &&
+      typeof previewResult.needed === 'number' &&
+      typeof previewResult.current === 'number' &&
+      typeof previewResult.deficit === 'number'
+    ) {
       return {
-        affordable: false,
-        needed: directMetadata.needed,
-        current: directMetadata.current,
-        deficit: directMetadata.deficit,
+        affordable: previewResult.affordable,
+        needed: previewResult.needed,
+        current: previewResult.current,
+        deficit: previewResult.deficit,
       };
     }
 
-    const zeroResourceProbe = runQueueBuildProbe(
-      roomState,
-      playerId,
-      payload,
-      0,
-    );
-    const zeroResourceMetadata = getAffordabilityMetadata(zeroResourceProbe);
-    const needed =
-      zeroResourceProbe.reason === 'insufficient-resources' &&
-      zeroResourceMetadata
-        ? zeroResourceMetadata.needed
-        : 0;
-    const deficit = Math.max(0, needed - currentResources);
-
     return {
-      affordable: previewResult.accepted && deficit === 0,
-      needed,
+      affordable: previewResult.accepted,
+      needed: 0,
       current: currentResources,
-      deficit,
+      deficit: 0,
+    };
+  }
+
+  function createBuildPreviewPayload(
+    roomId: string,
+    teamId: number,
+    request: BuildPreviewRequestPayload,
+    previewResult: QueueBuildResult,
+    affordability: Pick<
+      BuildPreviewPayload,
+      'affordable' | 'needed' | 'current' | 'deficit'
+    >,
+  ): BuildPreviewPayload {
+    return {
+      roomId,
+      teamId,
+      templateId: request.templateId,
+      x: request.x,
+      y: request.y,
+      transform: previewResult.transform ?? {
+        operations: [],
+        matrix: {
+          xx: 1,
+          xy: 0,
+          yx: 0,
+          yy: 1,
+        },
+      },
+      footprint: previewResult.footprint ?? [],
+      illegalCells: previewResult.illegalCells ?? [],
+      bounds: previewResult.bounds ?? {
+        x: request.x,
+        y: request.y,
+        width: 0,
+        height: 0,
+      },
+      ...affordability,
+      reason: previewResult.accepted ? undefined : previewResult.reason,
     };
   }
 
@@ -1434,18 +1511,17 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      if (!payload || typeof payload !== 'object') {
+      const parsedPayload = parseBuildPayload(payload);
+      if (!parsedPayload) {
         roomError(socket, 'Invalid build payload', 'invalid-build');
         return;
       }
 
-      const templateIdCandidate = (payload as { templateId?: unknown })
-        .templateId;
       const previewRequest: BuildPreviewRequestPayload = {
-        templateId:
-          typeof templateIdCandidate === 'string' ? templateIdCandidate : '',
-        x: Number((payload as { x?: unknown }).x),
-        y: Number((payload as { y?: unknown }).y),
+        templateId: parsedPayload.templateId,
+        x: parsedPayload.x,
+        y: parsedPayload.y,
+        transform: parsedPayload.transform,
       };
 
       const previewResult = runQueueBuildProbe(
@@ -1454,25 +1530,17 @@ export function createServer(options: ServerOptions = {}): GameServer {
         previewRequest,
       );
       const affordability = derivePreviewAffordability(
-        room.state,
-        session.id,
-        previewRequest,
         gate.team.resources,
         previewResult,
       );
 
-      const previewPayload: BuildPreviewPayload = {
-        roomId: room.state.id,
-        teamId: gate.team.id,
-        templateId: previewRequest.templateId,
-        x: previewRequest.x,
-        y: previewRequest.y,
-        ...affordability,
-      };
-
-      if (!previewResult.accepted && previewResult.reason) {
-        previewPayload.reason = previewResult.reason;
-      }
+      const previewPayload = createBuildPreviewPayload(
+        room.state.id,
+        gate.team.id,
+        previewRequest,
+        previewResult,
+        affordability,
+      );
 
       socket.emit('build:preview', previewPayload);
     });
@@ -1498,23 +1566,22 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      if (!payload || typeof payload !== 'object') {
+      if (!gate.team) {
+        roomError(
+          socket,
+          'Only assigned players can issue gameplay mutations',
+          'not-player',
+        );
+        return;
+      }
+
+      const parsedPayload = parseBuildPayload(payload);
+      if (!parsedPayload) {
         roomError(socket, 'Invalid build payload', 'invalid-build');
         return;
       }
 
-      const templateIdCandidate = (payload as { templateId?: unknown })
-        .templateId;
-      const result = queueBuildEvent(room.state, session.id, {
-        templateId:
-          typeof templateIdCandidate === 'string' ? templateIdCandidate : '',
-        x: Number((payload as { x?: unknown }).x),
-        y: Number((payload as { y?: unknown }).y),
-        delayTicks:
-          (payload as { delayTicks?: unknown }).delayTicks === undefined
-            ? undefined
-            : Number((payload as { delayTicks?: unknown }).delayTicks),
-      });
+      const result = queueBuildEvent(room.state, session.id, parsedPayload);
 
       if (!result.accepted) {
         const reason = resolveQueueBuildRejectionReason(result);
@@ -1526,6 +1593,33 @@ export function createServer(options: ServerOptions = {}): GameServer {
             ? getAffordabilityMetadata(result)
             : undefined,
         );
+
+        const previewRequest: BuildPreviewRequestPayload = {
+          templateId: parsedPayload.templateId,
+          x: parsedPayload.x,
+          y: parsedPayload.y,
+          transform: parsedPayload.transform,
+        };
+        const refreshedPreview = runQueueBuildProbe(
+          room.state,
+          session.id,
+          previewRequest,
+        );
+        const refreshedAffordability = derivePreviewAffordability(
+          gate.team.resources,
+          refreshedPreview,
+        );
+        socket.emit(
+          'build:preview',
+          createBuildPreviewPayload(
+            room.state.id,
+            gate.team.id,
+            previewRequest,
+            refreshedPreview,
+            refreshedAffordability,
+          ),
+        );
+
         return;
       }
 
