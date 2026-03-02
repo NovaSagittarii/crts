@@ -10,10 +10,10 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 ## Current Position
 
 **Current Milestone:** v0.0.2 Gameplay Expansion
-**Phase:** 9 of 12 (Destroy Flow and Determinism Gates)
-**Plan:** 3 of 3
-**Current Plan:** 3
-**Total Plans in Phase:** 3
+**Phase:** 10 of 12 (Match Screen Transition Split)
+**Plan:** 1 of 1
+**Current Plan:** 1
+**Total Plans in Phase:** 1
 **Status:** Phase complete — ready for verification
 **Last Activity:** 2026-03-02
 **Progress:** [██████████] 100%
