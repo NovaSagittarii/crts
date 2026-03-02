@@ -1,6 +1,7 @@
 import type {
   AffordabilityResult,
   BuildOutcome,
+  BuildPreviewProjection,
   BuildRejectionReason,
   BuildQueuePayload,
   PendingBuildPayload,
@@ -31,11 +32,15 @@ export type BuildAffordabilityPayload = Pick<
 export type PendingBuildStatePayload = PendingBuildPayload;
 export type TeamIncomeBreakdownPayload = TeamIncomeBreakdown;
 
-export interface BuildPreviewRequestPayload {
-  templateId: string;
-  x: number;
-  y: number;
-}
+export type BuildPreviewRequestPayload = Pick<
+  BuildQueuePayload,
+  'templateId' | 'x' | 'y' | 'transform'
+>;
+
+export type BuildPreviewCellPayload =
+  BuildPreviewProjection['footprint'][number];
+export type BuildPreviewBoundsPayload = BuildPreviewProjection['bounds'];
+export type BuildPreviewTransformPayload = BuildPreviewProjection['transform'];
 
 export interface BuildPreviewPayload extends BuildAffordabilityPayload {
   roomId: string;
@@ -43,6 +48,10 @@ export interface BuildPreviewPayload extends BuildAffordabilityPayload {
   templateId: string;
   x: number;
   y: number;
+  transform: BuildPreviewTransformPayload;
+  footprint: BuildPreviewCellPayload[];
+  illegalCells: BuildPreviewCellPayload[];
+  bounds: BuildPreviewBoundsPayload;
   reason?: BuildOutcomeRejectionReason;
 }
 
