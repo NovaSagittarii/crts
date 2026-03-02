@@ -14,17 +14,17 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 **Plan:** 3 of 3
 **Current Plan:** 3
 **Total Plans in Phase:** 3
-**Status:** Ready to execute
+**Status:** Phase complete — ready for verification
 **Last Activity:** 2026-03-02
-**Progress:** [██████████] 96%
+**Progress:** [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Completed phases: 8
-- Completed plans: 23
-- Completed tasks: 62
+- Completed phases: 9
+- Completed plans: 24
+- Completed tasks: 64
 - Shipped milestones: 1 (`v0.0.1`)
 
 **By Phase:**
@@ -39,7 +39,7 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 | 6     | 2/2   | Complete    |
 | 7     | 1/1   | Complete    |
 | 8     | 3/3   | Complete    |
-| 9     | 1/3   | In Progress |
+| 9     | 3/3   | Complete    |
 | 10    | 0/TBD | Not started |
 | 11    | 0/TBD | Not started |
 | 12    | 0/TBD | Not started |
@@ -51,7 +51,8 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 - v0.0.2 Phase 7 shipped authoritative union build-zone legality with passing quality gates.
 - v0.0.2 Phase 8 shipped transform-aware preview/queue/apply parity across engine, server, and web with passing quality gates.
 - v0.0.2 Phase 9 Plan 01 shipped deterministic destroy queue primitives with passing unit quality gates.
-  | Phase 09 P02 | 14m 1s | 2 tasks | 4 files |
+- v0.0.2 Phase 9 Plan 02 shipped server destroy runtime and reconnect determinism gates with passing integration quality gates.
+- v0.0.2 Phase 9 Plan 03 shipped web destroy controls and reconnect sync UX with passing web and build quality gates.
 
 ## Accumulated Context
 
@@ -75,10 +76,13 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 - [Phase 09]: Treat same-team same-target pending destroy requests as idempotent while allowing different-target retargets during pending state.
 - [Phase 09]: Keep destroy queue payload parsing/runtime gating in apps/server while preserving engine authority for reject reasons to avoid taxonomy drift.
 - [Phase 09]: Assert reconnect determinism via authoritative state parity (pendingDestroys and structures) in addition to destroy outcome event equality.
+- [Phase 09]: Drive destroy ownership/confirmation/pending UI projection from authoritative structures and pendingDestroys state payloads.
+- [Phase 09]: Gate explicit destroy queued/outcome feedback to the acting team so opponents rely on authoritative board updates.
+- [Phase 09]: Show a one-shot reconnect synced toast after the first post-reconnect authoritative state payload.
 
 ### Pending Todos
 
-- Continue plan+execute cycle through Phases 9-12 with auto-advance on.
+- Continue plan+execute cycle through Phases 10-12 with auto-advance on.
 - After Phase 12 execution, run consolidated human verification/UAT across milestone flows.
 
 ### Blockers/Concerns
@@ -88,6 +92,6 @@ See: .planning/PROJECT.md (updated 2026-03-01)
 
 ## Session Continuity
 
-**Last session:** 2026-03-02T06:43:06.105Z
-**Stopped At:** Completed 09-02-PLAN.md
+**Last session:** 2026-03-02T06:55:42.139Z
+**Stopped At:** Completed 09-03-PLAN.md
 **Resume File:** None

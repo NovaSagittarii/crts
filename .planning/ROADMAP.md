@@ -19,7 +19,7 @@ v0.0.2 expands deterministic gameplay through structure integrity rules, base-ge
 - [x] **Phase 6: Base Geometry and Integrity Core** - Ship canonical 5x5 base behavior and deterministic template-wide integrity repair. (completed 2026-03-02)
 - [x] **Phase 7: Authoritative Union Build Zones** - Enforce radius-15 union-zone build eligibility from owned structures. (completed 2026-03-02)
 - [x] **Phase 8: Transform Placement Consistency** - Add rotate/mirror placement with preview, queue, and simulation parity. (completed 2026-03-02)
-- [ ] **Phase 9: Destroy Flow and Determinism Gates** - Deliver authoritative destroy outcomes and two-client/reconnect determinism coverage.
+- [x] **Phase 9: Destroy Flow and Determinism Gates** - Deliver authoritative destroy outcomes and two-client/reconnect determinism coverage. (completed 2026-03-02)
 - [ ] **Phase 10: Match Screen Transition Split** - Separate lobby and in-game screens with explicit match-state navigation.
 - [ ] **Phase 11: Camera and Build-Zone Visualization** - Add pan/zoom with accurate controls and live union-zone outlines.
 - [ ] **Phase 12: Structure Hover and Tactical Overlays** - Provide structure details/actions plus grid-adjacent economy/build/team overlays.
@@ -75,7 +75,7 @@ Plans:
 3. Preview legality for transformed and non-transformed placements matches queue acceptance or rejection.
 4. Accepted transformed placements resolve in simulation using the same footprint and orientation the player previewed.
 
-**Plans**: 3 plans
+**Plans**: 3/3 plans complete
 
 Plans:
 
@@ -101,7 +101,7 @@ Plans:
 
 - [x] 09-01-PLAN.md — Build deterministic engine destroy queue primitives, rejection taxonomy, and reconnect-safe structure projection.
 - [x] 09-02-PLAN.md — Wire server destroy runtime and add two-client plus reconnect determinism integration gates.
-- [ ] 09-03-PLAN.md — Add web destroy controls with owned-selection gating, base confirmation, pending feedback, and reconnect sync UX.
+- [x] 09-03-PLAN.md — Add web destroy controls with owned-selection gating, base confirmation, pending feedback, and reconnect sync UX.
 
 ### Phase 10: Match Screen Transition Split
 
@@ -151,7 +151,7 @@ Plans:
 | 6. Base Geometry and Integrity Core       | 2/2            | Complete    | 2026-03-02 |
 | 7. Authoritative Union Build Zones        | 1/1            | Complete    | 2026-03-02 |
 | 8. Transform Placement Consistency        | 3/3            | Complete    | 2026-03-02 |
-| 9. Destroy Flow and Determinism Gates     | 2/3            | In Progress |            |
+| 9. Destroy Flow and Determinism Gates     | 3/3            | Complete    | 2026-03-02 |
 | 10. Match Screen Transition Split         | 0/TBD          | Not started | -          |
 | 11. Camera and Build-Zone Visualization   | 0/TBD          | Not started | -          |
 | 12. Structure Hover and Tactical Overlays | 0/TBD          | Not started | -          |
