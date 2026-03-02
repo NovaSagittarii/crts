@@ -92,12 +92,90 @@
         padding: 0 clamp(20px, 4vw, 48px) 40px;
       }
 
+      .match-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
+        gap: 16px;
+        align-items: start;
+      }
+
+      .match-stage {
+        min-width: 0;
+        display: grid;
+        gap: 12px;
+      }
+
+      .edge-status-strip {
+        border: 1px solid var(--panel-border);
+        border-radius: 14px;
+        background: rgba(11, 16, 29, 0.78);
+        padding: 10px 12px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .edge-banner,
+      .reconnect-indicator {
+        border-radius: 10px;
+        border: 1px solid var(--panel-border);
+        background: rgba(12, 18, 33, 0.88);
+        padding: 8px 10px;
+        font-family: 'IBM Plex Mono', 'Courier New', monospace;
+        font-size: 12px;
+      }
+
+      .edge-banner {
+        border-left: 3px solid var(--warn);
+        color: var(--warn);
+      }
+
+      .reconnect-indicator {
+        border-left: 3px solid var(--accent);
+        color: var(--accent);
+      }
+
+      .edge-banner.is-hidden,
+      .reconnect-indicator.is-hidden {
+        display: none;
+      }
+
+      .screen-stack {
+        position: relative;
+        min-height: 280px;
+      }
+
+      .match-screen {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(6px);
+        transition:
+          opacity 200ms ease,
+          transform 200ms ease;
+      }
+
+      .match-screen.is-active {
+        position: relative;
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateY(0);
+      }
+
       .controls {
         display: grid;
         grid-template-columns: repeat(4, minmax(220px, 1fr));
         gap: 16px;
         margin-bottom: 16px;
         align-items: start;
+      }
+
+      .controls--lobby {
+        grid-template-columns: repeat(3, minmax(220px, 1fr));
+      }
+
+      .controls--ingame {
+        grid-template-columns: minmax(260px, 360px);
       }
 
       .control {
@@ -485,7 +563,7 @@
       }
 
       .lifecycle-status-line {
-        margin-top: 12px;
+        margin: 0;
         font-family: 'IBM Plex Mono', 'Courier New', monospace;
         color: var(--warn);
         font-size: 13px;
@@ -493,7 +571,7 @@
       }
 
       .message {
-        margin: 12px 0 0;
+        margin: 0;
         color: var(--accent);
         font-family: 'IBM Plex Mono', 'Courier New', monospace;
         min-height: 1.4em;
@@ -546,6 +624,15 @@
         border-radius: 20px;
         padding: clamp(12px, 3vw, 24px);
         box-shadow: 0 24px 60px rgba(10, 12, 20, 0.45);
+      }
+
+      .chat-shell {
+        position: sticky;
+        top: 16px;
+      }
+
+      .chat-shell .chat-log {
+        max-height: min(52vh, 520px);
       }
 
       canvas {
@@ -785,12 +872,24 @@
       }
 
       @media (max-width: 980px) {
+        .match-layout {
+          grid-template-columns: 1fr;
+        }
+
+        .chat-shell {
+          position: static;
+        }
+
         .stats {
           grid-template-columns: repeat(3, minmax(120px, 1fr));
         }
 
         .controls {
           grid-template-columns: repeat(2, minmax(220px, 1fr));
+        }
+
+        .controls--ingame {
+          grid-template-columns: 1fr;
         }
 
         .control--wide {
@@ -804,6 +903,11 @@
         }
 
         .controls {
+          grid-template-columns: 1fr;
+        }
+
+        .controls--lobby,
+        .controls--ingame {
           grid-template-columns: 1fr;
         }
 
@@ -846,9 +950,6 @@
           Server-authoritative lobby and match flow. Claim a slot, ready up,
           confirm countdown, and watch spawn markers before the match starts.
         </p>
-        <div id="lifecycle-status-line" class="lifecycle-status-line">
-          Lifecycle: waiting for room membership...
-        </div>
       </div>
       <div class="stats">
         <div class="stat">
@@ -886,202 +987,267 @@
       </div>
     </header>
     <main>
-      <section class="controls">
-        <div
-          id="spectator-banner"
-          class="spectator-banner is-hidden"
-          role="status"
-          aria-live="polite"
-        >
-          <strong
-            id="spectator-banner-title"
-            class="spectator-banner__title"
-          ></strong>
-          <span
-            id="spectator-banner-text"
-            class="spectator-banner__text"
-          ></span>
-        </div>
-
-        <div class="control">
-          <h2>Player</h2>
-          <label>
-            Display name
-            <input id="player-name" maxlength="24" value="Commander" />
-          </label>
-          <button id="set-name" type="button">Set Name</button>
-          <div id="lobby-status" class="lobby-status"></div>
-        </div>
-
-        <div class="control">
-          <h2>Build</h2>
-          <label>
-            Mode
-            <select id="build-mode">
-              <option value="paint">Paint Cells</option>
-              <option value="template">Template Queue</option>
-            </select>
-          </label>
-          <label>
-            Template
-            <select id="template-select"></select>
-          </label>
-          <label>
-            Delay (ticks)
-            <input id="build-delay" type="number" min="1" max="20" value="2" />
-          </label>
-
-          <div class="economy-hud">
-            <div class="economy-hud__row">
-              <div class="economy-hud__metric">
-                <span>Resources</span>
-                <strong id="hud-resources" class="economy-value">-</strong>
-              </div>
-              <div class="economy-hud__metric">
-                <span>Net Income</span>
-                <strong id="hud-income" class="economy-value">-</strong>
-              </div>
+      <div class="match-layout">
+        <section class="match-stage">
+          <div class="edge-status-strip">
+            <div id="lifecycle-status-line" class="lifecycle-status-line">
+              Lifecycle: waiting for room membership...
             </div>
-            <p id="hud-delta-chip" class="economy-delta-chip is-hidden"></p>
-            <details id="income-breakdown" class="income-breakdown">
-              <summary>Income Breakdown</summary>
-              <div class="income-breakdown__grid">
-                <div class="income-breakdown__row">
-                  <span>Base</span>
-                  <strong id="income-breakdown-base">-</strong>
-                </div>
-                <div class="income-breakdown__row">
-                  <span>Structures</span>
-                  <strong id="income-breakdown-structures">-</strong>
-                </div>
-                <div class="income-breakdown__row">
-                  <span>Active Structures</span>
-                  <strong id="income-breakdown-active">-</strong>
-                </div>
-              </div>
-            </details>
-          </div>
-
-          <h3>Template Queue Action</h3>
-          <div class="transform-controls">
-            <div class="transform-controls__row">
-              <button id="transform-rotate" type="button">Rotate 90deg</button>
-              <button id="transform-mirror-horizontal" type="button">
-                Mirror Horizontal
-              </button>
-            </div>
-            <div class="transform-controls__row">
-              <button id="transform-mirror-vertical" type="button">
-                Mirror Vertical
-              </button>
-              <button id="cancel-build-mode" type="button">
-                Cancel Build Mode
-              </button>
-            </div>
-            <p
-              id="transform-indicator"
-              class="queue-feedback transform-indicator"
+            <div
+              id="edge-banner"
+              class="edge-banner is-hidden"
+              role="status"
+              aria-live="polite"
+            ></div>
+            <div
+              id="reconnect-indicator"
+              class="reconnect-indicator is-hidden"
+              role="status"
+              aria-live="polite"
+            ></div>
+            <div
+              id="spectator-banner"
+              class="spectator-banner is-hidden"
+              role="status"
+              aria-live="polite"
             >
-              Transform: default orientation.
-            </p>
-          </div>
-
-          <p id="queue-placement" class="queue-placement">
-            Select a board placement while in Template Queue mode.
-          </p>
-          <p id="preview-reason" class="queue-feedback">Preview reason: --</p>
-          <p id="queue-cost" class="queue-cost">Cost: --</p>
-          <button id="queue-build" type="button" disabled>
-            Queue Selected Placement
-          </button>
-          <p id="queue-feedback" class="queue-feedback">
-            Queue action is disabled until placement preview returns.
-          </p>
-
-          <h3>Destroy Action</h3>
-          <p id="destroy-selection" class="queue-placement">
-            Select a structure on the board to enable destroy actions.
-          </p>
-          <button id="destroy-queue" type="button" disabled>
-            Destroy Selected Structure
-          </button>
-          <div id="destroy-confirm-panel" class="destroy-confirm-panel" hidden>
-            <p class="queue-feedback queue-feedback--error">
-              Core destroy requires confirmation before queue submission.
-            </p>
-            <div class="button-row">
-              <button id="destroy-confirm" type="button">
-                Arm Confirm Destroy
-              </button>
-              <button id="destroy-cancel" type="button" disabled>Cancel</button>
+              <strong
+                id="spectator-banner-title"
+                class="spectator-banner__title"
+              ></strong>
+              <span
+                id="spectator-banner-text"
+                class="spectator-banner__text"
+              ></span>
             </div>
-          </div>
-          <p id="destroy-feedback" class="queue-feedback">
-            Destroy action is disabled until an owned structure is selected.
-          </p>
-
-          <h3>Pending Timeline</h3>
-          <div id="pending-timeline" class="pending-timeline"></div>
-        </div>
-
-        <div class="control">
-          <h2>Rooms</h2>
-          <label>
-            New room name
-            <input id="new-room-name" maxlength="32" value="Skirmish" />
-          </label>
-          <label>
-            Room size
-            <input
-              id="new-room-size"
-              type="number"
-              min="24"
-              max="300"
-              value="100"
-            />
-          </label>
-          <button id="create-room" type="button">Create & Join</button>
-          <label>
-            Join by room code
-            <input
-              id="join-room-code"
-              maxlength="24"
-              placeholder="Enter code"
-            />
-          </label>
-          <div class="button-row">
-            <button id="join-room-code-button" type="button">Join Code</button>
-            <button id="leave-room" type="button">Leave Room</button>
-          </div>
-          <button id="refresh-rooms" type="button">Refresh List</button>
-          <div id="room-list" class="room-list"></div>
-        </div>
-
-        <div class="control control--wide">
-          <h2>Lobby</h2>
-          <div class="button-row">
-            <button id="claim-team-1" type="button">Claim Team A</button>
-            <button id="claim-team-2" type="button">Claim Team B</button>
-          </div>
-          <div class="button-row">
-            <button id="toggle-ready" type="button">Set Ready</button>
-            <button id="start-match" type="button">Host Start</button>
+            <p id="message" class="message"></p>
           </div>
 
-          <h3>Countdown</h3>
-          <div id="lobby-countdown" class="lobby-status">Waiting for host</div>
+          <div class="screen-stack">
+            <section id="lobby-screen" class="match-screen is-active">
+              <div class="controls controls--lobby">
+                <div class="control">
+                  <h2>Player</h2>
+                  <label>
+                    Display name
+                    <input id="player-name" maxlength="24" value="Commander" />
+                  </label>
+                  <button id="set-name" type="button">Set Name</button>
+                  <div id="lobby-status" class="lobby-status"></div>
+                </div>
 
-          <h3>Player Slots</h3>
-          <div id="lobby-player-slots" class="slot-list"></div>
+                <div class="control">
+                  <h2>Rooms</h2>
+                  <label>
+                    New room name
+                    <input id="new-room-name" maxlength="32" value="Skirmish" />
+                  </label>
+                  <label>
+                    Room size
+                    <input
+                      id="new-room-size"
+                      type="number"
+                      min="24"
+                      max="300"
+                      value="100"
+                    />
+                  </label>
+                  <button id="create-room" type="button">Create & Join</button>
+                  <label>
+                    Join by room code
+                    <input
+                      id="join-room-code"
+                      maxlength="24"
+                      placeholder="Enter code"
+                    />
+                  </label>
+                  <div class="button-row">
+                    <button id="join-room-code-button" type="button">
+                      Join Code
+                    </button>
+                    <button id="leave-room" type="button">Leave Room</button>
+                  </div>
+                  <button id="refresh-rooms" type="button">Refresh List</button>
+                  <div id="room-list" class="room-list"></div>
+                </div>
 
-          <h3>Spectators</h3>
-          <div id="lobby-spectators" class="spectator-list"></div>
+                <div class="control control--wide">
+                  <h2>Lobby</h2>
+                  <div class="button-row">
+                    <button id="claim-team-1" type="button">
+                      Claim Team A
+                    </button>
+                    <button id="claim-team-2" type="button">
+                      Claim Team B
+                    </button>
+                  </div>
+                  <div class="button-row">
+                    <button id="toggle-ready" type="button">Set Ready</button>
+                    <button id="start-match" type="button">Host Start</button>
+                  </div>
 
-          <h3>Spawn Markers</h3>
-          <div id="spawn-markers" class="spawn-list"></div>
-        </div>
+                  <h3>Countdown</h3>
+                  <div id="lobby-countdown" class="lobby-status">
+                    Waiting for host
+                  </div>
 
-        <div class="control control--wide">
+                  <h3>Player Slots</h3>
+                  <div id="lobby-player-slots" class="slot-list"></div>
+
+                  <h3>Spectators</h3>
+                  <div id="lobby-spectators" class="spectator-list"></div>
+
+                  <h3>Spawn Markers</h3>
+                  <div id="spawn-markers" class="spawn-list"></div>
+                </div>
+              </div>
+            </section>
+
+            <section id="ingame-screen" class="match-screen" aria-hidden="true">
+              <div class="controls controls--ingame">
+                <div class="control">
+                  <h2>Build</h2>
+                  <label>
+                    Mode
+                    <select id="build-mode">
+                      <option value="paint">Paint Cells</option>
+                      <option value="template">Template Queue</option>
+                    </select>
+                  </label>
+                  <label>
+                    Template
+                    <select id="template-select"></select>
+                  </label>
+                  <label>
+                    Delay (ticks)
+                    <input
+                      id="build-delay"
+                      type="number"
+                      min="1"
+                      max="20"
+                      value="2"
+                    />
+                  </label>
+
+                  <div class="economy-hud">
+                    <div class="economy-hud__row">
+                      <div class="economy-hud__metric">
+                        <span>Resources</span>
+                        <strong id="hud-resources" class="economy-value"
+                          >-</strong
+                        >
+                      </div>
+                      <div class="economy-hud__metric">
+                        <span>Net Income</span>
+                        <strong id="hud-income" class="economy-value">-</strong>
+                      </div>
+                    </div>
+                    <p
+                      id="hud-delta-chip"
+                      class="economy-delta-chip is-hidden"
+                    ></p>
+                    <details id="income-breakdown" class="income-breakdown">
+                      <summary>Income Breakdown</summary>
+                      <div class="income-breakdown__grid">
+                        <div class="income-breakdown__row">
+                          <span>Base</span>
+                          <strong id="income-breakdown-base">-</strong>
+                        </div>
+                        <div class="income-breakdown__row">
+                          <span>Structures</span>
+                          <strong id="income-breakdown-structures">-</strong>
+                        </div>
+                        <div class="income-breakdown__row">
+                          <span>Active Structures</span>
+                          <strong id="income-breakdown-active">-</strong>
+                        </div>
+                      </div>
+                    </details>
+                  </div>
+
+                  <h3>Template Queue Action</h3>
+                  <div class="transform-controls">
+                    <div class="transform-controls__row">
+                      <button id="transform-rotate" type="button">
+                        Rotate 90deg
+                      </button>
+                      <button id="transform-mirror-horizontal" type="button">
+                        Mirror Horizontal
+                      </button>
+                    </div>
+                    <div class="transform-controls__row">
+                      <button id="transform-mirror-vertical" type="button">
+                        Mirror Vertical
+                      </button>
+                      <button id="cancel-build-mode" type="button">
+                        Cancel Build Mode
+                      </button>
+                    </div>
+                    <p
+                      id="transform-indicator"
+                      class="queue-feedback transform-indicator"
+                    >
+                      Transform: default orientation.
+                    </p>
+                  </div>
+
+                  <p id="queue-placement" class="queue-placement">
+                    Select a board placement while in Template Queue mode.
+                  </p>
+                  <p id="preview-reason" class="queue-feedback">
+                    Preview reason: --
+                  </p>
+                  <p id="queue-cost" class="queue-cost">Cost: --</p>
+                  <button id="queue-build" type="button" disabled>
+                    Queue Selected Placement
+                  </button>
+                  <p id="queue-feedback" class="queue-feedback">
+                    Queue action is disabled until placement preview returns.
+                  </p>
+
+                  <h3>Destroy Action</h3>
+                  <p id="destroy-selection" class="queue-placement">
+                    Select a structure on the board to enable destroy actions.
+                  </p>
+                  <button id="destroy-queue" type="button" disabled>
+                    Destroy Selected Structure
+                  </button>
+                  <div
+                    id="destroy-confirm-panel"
+                    class="destroy-confirm-panel"
+                    hidden
+                  >
+                    <p class="queue-feedback queue-feedback--error">
+                      Core destroy requires confirmation before queue
+                      submission.
+                    </p>
+                    <div class="button-row">
+                      <button id="destroy-confirm" type="button">
+                        Arm Confirm Destroy
+                      </button>
+                      <button id="destroy-cancel" type="button" disabled>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                  <p id="destroy-feedback" class="queue-feedback">
+                    Destroy action is disabled until an owned structure is
+                    selected.
+                  </p>
+
+                  <h3>Pending Timeline</h3>
+                  <div id="pending-timeline" class="pending-timeline"></div>
+                </div>
+              </div>
+
+              <div class="board">
+                <canvas id="grid"></canvas>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <aside class="control chat-shell">
           <h2>Room Chat</h2>
           <div id="chat-log" class="chat-log"></div>
           <label>
@@ -1093,13 +1259,8 @@
             />
           </label>
           <button id="chat-send" type="button">Send Chat</button>
-        </div>
-      </section>
-
-      <div class="board">
-        <canvas id="grid"></canvas>
+        </aside>
       </div>
-      <p id="message" class="message"></p>
     </main>
 
     <div id="countdown-overlay" class="countdown-overlay is-hidden">
