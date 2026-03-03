@@ -8,3 +8,4 @@ export * from './placement-transform.js';
 export * from './rts.js';
 export * from './socket-contract.js';
 export * from './template-grid-read.js';
+export * from './template-grid-write.js';
