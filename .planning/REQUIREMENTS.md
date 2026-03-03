@@ -22,8 +22,8 @@ Requirements for milestone `v0.0.3 Template Grid Unification`.
 
 ### Verification and Migration Safety
 
-- [ ] **REF-08**: Unit and integration tests prove parity for preview, queue, apply, integrity, and structure-key stability across representative transform sequences.
-- [ ] **REF-09**: Temporary old-vs-new assertions are used during migration and removed before milestone close once parity is proven.
+- [x] **REF-08**: Unit and integration tests prove parity for preview, queue, apply, integrity, and structure-key stability across representative transform sequences.
+- [x] **REF-09**: Temporary old-vs-new assertions are used during migration and removed before milestone close once parity is proven.
 
 ## v0.0.4+ Requirements
 
@@ -64,8 +64,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REF-05      | Phase 15 | Complete |
 | REF-06      | Phase 17 | Complete |
 | REF-07      | Phase 15 | Complete |
-| REF-08      | Phase 18 | Pending  |
-| REF-09      | Phase 18 | Pending  |
+| REF-08      | Phase 18 | Complete |
+| REF-09      | Phase 18 | Complete |
 
 **Coverage:**
 
@@ -76,4 +76,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 ---
 
 _Requirements defined: 2026-03-03_
-_Last updated: 2026-03-03 after Phase 17 execution_
+_Last updated: 2026-03-03 after Phase 18 execution_

@@ -4,7 +4,7 @@
 
 - ✅ **v0.0.1 Prototype Baseline** — shipped 2026-03-01 (Phases 1-5). Archive: `.planning/milestones/v0.0.1-ROADMAP.md`
 - ✅ **v0.0.2 Gameplay Expansion** — shipped 2026-03-03 (Phases 6-12). Archive: `.planning/milestones/v0.0.2-ROADMAP.md`
-- 🚧 **v0.0.3 Template Grid Unification** — planned as Phases 13-18
+- 🚧 **v0.0.3 Template Grid Unification** — phase execution complete 2026-03-03 (Phases 13-18; milestone audit/archive pending)
 
 ## Overview
 
@@ -17,7 +17,7 @@
 - [x] **Phase 15: Read-Path and Cross-Codebase GridView Unification** - Move read-side geometry and other duplicated transformed-grid paths onto shared GridView utilities. (completed 2026-03-03)
 - [x] **Phase 16: Write-Path GridView Unification** - Use one GridView-backed geometry flow for preview, queue validation, and build apply. (completed 2026-03-03)
 - [x] **Phase 17: Legacy Geometry Removal with Outcome Parity** - Remove duplicate template/offset-template logic while preserving authoritative outcomes. (completed 2026-03-03)
-- [ ] **Phase 18: Parity Closure and Migration Cleanup** - Lock parity with tests and retire temporary migration-only assertions.
+- [x] **Phase 18: Parity Closure and Migration Cleanup** - Lock parity with tests and retire temporary migration-only assertions. (completed 2026-03-03)
 
 ## Phase Details
 
@@ -117,18 +117,23 @@ Plans:
 2. Temporary old-vs-new migration assertions are absent from shipped code while parity suites continue to pass.
 3. Developers can verify milestone completion without gameplay drift or authoritative contract changes.
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+
+- [x] 18-01-PLAN.md - Replace temporary migration-only parity guards with permanent unit parity contracts and retire legacy comparison harnesses. (completed 2026-03-03)
+- [x] 18-02-PLAN.md - Lock integration parity for preview, queue, apply, integrity, and structure-key stability across representative transformed timelines. (completed 2026-03-03)
 
 ## Progress
 
-| Phase                                                 | Plans Complete | Status      | Completed  |
-| ----------------------------------------------------- | -------------- | ----------- | ---------- |
-| 13. GridView Contract and Cell Semantics              | 1/1            | Complete    | 2026-03-03 |
-| 14. Canonical GridView API Adoption                   | 2/2            | Complete    | 2026-03-03 |
-| 15. Read-Path and Cross-Codebase GridView Unification | 2/2            | Complete    | 2026-03-03 |
-| 16. Write-Path GridView Unification                   | 2/2            | Complete    | 2026-03-03 |
-| 17. Legacy Geometry Removal with Outcome Parity       | 2/2            | Complete    | 2026-03-03 |
-| 18. Parity Closure and Migration Cleanup              | 0/TBD          | Not started | -          |
+| Phase                                                 | Plans Complete | Status   | Completed  |
+| ----------------------------------------------------- | -------------- | -------- | ---------- |
+| 13. GridView Contract and Cell Semantics              | 1/1            | Complete | 2026-03-03 |
+| 14. Canonical GridView API Adoption                   | 2/2            | Complete | 2026-03-03 |
+| 15. Read-Path and Cross-Codebase GridView Unification | 2/2            | Complete | 2026-03-03 |
+| 16. Write-Path GridView Unification                   | 2/2            | Complete | 2026-03-03 |
+| 17. Legacy Geometry Removal with Outcome Parity       | 2/2            | Complete | 2026-03-03 |
+| 18. Parity Closure and Migration Cleanup              | 2/2            | Complete | 2026-03-03 |
 
 ## Requirement Coverage
 

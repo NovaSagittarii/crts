@@ -5,26 +5,26 @@
 See: `.planning/PROJECT.md` (updated 2026-03-03)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 18 planning for v0.0.3 parity closure and migration assertion retirement.
+**Current focus:** Phase 18 is complete; finalize milestone audit/archive for v0.0.3.
 
 ## Current Position
 
 **Current Milestone:** v0.0.3 Template Grid Unification
 **Phase:** 18 of 18 (Parity Closure and Migration Cleanup)
-**Plan:** Not planned
-**Current Plan:** TBD
-**Total Plans in Phase:** TBD
-**Status:** Ready to plan
-**Last Activity:** 2026-03-03 — Completed Phase 17 execution (17-01 and 17-02)
-**Progress:** [████████░░] 83%
+**Plan:** Completed (2 plans in 2 waves)
+**Current Plan:** Complete
+**Total Plans in Phase:** 2
+**Status:** Phase complete (verification green)
+**Last Activity:** 2026-03-03 — Executed Phase 18 plans (18-01, 18-02) and verified parity closure
+**Progress:** [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Completed phases: 17
-- Completed plans: 39
-- Completed tasks: 101
+- Completed phases: 18
+- Completed plans: 41
+- Completed tasks: 107
 - Shipped milestones: 2 (`v0.0.1`, `v0.0.2`)
 
 **Current Milestone Baseline (`v0.0.3`):**
@@ -50,21 +50,19 @@ See: `.planning/PROJECT.md` (updated 2026-03-03)
 - Route preview, queue validation, and apply mutation through one shared `template-grid-write` transformed world-cell projection path.
 - Lock transformed write-path parity with targeted unit and integration scenarios before legacy path deletion.
 - Route authoritative preview/queue/execute build evaluation through one shared `template-grid-authoritative` helper surface.
-- Keep temporary migration parity guards in deterministic tests and retire them during Phase 18 cleanup.
+- Retire temporary migration parity guards by replacing old-vs-new mirrors with canonical expected-outcome assertions and explicit runtime parity gates.
 
 ### Pending Todos
 
-- Run `/gsd-plan-phase 18` to define parity closure and migration assertion retirement work.
-- Keep migration assertions temporary and remove them before milestone close (`REF-09`).
+- Run `/gsd-audit-milestone v0.0.3` to archive milestone artifacts now that all six v0.0.3 phases are complete.
 - Optionally run `/gsd-audit-milestone` retroactively for `v0.0.2` to close audit debt.
 
 ### Blockers/Concerns
 
-- Pre-existing `room:match-finished` timeout failures in integration suites can mask regressions until stabilized.
-- Phase 18 must remove temporary migration assertions without reducing parity signal coverage.
+- Broad integration timeout debt around `room:match-finished` remains a regression-masking risk outside targeted parity gates.
 
 ## Session Continuity
 
-**Last session:** 2026-03-03T08:25:41Z
-**Stopped At:** Completed Phase 17 execution (17-01 and 17-02)
-**Resume File:** .planning/phases/17-legacy-geometry-removal-with-outcome-parity/17-VERIFICATION.md
+**Last session:** 2026-03-03T09:03:00Z
+**Stopped At:** Phase 18 execution and verification complete
+**Resume File:** .planning/phases/18-parity-closure-and-migration-cleanup/18-VERIFICATION.md
