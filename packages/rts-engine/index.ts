@@ -7,3 +7,4 @@ export * from './match-lifecycle.js';
 export * from './placement-transform.js';
 export * from './rts.js';
 export * from './socket-contract.js';
+export * from './template-grid-read.js';

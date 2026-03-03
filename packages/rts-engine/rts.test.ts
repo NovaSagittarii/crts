@@ -249,6 +249,78 @@ describe('rts', () => {
     expect(queued.illegalCells).toEqual(preview.illegalCells);
   });
 
+  test('keeps transformed structure payloads deterministic and fallback integrity masks active', () => {
+    const transformedTemplate: StructureTemplate = withTemplateGrid({
+      id: 'sentinel-eater',
+      name: 'Sentinel Eater',
+      width: 4,
+      height: 4,
+      cells: new Uint8Array([1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1, 1, 0, 0, 1, 0]),
+      activationCost: 0,
+      income: 0,
+      buildArea: 0,
+      checks: [],
+    });
+    const room = createRoomState({
+      id: 'transformed-read-room',
+      name: 'Transformed Read Room',
+      width: 52,
+      height: 52,
+      templates: [...createDefaultTemplates(), transformedTemplate],
+    });
+    const team = addPlayerToRoom(room, 'p1', 'Alice');
+
+    const queued = queueBuildEvent(room, 'p1', {
+      templateId: 'sentinel-eater',
+      x: team.baseTopLeft.x + 8,
+      y: team.baseTopLeft.y + 8,
+      delayTicks: 1,
+      transform: {
+        operations: ['rotate', 'mirror-horizontal'],
+      },
+    });
+    expect(queued.accepted).toBe(true);
+
+    tickRoom(room);
+    tickRoom(room);
+
+    const firstPayload = createRoomStatePayload(room);
+    const secondPayload = createRoomStatePayload(room);
+    const firstTeam = firstPayload.teams.find(({ id }) => id === team.id);
+    const secondTeam = secondPayload.teams.find(({ id }) => id === team.id);
+
+    const firstStructure = firstTeam?.structures.find(
+      ({ templateId }) => templateId === 'sentinel-eater',
+    );
+    const secondStructure = secondTeam?.structures.find(
+      ({ templateId }) => templateId === 'sentinel-eater',
+    );
+
+    expect(firstStructure).toBeDefined();
+    expect(secondStructure).toEqual(firstStructure);
+
+    const damagedCell = queued.footprint?.[0];
+    expect(damagedCell).toBeDefined();
+    if (!damagedCell) {
+      throw new Error('Expected transformed footprint data for integrity test');
+    }
+
+    queueLegacyCellUpdate(room, {
+      x: damagedCell.x,
+      y: damagedCell.y,
+      alive: 0,
+    });
+
+    tickRoom(room);
+    tickRoom(room);
+
+    const damagedStructure = [...team.structures.values()].find(
+      ({ templateId }) => templateId === 'sentinel-eater',
+    );
+    expect(damagedStructure).toBeDefined();
+    expect(damagedStructure?.hp ?? 0).toBeLessThan(2);
+  });
+
   test('adds players, seeds base cells, and lists room occupancy', () => {
     const room = createRoomState({
       id: '1',

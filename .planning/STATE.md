@@ -5,26 +5,26 @@
 See: `.planning/PROJECT.md` (updated 2026-03-03)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 15 planning for v0.0.3 read-path and cross-codebase GridView unification.
+**Current focus:** Phase 16 planning for v0.0.3 write-path GridView unification.
 
 ## Current Position
 
 **Current Milestone:** v0.0.3 Template Grid Unification
-**Phase:** 15 of 18 (Read-Path and Cross-Codebase GridView Unification)
+**Phase:** 16 of 18 (Write-Path GridView Unification)
 **Plan:** Not planned
 **Current Plan:** TBD
 **Total Plans in Phase:** TBD
 **Status:** Ready to plan
-**Last Activity:** 2026-03-03 — Completed Phase 14 execution (14-01 and 14-02)
-**Progress:** [███░░░░░░░] 33%
+**Last Activity:** 2026-03-03 — Completed Phase 15 execution (15-01 and 15-02)
+**Progress:** [█████░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Completed phases: 14
-- Completed plans: 33
-- Completed tasks: 83
+- Completed phases: 15
+- Completed plans: 35
+- Completed tasks: 89
 - Shipped milestones: 2 (`v0.0.1`, `v0.0.2`)
 
 **Current Milestone Baseline (`v0.0.3`):**
@@ -45,10 +45,12 @@ See: `.planning/PROJECT.md` (updated 2026-03-03)
 - Preserve `TransformedTemplate.cells` source byte semantics while exposing GridView alive/dead contract data.
 - Normalize runtime templates with canonical `grid()` factories that return fresh immutable GridView instances.
 - Retire legacy projection entrypoints (`projectTemplateWithTransform`, `projectPlacementToWorld`) with fail-fast migration guidance.
+- Route read-path structure/build-zone/integrity projections through shared `template-grid-read` helpers.
+- Preserve last-known tactical overlay sections when reconnect sync is pending and authoritative team payloads are temporarily unavailable.
 
 ### Pending Todos
 
-- Run `/gsd-plan-phase 15` to define read-path and cross-codebase GridView migration tasks.
+- Run `/gsd-plan-phase 16` to define write-path GridView unification tasks.
 - Keep migration assertions temporary and remove them before milestone close (`REF-09`).
 - Optionally run `/gsd-audit-milestone` retroactively for `v0.0.2` to close audit debt.
 
@@ -59,6 +61,6 @@ See: `.planning/PROJECT.md` (updated 2026-03-03)
 
 ## Session Continuity
 
-**Last session:** 2026-03-03T05:15:00Z
-**Stopped At:** Completed Phase 14 execution (14-01 and 14-02)
-**Resume File:** .planning/phases/15-read-path-and-cross-codebase-gridview-unification/15-CONTEXT.md
+**Last session:** 2026-03-03T05:30:00Z
+**Stopped At:** Completed Phase 15 execution (15-01 and 15-02)
+**Resume File:** .planning/ROADMAP.md

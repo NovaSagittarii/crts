@@ -9,6 +9,7 @@ import {
   BASE_FOOTPRINT_HEIGHT,
   BASE_FOOTPRINT_WIDTH,
   BUILD_ZONE_RADIUS,
+  estimateTransformedTemplateBounds,
   getBaseCenter,
 } from '#rts-engine';
 
@@ -176,7 +177,10 @@ function collectCandidatePlacements(
   const baseTop = team.baseTopLeft.y;
   const baseRight = baseLeft + BASE_FOOTPRINT_WIDTH;
   const baseBottom = baseTop + BASE_FOOTPRINT_HEIGHT;
-  const transformedSize = estimateTransformedTemplateSize(template, transform);
+  const transformedSize = estimateTransformedTemplateBounds(
+    template,
+    transform,
+  );
 
   for (let y = -10; y <= 10; y += 2) {
     for (let x = -10; x <= 10; x += 2) {
@@ -227,33 +231,15 @@ function collectCandidatePlacements(
   return placements;
 }
 
-function estimateTransformedTemplateSize(
-  template: RoomJoinedPayload['templates'][number],
-  transform: PlacementTransformInput | undefined,
-): { width: number; height: number } {
-  const operations = transform?.operations ?? [];
-  let quarterTurns = 0;
-  for (const operation of operations) {
-    if (operation === 'rotate') {
-      quarterTurns = (quarterTurns + 1) % 4;
-    }
-  }
-
-  if (quarterTurns % 2 === 1) {
-    return {
-      width: template.height,
-      height: template.width,
-    };
-  }
-
-  return {
-    width: template.width,
-    height: template.height,
-  };
+interface QueueBuildAttempt {
+  templateId: string;
+  transform?: PlacementTransformInput;
 }
 
-interface QueueBuildAttempt {
+interface QueueAppliedBuildOptions {
+  templateId?: string;
   transform?: PlacementTransformInput;
+  delayTicks?: number;
 }
 
 function waitForBuildQueueResponse(
@@ -461,19 +447,24 @@ async function setupActiveMatch(
 async function queueValidHostBuild(
   match: ActiveMatchSetup,
 ): Promise<{ queued: BuildQueuedPayload; outcome: BuildOutcomePayload }> {
-  const blockTemplate = match.hostJoined.templates.find(
-    ({ id }) => id === 'block',
-  );
-  if (!blockTemplate) {
-    throw new Error('Expected block template to be available');
-  }
-
-  const attempts: QueueBuildAttempt[] = [{ transform: undefined }];
+  const attempts: QueueBuildAttempt[] = [
+    {
+      templateId: 'block',
+      transform: undefined,
+    },
+  ];
 
   for (const attempt of attempts) {
+    const template = match.hostJoined.templates.find(
+      ({ id }) => id === attempt.templateId,
+    );
+    if (!template) {
+      continue;
+    }
+
     const placements = collectCandidatePlacements(
       match.hostTeam,
-      blockTemplate,
+      template,
       match.hostJoined.state.width,
       match.hostJoined.state.height,
       attempt.transform,
@@ -482,7 +473,7 @@ async function queueValidHostBuild(
     for (const placement of placements) {
       const queueResponsePromise = waitForBuildQueueResponse(match.host);
       match.host.emit('build:queue', {
-        templateId: blockTemplate.id,
+        templateId: template.id,
         x: placement.x,
         y: placement.y,
         transform: attempt.transform,
@@ -508,32 +499,38 @@ async function queueValidHostBuild(
   throw new Error('Unable to queue a valid build for QUAL-02 scenario');
 }
 
-async function queueAppliedHostBuild(match: ActiveMatchSetup): Promise<{
+async function queueAppliedHostBuild(
+  match: ActiveMatchSetup,
+  options: QueueAppliedBuildOptions = {},
+): Promise<{
   queued: BuildQueuedPayload;
   outcome: BuildOutcomePayload;
   structureKey: string;
 }> {
-  const blockTemplate = match.hostJoined.templates.find(
-    ({ id }) => id === 'block',
+  const templateId = options.templateId ?? 'block';
+  const template = match.hostJoined.templates.find(
+    ({ id }) => id === templateId,
   );
-  if (!blockTemplate) {
-    throw new Error('Expected block template to be available');
+  if (!template) {
+    throw new Error(`Expected ${templateId} template to be available`);
   }
 
   const placements = collectCandidatePlacements(
     match.hostTeam,
-    blockTemplate,
+    template,
     match.hostJoined.state.width,
     match.hostJoined.state.height,
+    options.transform,
   );
 
   for (const placement of placements) {
     const responsePromise = waitForBuildQueueResponse(match.host);
     match.host.emit('build:queue', {
-      templateId: blockTemplate.id,
+      templateId: template.id,
       x: placement.x,
       y: placement.y,
-      delayTicks: 8,
+      transform: options.transform,
+      delayTicks: options.delayTicks ?? 8,
     });
 
     const response = await responsePromise;
@@ -557,7 +554,7 @@ async function queueAppliedHostBuild(match: ActiveMatchSetup): Promise<{
         return hostTeam.structures.some(
           (structure) =>
             !structure.isCore &&
-            structure.templateId === blockTemplate.id &&
+            structure.templateId === template.id &&
             structure.hp > 0,
         );
       },
@@ -571,7 +568,7 @@ async function queueAppliedHostBuild(match: ActiveMatchSetup): Promise<{
     const structure = hostTeam.structures.find(
       (candidate) =>
         !candidate.isCore &&
-        candidate.templateId === blockTemplate.id &&
+        candidate.templateId === template.id &&
         candidate.hp > 0,
     );
     if (!structure) {
@@ -585,9 +582,7 @@ async function queueAppliedHostBuild(match: ActiveMatchSetup): Promise<{
     };
   }
 
-  throw new Error(
-    'Unable to queue and apply a host block structure for destroy scenario',
-  );
+  throw new Error(`Unable to queue and apply host ${templateId} structure`);
 }
 
 describe('QUAL-02 quality gate integration loop', () => {
@@ -680,6 +675,84 @@ describe('QUAL-02 quality gate integration loop', () => {
 
     expect(defeatedError.reason).toBe('defeated');
   }, 45_000);
+
+  test('keeps transformed structure overlays stable across repeated reconnect loops', async () => {
+    const match = await setupActiveMatch(() => connectClientForTest());
+
+    const appliedBuild = await queueAppliedHostBuild(match, {
+      templateId: 'block',
+      transform: {
+        operations: ['rotate', 'mirror-horizontal'],
+      },
+      delayTicks: 10,
+    });
+    expect(appliedBuild.outcome.outcome).toBe('applied');
+
+    let activeGuest: Socket = match.guest;
+
+    for (let reconnectCount = 0; reconnectCount < 2; reconnectCount += 1) {
+      activeGuest.disconnect();
+      activeGuest = connectClientForTest({
+        sessionId: match.guestJoined.playerId,
+      });
+
+      const rejoined = await waitForEvent<RoomJoinedPayload>(
+        activeGuest,
+        'room:joined',
+        6000,
+      );
+      expect(rejoined.roomId).toBe(match.roomId);
+
+      const [hostState, reconnectState] = await Promise.all([
+        waitForState(
+          match.host,
+          match.roomId,
+          (payload) => {
+            const hostTeam = getTeamByPlayerId(
+              payload,
+              match.hostJoined.playerId,
+            );
+            return hostTeam.structures.some(
+              ({ key, hp }) => key === appliedBuild.structureKey && hp > 0,
+            );
+          },
+          80,
+          2000,
+        ),
+        waitForState(
+          activeGuest,
+          match.roomId,
+          (payload) => {
+            const hostTeam = getTeamByPlayerId(
+              payload,
+              match.hostJoined.playerId,
+            );
+            return hostTeam.structures.some(
+              ({ key, hp }) => key === appliedBuild.structureKey && hp > 0,
+            );
+          },
+          80,
+          2000,
+        ),
+      ]);
+
+      const hostTeam = getTeamByPlayerId(hostState, match.hostJoined.playerId);
+      const reconnectTeam = getTeamByPlayerId(
+        reconnectState,
+        match.hostJoined.playerId,
+      );
+      expect(reconnectTeam.structures).toEqual(hostTeam.structures);
+
+      const hostStructure = hostTeam.structures.find(
+        ({ key }) => key === appliedBuild.structureKey,
+      );
+      const reconnectStructure = reconnectTeam.structures.find(
+        ({ key }) => key === appliedBuild.structureKey,
+      );
+      expect(hostStructure).toBeDefined();
+      expect(reconnectStructure).toEqual(hostStructure);
+    }
+  }, 70_000);
 
   test('QUAL-04: build plus destroy stays deterministic across reconnect checkpoints', async () => {
     const match = await setupActiveMatch(() => connectClientForTest());

@@ -16,9 +16,9 @@ Requirements for milestone `v0.0.3 Template Grid Unification`.
 ### Engine Path Unification
 
 - [ ] **REF-04**: Build preview, queue validation, and build apply flows use the same `GridView`-backed geometry pipeline.
-- [ ] **REF-05**: Structure projection, build-zone contributor projection, and integrity-mask checks use the same `GridView`-backed geometry pipeline.
+- [x] **REF-05**: Structure projection, build-zone contributor projection, and integrity-mask checks use the same `GridView`-backed geometry pipeline.
 - [ ] **REF-06**: Duplicate template/offset-template logic in `packages/rts-engine/rts.ts` is removed without changing authoritative rejection reasons, resource costs, or applied outcomes.
-- [ ] **REF-07**: Other applicable code paths that duplicate transformed-grid logic (for example integration test helpers that estimate transformed template size) are migrated to shared transform/`GridView` utilities.
+- [x] **REF-07**: Other applicable code paths that duplicate transformed-grid logic (for example integration test helpers that estimate transformed template size) are migrated to shared transform/`GridView` utilities.
 
 ### Verification and Migration Safety
 
@@ -61,9 +61,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REF-02      | Phase 14 | Complete |
 | REF-03      | Phase 13 | Complete |
 | REF-04      | Phase 16 | Pending  |
-| REF-05      | Phase 15 | Pending  |
+| REF-05      | Phase 15 | Complete |
 | REF-06      | Phase 17 | Pending  |
-| REF-07      | Phase 15 | Pending  |
+| REF-07      | Phase 15 | Complete |
 | REF-08      | Phase 18 | Pending  |
 | REF-09      | Phase 18 | Pending  |
 
@@ -76,4 +76,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 ---
 
 _Requirements defined: 2026-03-03_
-_Last updated: 2026-03-03 after Phase 14 execution_
+_Last updated: 2026-03-03 after Phase 15 execution_

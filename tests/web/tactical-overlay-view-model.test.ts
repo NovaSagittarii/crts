@@ -246,4 +246,49 @@ describe('tactical-overlay-view-model helpers', () => {
     expect(reconnect.syncHint.visible).toBe(true);
     expect(reconnect.syncHint.copy).toBe('Syncing latest tactical data…');
   });
+
+  test('retains last-known overlay sections while reconnect sync is pending', () => {
+    const seeded = deriveTacticalOverlayState(createTacticalOverlayState(), {
+      nowMs: 10_000,
+      team: {
+        id: 1,
+        name: 'Team A',
+        defeated: false,
+        baseIntact: true,
+        resources: 25,
+        income: 3,
+        incomeBreakdown: {
+          base: 2,
+          structures: 1,
+          total: 3,
+          activeStructureCount: 2,
+        },
+        pendingBuilds: [],
+        pendingDestroys: [],
+        structures: [
+          { key: 'core', active: true },
+          { key: 'tower-1', active: true },
+        ],
+      },
+      templates: [buildTemplate('tower', 'Tower')],
+      selectedTemplateId: 'tower',
+      sync: {
+        reconnectPending: false,
+        lastAuthoritativeUpdateAtMs: 9_990,
+      },
+    });
+
+    const reconnectGap = deriveTacticalOverlayState(seeded, {
+      nowMs: 10_050,
+      team: null,
+      templates: [],
+      sync: {
+        reconnectPending: true,
+        lastAuthoritativeUpdateAtMs: 10_040,
+      },
+    });
+
+    expect(reconnectGap.syncHint.visible).toBe(true);
+    expect(reconnectGap.sections).toEqual(seeded.sections);
+  });
 });

@@ -9,6 +9,7 @@ import {
   BASE_FOOTPRINT_HEIGHT,
   BASE_FOOTPRINT_WIDTH,
   BUILD_ZONE_RADIUS,
+  estimateTransformedTemplateBounds,
   getBaseCenter,
 } from '#rts-engine';
 
@@ -23,6 +24,7 @@ import type {
   RoomSlotClaimedPayload,
   RoomStatePayload,
   TeamPayload,
+  PlacementTransformInput,
 } from '#rts-engine';
 
 interface ClientOptions {
@@ -148,6 +150,7 @@ function collectCandidatePlacements(
   template: RoomJoinedPayload['templates'][number],
   roomWidth: number,
   roomHeight: number,
+  transform?: PlacementTransformInput,
 ): Cell[] {
   const placements: Cell[] = [];
   const baseCenter = getBaseCenter(team.baseTopLeft);
@@ -155,6 +158,10 @@ function collectCandidatePlacements(
   const baseTop = team.baseTopLeft.y;
   const baseRight = baseLeft + BASE_FOOTPRINT_WIDTH;
   const baseBottom = baseTop + BASE_FOOTPRINT_HEIGHT;
+  const transformedSize = estimateTransformedTemplateBounds(
+    template,
+    transform,
+  );
 
   for (let y = -10; y <= 10; y += 2) {
     for (let x = -10; x <= 10; x += 2) {
@@ -164,24 +171,24 @@ function collectCandidatePlacements(
         continue;
       }
       if (
-        buildX + template.width > roomWidth ||
-        buildY + template.height > roomHeight
+        buildX + transformedSize.width > roomWidth ||
+        buildY + transformedSize.height > roomHeight
       ) {
         continue;
       }
 
       const intersectsBase =
         buildX < baseRight &&
-        buildX + template.width > baseLeft &&
+        buildX + transformedSize.width > baseLeft &&
         buildY < baseBottom &&
-        buildY + template.height > baseTop;
+        buildY + transformedSize.height > baseTop;
       if (intersectsBase) {
         continue;
       }
 
       let fullyInsideBuildZone = true;
-      for (let ty = 0; ty < template.height; ty += 1) {
-        for (let tx = 0; tx < template.width; tx += 1) {
+      for (let ty = 0; ty < transformedSize.height; ty += 1) {
+        for (let tx = 0; tx < transformedSize.width; tx += 1) {
           const dx = buildX + tx - baseCenter.x;
           const dy = buildY + ty - baseCenter.y;
           if (dx * dx + dy * dy > BUILD_ZONE_RADIUS * BUILD_ZONE_RADIUS) {
@@ -398,32 +405,44 @@ async function setupActiveMatch(
   };
 }
 
-async function queueAppliedHostBlock(match: ActiveMatchSetup): Promise<{
+interface QueueAppliedBuildOptions {
+  templateId?: string;
+  transform?: PlacementTransformInput;
+  delayTicks?: number;
+}
+
+async function queueAppliedHostBuild(
+  match: ActiveMatchSetup,
+  options: QueueAppliedBuildOptions = {},
+): Promise<{
   queued: BuildQueuedPayload;
   outcome: BuildOutcomePayload;
   structureKey: string;
 }> {
-  const blockTemplate = match.hostJoined.templates.find(
-    ({ id }) => id === 'block',
+  const templateId = options.templateId ?? 'block';
+  const template = match.hostJoined.templates.find(
+    ({ id }) => id === templateId,
   );
-  if (!blockTemplate) {
-    throw new Error('Expected block template to be available');
+  if (!template) {
+    throw new Error(`Expected ${templateId} template to be available`);
   }
 
   const placements = collectCandidatePlacements(
     match.hostTeam,
-    blockTemplate,
+    template,
     match.hostJoined.state.width,
     match.hostJoined.state.height,
+    options.transform,
   );
 
   for (const placement of placements) {
     const buildResponsePromise = waitForBuildQueueResponse(match.host);
     match.host.emit('build:queue', {
-      templateId: blockTemplate.id,
+      templateId: template.id,
       x: placement.x,
       y: placement.y,
-      delayTicks: 8,
+      transform: options.transform,
+      delayTicks: options.delayTicks ?? 8,
     });
 
     const buildResponse = await buildResponsePromise;
@@ -447,7 +466,7 @@ async function queueAppliedHostBlock(match: ActiveMatchSetup): Promise<{
         return hostTeam.structures.some(
           (structure) =>
             !structure.isCore &&
-            structure.templateId === blockTemplate.id &&
+            structure.templateId === template.id &&
             structure.hp > 0,
         );
       },
@@ -458,7 +477,7 @@ async function queueAppliedHostBlock(match: ActiveMatchSetup): Promise<{
     const builtStructure = builtTeam.structures.find(
       (structure) =>
         !structure.isCore &&
-        structure.templateId === blockTemplate.id &&
+        structure.templateId === template.id &&
         structure.hp > 0,
     );
     if (!builtStructure) {
@@ -472,7 +491,7 @@ async function queueAppliedHostBlock(match: ActiveMatchSetup): Promise<{
     };
   }
 
-  throw new Error('Unable to queue and apply host block before destroy tests');
+  throw new Error(`Unable to queue and apply host ${templateId} build`);
 }
 
 describe('destroy reconnect determinism', () => {
@@ -502,7 +521,13 @@ describe('destroy reconnect determinism', () => {
     const match = await setupActiveMatch((options) =>
       connectClientForTest(options),
     );
-    const appliedBuild = await queueAppliedHostBlock(match);
+    const appliedBuild = await queueAppliedHostBuild(match, {
+      templateId: 'block',
+      transform: {
+        operations: ['rotate', 'mirror-horizontal'],
+      },
+      delayTicks: 8,
+    });
     expect(appliedBuild.outcome.outcome).toBe('applied');
 
     const destroyResponsePromise = waitForDestroyQueueResponse(match.host);
@@ -532,18 +557,51 @@ describe('destroy reconnect determinism', () => {
     );
     expect(rejoined.roomId).toBe(match.roomId);
 
-    await waitForState(
-      reconnectGuest,
-      match.roomId,
-      (payload) => {
-        const hostTeam = getTeamByPlayerId(payload, match.hostJoined.playerId);
-        return hostTeam.pendingDestroys.some(
-          ({ eventId }) => eventId === destroyQueued.eventId,
-        );
-      },
-      80,
-      2000,
+    const [hostPendingState, reconnectPendingState] = await Promise.all([
+      waitForState(
+        match.host,
+        match.roomId,
+        (payload) => {
+          const hostTeam = getTeamByPlayerId(
+            payload,
+            match.hostJoined.playerId,
+          );
+          return hostTeam.pendingDestroys.some(
+            ({ eventId }) => eventId === destroyQueued.eventId,
+          );
+        },
+        80,
+        2000,
+      ),
+      waitForState(
+        reconnectGuest,
+        match.roomId,
+        (payload) => {
+          const hostTeam = getTeamByPlayerId(
+            payload,
+            match.hostJoined.playerId,
+          );
+          return hostTeam.pendingDestroys.some(
+            ({ eventId }) => eventId === destroyQueued.eventId,
+          );
+        },
+        80,
+        2000,
+      ),
+    ]);
+
+    const hostPendingTeam = getTeamByPlayerId(
+      hostPendingState,
+      match.hostJoined.playerId,
     );
+    const reconnectPendingTeam = getTeamByPlayerId(
+      reconnectPendingState,
+      match.hostJoined.playerId,
+    );
+    expect(reconnectPendingTeam.pendingDestroys).toEqual(
+      hostPendingTeam.pendingDestroys,
+    );
+    expect(reconnectPendingTeam.structures).toEqual(hostPendingTeam.structures);
 
     const [hostOutcome, reconnectOutcome] = await Promise.all([
       waitForDestroyOutcome(match.host, destroyQueued.eventId, 16_000),
@@ -610,7 +668,7 @@ describe('destroy reconnect determinism', () => {
     const match = await setupActiveMatch((options) =>
       connectClientForTest(options),
     );
-    const appliedBuild = await queueAppliedHostBlock(match);
+    const appliedBuild = await queueAppliedHostBuild(match);
     expect(appliedBuild.outcome.outcome).toBe('applied');
 
     const destroyResponsePromise = waitForDestroyQueueResponse(match.host);

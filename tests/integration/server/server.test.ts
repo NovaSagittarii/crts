@@ -7,6 +7,7 @@ import {
   BASE_FOOTPRINT_HEIGHT,
   BASE_FOOTPRINT_WIDTH,
   BUILD_ZONE_RADIUS,
+  estimateTransformedTemplateBounds,
   getBaseCenter,
 } from '#rts-engine';
 import type {
@@ -23,6 +24,7 @@ import type {
   RoomSlotClaimedPayload,
   RoomStatePayload,
   TeamPayload,
+  PlacementTransformInput,
 } from '#rts-engine';
 
 type StatePayload = RoomStatePayload;
@@ -328,6 +330,7 @@ function collectCandidatePlacements(
   template: RoomJoinedPayload['templates'][number],
   roomWidth: number,
   roomHeight: number,
+  transform?: PlacementTransformInput,
 ): Cell[] {
   const placements: Cell[] = [];
   const baseCenter = getBaseCenter(team.baseTopLeft);
@@ -335,6 +338,10 @@ function collectCandidatePlacements(
   const baseTop = team.baseTopLeft.y;
   const baseRight = baseLeft + BASE_FOOTPRINT_WIDTH;
   const baseBottom = baseTop + BASE_FOOTPRINT_HEIGHT;
+  const transformedSize = estimateTransformedTemplateBounds(
+    template,
+    transform,
+  );
 
   for (let y = -10; y <= 10; y += 2) {
     for (let x = -10; x <= 10; x += 2) {
@@ -344,24 +351,24 @@ function collectCandidatePlacements(
         continue;
       }
       if (
-        buildX + template.width > roomWidth ||
-        buildY + template.height > roomHeight
+        buildX + transformedSize.width > roomWidth ||
+        buildY + transformedSize.height > roomHeight
       ) {
         continue;
       }
 
       const intersectsBase =
         buildX < baseRight &&
-        buildX + template.width > baseLeft &&
+        buildX + transformedSize.width > baseLeft &&
         buildY < baseBottom &&
-        buildY + template.height > baseTop;
+        buildY + transformedSize.height > baseTop;
       if (intersectsBase) {
         continue;
       }
 
       let fullyInsideBuildZone = true;
-      for (let ty = 0; ty < template.height; ty += 1) {
-        for (let tx = 0; tx < template.width; tx += 1) {
+      for (let ty = 0; ty < transformedSize.height; ty += 1) {
+        for (let tx = 0; tx < transformedSize.width; tx += 1) {
           const dx = buildX + tx - baseCenter.x;
           const dy = buildY + ty - baseCenter.y;
           if (dx * dx + dy * dy > BUILD_ZONE_RADIUS * BUILD_ZONE_RADIUS) {

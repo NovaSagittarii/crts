@@ -211,7 +211,15 @@ export function deriveTacticalOverlayState(
   previousState: TacticalOverlayState,
   input: TacticalOverlayProjectionInput,
 ): TacticalOverlayState {
+  const syncHint = selectSyncHint(input.nowMs, input.sync);
   const team = input.team;
+
+  if (!team && syncHint.visible && previousState.sections.length > 0) {
+    return {
+      ...previousState,
+      syncHint,
+    };
+  }
 
   const resources = team?.resources ?? 0;
   const income = team?.income ?? 0;
@@ -379,7 +387,7 @@ export function deriveTacticalOverlayState(
 
   return {
     sections: [economySection, buildSection, teamSection],
-    syncHint: selectSyncHint(input.nowMs, input.sync),
+    syncHint,
     metricValues: highlightedMetrics.metricValues,
     highlightUntilByMetric: highlightedMetrics.highlightUntilByMetric,
   };
