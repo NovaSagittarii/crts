@@ -42,9 +42,24 @@ describe('placement-transform', () => {
 
     expect(rotated.width).toBe(2);
     expect(rotated.height).toBe(3);
+    expect(rotated.gridView.cells()).toEqual([
+      { x: 0, y: 2, alive: true },
+      { x: 0, y: 1, alive: false },
+      { x: 0, y: 0, alive: true },
+      { x: 1, y: 2, alive: true },
+      { x: 1, y: 1, alive: true },
+      { x: 1, y: 0, alive: false },
+    ]);
+    expect(Array.from(rotated.cells)).toEqual([1, 0, 0, 1, 1, 1]);
     expect(asKeySet(rotated.occupiedCells)).toEqual(
       new Set(['0,0', '1,1', '0,2', '1,2']),
     );
+
+    const rotatedAgain = projectTemplateWithTransform(
+      template,
+      normalizePlacementTransform({ operations: ['rotate'] }),
+    );
+    expect(rotatedAgain.gridView.cells()).toEqual(rotated.gridView.cells());
 
     const cycled = projectTemplateWithTransform(
       template,
@@ -64,6 +79,28 @@ describe('placement-transform', () => {
         ).occupiedCells,
       ),
     );
+  });
+
+  test('throws when transform projection creates duplicate coordinates', () => {
+    expect(() => {
+      projectTemplateWithTransform(
+        {
+          width: 2,
+          height: 2,
+          cells: new Uint8Array([1, 0, 0, 1]),
+          checks: [],
+        },
+        {
+          operations: [],
+          matrix: {
+            xx: 0,
+            xy: 0,
+            yx: 0,
+            yy: 0,
+          },
+        },
+      );
+    }).toThrow(/duplicate coordinates/iu);
   });
 
   test('projects wrapped world placement for area, footprint, and checks', () => {

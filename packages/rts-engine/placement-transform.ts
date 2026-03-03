@@ -227,6 +227,7 @@ export function projectTemplateWithTransform(
   );
   const transformedWidth = extents.maxX - extents.minX + 1;
   const transformedHeight = extents.maxY - extents.minY + 1;
+  const transformedCells = new Uint8Array(transformedWidth * transformedHeight);
 
   const transformedGridCells: Array<{ x: number; y: number; alive: boolean }> =
     [];
@@ -234,16 +235,20 @@ export function projectTemplateWithTransform(
     for (let x = 0; x < template.width; x += 1) {
       const sourceValue = template.cells[y * template.width + x];
       const transformed = applyMatrix(transform.matrix, x, y);
+      const normalizedX = transformed.x - extents.minX;
+      const normalizedY = transformed.y - extents.minY;
+      transformedCells[normalizedY * transformedWidth + normalizedX] =
+        sourceValue;
+
       transformedGridCells.push({
-        x: transformed.x - extents.minX,
-        y: transformed.y - extents.minY,
+        x: normalizedX,
+        y: normalizedY,
         alive: sourceValue === 1,
       });
     }
   }
 
   const gridView = GridView.fromCells(transformedGridCells);
-  const transformedCells = gridView.toUint8Array();
 
   const transformedChecks = uniqueSortedCells(
     template.checks.map((check) => {
