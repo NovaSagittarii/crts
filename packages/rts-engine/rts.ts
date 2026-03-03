@@ -25,7 +25,6 @@ import {
 } from './gameplay-rules.js';
 import {
   collectBuildZoneContributors,
-  collectIllegalBuildZoneCells,
   type BuildZoneContributor,
   type BuildZoneContributorProjectionInput,
 } from './build-zone.js';
@@ -37,7 +36,6 @@ import {
   type PlacementBounds,
   type PlacementTransformInput,
   type PlacementTransformState,
-  type TransformedTemplate,
 } from './placement-transform.js';
 import {
   deriveIntegrityMaskCells,
@@ -45,11 +43,11 @@ import {
   transformTemplateWithGridView,
 } from './template-grid-read.js';
 import {
-  applyTemplateWriteProjection,
-  countTemplateWriteDiffCells,
-  projectTemplateGridWritePlacement,
-  type TemplateGridWriteProjection,
-} from './template-grid-write.js';
+  applyAuthoritativeBuildProjection,
+  evaluateAuthoritativeBuildPlacement,
+  type AuthoritativeBuildPlacementEvaluation,
+  type AuthoritativeBuildProjection,
+} from './template-grid-authoritative.js';
 import { GridView, type GridViewCell } from './grid-view.js';
 
 export interface StructureTemplate {
@@ -551,19 +549,6 @@ function appendTimelineEvent(
   });
 }
 
-function evaluateAffordability(
-  needed: number,
-  current: number,
-): AffordabilityResult {
-  const deficit = Math.max(0, needed - current);
-  return {
-    affordable: deficit === 0,
-    needed,
-    current,
-    deficit,
-  };
-}
-
 function rejectBuild(
   room: RoomState,
   team: TeamState,
@@ -914,16 +899,6 @@ function setGridCell(
   grid[y * width + x] = value ? 1 : 0;
 }
 
-function transformedTemplateFitsRoom(
-  room: RoomState,
-  transformedTemplate: Pick<TransformedTemplate, 'width' | 'height'>,
-): boolean {
-  return (
-    transformedTemplate.width <= room.width &&
-    transformedTemplate.height <= room.height
-  );
-}
-
 function createStructureKey(
   x: number,
   y: number,
@@ -969,83 +944,7 @@ function collectTeamBuildZoneContributors(
   return collectBuildZoneContributors(contributorProjectionInputs);
 }
 
-interface BuildPlacementProjectionResult extends TemplateGridWriteProjection {
-  illegalCells: Vector2[];
-}
-
-interface BuildPlacementValidationResult {
-  projection: BuildPlacementProjectionResult;
-  reason?: BuildRejectionReason;
-}
-
-function projectBuildPlacement(
-  room: RoomState,
-  team: TeamState,
-  template: StructureTemplate,
-  x: number,
-  y: number,
-  transformInput: PlacementTransformInput | null | undefined,
-): BuildPlacementValidationResult {
-  const projection = projectTemplateGridWritePlacement(
-    template,
-    x,
-    y,
-    room.width,
-    room.height,
-    transformInput,
-  );
-
-  if (!transformedTemplateFitsRoom(room, projection.transformedTemplate)) {
-    return {
-      projection: {
-        ...projection,
-        areaCells: [],
-        footprint: [],
-        checks: [],
-        worldCells: [],
-        illegalCells: [],
-      },
-      reason: 'template-exceeds-map-size',
-    };
-  }
-
-  const illegalCells = collectIllegalBuildZoneCells(
-    projection.areaCells,
-    collectTeamBuildZoneContributors(room, team),
-  );
-
-  return {
-    projection: {
-      ...projection,
-      illegalCells,
-    },
-    reason: illegalCells.length > 0 ? 'outside-territory' : undefined,
-  };
-}
-
-function compareTemplate(
-  room: RoomState,
-  projection: Pick<BuildPlacementProjectionResult, 'worldCells'>,
-): number {
-  return countTemplateWriteDiffCells(
-    room.grid,
-    room.width,
-    room.height,
-    projection,
-  );
-}
-
-function applyTemplate(
-  room: RoomState,
-  projection: Pick<BuildPlacementProjectionResult, 'worldCells'>,
-): boolean {
-  return applyTemplateWriteProjection(
-    room.grid,
-    room.width,
-    room.height,
-    projection,
-  );
-}
+type BuildPlacementProjectionResult = AuthoritativeBuildProjection;
 
 interface IntegrityMaskCell {
   x: number;
@@ -1301,12 +1200,7 @@ function pickSpawnPosition(room: RoomState, teamId: number): Vector2 {
   return pickDeterministicFallbackSpawn(room, teamId, occupied);
 }
 
-interface EvaluatedBuildPlacement {
-  projection: BuildPlacementProjectionResult;
-  affordability?: AffordabilityResult;
-  diffCells?: number;
-  reason?: BuildRejectionReason;
-}
+type EvaluatedBuildPlacement = AuthoritativeBuildPlacementEvaluation;
 
 function createEmptyBuildProjection(
   x: number,
@@ -1336,49 +1230,17 @@ function evaluateBuildPlacement(
   y: number,
   transformInput: PlacementTransformInput | null | undefined,
 ): EvaluatedBuildPlacement {
-  const projectedPlacement = projectBuildPlacement(
-    room,
-    team,
+  return evaluateAuthoritativeBuildPlacement({
     template,
     x,
     y,
+    roomWidth: room.width,
+    roomHeight: room.height,
+    roomGrid: room.grid,
+    teamResources: team.resources,
     transformInput,
-  );
-
-  if (projectedPlacement.reason) {
-    return {
-      projection: projectedPlacement.projection,
-      reason: projectedPlacement.reason,
-    };
-  }
-
-  let diffCells: number;
-  try {
-    diffCells = compareTemplate(room, projectedPlacement.projection);
-  } catch {
-    return {
-      projection: projectedPlacement.projection,
-      reason: 'template-compare-failed',
-    };
-  }
-
-  const needed = diffCells + template.activationCost;
-  const affordability = evaluateAffordability(needed, team.resources);
-
-  if (!affordability.affordable) {
-    return {
-      projection: projectedPlacement.projection,
-      diffCells,
-      affordability,
-      reason: 'insufficient-resources',
-    };
-  }
-
-  return {
-    projection: projectedPlacement.projection,
-    diffCells,
-    affordability,
-  };
+    teamContributors: collectTeamBuildZoneContributors(room, team),
+  });
 }
 
 export function previewBuildPlacement(
@@ -2393,7 +2255,14 @@ export function tickRoom(room: RoomState): RoomTickResult {
       continue;
     }
 
-    if (applyTemplate(room, event.projection)) {
+    if (
+      applyAuthoritativeBuildProjection(
+        room.grid,
+        room.width,
+        room.height,
+        event.projection,
+      )
+    ) {
       team.structures.set(event.structureKey, {
         key: event.structureKey,
         templateId: template.id,
