@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { io, type Socket } from 'socket.io-client';
 
 import {
   createServer,
   type GameServer,
+  type ServerOptions,
 } from '../../../apps/server/src/server.js';
 
 import type {
@@ -15,6 +16,31 @@ import type {
 interface ClientOptions {
   sessionId?: string;
 }
+
+const HOLD_EXPIRY_ADVANCE_MS = 31_000;
+const DEFAULT_RECONNECT_HOLD_MS = 30_000;
+
+const DEFAULT_SERVER_OPTIONS: ServerOptions = {
+  port: 0,
+  width: 52,
+  height: 52,
+  tickMs: 40,
+};
+
+const INVALID_RECONNECT_HOLD_MS_CASES = [
+  {
+    label: 'negative value',
+    reconnectHoldMs: -1,
+  },
+  {
+    label: 'NaN',
+    reconnectHoldMs: Number.NaN,
+  },
+  {
+    label: 'Infinity',
+    reconnectHoldMs: Number.POSITIVE_INFINITY,
+  },
+] as const;
 
 function createClient(port: number, options: ClientOptions = {}): Socket {
   const socket = io(`http://localhost:${port}`, {
@@ -55,27 +81,43 @@ async function waitForMembership(
   attempts = 20,
   timeoutMs = 2000,
 ): Promise<RoomMembershipPayload> {
-  for (let index = 0; index < attempts; index += 1) {
-    let payload: RoomMembershipPayload;
-    try {
-      payload = await waitForEvent<RoomMembershipPayload>(
-        socket,
-        'room:membership',
-        timeoutMs,
-      );
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('Timed out')) {
-        continue;
-      }
-      throw error;
-    }
-
-    if (payload.roomId === roomId && predicate(payload)) {
-      return payload;
-    }
+  const overallTimeoutMs = attempts * timeoutMs;
+  if (overallTimeoutMs <= 0) {
+    throw new Error('Membership condition not met in allotted attempts');
   }
 
-  throw new Error('Membership condition not met in allotted attempts');
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('Membership condition not met in allotted attempts'));
+    }, overallTimeoutMs);
+
+    function cleanup(): void {
+      clearTimeout(timer);
+      socket.off('room:membership', onMembership);
+    }
+
+    function onMembership(payload: RoomMembershipPayload): void {
+      if (payload.roomId !== roomId) {
+        return;
+      }
+
+      try {
+        if (!predicate(payload)) {
+          return;
+        }
+      } catch (error) {
+        cleanup();
+        reject(error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
+
+      cleanup();
+      resolve(payload);
+    }
+
+    socket.on('room:membership', onMembership);
+  });
 }
 
 describe('lobby reconnect reliability', () => {
@@ -83,8 +125,14 @@ describe('lobby reconnect reliability', () => {
   let port = 0;
   const sockets: Socket[] = [];
 
+  async function restartServer(options: ServerOptions): Promise<void> {
+    await server.stop();
+    server = createServer(options);
+    port = await server.start();
+  }
+
   beforeEach(async () => {
-    server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
+    server = createServer(DEFAULT_SERVER_OPTIONS);
     port = await server.start();
   });
 
@@ -124,51 +172,56 @@ describe('lobby reconnect reliability', () => {
       (payload) => payload.slots['team-1'] === 'session-reclaim-timeout',
     );
 
-    player.disconnect();
-    await waitForMembership(
-      host,
-      created.roomId,
-      (payload) =>
-        payload.slots['team-1'] === 'session-reclaim-timeout' &&
-        payload.participants.some(
-          ({ sessionId, role }) =>
-            sessionId === 'session-reclaim-timeout' && role === 'player',
-        ),
-      10,
-      1000,
-    );
+    let usingFakeTimers = false;
+    try {
+      player.disconnect();
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      usingFakeTimers = true;
 
-    const heldMembership = await waitForMembership(
-      host,
-      created.roomId,
-      (payload) =>
-        payload.participants.some(
-          ({ sessionId, connectionStatus }) =>
-            sessionId === 'session-reclaim-timeout' &&
-            connectionStatus === 'held',
-        ),
-    );
+      const heldMembership = await waitForMembership(
+        host,
+        created.roomId,
+        (payload) =>
+          payload.participants.some(
+            ({ sessionId, connectionStatus }) =>
+              sessionId === 'session-reclaim-timeout' &&
+              connectionStatus === 'held',
+          ),
+        1000,
+        1000,
+      );
+      const heldParticipant = heldMembership.participants.find(
+        ({ sessionId }) => sessionId === 'session-reclaim-timeout',
+      );
+      expect(heldParticipant?.role).toBe('player');
+      expect(heldParticipant?.slotId).toBe('team-1');
+      expect(heldParticipant?.connectionStatus).toBe('held');
+      expect(heldParticipant?.holdExpiresAt).toBeGreaterThan(Date.now());
+      expect(heldMembership.heldSlots['team-1']?.sessionId).toBe(
+        'session-reclaim-timeout',
+      );
 
-    const heldParticipant = heldMembership.participants.find(
-      ({ sessionId }) => sessionId === 'session-reclaim-timeout',
-    );
-    expect(heldParticipant?.connectionStatus).toBe('held');
-    expect(heldParticipant?.holdExpiresAt).toBeGreaterThan(Date.now());
-    expect(heldMembership.heldSlots['team-1']?.sessionId).toBe(
-      'session-reclaim-timeout',
-    );
+      const expiredMembershipPromise = waitForMembership(
+        host,
+        created.roomId,
+        (payload) =>
+          payload.slots['team-1'] === null &&
+          !payload.participants.some(
+            ({ sessionId }) => sessionId === 'session-reclaim-timeout',
+          ),
+        2000,
+        1000,
+      );
 
-    await waitForMembership(
-      host,
-      created.roomId,
-      (payload) =>
-        payload.slots['team-1'] === null &&
-        !payload.participants.some(
-          ({ sessionId }) => sessionId === 'session-reclaim-timeout',
-        ),
-      2000,
-      1000,
-    );
+      await vi.advanceTimersByTimeAsync(HOLD_EXPIRY_ADVANCE_MS);
+
+      const expiredMembership = await expiredMembershipPromise;
+      expect(expiredMembership.heldSlots['team-1']).toBeNull();
+    } finally {
+      if (usingFakeTimers) {
+        vi.useRealTimers();
+      }
+    }
 
     const replacementPlayer = connectClient({
       sessionId: 'replacement-player',
@@ -216,6 +269,58 @@ describe('lobby reconnect reliability', () => {
     expect(lateParticipant?.role).toBe('spectator');
     expect(finalMembership.slots['team-1']).toBe('replacement-player');
   }, 50_000);
+
+  test.each(INVALID_RECONNECT_HOLD_MS_CASES)(
+    'falls back to default hold window when reconnectHoldMs is $label',
+    async ({ reconnectHoldMs }) => {
+      const scheduledHoldDelays: number[] = [];
+      await restartServer({
+        ...DEFAULT_SERVER_OPTIONS,
+        reconnectHoldMs,
+        setTimeout: (callback, delayMs) => {
+          scheduledHoldDelays.push(delayMs);
+          return setTimeout(callback, delayMs);
+        },
+        clearTimeout: (timer) => clearTimeout(timer),
+      });
+
+      const host = connectClient({ sessionId: 'host-invalid-hold' });
+      await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
+
+      host.emit('room:create', {
+        name: 'Invalid Hold Room',
+        width: 52,
+        height: 52,
+      });
+      const created = await waitForEvent<RoomJoinedPayload>(
+        host,
+        'room:joined',
+      );
+
+      const player = connectClient({ sessionId: 'session-invalid-hold' });
+      await waitForEvent<RoomJoinedPayload>(player, 'room:joined');
+      player.emit('room:join', { roomId: created.roomId });
+      await waitForEvent<RoomJoinedPayload>(player, 'room:joined');
+
+      player.emit('room:claim-slot', { slotId: 'team-1' });
+      await waitForMembership(
+        host,
+        created.roomId,
+        (payload) => payload.slots['team-1'] === 'session-invalid-hold',
+      );
+
+      player.disconnect();
+
+      await waitForMembership(
+        host,
+        created.roomId,
+        () => scheduledHoldDelays.length > 0,
+      );
+
+      expect(scheduledHoldDelays).toHaveLength(1);
+      expect(scheduledHoldDelays[0]).toBe(DEFAULT_RECONNECT_HOLD_MS);
+    },
+  );
 
   test('gives reconnecting session priority over spectator slot claim races', async () => {
     const host = connectClient({ sessionId: 'host-race' });

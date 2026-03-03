@@ -2,6 +2,12 @@ export const RECONNECT_HOLD_MS = 30_000;
 
 const MAX_SESSION_ID_LENGTH = 64;
 
+type TimeoutHandle = ReturnType<typeof setTimeout>;
+
+type SetTimeoutHook = (callback: () => void, delayMs: number) => TimeoutHandle;
+
+type ClearTimeoutHook = (timer: TimeoutHandle) => void;
+
 export interface PlayerSession {
   id: string;
   name: string;
@@ -25,7 +31,7 @@ export interface SessionHold {
 
 interface ActiveHold {
   hold: SessionHold;
-  timer: NodeJS.Timeout;
+  timer: TimeoutHandle;
 }
 
 interface AttachSocketInput {
@@ -47,6 +53,8 @@ interface HoldDisconnectInput {
 interface CoordinatorOptions {
   holdMs?: number;
   now?: () => number;
+  setTimeout?: SetTimeoutHook;
+  clearTimeout?: ClearTimeoutHook;
 }
 
 export interface AttachSocketResult {
@@ -59,6 +67,10 @@ export class LobbySessionCoordinator {
 
   private readonly now: () => number;
 
+  private readonly setTimeoutHook: SetTimeoutHook;
+
+  private readonly clearTimeoutHook: ClearTimeoutHook;
+
   private readonly sessions = new Map<string, PlayerSession>();
 
   private readonly socketToSession = new Map<string, string>();
@@ -70,6 +82,11 @@ export class LobbySessionCoordinator {
   public constructor(options: CoordinatorOptions = {}) {
     this.holdMs = options.holdMs ?? RECONNECT_HOLD_MS;
     this.now = options.now ?? (() => Date.now());
+    this.setTimeoutHook =
+      options.setTimeout ??
+      ((callback, delayMs) => setTimeout(callback, delayMs));
+    this.clearTimeoutHook =
+      options.clearTimeout ?? ((timer) => clearTimeout(timer));
   }
 
   public attachSocket(input: AttachSocketInput): AttachSocketResult {
@@ -184,7 +201,7 @@ export class LobbySessionCoordinator {
     this.clearHold(input.sessionId);
 
     const slotKey = this.slotKey(hold.roomId, hold.slotId);
-    const timer = setTimeout(() => {
+    const timer = this.setTimeoutHook(() => {
       const active = this.holdsBySession.get(hold.sessionId);
       if (!active || active.hold.expiresAt !== hold.expiresAt) {
         return;
@@ -238,7 +255,7 @@ export class LobbySessionCoordinator {
       return null;
     }
 
-    clearTimeout(active.timer);
+    this.clearTimeoutHook(active.timer);
     this.holdsBySession.delete(sessionId);
     this.heldSlots.delete(this.slotKey(active.hold.roomId, active.hold.slotId));
 
@@ -309,7 +326,7 @@ export class LobbySessionCoordinator {
 
   public stop(): void {
     for (const active of this.holdsBySession.values()) {
-      clearTimeout(active.timer);
+      this.clearTimeoutHook(active.timer);
     }
 
     this.holdsBySession.clear();

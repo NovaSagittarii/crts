@@ -7,6 +7,7 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 
 import {
   LobbySessionCoordinator,
+  RECONNECT_HOLD_MS,
   type PlayerSession,
 } from './lobby-session.js';
 
@@ -52,6 +53,17 @@ const DIST_CLIENT_INDEX_HTML = path.join(DIST_CLIENT_DIR, 'index.html');
 const PLAYER_SLOT_IDS = ['team-1', 'team-2'] as const;
 const COUNTDOWN_SECONDS = 3;
 
+type IntervalHandle = ReturnType<typeof setInterval>;
+type TimeoutHandle = ReturnType<typeof setTimeout>;
+
+type SetIntervalHook = (
+  callback: () => void,
+  delayMs: number,
+) => IntervalHandle;
+type ClearIntervalHook = (timer: IntervalHandle) => void;
+type SetTimeoutHook = (callback: () => void, delayMs: number) => TimeoutHandle;
+type ClearTimeoutHook = (timer: TimeoutHandle) => void;
+
 type ClientAssetsMode = 'optional' | 'strict';
 
 export interface ServerOptions {
@@ -60,6 +72,13 @@ export interface ServerOptions {
   height?: number;
   tickMs?: number;
   clientAssetsMode?: ClientAssetsMode;
+  countdownSeconds?: number;
+  reconnectHoldMs?: number;
+  now?: () => number;
+  setInterval?: SetIntervalHook;
+  clearInterval?: ClearIntervalHook;
+  setTimeout?: SetTimeoutHook;
+  clearTimeout?: ClearTimeoutHook;
 }
 
 export type StatePayload = RoomStatePayload;
@@ -88,7 +107,7 @@ interface RuntimeRoom {
   revision: number;
   status: RoomStatus;
   countdownSecondsRemaining: number | null;
-  countdownTimer: NodeJS.Timeout | null;
+  countdownTimer: IntervalHandle | null;
   matchOutcome: MatchFinishedPayload | null;
 }
 
@@ -137,6 +156,15 @@ function parseRoomDimension(value: unknown, fallback: number): number {
     return fallback;
   }
   return Math.max(24, Math.min(300, num));
+}
+
+function parseReconnectHoldMs(value: unknown): number {
+  const holdMs = Number(value);
+  if (!Number.isFinite(holdMs) || holdMs < 0) {
+    return RECONNECT_HOLD_MS;
+  }
+
+  return Math.floor(holdMs);
 }
 
 function parseRoomIdentifier(value: unknown): string | null {
@@ -303,6 +331,23 @@ export function createServer(options: ServerOptions = {}): GameServer {
   const height = options.height ?? 100;
   const tickMs = options.tickMs ?? 100;
   const clientAssetsMode = options.clientAssetsMode ?? 'optional';
+  const countdownSeconds =
+    typeof options.countdownSeconds === 'number' &&
+    Number.isFinite(options.countdownSeconds)
+      ? Math.max(0, Math.floor(options.countdownSeconds))
+      : COUNTDOWN_SECONDS;
+  const reconnectHoldMs = parseReconnectHoldMs(options.reconnectHoldMs);
+  const now = options.now ?? (() => Date.now());
+  const setIntervalHook =
+    options.setInterval ??
+    ((callback, delayMs) => setInterval(callback, delayMs));
+  const clearIntervalHook =
+    options.clearInterval ?? ((timer) => clearInterval(timer));
+  const setTimeoutHook =
+    options.setTimeout ??
+    ((callback, delayMs) => setTimeout(callback, delayMs));
+  const clearTimeoutHook =
+    options.clearTimeout ?? ((timer) => clearTimeout(timer));
 
   const app: Express = express();
   configureStaticAssets(app, clientAssetsMode);
@@ -349,7 +394,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
     ),
   );
 
-  const sessionCoordinator = new LobbySessionCoordinator();
+  const sessionCoordinator = new LobbySessionCoordinator({
+    holdMs: reconnectHoldMs,
+    now,
+    setTimeout: setTimeoutHook,
+    clearTimeout: clearTimeoutHook,
+  });
 
   function getRoomOrNull(roomId: string | null): RuntimeRoom | null {
     if (!roomId) {
@@ -522,7 +572,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   function stopCountdown(room: RuntimeRoom): void {
     if (room.countdownTimer) {
-      clearInterval(room.countdownTimer);
+      clearIntervalHook(room.countdownTimer);
       room.countdownTimer = null;
     }
     room.countdownSecondsRemaining = null;
@@ -930,7 +980,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
     room.status = 'countdown';
     room.matchOutcome = null;
-    room.countdownSecondsRemaining = COUNTDOWN_SECONDS;
+    room.countdownSecondsRemaining = countdownSeconds;
     emitMembership(room);
     emitRoomList();
     io.to(roomChannel(getRuntimeRoomId(room))).emit('room:countdown', {
@@ -938,7 +988,26 @@ export function createServer(options: ServerOptions = {}): GameServer {
       secondsRemaining: room.countdownSecondsRemaining,
     });
 
-    room.countdownTimer = setInterval(() => {
+    if (countdownSeconds <= 0) {
+      stopCountdown(room);
+      const transition = transitionMatchLifecycle(
+        room.status,
+        'countdown-complete',
+      );
+      if (!transition.allowed) {
+        return;
+      }
+
+      room.status = transition.nextStatus;
+      emitMembership(room);
+      emitRoomList();
+      io.to(roomChannel(room.state.id)).emit('room:match-started', {
+        roomId: room.state.id,
+      });
+      return;
+    }
+
+    room.countdownTimer = setIntervalHook(() => {
       const next = (room.countdownSecondsRemaining ?? 1) - 1;
       if (next <= 0) {
         stopCountdown(room);
@@ -1759,7 +1828,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     });
   });
 
-  let interval: NodeJS.Timeout | null = null;
+  let interval: IntervalHandle | null = null;
 
   function getStatePayload(): StatePayload {
     const room = rooms.get(defaultRoomId);
@@ -1829,7 +1898,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   async function start(): Promise<number> {
     return new Promise((resolve) => {
       httpServer.listen(port, () => {
-        interval = setInterval(tick, tickMs);
+        interval = setIntervalHook(tick, tickMs);
         const address = httpServer.address();
         const resolvedPort =
           typeof address === 'object' && address !== null ? address.port : port;
@@ -1840,7 +1909,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   async function stop(): Promise<void> {
     if (interval) {
-      clearInterval(interval);
+      clearIntervalHook(interval);
       interval = null;
     }
 
