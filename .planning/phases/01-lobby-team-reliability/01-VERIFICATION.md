@@ -86,14 +86,14 @@ Orphaned requirements for Phase 1: none.
 
 ### 1. Lobby Responsive UX
 
-**Test:** Open app at desktop and mobile widths; create/join room, claim slots, toggle ready, and view countdown/roster/chat/spawn panels.  
-**Expected:** Controls remain accessible, roster and badges remain legible, and no critical panel overflows or overlaps.  
+**Test:** Open app at desktop and mobile widths; create/join room, claim slots, toggle ready, and view countdown/roster/chat/spawn panels.
+**Expected:** Controls remain accessible, roster and badges remain legible, and no critical panel overflows or overlaps.
 **Why human:** Visual layout and readability need real viewport inspection.
 
 ### 2. Reconnect Race Messaging Clarity
 
-**Test:** Disconnect a slotted player, attempt spectator slot claim during hold, then reconnect original player.  
-**Expected:** Held indicator updates in roster, claim rejection reason is visible inline and as toast, and final role/slot state is clear to users.  
+**Test:** Disconnect a slotted player, attempt spectator slot claim during hold, then reconnect original player.
+**Expected:** Held indicator updates in roster, claim rejection reason is visible inline and as toast, and final role/slot state is clear to users.
 **Why human:** Message clarity/timing and UX comprehensibility are subjective and not fully assertable in code.
 
 ### Gaps Summary
@@ -102,5 +102,5 @@ No automated implementation gaps found against phase goal or required IDs. Human
 
 ---
 
-_Verified: 2026-02-27T06:14:43Z_  
+_Verified: 2026-02-27T06:14:43Z_
 _Verifier: OpenCode (gsd-verifier)_
