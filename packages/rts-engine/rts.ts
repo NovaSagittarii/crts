@@ -44,6 +44,12 @@ import {
   projectTransformedTemplateToWorld,
   transformTemplateWithGridView,
 } from './template-grid-read.js';
+import {
+  applyTemplateWriteProjection,
+  countTemplateWriteDiffCells,
+  projectTemplateGridWritePlacement,
+  type TemplateGridWriteProjection,
+} from './template-grid-write.js';
 import { GridView, type GridViewCell } from './grid-view.js';
 
 export interface StructureTemplate {
@@ -963,13 +969,7 @@ function collectTeamBuildZoneContributors(
   return collectBuildZoneContributors(contributorProjectionInputs);
 }
 
-interface BuildPlacementProjectionResult {
-  transform: PlacementTransformState;
-  transformedTemplate: TransformedTemplate;
-  bounds: PlacementBounds;
-  areaCells: Vector2[];
-  footprint: Vector2[];
-  checks: Vector2[];
+interface BuildPlacementProjectionResult extends TemplateGridWriteProjection {
   illegalCells: Vector2[];
 }
 
@@ -986,53 +986,37 @@ function projectBuildPlacement(
   y: number,
   transformInput: PlacementTransformInput | null | undefined,
 ): BuildPlacementValidationResult {
-  const transform = normalizePlacementTransform(transformInput);
-  const transformedTemplate = transformTemplateWithGridView(
+  const projection = projectTemplateGridWritePlacement(
     template,
-    transform,
-  );
-  const bounds: PlacementBounds = {
     x,
     y,
-    width: transformedTemplate.width,
-    height: transformedTemplate.height,
-  };
+    room.width,
+    room.height,
+    transformInput,
+  );
 
-  if (!transformedTemplateFitsRoom(room, transformedTemplate)) {
+  if (!transformedTemplateFitsRoom(room, projection.transformedTemplate)) {
     return {
       projection: {
-        transform,
-        transformedTemplate,
-        bounds,
+        ...projection,
         areaCells: [],
         footprint: [],
         checks: [],
+        worldCells: [],
         illegalCells: [],
       },
       reason: 'template-exceeds-map-size',
     };
   }
 
-  const projected = projectTransformedTemplateToWorld(
-    transformedTemplate,
-    x,
-    y,
-    room.width,
-    room.height,
-  );
   const illegalCells = collectIllegalBuildZoneCells(
-    projected.areaCells,
+    projection.areaCells,
     collectTeamBuildZoneContributors(room, team),
   );
 
   return {
     projection: {
-      transform,
-      transformedTemplate,
-      bounds,
-      areaCells: projected.areaCells,
-      footprint: projected.occupiedCells,
-      checks: projected.checks,
+      ...projection,
       illegalCells,
     },
     reason: illegalCells.length > 0 ? 'outside-territory' : undefined,
@@ -1041,48 +1025,26 @@ function projectBuildPlacement(
 
 function compareTemplate(
   room: RoomState,
-  transformedTemplate: TransformedTemplate,
-  bounds: PlacementBounds,
+  projection: Pick<BuildPlacementProjectionResult, 'worldCells'>,
 ): number {
-  let diffCount = 0;
-  for (let ty = 0; ty < transformedTemplate.height; ty += 1) {
-    for (let tx = 0; tx < transformedTemplate.width; tx += 1) {
-      const templateCell =
-        transformedTemplate.cells[ty * transformedTemplate.width + tx];
-      const roomCell = gridCellAt(
-        room.grid,
-        room.width,
-        room.height,
-        wrapCoordinate(bounds.x + tx, room.width),
-        wrapCoordinate(bounds.y + ty, room.height),
-      );
-      if (templateCell !== roomCell) {
-        diffCount += 1;
-      }
-    }
-  }
-  return diffCount;
+  return countTemplateWriteDiffCells(
+    room.grid,
+    room.width,
+    room.height,
+    projection,
+  );
 }
 
 function applyTemplate(
   room: RoomState,
-  transformedTemplate: TransformedTemplate,
-  bounds: PlacementBounds,
+  projection: Pick<BuildPlacementProjectionResult, 'worldCells'>,
 ): boolean {
-  for (let ty = 0; ty < transformedTemplate.height; ty += 1) {
-    for (let tx = 0; tx < transformedTemplate.width; tx += 1) {
-      setGridCell(
-        room.grid,
-        room.width,
-        room.height,
-        wrapCoordinate(bounds.x + tx, room.width),
-        wrapCoordinate(bounds.y + ty, room.height),
-        transformedTemplate.cells[ty * transformedTemplate.width + tx],
-      );
-    }
-  }
-
-  return true;
+  return applyTemplateWriteProjection(
+    room.grid,
+    room.width,
+    room.height,
+    projection,
+  );
 }
 
 interface IntegrityMaskCell {
@@ -1392,11 +1354,7 @@ function evaluateBuildPlacement(
 
   let diffCells: number;
   try {
-    diffCells = compareTemplate(
-      room,
-      projectedPlacement.projection.transformedTemplate,
-      projectedPlacement.projection.bounds,
-    );
+    diffCells = compareTemplate(room, projectedPlacement.projection);
   } catch {
     return {
       projection: projectedPlacement.projection,
@@ -2435,13 +2393,7 @@ export function tickRoom(room: RoomState): RoomTickResult {
       continue;
     }
 
-    if (
-      applyTemplate(
-        room,
-        event.projection.transformedTemplate,
-        event.projection.bounds,
-      )
-    ) {
+    if (applyTemplate(room, event.projection)) {
       team.structures.set(event.structureKey, {
         key: event.structureKey,
         templateId: template.id,
