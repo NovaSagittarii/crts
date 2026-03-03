@@ -795,6 +795,14 @@ describe('QUAL-02 quality gate integration loop', () => {
     ]);
     expect(firstOutcome.outcome).toBe('applied');
     expect(secondOutcome.outcome).toBe('applied');
+    expect(firstOutcome.reason).toBeUndefined();
+    expect(secondOutcome.reason).toBeUndefined();
+    expect(secondOutcome.executeTick).toBeGreaterThanOrEqual(
+      firstOutcome.executeTick,
+    );
+    expect(secondOutcome.resolvedTick).toBeGreaterThanOrEqual(
+      firstOutcome.resolvedTick,
+    );
 
     const transformedGenerator: PlacementTransformInput = {
       operations: ['rotate', 'mirror-horizontal'],

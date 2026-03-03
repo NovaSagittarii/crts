@@ -887,6 +887,9 @@ describe('GameServer', () => {
 
     expect(appliedStructure).toBeDefined();
     expect(appliedStructure?.footprint).toEqual(preview.footprint);
+    expect(appliedStructure?.key).toBe(
+      `${placement.x},${placement.y},${preview.bounds.width},${preview.bounds.height}`,
+    );
 
     setup.host.close();
     setup.guest.close();
@@ -1001,6 +1004,11 @@ describe('GameServer', () => {
     expect(identityPreview.reason).toBe('outside-territory');
     expect(equivalentPreview.reason).toBe(identityPreview.reason);
     expect(equivalentPreview.affordable).toBe(identityPreview.affordable);
+    expect(equivalentPreview.bounds).toEqual(identityPreview.bounds);
+    expect(equivalentPreview.footprint).toEqual(identityPreview.footprint);
+    expect(equivalentPreview.illegalCells).toEqual(
+      identityPreview.illegalCells,
+    );
 
     async function queueInvalidSequence(
       transform?: PlacementTransformInput,

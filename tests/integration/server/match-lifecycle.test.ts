@@ -751,6 +751,14 @@ describe('server match lifecycle contract', () => {
     const firstRunPair = await setupConnectedPair(() => connectClient());
     const firstRunMatch = await moveToActive(firstRunPair);
     const firstRunOutcomes = await runQueuedOutcomeTimeline(firstRunMatch);
+    expect(firstRunOutcomes[2]?.teamId).toBe(firstRunMatch.hostTeamId);
+    expect(
+      firstRunOutcomes.every(
+        ({ resolvedTick }, index) =>
+          index === 0 ||
+          resolvedTick >= (firstRunOutcomes[index - 1]?.resolvedTick ?? 0),
+      ),
+    ).toBe(true);
 
     firstRunMatch.host.close();
     firstRunMatch.guest.close();

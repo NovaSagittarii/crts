@@ -724,6 +724,26 @@ describe('destroy reconnect determinism', () => {
       reason: 'occupied-site',
     });
 
+    const postDuplicateState = await waitForState(
+      match.host,
+      match.roomId,
+      (payload) => {
+        const hostTeam = getTeamByPlayerId(payload, match.hostJoined.playerId);
+        return hostTeam.structures.some(
+          ({ key, hp }) => key === appliedBuild.structureKey && hp > 0,
+        );
+      },
+    );
+    const postDuplicateHostTeam = getTeamByPlayerId(
+      postDuplicateState,
+      match.hostJoined.playerId,
+    );
+    expect(
+      postDuplicateHostTeam.structures.filter(
+        ({ key }) => key === appliedBuild.structureKey,
+      ),
+    ).toHaveLength(1);
+
     const destroyResponsePromise = waitForDestroyQueueResponse(match.host);
     match.host.emit('destroy:queue', {
       structureKey: appliedBuild.structureKey,
