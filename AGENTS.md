@@ -96,3 +96,4 @@ npm run lint:fix
 - Use interfaces for object shapes (type aliases are fine for unions)
 - Validate network payloads at runtime boundaries
 - Keep `npm run lint` passing (ESLint + `typescript-eslint` `recommendedTypeChecked`)
+- When a domain object accumulates many related methods, prefer an OOP shape (class or cohesive object module) so behavior remains readable.
