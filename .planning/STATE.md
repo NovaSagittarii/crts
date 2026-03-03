@@ -5,18 +5,18 @@
 See: `.planning/PROJECT.md` (updated 2026-03-03)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Plan the next milestone scope and create a fresh requirements file.
+**Current focus:** Define requirements and roadmap for v0.0.3 Template Grid Unification.
 
 ## Current Position
 
-**Current Milestone:** v0.0.2 Gameplay Expansion (shipped and archived)
-**Phase:** 12 of 12 (Structure Hover and Tactical Overlays)
-**Plan:** 2 of 2
-**Current Plan:** Complete
-**Total Plans in Phase:** 2
-**Status:** Milestone archived; ready for next milestone planning
-**Last Activity:** 2026-03-03
-**Progress:** [██████████] 100%
+**Current Milestone:** v0.0.3 Template Grid Unification
+**Phase:** Not started (defining requirements)
+**Plan:** —
+**Current Plan:** —
+**Total Plans in Phase:** —
+**Status:** Defining requirements
+**Last Activity:** 2026-03-03 — Milestone v0.0.3 started
+**Progress:** [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -46,8 +46,8 @@ See: `.planning/PROJECT.md` (updated 2026-03-03)
 
 ### Pending Todos
 
-- Run `/gsd-new-milestone` to define the next milestone (requirements -> roadmap).
-- Create a fresh `.planning/REQUIREMENTS.md` as part of next milestone kickoff.
+- Define v0.0.3 requirements and produce a new active `.planning/REQUIREMENTS.md`.
+- Generate v0.0.3 roadmap with phase numbering continuing from Phase 12.
 - Optionally run `/gsd-audit-milestone` retroactively for `v0.0.2` to close audit debt.
 
 ### Blockers/Concerns

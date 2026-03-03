@@ -8,9 +8,17 @@ This is a shipped TypeScript multiplayer Conway RTS prototype: two players can f
 
 Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
 
-## Current Milestone: Planning Next Release
+## Current Milestone: v0.0.3 Template Grid Unification
 
-**Goal:** Define the next milestone scope after shipping `v0.0.2`, starting from fresh requirements and roadmap artifacts.
+**Goal:** Consolidate duplicated template and offset-template code into a single transformable `GridView` flow while preserving deterministic gameplay behavior.
+
+**Target features:**
+
+- Add `template.grid()` to return a transform-ready `GridView`.
+- Support `translate`, `rotate`, and `applyTransform` on `GridView` via shared grid transform utilities.
+- Make `GridView.cells()` yield transformed `{ x, y, alive }` entries for every cell.
+- Remove duplicated template/offset-template methods without changing authoritative outcomes.
+- Research additional code simplification opportunities to fold into this milestone if low risk.
 
 ## Current State
 
@@ -25,10 +33,11 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 
 ## Next Milestone Goals
 
-- [ ] Run `/gsd-new-milestone` to define a fresh requirement set and roadmap scope.
-- [ ] Convert deferred UX2 items (minimap/fog-of-war, bulk actions, template sharing) into prioritized candidate requirements.
-- [ ] Decide whether replay/spectator and transport/runtime redesign (`TECH2-01`) should enter active scope.
-- [ ] Re-run milestone audit checks early in the next cycle to avoid closeout-time audit debt.
+- [ ] Replace template/offset-template duplication with a unified `GridView` abstraction.
+- [ ] Route template transforms through shared grid transform utilities.
+- [ ] Keep tests and runtime behavior stable while removing duplicate pathways.
+- [ ] Capture and prioritize any additional low-risk simplification opportunities discovered via research.
+- [ ] Run milestone audit checks earlier in the cycle to avoid closeout-time audit debt.
 
 ## Requirements
 
@@ -47,16 +56,18 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 - ✓ Build rules and transforms (`BUILD-01`, `BUILD-02`, `XFORM-01`, `XFORM-02`, `QUAL-03`)
 - ✓ Match UI navigation and overlays (`UI-01`, `UI-02`, `UI-03`, `UI-04`, `UI-05`, `QUAL-04`)
 
-### Active (Next Milestone Candidates)
+### Active (v0.0.3)
 
-- [ ] `UX2-01`: Minimap and fog-of-war map awareness
-- [ ] `UX2-02`: Bulk destroy and undo/redo timeline controls
-- [ ] `UX2-03`: Custom structure template authoring/sharing
-- [ ] `BASE2-01`: Multiple base archetypes or configurable base geometry
-- [ ] `TECH2-01`: Replay/spectator plus transport/runtime redesign if justified
+- [ ] `REF-01`: Template APIs expose `template.grid()` as the canonical transformable shape entrypoint.
+- [ ] `REF-02`: `GridView` applies `translate`, `rotate`, and `applyTransform` using shared transform helpers.
+- [ ] `REF-03`: `GridView.cells()` yields transformed `{ x, y, alive }` values for every cell consistently across call sites.
+- [ ] `REF-04`: Duplicate template/offset-template methods are removed while preserving deterministic match behavior.
+- [ ] `REF-05`: At least one additional simplification opportunity is identified and scoped if it can ship safely in this milestone.
 
 ### Out of Scope
 
+- Gameplay expansion candidates (`UX2-01`, `UX2-02`, `UX2-03`, `BASE2-01`) stay deferred until post-cleanup milestones.
+- Replay/spectator and transport/runtime redesign (`TECH2-01`) are deferred unless cleanup work uncovers a hard blocker.
 - Account/auth system and persistent profile storage remain out of scope for current prototype validation.
 - Frontend framework migration and renderer migration stay deferred until scale/performance requirements demand them.
 - Client-predicted simulation remains out of scope while server-authoritative determinism is a hard constraint.
@@ -65,6 +76,7 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 
 - Milestones shipped: `v0.0.1`, `v0.0.2`.
 - Delivery model remains backend + deterministic tests first, then runtime/UI integration.
+- `v0.0.3` focuses on refactoring shared template/grid primitives before returning to larger gameplay feature expansion.
 - Archive-first planning keeps `.planning/ROADMAP.md` compact and milestone-scoped details in `.planning/milestones/`.
 
 ## Constraints
@@ -87,4 +99,4 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 
 ---
 
-_Last updated: 2026-03-03 after v0.0.2 milestone completion_
+_Last updated: 2026-03-03 after v0.0.3 milestone kickoff_
