@@ -28,9 +28,14 @@
     "lint:fix": "eslint . --fix",
     "test": "vitest run --config vitest.config.ts",
     "test:unit": "vitest run --config vitest.config.ts --dir packages",
+    "test:web": "vitest run --config vitest.config.ts --dir tests/web",
+    "test:fast": "npm run test:unit && npm run test:web",
     "test:integration": "vitest run --config vitest.config.ts --dir tests/integration",
+    "test:integration:light": "vitest run --config vitest.config.ts tests/integration/server/bootstrap-smoke.test.ts tests/integration/server/lobby-contract.test.ts tests/integration/server/destroy-determinism.test.ts tests/integration/server/quality-gate-loop.test.ts",
+    "test:integration:heavy": "vitest run --config vitest.config.ts --minWorkers=1 --maxWorkers=2 tests/integration/server/server.test.ts tests/integration/server/lobby-reliability.test.ts tests/integration/server/lobby-reconnect.test.ts tests/integration/server/match-lifecycle.test.ts",
+    "test:integration:split": "npm run test:integration:heavy && npm run test:integration:light",
     "test:integration:serial": "vitest run --config vitest.config.ts --dir tests/integration --no-file-parallelism",
-    "test:quality": "npm run test:unit && npm run test:integration",
+    "test:quality": "npm run test:fast && npm run test:integration",
     "test:watch": "vitest"
   },
   "dependencies": {
