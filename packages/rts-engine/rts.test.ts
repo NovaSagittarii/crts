@@ -383,8 +383,7 @@ describe('rts', () => {
     );
   });
 
-  test('keeps representative action-timeline parity after legacy geometry cleanup', () => {
-    // Temporary migration guard: remove this old-vs-new checkpoint suite in Phase 18.
+  test('keeps representative transformed action-timeline parity across preview, queue, and execute checkpoints', () => {
     const transform = {
       operations: ['rotate' as const, 'mirror-horizontal' as const],
     };
@@ -540,6 +539,13 @@ describe('rts', () => {
         0,
         (lowResourceOutcome?.needed ?? 0) - (lowResourceOutcome?.current ?? 0),
       ),
+    );
+    expect(firstRun.resourcesAfterSecondResolution).toBeGreaterThanOrEqual(
+      firstRun.resourcesAfterFirstResolution,
+    );
+    expect(firstRun.structureKeys).toHaveLength(2);
+    expect(new Set(firstRun.structureKeys).size).toBe(
+      firstRun.structureKeys.length,
     );
   });
 

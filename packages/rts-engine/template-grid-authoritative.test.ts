@@ -4,19 +4,11 @@ import {
   applyAuthoritativeBuildProjection,
   evaluateAuthoritativeBuildPlacement,
   projectAuthoritativeBuildPlacement,
-  type AuthoritativeBuildPlacementEvaluation,
   type AuthoritativeBuildTemplate,
   type EvaluateAuthoritativeBuildPlacementOptions,
 } from './template-grid-authoritative.js';
-import {
-  collectIllegalBuildZoneCells,
-  type BuildZoneContributor,
-} from './build-zone.js';
-import {
-  applyTemplateWriteProjection,
-  countTemplateWriteDiffCells,
-  projectTemplateGridWritePlacement,
-} from './template-grid-write.js';
+import { type BuildZoneContributor } from './build-zone.js';
+import { applyTemplateWriteProjection } from './template-grid-write.js';
 
 const RECT_TEMPLATE: AuthoritativeBuildTemplate = {
   width: 3,
@@ -37,114 +29,33 @@ const OVERSIZED_TEMPLATE: AuthoritativeBuildTemplate = {
   activationCost: 1,
 };
 
-function evaluateLegacyAffordability(
-  needed: number,
-  current: number,
-): {
-  affordable: boolean;
-  needed: number;
-  current: number;
-  deficit: number;
-} {
-  const deficit = Math.max(0, needed - current);
-  return {
-    affordable: deficit === 0,
-    needed,
-    current,
-    deficit,
-  };
-}
+const EXPECTED_TRANSFORMED_AREA_CELLS = [
+  { x: 3, y: 3 },
+  { x: 4, y: 3 },
+  { x: 3, y: 4 },
+  { x: 4, y: 4 },
+  { x: 3, y: 5 },
+  { x: 4, y: 5 },
+];
 
-function evaluateLegacyPlacement(
-  options: EvaluateAuthoritativeBuildPlacementOptions,
-): AuthoritativeBuildPlacementEvaluation {
-  const projection = projectTemplateGridWritePlacement(
-    options.template,
-    options.x,
-    options.y,
-    options.roomWidth,
-    options.roomHeight,
-    options.transformInput,
-  );
+const EXPECTED_TRANSFORMED_FOOTPRINT = [
+  { x: 3, y: 3 },
+  { x: 4, y: 3 },
+  { x: 3, y: 4 },
+  { x: 4, y: 5 },
+];
 
-  if (
-    projection.transformedTemplate.width > options.roomWidth ||
-    projection.transformedTemplate.height > options.roomHeight
-  ) {
-    return {
-      projection: {
-        ...projection,
-        areaCells: [],
-        footprint: [],
-        checks: [],
-        worldCells: [],
-        illegalCells: [],
-      },
-      reason: 'template-exceeds-map-size',
-    };
-  }
-
-  const illegalCells = collectIllegalBuildZoneCells(
-    projection.areaCells,
-    options.teamContributors,
-  );
-
-  const projectedPlacement = {
-    projection: {
-      ...projection,
-      illegalCells,
-    },
-    reason:
-      illegalCells.length > 0 ? ('outside-territory' as const) : undefined,
-  };
-
-  if (projectedPlacement.reason) {
-    return {
-      projection: projectedPlacement.projection,
-      reason: projectedPlacement.reason,
-    };
-  }
-
-  let diffCells: number;
-  try {
-    diffCells = countTemplateWriteDiffCells(
-      options.roomGrid,
-      options.roomWidth,
-      options.roomHeight,
-      projectedPlacement.projection,
-    );
-  } catch {
-    return {
-      projection: projectedPlacement.projection,
-      reason: 'template-compare-failed',
-    };
-  }
-
-  const needed = diffCells + options.template.activationCost;
-  const affordability = evaluateLegacyAffordability(
-    needed,
-    options.teamResources,
-  );
-
-  if (!affordability.affordable) {
-    return {
-      projection: projectedPlacement.projection,
-      diffCells,
-      affordability,
-      reason: 'insufficient-resources',
-    };
-  }
-
-  return {
-    projection: projectedPlacement.projection,
-    diffCells,
-    affordability,
-  };
-}
+const EXPECTED_TRANSFORMED_WORLD_CELLS = [
+  { localX: 1, localY: 2, x: 4, y: 5, alive: true },
+  { localX: 1, localY: 1, x: 4, y: 4, alive: false },
+  { localX: 1, localY: 0, x: 4, y: 3, alive: true },
+  { localX: 0, localY: 2, x: 3, y: 5, alive: false },
+  { localX: 0, localY: 1, x: 3, y: 4, alive: true },
+  { localX: 0, localY: 0, x: 3, y: 3, alive: true },
+];
 
 describe('template-grid-authoritative', () => {
-  test('keeps legacy parity for representative transformed evaluation outcomes', () => {
-    // Temporary migration guard: remove legacy parity harness in Phase 18.
+  test('returns canonical transformed outcomes for representative evaluation scenarios', () => {
     const roomGrid = new Uint8Array([
       0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1,
       0, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0,
@@ -154,11 +65,45 @@ describe('template-grid-authoritative', () => {
       { centerX: 4, centerY: 4 },
     ];
 
-    const scenarios: Array<{
+    interface Scenario {
       name: string;
       options: EvaluateAuthoritativeBuildPlacementOptions;
-      expectedReason?: AuthoritativeBuildPlacementEvaluation['reason'];
-    }> = [
+      expected: {
+        reason?: ReturnType<
+          typeof evaluateAuthoritativeBuildPlacement
+        >['reason'];
+        diffCells?: number;
+        affordability?: {
+          affordable: boolean;
+          needed: number;
+          current: number;
+          deficit: number;
+        };
+        bounds: {
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+        };
+        transformedSize: {
+          width: number;
+          height: number;
+        };
+        areaCells: Array<{ x: number; y: number }>;
+        footprint: Array<{ x: number; y: number }>;
+        checks: Array<{ x: number; y: number }>;
+        worldCells: Array<{
+          localX: number;
+          localY: number;
+          x: number;
+          y: number;
+          alive: boolean;
+        }>;
+        illegalCells: Array<{ x: number; y: number }>;
+      };
+    }
+
+    const scenarios: Scenario[] = [
       {
         name: 'transformed-success',
         options: {
@@ -173,6 +118,34 @@ describe('template-grid-authoritative', () => {
             operations: ['rotate', 'mirror-horizontal'],
           },
           teamContributors: coveredContributors,
+        },
+        expected: {
+          reason: undefined,
+          diffCells: 2,
+          affordability: {
+            affordable: true,
+            needed: 6,
+            current: 30,
+            deficit: 0,
+          },
+          bounds: {
+            x: 3,
+            y: 3,
+            width: 2,
+            height: 3,
+          },
+          transformedSize: {
+            width: 2,
+            height: 3,
+          },
+          areaCells: EXPECTED_TRANSFORMED_AREA_CELLS,
+          footprint: EXPECTED_TRANSFORMED_FOOTPRINT,
+          checks: [
+            { x: 3, y: 3 },
+            { x: 4, y: 5 },
+          ],
+          worldCells: EXPECTED_TRANSFORMED_WORLD_CELLS,
+          illegalCells: [],
         },
       },
       {
@@ -190,7 +163,34 @@ describe('template-grid-authoritative', () => {
           },
           teamContributors: coveredContributors,
         },
-        expectedReason: 'insufficient-resources',
+        expected: {
+          reason: 'insufficient-resources',
+          diffCells: 2,
+          affordability: {
+            affordable: false,
+            needed: 6,
+            current: 0,
+            deficit: 6,
+          },
+          bounds: {
+            x: 3,
+            y: 3,
+            width: 2,
+            height: 3,
+          },
+          transformedSize: {
+            width: 2,
+            height: 3,
+          },
+          areaCells: EXPECTED_TRANSFORMED_AREA_CELLS,
+          footprint: EXPECTED_TRANSFORMED_FOOTPRINT,
+          checks: [
+            { x: 3, y: 3 },
+            { x: 4, y: 5 },
+          ],
+          worldCells: EXPECTED_TRANSFORMED_WORLD_CELLS,
+          illegalCells: [],
+        },
       },
       {
         name: 'outside-territory',
@@ -207,7 +207,29 @@ describe('template-grid-authoritative', () => {
           },
           teamContributors: [],
         },
-        expectedReason: 'outside-territory',
+        expected: {
+          reason: 'outside-territory',
+          diffCells: undefined,
+          affordability: undefined,
+          bounds: {
+            x: 3,
+            y: 3,
+            width: 2,
+            height: 3,
+          },
+          transformedSize: {
+            width: 2,
+            height: 3,
+          },
+          areaCells: EXPECTED_TRANSFORMED_AREA_CELLS,
+          footprint: EXPECTED_TRANSFORMED_FOOTPRINT,
+          checks: [
+            { x: 3, y: 3 },
+            { x: 4, y: 5 },
+          ],
+          worldCells: EXPECTED_TRANSFORMED_WORLD_CELLS,
+          illegalCells: EXPECTED_TRANSFORMED_AREA_CELLS,
+        },
       },
       {
         name: 'template-exceeds-map-size',
@@ -222,22 +244,58 @@ describe('template-grid-authoritative', () => {
           transformInput: undefined,
           teamContributors: coveredContributors,
         },
-        expectedReason: 'template-exceeds-map-size',
+        expected: {
+          reason: 'template-exceeds-map-size',
+          diffCells: undefined,
+          affordability: undefined,
+          bounds: {
+            x: 0,
+            y: 0,
+            width: 9,
+            height: 2,
+          },
+          transformedSize: {
+            width: 9,
+            height: 2,
+          },
+          areaCells: [],
+          footprint: [],
+          checks: [],
+          worldCells: [],
+          illegalCells: [],
+        },
       },
     ];
 
     for (const scenario of scenarios) {
-      const authoritative = evaluateAuthoritativeBuildPlacement(
-        scenario.options,
-      );
-      const legacy = evaluateLegacyPlacement(scenario.options);
+      const evaluation = evaluateAuthoritativeBuildPlacement(scenario.options);
 
-      expect(authoritative).toEqual(legacy);
-      if (scenario.expectedReason) {
-        expect(authoritative.reason).toBe(scenario.expectedReason);
-      } else {
-        expect(authoritative.reason).toBeUndefined();
-      }
+      expect(evaluation.reason).toBe(scenario.expected.reason);
+      expect(evaluation.diffCells).toBe(scenario.expected.diffCells);
+      expect(evaluation.affordability).toEqual(scenario.expected.affordability);
+      expect(evaluation.projection.transform.operations).toEqual(
+        scenario.options.transformInput?.operations ?? [],
+      );
+      expect(evaluation.projection.bounds).toEqual(scenario.expected.bounds);
+      expect(evaluation.projection.transformedTemplate.width).toBe(
+        scenario.expected.transformedSize.width,
+      );
+      expect(evaluation.projection.transformedTemplate.height).toBe(
+        scenario.expected.transformedSize.height,
+      );
+      expect(evaluation.projection.areaCells).toEqual(
+        scenario.expected.areaCells,
+      );
+      expect(evaluation.projection.footprint).toEqual(
+        scenario.expected.footprint,
+      );
+      expect(evaluation.projection.checks).toEqual(scenario.expected.checks);
+      expect(evaluation.projection.worldCells).toEqual(
+        scenario.expected.worldCells,
+      );
+      expect(evaluation.projection.illegalCells).toEqual(
+        scenario.expected.illegalCells,
+      );
     }
   });
 
@@ -260,7 +318,7 @@ describe('template-grid-authoritative', () => {
     expect(projection.projection.illegalCells).toEqual([]);
   });
 
-  test('keeps transformed apply mutation parity with legacy world-cell writes', () => {
+  test('keeps transformed apply mutation parity with canonical world-cell writes', () => {
     const projection = projectAuthoritativeBuildPlacement({
       template: RECT_TEMPLATE,
       x: 3,
