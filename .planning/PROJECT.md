@@ -2,45 +2,33 @@
 
 ## What This Is
 
-This is a shipped TypeScript multiplayer Conway RTS prototype: two players can form a room, start a deterministic match, queue validated build actions, watch economy/queue state in the HUD, and resolve matches with explicit breach outcomes.
+This is a shipped TypeScript multiplayer Conway RTS prototype: two players can form a room, run a deterministic Conway-based match, queue authoritative build and destroy actions, and use tactical overlays to make structure and economy decisions during play.
 
 ## Core Value
 
 Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
 
-## Current Milestone: v0.0.2 Gameplay Expansion
+## Current Milestone: Planning Next Release
 
-**Goal:** Expand structure-driven strategy and grid-centric controls while keeping simulation rules deterministic and test-traceable.
-
-**Target features:**
-
-- Generalize structure integrity checks to all structure templates: every K ticks, failed integrity consumes structure HP to restore integrity.
-- Redesign base footprint to a 5x5 layout made from four 2x2 blocks (16 cells total) so bases are easier to pressure in active play.
-- Replace global build radius with the union of per-structure build-radius squares, using radius 15 for this milestone.
-- Add structure transform controls (rotate and mirror) for placement across backend validation and frontend placement UX.
-- Add structure hover details/actions and support destroy-structure interactions from the in-game UI.
-- Refactor web UI into multiple focused modules, add explicit lobby/in-game screen transitions, and add map pan/zoom plus grid-adjacent overlays for economy/build/team info.
-- Sequence delivery backend + tests first, then UI integration and interaction polish.
+**Goal:** Define the next milestone scope after shipping `v0.0.2`, starting from fresh requirements and roadmap artifacts.
 
 ## Current State
 
-**Shipped version:** `v0.0.1` (2026-03-01)
+**Shipped version:** `v0.0.2` (2026-03-03)
 
-- End-to-end 1v1 loop is operational from room join through defeat lockout.
-- Deterministic queue-only mutation pipeline is enforced with explicit terminal outcomes.
-- Economy and queue visibility are exposed in the web client with authoritative affordability metadata.
-- Quality gates exist for both unit (`QUAL-01`) and integration (`QUAL-02`) coverage.
-- Milestone archive artifacts are stored in `.planning/milestones/`.
+- Canonical 5x5 base geometry and template-wide integrity handling are now deterministic and shared across runtime + tests.
+- Placement legality uses full-footprint union build zones with fixed radius-15 behavior for this milestone.
+- Transform-aware placement (rotate/mirror) is wired through engine, server, and web with preview/queue/apply parity.
+- Authoritative destroy queue flow now includes deterministic rejection taxonomy and reconnect-safe projection behavior.
+- Web runtime now has dedicated lobby/in-game screens, pan/zoom map controls, and tactical overlays with pinned structure inspector.
+- Milestone artifacts are archived in `.planning/milestones/`, and active planning docs are reset for the next cycle.
 
 ## Next Milestone Goals
 
-- [ ] Generalize structure HP/integrity checks beyond base core and validate deterministic tick behavior.
-- [ ] Implement larger 5x5 base footprint with 16 base cells and align breach pressure around that shape.
-- [ ] Switch build eligibility to union-of-structure radii (radius 15) and validate queue/build checks against the new geometry.
-- [ ] Add rotate/mirror placement support end-to-end (engine validation + web controls).
-- [ ] Ship map pan/zoom, structure hover actions with destroy flow, and grid-adjacent overlays for economy/build/team details.
-- [ ] Refactor UI code organization and lock navigation transitions so lobby and in-game are separate focused screens.
-- [ ] Keep roadmap under 11 phases with backend/test slices landing before UI-heavy slices.
+- [ ] Run `/gsd-new-milestone` to define a fresh requirement set and roadmap scope.
+- [ ] Convert deferred UX2 items (minimap/fog-of-war, bulk actions, template sharing) into prioritized candidate requirements.
+- [ ] Decide whether replay/spectator and transport/runtime redesign (`TECH2-01`) should enter active scope.
+- [ ] Re-run milestone audit checks early in the next cycle to avoid closeout-time audit debt.
 
 ## Requirements
 
@@ -53,47 +41,50 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 - ✓ Quality gates (`QUAL-01`, `QUAL-02`)
 - Delivered capability (excluded from closure accounting): `LOBBY-02`
 
+### Validated in v0.0.2
+
+- ✓ Structure systems (`STRUCT-01`, `STRUCT-02`, `BASE-01`)
+- ✓ Build rules and transforms (`BUILD-01`, `BUILD-02`, `XFORM-01`, `XFORM-02`, `QUAL-03`)
+- ✓ Match UI navigation and overlays (`UI-01`, `UI-02`, `UI-03`, `UI-04`, `UI-05`, `QUAL-04`)
+
 ### Active (Next Milestone Candidates)
 
-- [ ] `STRUCT-INT`: Template-wide integrity checks and HP restoration rules
-- [ ] `BASE-SHAPE`: Expanded base footprint and breach pressure updates
-- [ ] `BUILD-ZONE`: Union-of-structure radius build eligibility (radius 15)
-- [ ] `PLACE-XFORM`: Rotate/mirror placement controls across engine + client
-- [ ] `UI-MAP`: Pan/zoom, structure hover actions, destroy flow, and grid-adjacent overlays
-- [ ] `UI-ARCH`: Web UI modular refactor and lobby/in-game screen transitions
+- [ ] `UX2-01`: Minimap and fog-of-war map awareness
+- [ ] `UX2-02`: Bulk destroy and undo/redo timeline controls
+- [ ] `UX2-03`: Custom structure template authoring/sharing
+- [ ] `BASE2-01`: Multiple base archetypes or configurable base geometry
+- [ ] `TECH2-01`: Replay/spectator plus transport/runtime redesign if justified
 
 ### Out of Scope
 
-- WebAssembly simulation pipeline — prototype still optimizes for TypeScript iteration speed.
-- Protobuf network protocol — Socket.IO JSON contracts remain sufficient for current scope.
-- Account/auth system and persistent profile storage — session identity remains enough for prototype validation.
-- Large-scale performance hardening for very large maps — defer until expansion requirements are validated.
+- Account/auth system and persistent profile storage remain out of scope for current prototype validation.
+- Frontend framework migration and renderer migration stay deferred until scale/performance requirements demand them.
+- Client-predicted simulation remains out of scope while server-authoritative determinism is a hard constraint.
 
 ## Context
 
-- Monorepo architecture remains `apps/` for runtime layers and `packages/` for deterministic reusable logic.
-- Milestone `v0.0.1` shipped across 5 phases, 16 plans, and 48 documented tasks.
-- Quality gates now include explicit `test:quality` command composition (`test:unit` + `test:integration`).
-- Milestone artifacts are archived for stable context usage in future planning.
+- Milestones shipped: `v0.0.1`, `v0.0.2`.
+- Delivery model remains backend + deterministic tests first, then runtime/UI integration.
+- Archive-first planning keeps `.planning/ROADMAP.md` compact and milestone-scoped details in `.planning/milestones/`.
 
 ## Constraints
 
-- **Tech stack:** TypeScript + Node.js + Socket.IO + Vite; keep deterministic logic in shared packages.
-- **Scope control:** Avoid wasm/protobuf/auth persistence until expansion scope requires them.
-- **Quality gate:** Maintain requirement-traceable tests for each new milestone requirement.
-- **UX reliability:** Preserve authoritative server payloads as the only source for client state.
+- **Tech stack:** TypeScript + Node.js + Socket.IO + Vite.
+- **Architecture:** Keep deterministic reusable logic in `packages/*`; keep runtime/socket lifecycle in `apps/*`.
+- **Quality gate:** Maintain requirement-traceable unit + integration coverage for each active milestone requirement.
+- **Authority model:** Server-authoritative payloads remain the sole source for client gameplay state.
 
 ## Key Decisions
 
-| Decision                                                    | Rationale                                                             | Outcome   |
-| ----------------------------------------------------------- | --------------------------------------------------------------------- | --------- |
-| Build as TypeScript-only prototype (no wasm, no protobuf)   | Reduces integration complexity and keeps iteration fast               | ✓ Good    |
-| Prioritize lobby/team reliability before deeper strategy    | Setup friction blocks all gameplay validation if left unresolved      | ✓ Good    |
-| Treat playable end-to-end match as milestone completion bar | Ensures delivery reflects real player flow, not disconnected features | ✓ Good    |
-| Keep server-authoritative deterministic simulation model    | Preserves consistency across runtime layers and tests                 | ✓ Good    |
-| Prioritize backend + tests before UI-heavy milestone slices | Reduces UI churn and catches game-rule regressions early              | — Pending |
-| Cap v0.0.2 delivery roadmap to at most 11 phases            | Keeps expanded scope tractable while preserving milestone momentum    | — Pending |
+| Decision                                                    | Rationale                                                             | Outcome |
+| ----------------------------------------------------------- | --------------------------------------------------------------------- | ------- |
+| Build as TypeScript-only prototype (no wasm, no protobuf)   | Reduces integration complexity and keeps iteration fast               | ✓ Good  |
+| Prioritize lobby/team reliability before deeper strategy    | Setup friction blocks all gameplay validation if left unresolved      | ✓ Good  |
+| Treat playable end-to-end match as milestone completion bar | Ensures delivery reflects real player flow, not disconnected features | ✓ Good  |
+| Keep server-authoritative deterministic simulation model    | Preserves consistency across runtime layers and tests                 | ✓ Good  |
+| Prioritize backend + tests before UI-heavy milestone slices | Reduced UI churn and caught game-rule regressions early in v0.0.2     | ✓ Good  |
+| Keep milestone docs archived by version                     | Keeps planning context bounded and historically traceable             | ✓ Good  |
 
 ---
 
-_Last updated: 2026-03-01 after v0.0.2 milestone kickoff_
+_Last updated: 2026-03-03 after v0.0.2 milestone completion_
