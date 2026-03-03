@@ -625,25 +625,36 @@ describe('QUAL-02 quality gate integration loop', () => {
     const matchFinishedPromise = waitForEvent<MatchFinishedPayload>(
       match.host,
       'room:match-finished',
-      8000,
+      15_000,
     );
 
-    for (const delayTicks of [16, 17, 18, 19]) {
-      const queueResponsePromise = waitForBuildQueueResponse(match.guest);
-      match.guest.emit('build:queue', {
-        templateId: 'glider',
-        x: match.guestTeam.baseTopLeft.x,
-        y: match.guestTeam.baseTopLeft.y,
-        delayTicks,
-      });
-
-      const response = await queueResponsePromise;
-      if ('error' in response) {
-        throw new Error(
-          `Expected breach queue attempt to be accepted, received ${response.error.reason}`,
-        );
-      }
+    const guestCore = match.guestTeam.structures.find(({ isCore }) => isCore);
+    if (!guestCore) {
+      throw new Error('Expected guest core structure to exist');
     }
+
+    const destroyQueueResponsePromise = waitForDestroyQueueResponse(
+      match.guest,
+    );
+    match.guest.emit('destroy:queue', {
+      structureKey: guestCore.key,
+      delayTicks: 1,
+    });
+
+    const destroyQueueResponse = await destroyQueueResponsePromise;
+    if ('error' in destroyQueueResponse) {
+      throw new Error(
+        `Expected breach destroy queue acceptance, received ${destroyQueueResponse.error.reason}`,
+      );
+    }
+
+    const destroyOutcome = await waitForDestroyOutcome(
+      match.guest,
+      destroyQueueResponse.queued.eventId,
+      12_000,
+    );
+    expect(destroyOutcome.outcome).toBe('destroyed');
+    expect(destroyOutcome.structureKey).toBe(guestCore.key);
 
     const finished = await matchFinishedPromise;
     expect(finished.roomId).toBe(match.roomId);

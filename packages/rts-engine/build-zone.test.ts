@@ -89,7 +89,10 @@ describe('build-zone helpers', () => {
     ];
     const illegalCells = collectIllegalBuildZoneCells(areaCells, contributors);
 
-    expect(illegalCells).toEqual([{ x: 47, y: 0 }]);
+    expect(illegalCells).toEqual([
+      { x: 15, y: 0 },
+      { x: 47, y: 0 },
+    ]);
   });
 
   test('shrinks legal coverage after contributor removal', () => {

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { io, type Socket } from 'socket.io-client';
 
 import {
@@ -18,6 +18,8 @@ import type {
 interface ClientOptions {
   sessionId?: string;
 }
+
+const HOLD_EXPIRY_ADVANCE_MS = 31_000;
 
 type RoomListEntry = RoomListEntryPayload;
 
@@ -60,27 +62,43 @@ async function waitForMembership(
   attempts = 24,
   timeoutMs = 2000,
 ): Promise<RoomMembershipPayload> {
-  for (let index = 0; index < attempts; index += 1) {
-    let payload: RoomMembershipPayload;
-    try {
-      payload = await waitForEvent<RoomMembershipPayload>(
-        socket,
-        'room:membership',
-        timeoutMs,
-      );
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('Timed out')) {
-        continue;
-      }
-      throw error;
-    }
-
-    if (payload.roomId === roomId && predicate(payload)) {
-      return payload;
-    }
+  const overallTimeoutMs = attempts * timeoutMs;
+  if (overallTimeoutMs <= 0) {
+    throw new Error('Membership condition not met in allotted attempts');
   }
 
-  throw new Error('Membership condition not met in allotted attempts');
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('Membership condition not met in allotted attempts'));
+    }, overallTimeoutMs);
+
+    function cleanup(): void {
+      clearTimeout(timer);
+      socket.off('room:membership', onMembership);
+    }
+
+    function onMembership(payload: RoomMembershipPayload): void {
+      if (payload.roomId !== roomId) {
+        return;
+      }
+
+      try {
+        if (!predicate(payload)) {
+          return;
+        }
+      } catch (error) {
+        cleanup();
+        reject(error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
+
+      cleanup();
+      resolve(payload);
+    }
+
+    socket.on('room:membership', onMembership);
+  });
 }
 
 function normalizeMembership(payload: RoomMembershipPayload): object {
@@ -261,31 +279,47 @@ describe('lobby reliability regression', () => {
     );
     expect(notReadyError.reason).toBe('not-ready');
 
-    observer.disconnect();
-    const observerHeld = await waitForMembership(
-      playerTwo,
-      created.roomId,
-      (payload) =>
-        payload.slots['team-1'] === 'observer' &&
-        payload.participants.some(
-          ({ sessionId, connectionStatus }) =>
-            sessionId === 'observer' && connectionStatus === 'held',
-        ),
-      20,
-      1500,
-    );
-    expect(observerHeld.heldSlots['team-1']?.sessionId).toBe('observer');
+    let usingFakeTimers = false;
+    try {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      usingFakeTimers = true;
+      observer.disconnect();
 
-    const observerExpired = await waitForMembership(
-      playerTwo,
-      created.roomId,
-      (payload) =>
-        payload.slots['team-1'] === null &&
-        !payload.participants.some(({ sessionId }) => sessionId === 'observer'),
-      2000,
-      1000,
-    );
-    expect(observerExpired.heldSlots['team-1']).toBeNull();
+      const observerHeld = await waitForMembership(
+        playerTwo,
+        created.roomId,
+        (payload) =>
+          payload.slots['team-1'] === 'observer' &&
+          payload.participants.some(
+            ({ sessionId, connectionStatus }) =>
+              sessionId === 'observer' && connectionStatus === 'held',
+          ),
+        1000,
+        1000,
+      );
+      expect(observerHeld.heldSlots['team-1']?.sessionId).toBe('observer');
+
+      const observerExpiredPromise = waitForMembership(
+        playerTwo,
+        created.roomId,
+        (payload) =>
+          payload.slots['team-1'] === null &&
+          !payload.participants.some(
+            ({ sessionId }) => sessionId === 'observer',
+          ),
+        2000,
+        1000,
+      );
+
+      await vi.advanceTimersByTimeAsync(HOLD_EXPIRY_ADVANCE_MS);
+
+      const observerExpired = await observerExpiredPromise;
+      expect(observerExpired.heldSlots['team-1']).toBeNull();
+    } finally {
+      if (usingFakeTimers) {
+        vi.useRealTimers();
+      }
+    }
 
     const replacement = connectClient({ sessionId: 'replacement' });
     await waitForEvent<RoomJoinedPayload>(replacement, 'room:joined');

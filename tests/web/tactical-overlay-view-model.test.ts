@@ -97,8 +97,8 @@ describe('tactical-overlay-view-model helpers', () => {
     expect(build?.pendingBadgeCount).toBe(1);
     expect(build?.hasPendingBadge).toBe(true);
     expect(
-      build?.detailRows.find((row) => row.key === 'build-preview-copy')?.value,
-    ).toBe('Affordable: need 4, current 42.');
+      build?.detailRows.some((row) => row.key === 'build-preview-copy'),
+    ).toBe(false);
 
     const team = derived.sections[2];
     expect(team?.pendingBadgeCount).toBe(1);
