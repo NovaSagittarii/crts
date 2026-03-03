@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { io, type Socket } from 'socket.io-client';
 
 import { createServer } from '../../../apps/server/src/server.js';
@@ -423,8 +423,18 @@ async function setupActiveMatch(port: number): Promise<ActiveMatchSetup> {
       ).length === 2,
   );
 
-  host.emit('room:start');
-  await waitForEvent(host, 'room:match-started', 7000);
+  const openingCountdownPromise = waitForEvent(host, 'room:countdown', 3500);
+  const matchStartedPromise = waitForEvent(host, 'room:match-started', 7000);
+
+  vi.useFakeTimers();
+  try {
+    host.emit('room:start');
+    await openingCountdownPromise;
+    await vi.advanceTimersByTimeAsync(3_100);
+    await matchStartedPromise;
+  } finally {
+    vi.useRealTimers();
+  }
 
   const activeState = await waitForCondition(
     host,

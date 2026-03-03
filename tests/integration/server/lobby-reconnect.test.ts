@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { io, type Socket } from 'socket.io-client';
 
 import {
@@ -15,6 +15,8 @@ import type {
 interface ClientOptions {
   sessionId?: string;
 }
+
+const HOLD_EXPIRY_ADVANCE_MS = 31_000;
 
 function createClient(port: number, options: ClientOptions = {}): Socket {
   const socket = io(`http://localhost:${port}`, {
@@ -124,51 +126,56 @@ describe('lobby reconnect reliability', () => {
       (payload) => payload.slots['team-1'] === 'session-reclaim-timeout',
     );
 
-    player.disconnect();
-    await waitForMembership(
-      host,
-      created.roomId,
-      (payload) =>
-        payload.slots['team-1'] === 'session-reclaim-timeout' &&
-        payload.participants.some(
-          ({ sessionId, role }) =>
-            sessionId === 'session-reclaim-timeout' && role === 'player',
-        ),
-      10,
-      1000,
-    );
+    let usingFakeTimers = false;
+    try {
+      player.disconnect();
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      usingFakeTimers = true;
 
-    const heldMembership = await waitForMembership(
-      host,
-      created.roomId,
-      (payload) =>
-        payload.participants.some(
-          ({ sessionId, connectionStatus }) =>
-            sessionId === 'session-reclaim-timeout' &&
-            connectionStatus === 'held',
-        ),
-    );
+      const heldMembership = await waitForMembership(
+        host,
+        created.roomId,
+        (payload) =>
+          payload.participants.some(
+            ({ sessionId, connectionStatus }) =>
+              sessionId === 'session-reclaim-timeout' &&
+              connectionStatus === 'held',
+          ),
+        1000,
+        1000,
+      );
+      const heldParticipant = heldMembership.participants.find(
+        ({ sessionId }) => sessionId === 'session-reclaim-timeout',
+      );
+      expect(heldParticipant?.role).toBe('player');
+      expect(heldParticipant?.slotId).toBe('team-1');
+      expect(heldParticipant?.connectionStatus).toBe('held');
+      expect(heldParticipant?.holdExpiresAt).toBeGreaterThan(Date.now());
+      expect(heldMembership.heldSlots['team-1']?.sessionId).toBe(
+        'session-reclaim-timeout',
+      );
 
-    const heldParticipant = heldMembership.participants.find(
-      ({ sessionId }) => sessionId === 'session-reclaim-timeout',
-    );
-    expect(heldParticipant?.connectionStatus).toBe('held');
-    expect(heldParticipant?.holdExpiresAt).toBeGreaterThan(Date.now());
-    expect(heldMembership.heldSlots['team-1']?.sessionId).toBe(
-      'session-reclaim-timeout',
-    );
+      const expiredMembershipPromise = waitForMembership(
+        host,
+        created.roomId,
+        (payload) =>
+          payload.slots['team-1'] === null &&
+          !payload.participants.some(
+            ({ sessionId }) => sessionId === 'session-reclaim-timeout',
+          ),
+        2000,
+        1000,
+      );
 
-    await waitForMembership(
-      host,
-      created.roomId,
-      (payload) =>
-        payload.slots['team-1'] === null &&
-        !payload.participants.some(
-          ({ sessionId }) => sessionId === 'session-reclaim-timeout',
-        ),
-      2000,
-      1000,
-    );
+      await vi.advanceTimersByTimeAsync(HOLD_EXPIRY_ADVANCE_MS);
+
+      const expiredMembership = await expiredMembershipPromise;
+      expect(expiredMembership.heldSlots['team-1']).toBeNull();
+    } finally {
+      if (usingFakeTimers) {
+        vi.useRealTimers();
+      }
+    }
 
     const replacementPlayer = connectClient({
       sessionId: 'replacement-player',

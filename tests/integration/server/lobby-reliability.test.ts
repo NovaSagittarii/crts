@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { io, type Socket } from 'socket.io-client';
 
 import {
@@ -18,6 +18,8 @@ import type {
 interface ClientOptions {
   sessionId?: string;
 }
+
+const HOLD_EXPIRY_ADVANCE_MS = 31_000;
 
 type RoomListEntry = RoomListEntryPayload;
 
@@ -261,31 +263,47 @@ describe('lobby reliability regression', () => {
     );
     expect(notReadyError.reason).toBe('not-ready');
 
-    observer.disconnect();
-    const observerHeld = await waitForMembership(
-      playerTwo,
-      created.roomId,
-      (payload) =>
-        payload.slots['team-1'] === 'observer' &&
-        payload.participants.some(
-          ({ sessionId, connectionStatus }) =>
-            sessionId === 'observer' && connectionStatus === 'held',
-        ),
-      20,
-      1500,
-    );
-    expect(observerHeld.heldSlots['team-1']?.sessionId).toBe('observer');
+    let usingFakeTimers = false;
+    try {
+      observer.disconnect();
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      usingFakeTimers = true;
 
-    const observerExpired = await waitForMembership(
-      playerTwo,
-      created.roomId,
-      (payload) =>
-        payload.slots['team-1'] === null &&
-        !payload.participants.some(({ sessionId }) => sessionId === 'observer'),
-      2000,
-      1000,
-    );
-    expect(observerExpired.heldSlots['team-1']).toBeNull();
+      const observerHeld = await waitForMembership(
+        playerTwo,
+        created.roomId,
+        (payload) =>
+          payload.slots['team-1'] === 'observer' &&
+          payload.participants.some(
+            ({ sessionId, connectionStatus }) =>
+              sessionId === 'observer' && connectionStatus === 'held',
+          ),
+        1000,
+        1000,
+      );
+      expect(observerHeld.heldSlots['team-1']?.sessionId).toBe('observer');
+
+      const observerExpiredPromise = waitForMembership(
+        playerTwo,
+        created.roomId,
+        (payload) =>
+          payload.slots['team-1'] === null &&
+          !payload.participants.some(
+            ({ sessionId }) => sessionId === 'observer',
+          ),
+        2000,
+        1000,
+      );
+
+      await vi.advanceTimersByTimeAsync(HOLD_EXPIRY_ADVANCE_MS);
+
+      const observerExpired = await observerExpiredPromise;
+      expect(observerExpired.heldSlots['team-1']).toBeNull();
+    } finally {
+      if (usingFakeTimers) {
+        vi.useRealTimers();
+      }
+    }
 
     const replacement = connectClient({ sessionId: 'replacement' });
     await waitForEvent<RoomJoinedPayload>(replacement, 'room:joined');

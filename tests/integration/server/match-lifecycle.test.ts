@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { io, type Socket } from 'socket.io-client';
 
 import {
@@ -272,13 +272,26 @@ async function moveToActive(pair: ConnectedPair): Promise<ActiveMatch> {
       ).length === 2,
   );
 
-  host.emit('room:start');
-  await waitForMembership(
+  const countdownMembershipPromise = waitForMembership(
     host,
     room.roomId,
     (payload) => payload.status === 'countdown',
   );
-  await waitForEvent<MatchStartedPayload>(host, 'room:match-started', 6000);
+  const matchStartedPromise = waitForEvent<MatchStartedPayload>(
+    host,
+    'room:match-started',
+    6000,
+  );
+
+  vi.useFakeTimers();
+  try {
+    host.emit('room:start');
+    await countdownMembershipPromise;
+    await vi.advanceTimersByTimeAsync(3_100);
+    await matchStartedPromise;
+  } finally {
+    vi.useRealTimers();
+  }
 
   const activeMembership = await waitForMembership(
     host,
@@ -516,32 +529,42 @@ describe('server match lifecycle contract', () => {
         ).length === 2,
     );
 
-    setup.host.emit('room:start');
-    await waitForEvent<RoomCountdownPayload>(
+    const openingCountdownPromise = waitForEvent<RoomCountdownPayload>(
       setup.host,
       'room:countdown',
       3500,
     );
-    await waitForMembership(
+    const countdownMembershipPromise = waitForMembership(
       setup.host,
       setup.room.roomId,
       (payload) => payload.status === 'countdown',
     );
-
-    setup.guest.disconnect();
-
-    const countdownAfterDisconnect = await waitForEvent<RoomCountdownPayload>(
-      setup.host,
-      'room:countdown',
-      3500,
-    );
-    expect(countdownAfterDisconnect.secondsRemaining).toBeLessThan(3);
-
-    await waitForEvent<MatchStartedPayload>(
+    const matchStartedPromise = waitForEvent<MatchStartedPayload>(
       setup.host,
       'room:match-started',
       7000,
     );
+
+    vi.useFakeTimers();
+    try {
+      setup.host.emit('room:start');
+      await openingCountdownPromise;
+      await countdownMembershipPromise;
+
+      const countdownAfterDisconnectPromise =
+        waitForEvent<RoomCountdownPayload>(setup.host, 'room:countdown', 3500);
+
+      setup.guest.disconnect();
+
+      await vi.advanceTimersByTimeAsync(1_100);
+      const countdownAfterDisconnect = await countdownAfterDisconnectPromise;
+      expect(countdownAfterDisconnect.secondsRemaining).toBeLessThan(3);
+
+      await vi.advanceTimersByTimeAsync(2_100);
+      await matchStartedPromise;
+    } finally {
+      vi.useRealTimers();
+    }
     await waitForMembership(
       setup.host,
       setup.room.roomId,
@@ -697,18 +720,27 @@ describe('server match lifecycle contract', () => {
       ),
     );
 
-    match.host.emit('room:start');
-    await waitForMembership(
+    const restartCountdownMembershipPromise = waitForMembership(
       match.host,
       setup.room.roomId,
       (payload) => payload.status === 'countdown',
       35,
     );
-    await waitForEvent<MatchStartedPayload>(
+    const restartMatchStartedPromise = waitForEvent<MatchStartedPayload>(
       match.host,
       'room:match-started',
       7000,
     );
+
+    vi.useFakeTimers();
+    try {
+      match.host.emit('room:start');
+      await restartCountdownMembershipPromise;
+      await vi.advanceTimersByTimeAsync(3_100);
+      await restartMatchStartedPromise;
+    } finally {
+      vi.useRealTimers();
+    }
 
     const restartedState = await waitForState(
       match.host,
