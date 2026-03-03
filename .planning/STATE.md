@@ -5,26 +5,26 @@
 See: `.planning/PROJECT.md` (updated 2026-03-03)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 13 planning for v0.0.3 GridView contract and cell semantics.
+**Current focus:** Phase 14 planning for v0.0.3 canonical GridView API adoption.
 
 ## Current Position
 
 **Current Milestone:** v0.0.3 Template Grid Unification
-**Phase:** 13 of 18 (GridView Contract and Cell Semantics)
+**Phase:** 14 of 18 (Canonical GridView API Adoption)
 **Plan:** Not started
 **Current Plan:** —
 **Total Plans in Phase:** TBD
 **Status:** Ready to plan
-**Last Activity:** 2026-03-03 — Roadmap created for Phases 13-18
-**Progress:** [░░░░░░░░░░] 0%
+**Last Activity:** 2026-03-03 — Executed Phase 13 plan 01 and captured summary
+**Progress:** [██░░░░░░░░] 17%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Completed phases: 12
-- Completed plans: 30
-- Completed tasks: 74
+- Completed phases: 13
+- Completed plans: 31
+- Completed tasks: 77
 - Shipped milestones: 2 (`v0.0.1`, `v0.0.2`)
 
 **Current Milestone Baseline (`v0.0.3`):**
@@ -41,10 +41,12 @@ See: `.planning/PROJECT.md` (updated 2026-03-03)
 - Derive v0.0.3 phases strictly from milestone requirements `REF-01` through `REF-09`.
 - Include broader GridView refactor adoption in phase scope for `REF-07` (other applicable duplicate transformed-grid paths).
 - Preserve deterministic authoritative outcomes while removing duplicate geometry code paths.
+- Use `GridView.fromCells()` as the canonical duplicate-coordinate validation gate for transformed cell traversal output.
+- Preserve `TransformedTemplate.cells` source byte semantics while exposing GridView alive/dead contract data.
 
 ### Pending Todos
 
-- Run `/gsd-plan-phase 13` to create executable plans for the first v0.0.3 phase.
+- Run `/gsd-plan-phase 14` to create executable plans for canonical GridView API adoption.
 - Keep migration assertions temporary and remove them before milestone close (`REF-09`).
 - Optionally run `/gsd-audit-milestone` retroactively for `v0.0.2` to close audit debt.
 
@@ -55,6 +57,6 @@ See: `.planning/PROJECT.md` (updated 2026-03-03)
 
 ## Session Continuity
 
-**Last session:** 2026-03-03T02:50:53.641Z
-**Stopped At:** Phase 13 context gathered
-**Resume File:** .planning/phases/13-gridview-contract-and-cell-semantics/13-CONTEXT.md
+**Last session:** 2026-03-03T03:35:38Z
+**Stopped At:** Completed 13-01 execution and summary
+**Resume File:** .planning/ROADMAP.md

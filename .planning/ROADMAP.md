@@ -12,7 +12,7 @@
 
 ## Phases
 
-- [ ] **Phase 13: GridView Contract and Cell Semantics** - Freeze deterministic transformed cell output used by all downstream geometry consumers.
+- [x] **Phase 13: GridView Contract and Cell Semantics** - Freeze deterministic transformed cell output used by all downstream geometry consumers. (completed 2026-03-03)
 - [ ] **Phase 14: Canonical GridView API Adoption** - Make `template.grid()` and shared transform operations the standard template entrypoint.
 - [ ] **Phase 15: Read-Path and Cross-Codebase GridView Unification** - Move read-side geometry and other duplicated transformed-grid paths onto shared GridView utilities.
 - [ ] **Phase 16: Write-Path GridView Unification** - Use one GridView-backed geometry flow for preview, queue validation, and build apply.
@@ -103,7 +103,7 @@
 
 | Phase                                                 | Plans Complete | Status      | Completed |
 | ----------------------------------------------------- | -------------- | ----------- | --------- |
-| 13. GridView Contract and Cell Semantics              | 0/TBD          | Not started | -         |
+| 13. GridView Contract and Cell Semantics              | 1/1 | Complete   | 2026-03-03 |
 | 14. Canonical GridView API Adoption                   | 0/TBD          | Not started | -         |
 | 15. Read-Path and Cross-Codebase GridView Unification | 0/TBD          | Not started | -         |
 | 16. Write-Path GridView Unification                   | 0/TBD          | Not started | -         |
