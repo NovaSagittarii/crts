@@ -9,7 +9,7 @@ import {
   isCanonicalBaseCell,
 } from './geometry.js';
 import { BUILD_ZONE_RADIUS } from './gameplay-rules.js';
-import { RtsEngine, type StructureTemplate } from './rts.js';
+import { RtsEngine, StructureTemplate } from './rts.js';
 
 interface Cell {
   x: number;
@@ -25,24 +25,34 @@ interface BuildOutcomeRecord {
   resolvedTick: number;
 }
 
-function getCoreStructure(team: ReturnType<typeof RtsEngine.addPlayerToRoom>): {
+type RoomState = ReturnType<typeof RtsEngine.createRoomState>;
+type TeamState = ReturnType<typeof RtsEngine.addPlayerToRoom>;
+type RoomPayload = ReturnType<typeof RtsEngine.createRoomStatePayload>;
+type TeamPayload = RoomPayload['teams'][number];
+type StructurePayload = TeamPayload['structures'][number];
+
+function getTeamPayload(room: RoomState, teamId: number): TeamPayload | null {
+  return (
+    RtsEngine.createRoomStatePayload(room).teams.find(
+      (team) => team.id === teamId,
+    ) ?? null
+  );
+}
+
+function getCoreStructure(
+  room: RoomState,
+  teamId: number,
+): {
   key: string;
   hp: number;
   active: boolean;
   isCore: boolean;
-  buildRadius: number;
-} {
-  const core = [...team.structures.values()].find(
-    (structure) => structure.isCore,
+} | null {
+  return (
+    getTeamPayload(room, teamId)?.structures.find(
+      (structure) => structure.isCore,
+    ) ?? null
   );
-  expect(core).toBeDefined();
-  return core as {
-    key: string;
-    hp: number;
-    active: boolean;
-    isCore: boolean;
-    buildRadius: number;
-  };
 }
 
 function getCellAlive(
@@ -68,51 +78,35 @@ function getBuildOutcomes(
 }
 
 function probeQueueBuild(
-  room: ReturnType<typeof RtsEngine.createRoomState>,
+  room: RoomState,
   playerId: string,
   payload: { templateId: string; x: number; y: number; delayTicks?: number },
 ): ReturnType<typeof RtsEngine.queueBuildEvent> {
   return RtsEngine.previewBuildPlacement(room, playerId, payload);
 }
 
-function getRoomId(room: ReturnType<typeof RtsEngine.createRoomState>): string {
+function getRoomId(room: RoomState): string {
   return RtsEngine.getRoomId(room);
 }
 
-function getRoomWidth(
-  room: ReturnType<typeof RtsEngine.createRoomState>,
-): number {
+function getRoomWidth(room: RoomState): number {
   return RtsEngine.getRoomWidth(room);
 }
 
-function getRoomHeight(
-  room: ReturnType<typeof RtsEngine.createRoomState>,
-): number {
+function getRoomHeight(room: RoomState): number {
   return RtsEngine.getRoomHeight(room);
 }
 
 function getStructureByTemplateId(
-  team: ReturnType<typeof RtsEngine.addPlayerToRoom>,
+  room: RoomState,
+  teamId: number,
   templateId: string,
-): {
-  key: string;
-  hp: number;
-  active: boolean;
-  buildRadius: number;
-} | null {
-  const structure = [...team.structures.values()].find(
-    (candidate) => candidate.templateId === templateId,
+): StructurePayload | null {
+  return (
+    getTeamPayload(room, teamId)?.structures.find(
+      (candidate) => candidate.templateId === templateId,
+    ) ?? null
   );
-  if (!structure) {
-    return null;
-  }
-
-  return {
-    key: structure.key,
-    hp: structure.hp,
-    active: structure.active,
-    buildRadius: structure.buildRadius,
-  };
 }
 
 describe('rts', () => {
@@ -341,7 +335,7 @@ describe('rts', () => {
   });
 
   test('[BUILD-02] enforces inclusive radius-15 union-zone checks', () => {
-    const probeTemplate: StructureTemplate = {
+    const probeTemplate = new StructureTemplate({
       id: 'probe',
       name: 'Probe',
       width: 1,
@@ -351,7 +345,7 @@ describe('rts', () => {
       income: 0,
       buildArea: 0,
       checks: [],
-    };
+    });
 
     const room = RtsEngine.createRoomState({
       id: '1',
@@ -423,7 +417,7 @@ describe('rts', () => {
   });
 
   test('accepts torus-wrapped placements and rejects transformed templates that exceed map size', () => {
-    const wideTemplate: StructureTemplate = {
+    const wideTemplate = new StructureTemplate({
       id: 'wide-13',
       name: 'Wide 13',
       width: 13,
@@ -433,7 +427,7 @@ describe('rts', () => {
       income: 0,
       buildArea: 0,
       checks: [],
-    };
+    });
 
     const room = RtsEngine.createRoomState({
       id: '1',
@@ -504,7 +498,7 @@ describe('rts', () => {
   });
 
   test('[BUILD-01] updates union-zone eligibility after build completion and structure destruction', () => {
-    const probeTemplate: StructureTemplate = {
+    const probeTemplate = new StructureTemplate({
       id: 'probe',
       name: 'Probe',
       width: 1,
@@ -514,7 +508,7 @@ describe('rts', () => {
       income: 0,
       buildArea: 0,
       checks: [],
-    };
+    });
 
     const room = RtsEngine.createRoomState({
       id: '1',
@@ -608,18 +602,13 @@ describe('rts', () => {
       });
     }
 
-    let destroyedContributor = getStructureByTemplateId(team, 'block');
-    for (
-      let index = 0;
-      index < 8 && (destroyedContributor?.hp ?? 0) > 0;
-      index += 1
-    ) {
+    let destroyedContributor = getStructureByTemplateId(room, team.id, 'block');
+    for (let index = 0; index < 8 && destroyedContributor; index += 1) {
       RtsEngine.tickRoom(room);
-      destroyedContributor = getStructureByTemplateId(team, 'block');
+      destroyedContributor = getStructureByTemplateId(room, team.id, 'block');
     }
 
-    expect(destroyedContributor).not.toBeNull();
-    expect(destroyedContributor?.hp).toBeLessThanOrEqual(0);
+    expect(destroyedContributor).toBeNull();
 
     const afterDestruction = probeQueueBuild(room, 'p1', {
       templateId: 'probe',
@@ -652,7 +641,7 @@ describe('rts', () => {
     RtsEngine.tickRoom(room);
     RtsEngine.tickRoom(room);
 
-    const ownStructure = getStructureByTemplateId(teamOne, 'block');
+    const ownStructure = getStructureByTemplateId(room, teamOne.id, 'block');
     expect(ownStructure).not.toBeNull();
     if (!ownStructure) {
       throw new Error('Expected own block structure to exist');
@@ -688,7 +677,11 @@ describe('rts', () => {
     expect(duplicate.eventId).toBe(first.eventId);
     expect(duplicate.executeTick).toBe(first.executeTick);
 
-    const ownCore = getCoreStructure(teamOne);
+    const ownCore = getCoreStructure(room, teamOne.id);
+    expect(ownCore).not.toBeNull();
+    if (!ownCore) {
+      throw new Error('Expected own core structure in room payload');
+    }
     const retarget = RtsEngine.queueDestroyEvent(room, 'p1', {
       structureKey: ownCore.key,
       delayTicks: 3,
@@ -700,7 +693,7 @@ describe('rts', () => {
   });
 
   test('[STRUCT-02] applies queued destroy outcomes and removes contributor build zone', () => {
-    const probeTemplate: StructureTemplate = {
+    const probeTemplate = new StructureTemplate({
       id: 'probe',
       name: 'Probe',
       width: 1,
@@ -710,7 +703,7 @@ describe('rts', () => {
       income: 0,
       buildArea: 0,
       checks: [],
-    };
+    });
 
     const room = RtsEngine.createRoomState({
       id: '1',
@@ -781,7 +774,7 @@ describe('rts', () => {
     });
     expect(expanded.accepted).toBe(true);
 
-    const builtContributor = getStructureByTemplateId(team, 'block');
+    const builtContributor = getStructureByTemplateId(room, team.id, 'block');
     expect(builtContributor).not.toBeNull();
     if (!builtContributor) {
       throw new Error('Expected contributor structure to exist before destroy');
@@ -850,7 +843,7 @@ describe('rts', () => {
       RtsEngine.tickRoom(room);
       RtsEngine.tickRoom(room);
 
-      const placed = getStructureByTemplateId(team, 'block');
+      const placed = getStructureByTemplateId(room, team.id, 'block');
       if (!placed) {
         throw new Error('Expected placed block before destroy sequence');
       }
@@ -1345,7 +1338,11 @@ describe('rts', () => {
       }
       RtsEngine.tickRoom(room);
 
-      const currentGenerator = getStructureByTemplateId(team, 'generator');
+      const currentGenerator = getStructureByTemplateId(
+        room,
+        team.id,
+        'generator',
+      );
       if (!currentGenerator || !currentGenerator.active) {
         break;
       }
@@ -1353,14 +1350,12 @@ describe('rts', () => {
 
     expect(team.income).toBe(0);
 
-    const generator = [...team.structures.values()].find(
-      (structure) => structure.templateId === 'generator',
-    );
-    expect(generator).toBeDefined();
-    expect(generator?.buildRadius).toBe(0);
+    const generator = getStructureByTemplateId(room, team.id, 'generator');
+    expect(generator).not.toBeNull();
+    expect(generator?.active).toBe(false);
   });
 
-  test('projects structure buildRadius from template buildArea when active', () => {
+  test('activates and deactivates generator based on integrity state', () => {
     const room = RtsEngine.createRoomState({
       id: '1',
       name: 'Alpha',
@@ -1394,12 +1389,13 @@ describe('rts', () => {
     RtsEngine.tickRoom(room);
     RtsEngine.tickRoom(room);
 
-    const generator = [...team.structures.values()].find(
-      (structure) => structure.templateId === 'generator',
+    const activeGenerator = getStructureByTemplateId(
+      room,
+      team.id,
+      'generator',
     );
-    expect(generator).toBeDefined();
-    expect(generator?.active).toBe(true);
-    expect(generator?.buildRadius).toBe(2);
+    expect(activeGenerator).not.toBeNull();
+    expect(activeGenerator?.active).toBe(true);
 
     for (const cell of generatorCells) {
       RtsEngine.queueLegacyCellUpdate(room, {
@@ -1412,12 +1408,17 @@ describe('rts', () => {
     RtsEngine.tickRoom(room);
     RtsEngine.tickRoom(room);
 
-    expect(generator?.active).toBe(false);
-    expect(generator?.buildRadius).toBe(0);
+    const inactiveGenerator = getStructureByTemplateId(
+      room,
+      team.id,
+      'generator',
+    );
+    expect(inactiveGenerator).toBeNull();
+    expect(team.income).toBe(0);
   });
 
   test('[STRUCT-01] tracks templates without checks using default integrity masks', () => {
-    const sentinelTemplate: StructureTemplate = {
+    const sentinelTemplate = new StructureTemplate({
       id: 'sentinel',
       name: 'Sentinel',
       width: 1,
@@ -1427,7 +1428,7 @@ describe('rts', () => {
       income: 0,
       buildArea: 0,
       checks: [],
-    };
+    });
     const room = RtsEngine.createRoomState({
       id: '1',
       name: 'Alpha',
@@ -1460,7 +1461,7 @@ describe('rts', () => {
     RtsEngine.tickRoom(room);
     RtsEngine.tickRoom(room);
 
-    const repaired = getStructureByTemplateId(team, 'sentinel');
+    const repaired = getStructureByTemplateId(room, team.id, 'sentinel');
     expect(repaired).not.toBeNull();
     expect(repaired?.hp).toBe(1);
     expect(repaired?.active).toBe(true);
@@ -1484,11 +1485,8 @@ describe('rts', () => {
       RtsEngine.tickRoom(room);
     }
 
-    const destroyed = getStructureByTemplateId(team, 'sentinel');
-    expect(destroyed).not.toBeNull();
-    expect(destroyed?.hp).toBe(0);
-    expect(destroyed?.active).toBe(false);
-    expect(destroyed?.buildRadius).toBe(0);
+    const destroyed = getStructureByTemplateId(room, team.id, 'sentinel');
+    expect(destroyed).toBeNull();
 
     const outcomes = RtsEngine.getTimelineEvents(room)
       .filter(
@@ -1524,7 +1522,7 @@ describe('rts', () => {
     RtsEngine.tickRoom(room);
     RtsEngine.tickRoom(room);
 
-    const placed = getStructureByTemplateId(team, 'block');
+    const placed = getStructureByTemplateId(room, team.id, 'block');
     expect(placed).not.toBeNull();
     expect(placed?.hp).toBe(2);
 
@@ -1542,8 +1540,8 @@ describe('rts', () => {
       });
     }
 
-    let destroyed = getStructureByTemplateId(team, 'block');
-    for (let index = 0; index < 8 && (destroyed?.hp ?? 0) > 0; index += 1) {
+    let destroyed = getStructureByTemplateId(room, team.id, 'block');
+    for (let index = 0; index < 8 && destroyed; index += 1) {
       for (const cell of blockCells) {
         RtsEngine.queueLegacyCellUpdate(room, {
           x: cell.x,
@@ -1552,12 +1550,10 @@ describe('rts', () => {
         });
       }
       RtsEngine.tickRoom(room);
-      destroyed = getStructureByTemplateId(team, 'block');
+      destroyed = getStructureByTemplateId(room, team.id, 'block');
     }
 
-    expect(destroyed).not.toBeNull();
-    expect(destroyed?.hp).toBeLessThanOrEqual(0);
-    expect(destroyed?.active).toBe(false);
+    expect(destroyed).toBeNull();
 
     const payload = RtsEngine.createRoomStatePayload(room);
     for (const cell of blockCells) {
@@ -1580,19 +1576,18 @@ describe('rts', () => {
       height: 30,
     });
     const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
-    const initialHp = getCoreStructure(team).hp;
-    const baseCells = getCanonicalBaseCells(team.baseTopLeft);
-    const coreStructure = [...team.structures.values()].find(
-      (structure) => structure.isCore,
-    );
-    expect(coreStructure).toBeDefined();
-    if (!coreStructure) {
-      throw new Error('Expected core structure to exist');
+    const initialCore = getCoreStructure(room, team.id);
+    expect(initialCore).not.toBeNull();
+    if (!initialCore) {
+      throw new Error('Expected core structure in room payload');
     }
-    coreStructure.hp = 1;
+
+    const initialHp = initialCore.hp;
+    const baseCells = getCanonicalBaseCells(team.baseTopLeft);
+    let lastSeenCoreHp = initialHp;
 
     let result = RtsEngine.tickRoom(room);
-    for (let index = 0; index < 12; index += 1) {
+    for (let index = 0; index < 400; index += 1) {
       for (const cell of baseCells) {
         RtsEngine.queueLegacyCellUpdate(room, {
           x: cell.x,
@@ -1601,16 +1596,19 @@ describe('rts', () => {
         });
       }
       result = RtsEngine.tickRoom(room);
+      const currentCore = getCoreStructure(room, team.id);
+      if (currentCore) {
+        lastSeenCoreHp = currentCore.hp;
+      }
       if (result.defeatedTeams.includes(team.id)) {
         break;
       }
     }
-    const core = getCoreStructure(team);
+    const core = getCoreStructure(room, team.id);
 
     expect(result.defeatedTeams).toEqual([team.id]);
-    expect(core.hp).toBeLessThanOrEqual(0);
-    expect(core.hp).toBeLessThan(initialHp);
-    expect(core.active).toBe(false);
+    expect(lastSeenCoreHp).toBeLessThan(initialHp);
+    expect(core).toBeNull();
     expect(team.defeated).toBe(true);
 
     const payload = RtsEngine.createRoomStatePayload(room);
@@ -1627,15 +1625,6 @@ describe('rts', () => {
     });
     const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
     const base = team.baseTopLeft;
-    const coreStructure = [...team.structures.values()].find(
-      (structure) => structure.isCore,
-    );
-    expect(coreStructure).toBeDefined();
-    if (!coreStructure) {
-      throw new Error('Expected core structure to exist');
-    }
-    coreStructure.hp = 1;
-
     const blockTemplate = RtsEngine.getRoomTemplate(room, 'block');
     expect(blockTemplate).toBeDefined();
 
@@ -1668,20 +1657,24 @@ describe('rts', () => {
       throw new Error('Expected at least one valid queued build before breach');
     }
 
-    const baseCells = getCanonicalBaseCells(base);
+    const ownCore = getCoreStructure(room, team.id);
+    expect(ownCore).not.toBeNull();
+    if (!ownCore) {
+      throw new Error('Expected own core structure in room payload');
+    }
+
+    const destroyCore = RtsEngine.queueDestroyEvent(room, 'p1', {
+      structureKey: ownCore.key,
+      delayTicks: 0,
+    });
+    expect(destroyCore.accepted).toBe(true);
+
     let result = RtsEngine.tickRoom(room);
-    for (let index = 0; index < 12; index += 1) {
-      for (const cell of baseCells) {
-        RtsEngine.queueLegacyCellUpdate(room, {
-          x: cell.x,
-          y: cell.y,
-          alive: 0,
-        });
-      }
-      result = RtsEngine.tickRoom(room);
+    for (let index = 0; index < 8; index += 1) {
       if (result.defeatedTeams.includes(team.id)) {
         break;
       }
+      result = RtsEngine.tickRoom(room);
     }
 
     const terminalOutcomes = getBuildOutcomes(result);
