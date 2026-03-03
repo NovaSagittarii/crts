@@ -24,7 +24,7 @@
     "preview": "vite preview",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "lint": "eslint --ignore-pattern=.gitignore,.prettierignore .",
+    "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run --config vitest.config.ts",
     "test:unit": "vitest run --config vitest.config.ts --dir packages",
