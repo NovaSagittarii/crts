@@ -273,7 +273,13 @@ export class Structure {
 
   public toPayload(roomWidth: number, roomHeight: number): StructurePayload {
     const transformedTemplate = this.projectTemplate();
-    const projection = this.projectPlacement(roomWidth, roomHeight);
+    const projection = projectPlacementToWorld(
+      transformedTemplate,
+      this.x,
+      this.y,
+      roomWidth,
+      roomHeight,
+    );
     return {
       key: this.key,
       templateId: this.template.id,
@@ -962,7 +968,6 @@ export class RtsEngine {
   }
 
   private static projectPendingDestroys(
-    _room: RoomState,
     team: TeamState,
   ): PendingDestroyPayload[] {
     const pending = [...team.pendingDestroyEvents];
@@ -2609,7 +2614,7 @@ export class RtsEngine {
           activeStructureCount: team.incomeBreakdown.activeStructureCount,
         },
         pendingBuilds: RtsEngine.projectPendingBuilds(room, team),
-        pendingDestroys: RtsEngine.projectPendingDestroys(room, team),
+        pendingDestroys: RtsEngine.projectPendingDestroys(team),
         structures: RtsEngine.projectStructures(room, team),
         defeated: team.defeated,
         baseTopLeft: {
