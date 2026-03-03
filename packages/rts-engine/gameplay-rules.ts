@@ -8,8 +8,6 @@ export const BUILD_ZONE_RADIUS = 14.9;
 export type BuildZoneDistanceShape = 'euclidean' | 'chebyshev';
 export const BUILD_ZONE_DISTANCE_SHAPE: BuildZoneDistanceShape = 'euclidean';
 
-export const CORE_STARTING_HP = 500;
-export const STRUCTURE_STARTING_HP = 2;
 export const INTEGRITY_CHECK_INTERVAL_TICKS = 4;
 export const INTEGRITY_HP_COST_PER_CELL = 1;
 

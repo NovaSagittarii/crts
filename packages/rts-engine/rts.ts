@@ -13,7 +13,6 @@ import {
   type Vector2,
 } from './geometry.js';
 import {
-  CORE_STARTING_HP,
   DEFAULT_SPAWN_CAPACITY,
   DEFAULT_STARTING_RESOURCES,
   DEFAULT_TEAM_TERRITORY_RADIUS,
@@ -21,7 +20,6 @@ import {
   INTEGRITY_HP_COST_PER_CELL,
   MAX_DELAY_TICKS,
   SPAWN_MIN_WRAPPED_DISTANCE,
-  STRUCTURE_STARTING_HP,
 } from './gameplay-rules.js';
 import {
   collectBuildZoneContributors,
@@ -52,6 +50,7 @@ export interface StructureTemplateOptions {
   activationCost: number;
   income: number;
   buildArea: number;
+  startingHp: number;
   checks: Vector2[];
   requiresDestroyConfirm?: boolean;
 }
@@ -65,13 +64,13 @@ export interface StructureInstantiationOptions {
   x: number;
   y: number;
   transform: PlacementTransformState;
-  hp: number;
   active: boolean;
   isCore: boolean;
 }
 
 interface StructureOptions extends StructureInstantiationOptions {
   template: StructureTemplate;
+  hp: number;
 }
 
 export class StructureTemplate implements TransformTemplateInput {
@@ -91,6 +90,8 @@ export class StructureTemplate implements TransformTemplateInput {
 
   public readonly buildArea: number;
 
+  public readonly startingHp: number;
+
   public readonly checks: Vector2[];
 
   public readonly requiresDestroyConfirm: boolean;
@@ -104,6 +105,10 @@ export class StructureTemplate implements TransformTemplateInput {
     this.activationCost = options.activationCost;
     this.income = options.income;
     this.buildArea = options.buildArea;
+    if (!Number.isFinite(options.startingHp) || options.startingHp <= 0) {
+      throw new Error('Template starting HP must be greater than zero');
+    }
+    this.startingHp = options.startingHp;
     this.checks = options.checks.map((check) => ({ x: check.x, y: check.y }));
     this.requiresDestroyConfirm = Boolean(options.requiresDestroyConfirm);
   }
@@ -118,6 +123,7 @@ export class StructureTemplate implements TransformTemplateInput {
     return new Structure({
       template: this,
       ...options,
+      hp: this.startingHp,
     });
   }
 
@@ -545,6 +551,7 @@ interface StructureTemplateRowsOptions {
   activationCost?: number;
   income?: number;
   buildArea?: number;
+  startingHp: number;
   requiresDestroyConfirm?: boolean;
   padding?: number;
   checked?: boolean;
@@ -606,6 +613,7 @@ export class RtsEngine {
       name: 'Core',
       rows: ['##.##', '##.##', '.....', '##.##', '##.##'],
       buildArea: 0,
+      startingHp: 500,
       requiresDestroyConfirm: true,
       padding: 3,
     });
@@ -794,6 +802,7 @@ export class RtsEngine {
     income = 0,
     requiresDestroyConfirm = false,
     buildArea = 0,
+    startingHp,
     padding = 0,
   }: StructureTemplateRowsOptions): StructureTemplate {
     const parsed = RtsEngine.parseTemplateRows(rows);
@@ -807,6 +816,7 @@ export class RtsEngine {
       activationCost: activationCost,
       income: income,
       buildArea: buildArea,
+      startingHp: startingHp,
       requiresDestroyConfirm: requiresDestroyConfirm,
       checks: [], // TODO: implement checked and checks
       // checked,
@@ -2006,6 +2016,7 @@ export class RtsEngine {
         activationCost: 0,
         income: 0,
         buildArea: 0,
+        startingHp: 2,
       }),
       RtsEngine.createTemplateFromRows({
         id: 'generator',
@@ -2014,6 +2025,7 @@ export class RtsEngine {
         activationCost: 6,
         income: 2,
         buildArea: 2,
+        startingHp: 2,
         padding: 1,
         checked: true,
       }),
@@ -2024,6 +2036,7 @@ export class RtsEngine {
         activationCost: 2,
         income: 0,
         buildArea: 0,
+        startingHp: 2,
       }),
       RtsEngine.createTemplateFromRows({
         id: 'eater-1',
@@ -2032,6 +2045,7 @@ export class RtsEngine {
         activationCost: 4,
         income: 0,
         buildArea: 1,
+        startingHp: 2,
       }),
       RtsEngine.createTemplateFromRows({
         id: 'gosper',
@@ -2047,6 +2061,7 @@ export class RtsEngine {
           '...........#...#....................',
           '............##......................',
         ],
+        startingHp: 2,
       }),
     ];
   }
@@ -2169,7 +2184,6 @@ export class RtsEngine {
         y: baseTopLeft.y,
         transform: createIdentityPlacementTransform(),
         active: true,
-        hp: CORE_STARTING_HP,
         isCore: true,
       }),
     );
@@ -2710,7 +2724,6 @@ export class RtsEngine {
             y: event.y,
             transform: event.projection.transform,
             active: false,
-            hp: STRUCTURE_STARTING_HP,
             isCore: false,
           }),
         );
