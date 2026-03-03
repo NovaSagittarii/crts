@@ -676,6 +676,239 @@ describe('QUAL-02 quality gate integration loop', () => {
     expect(defeatedError.reason).toBe('defeated');
   }, 45_000);
 
+  test('keeps equivalent transform legality parity and execute-time affordability rejections stable', async () => {
+    const match = await setupActiveMatch(() => connectClientForTest());
+
+    const blockTemplate = match.hostJoined.templates.find(
+      ({ id }) => id === 'block',
+    );
+    const generatorTemplate = match.hostJoined.templates.find(
+      ({ id }) => id === 'generator',
+    );
+    if (!blockTemplate || !generatorTemplate) {
+      throw new Error('Expected block and generator templates to be available');
+    }
+
+    const equivalentTransform: PlacementTransformInput = {
+      operations: ['rotate', 'rotate', 'rotate', 'rotate'],
+    };
+    const identityPlacements = collectCandidatePlacements(
+      match.hostTeam,
+      blockTemplate,
+      match.hostJoined.state.width,
+      match.hostJoined.state.height,
+    );
+    const equivalentPlacements = collectCandidatePlacements(
+      match.hostTeam,
+      blockTemplate,
+      match.hostJoined.state.width,
+      match.hostJoined.state.height,
+      equivalentTransform,
+    );
+    const equivalentPlacementSet = new Set(
+      equivalentPlacements.map(({ x, y }) => `${x},${y}`),
+    );
+    const sharedPlacements = identityPlacements.filter(({ x, y }) =>
+      equivalentPlacementSet.has(`${x},${y}`),
+    );
+    if (sharedPlacements.length < 2) {
+      throw new Error('Expected at least two shared placement coordinates');
+    }
+
+    const parityProbe = sharedPlacements[0];
+    match.host.emit('build:preview', {
+      templateId: blockTemplate.id,
+      x: parityProbe.x,
+      y: parityProbe.y,
+    });
+    const identityPreview = await waitForEvent<
+      BuildQueuedPayload & {
+        affordable: boolean;
+        reason?: string;
+        footprint: Cell[];
+        bounds: {
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+        };
+      }
+    >(match.host, 'build:preview');
+
+    match.host.emit('build:preview', {
+      templateId: blockTemplate.id,
+      x: parityProbe.x,
+      y: parityProbe.y,
+      transform: equivalentTransform,
+    });
+    const equivalentPreview = await waitForEvent<
+      BuildQueuedPayload & {
+        affordable: boolean;
+        reason?: string;
+        footprint: Cell[];
+        bounds: {
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+        };
+      }
+    >(match.host, 'build:preview');
+
+    expect(equivalentPreview.reason).toBe(identityPreview.reason);
+    expect(equivalentPreview.affordable).toBe(identityPreview.affordable);
+    expect(equivalentPreview.bounds).toEqual(identityPreview.bounds);
+    expect(equivalentPreview.footprint).toEqual(identityPreview.footprint);
+
+    const firstQueueResponsePromise = waitForBuildQueueResponse(match.host);
+    match.host.emit('build:queue', {
+      templateId: blockTemplate.id,
+      x: sharedPlacements[0].x,
+      y: sharedPlacements[0].y,
+      delayTicks: 12,
+    });
+    const firstQueueResponse = await firstQueueResponsePromise;
+    if ('error' in firstQueueResponse) {
+      throw new Error(
+        `Expected first queue acceptance, received ${firstQueueResponse.error.reason}`,
+      );
+    }
+
+    const secondQueueResponsePromise = waitForBuildQueueResponse(match.host);
+    match.host.emit('build:queue', {
+      templateId: blockTemplate.id,
+      x: sharedPlacements[1].x,
+      y: sharedPlacements[1].y,
+      transform: equivalentTransform,
+      delayTicks: 12,
+    });
+    const secondQueueResponse = await secondQueueResponsePromise;
+    if ('error' in secondQueueResponse) {
+      throw new Error(
+        `Expected second queue acceptance, received ${secondQueueResponse.error.reason}`,
+      );
+    }
+
+    const [firstOutcome, secondOutcome] = await Promise.all([
+      waitForBuildOutcome(match.host, firstQueueResponse.queued.eventId),
+      waitForBuildOutcome(match.host, secondQueueResponse.queued.eventId),
+    ]);
+    expect(firstOutcome.outcome).toBe('applied');
+    expect(secondOutcome.outcome).toBe('applied');
+
+    const transformedGenerator: PlacementTransformInput = {
+      operations: ['rotate', 'mirror-horizontal'],
+    };
+    const generatorPlacements = collectCandidatePlacements(
+      match.hostTeam,
+      generatorTemplate,
+      match.hostJoined.state.width,
+      match.hostJoined.state.height,
+      transformedGenerator,
+    );
+    if (generatorPlacements.length < 3) {
+      throw new Error('Expected transformed generator placement candidates');
+    }
+
+    const queuedGenerators: Array<{ eventId: number }> = [];
+    const generatorOutcomes = new Map<number, BuildOutcomePayload[]>();
+    const onGeneratorOutcome = (payload: BuildOutcomePayload): void => {
+      const current = generatorOutcomes.get(payload.eventId) ?? [];
+      current.push(payload);
+      generatorOutcomes.set(payload.eventId, current);
+    };
+    match.host.on('build:outcome', onGeneratorOutcome);
+
+    for (const placement of generatorPlacements.slice(0, 20)) {
+      match.host.emit('build:preview', {
+        templateId: generatorTemplate.id,
+        x: placement.x,
+        y: placement.y,
+        transform: transformedGenerator,
+      });
+      const preview = await waitForEvent<
+        BuildQueuedPayload & {
+          needed: number;
+          current: number;
+          reason?: string;
+        }
+      >(match.host, 'build:preview');
+
+      if (preview.reason === 'insufficient-resources') {
+        break;
+      }
+      if (preview.reason !== undefined) {
+        continue;
+      }
+
+      const queuePromise = waitForBuildQueueResponse(match.host);
+      match.host.emit('build:queue', {
+        templateId: generatorTemplate.id,
+        x: placement.x,
+        y: placement.y,
+        transform: transformedGenerator,
+        delayTicks: 12,
+      });
+      const queueResponse = await queuePromise;
+      if ('error' in queueResponse) {
+        if (queueResponse.error.reason === 'insufficient-resources') {
+          break;
+        }
+        continue;
+      }
+
+      queuedGenerators.push({ eventId: queueResponse.queued.eventId });
+    }
+
+    if (queuedGenerators.length < 2) {
+      match.host.off('build:outcome', onGeneratorOutcome);
+      throw new Error(
+        'Expected at least two transformed generator queue events',
+      );
+    }
+
+    const waitStart = Date.now();
+    while (
+      queuedGenerators.some(
+        ({ eventId }) => (generatorOutcomes.get(eventId)?.length ?? 0) === 0,
+      )
+    ) {
+      if (Date.now() - waitStart > 15_000) {
+        match.host.off('build:outcome', onGeneratorOutcome);
+        throw new Error('Timed out collecting transformed generator outcomes');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    match.host.off('build:outcome', onGeneratorOutcome);
+
+    const insufficientOutcome = queuedGenerators
+      .map(({ eventId }) => generatorOutcomes.get(eventId)?.[0])
+      .find(
+        (outcome) =>
+          outcome?.outcome === 'rejected' &&
+          outcome.reason === 'insufficient-resources',
+      );
+    if (!insufficientOutcome) {
+      throw new Error(
+        'Expected at least one execute-time insufficient-resources outcome',
+      );
+    }
+
+    expect(insufficientOutcome.affordable).toBe(false);
+    if (
+      typeof insufficientOutcome.needed !== 'number' ||
+      typeof insufficientOutcome.current !== 'number' ||
+      typeof insufficientOutcome.deficit !== 'number'
+    ) {
+      throw new Error(
+        'Expected execute-time insufficient outcome affordability metadata',
+      );
+    }
+    expect(insufficientOutcome.deficit).toBe(
+      Math.max(0, insufficientOutcome.needed - insufficientOutcome.current),
+    );
+  }, 45_000);
+
   test('keeps transformed structure overlays stable across repeated reconnect loops', async () => {
     const match = await setupActiveMatch(() => connectClientForTest());
 

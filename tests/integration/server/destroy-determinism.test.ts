@@ -664,6 +664,89 @@ describe('destroy reconnect determinism', () => {
     expect(reconnectTeam.structures).toEqual(hostTeam.structures);
   }, 60_000);
 
+  test('keeps transformed structure keys stable for occupied-site and destroy targeting checks', async () => {
+    const match = await setupActiveMatch((options) =>
+      connectClientForTest(options),
+    );
+
+    const transform: PlacementTransformInput = {
+      operations: ['rotate', 'mirror-horizontal'],
+    };
+    const equivalentTransform: PlacementTransformInput = {
+      operations: [
+        'rotate',
+        'mirror-horizontal',
+        'rotate',
+        'rotate',
+        'rotate',
+        'rotate',
+      ],
+    };
+
+    const appliedBuild = await queueAppliedHostBuild(match, {
+      templateId: 'block',
+      transform,
+      delayTicks: 8,
+    });
+    expect(appliedBuild.outcome.outcome).toBe('applied');
+
+    const [xString, yString] = appliedBuild.structureKey.split(',');
+    const x = Number(xString);
+    const y = Number(yString);
+    if (!Number.isInteger(x) || !Number.isInteger(y)) {
+      throw new Error(
+        'Expected parseable transformed structure key coordinates',
+      );
+    }
+
+    const duplicateQueuePromise = waitForBuildQueueResponse(match.host);
+    match.host.emit('build:queue', {
+      templateId: 'block',
+      x,
+      y,
+      transform: equivalentTransform,
+      delayTicks: 1,
+    });
+    const duplicateQueue = await duplicateQueuePromise;
+    if ('error' in duplicateQueue) {
+      throw new Error(
+        `Expected duplicate transformed queue acceptance, received ${duplicateQueue.error.reason}`,
+      );
+    }
+
+    const duplicateOutcome = await waitForBuildOutcome(
+      match.host,
+      duplicateQueue.queued.eventId,
+    );
+    expect(duplicateOutcome).toMatchObject({
+      eventId: duplicateQueue.queued.eventId,
+      outcome: 'rejected',
+      reason: 'occupied-site',
+    });
+
+    const destroyResponsePromise = waitForDestroyQueueResponse(match.host);
+    match.host.emit('destroy:queue', {
+      structureKey: appliedBuild.structureKey,
+      delayTicks: 1,
+    });
+    const destroyResponse = await destroyResponsePromise;
+    if ('error' in destroyResponse) {
+      throw new Error(
+        `Expected destroy queue acceptance, received ${destroyResponse.error.reason}`,
+      );
+    }
+
+    const destroyOutcome = await waitForDestroyOutcome(
+      match.host,
+      destroyResponse.queued.eventId,
+    );
+    expect(destroyOutcome).toMatchObject({
+      eventId: destroyResponse.queued.eventId,
+      outcome: 'destroyed',
+      structureKey: appliedBuild.structureKey,
+    });
+  }, 60_000);
+
   test('reconnects after resolved destroy and receives converged authoritative state', async () => {
     const match = await setupActiveMatch((options) =>
       connectClientForTest(options),

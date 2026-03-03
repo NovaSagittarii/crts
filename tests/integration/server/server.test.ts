@@ -233,6 +233,33 @@ function collectBuildOutcomes(
   });
 }
 
+function waitForBuildOutcome(
+  socket: Socket,
+  eventId: number,
+  timeoutMs = 12_000,
+): Promise<BuildOutcome> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off('build:outcome', onOutcome);
+      reject(
+        new Error(`Timed out waiting for build:outcome for event ${eventId}`),
+      );
+    }, timeoutMs);
+
+    function onOutcome(payload: BuildOutcome): void {
+      if (payload.eventId !== eventId) {
+        return;
+      }
+
+      clearTimeout(timer);
+      socket.off('build:outcome', onOutcome);
+      resolve(payload);
+    }
+
+    socket.on('build:outcome', onOutcome);
+  });
+}
+
 function waitForDestroyQueueResponse(
   socket: Socket,
   timeoutMs = 2000,
@@ -757,6 +784,302 @@ describe('GameServer', () => {
     setup.guest.close();
     await server.stop();
   }, 20_000);
+
+  test('keeps transformed preview, queue, and applied footprint coordinates aligned', async () => {
+    const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
+    const port = await server.start();
+
+    const setup = await setupActiveMatch(port);
+    const blockTemplate = setup.hostJoined.templates.find(
+      ({ id }) => id === 'block',
+    );
+    if (!blockTemplate) {
+      throw new Error('Expected block template to be available');
+    }
+
+    const transform: PlacementTransformInput = {
+      operations: ['rotate', 'mirror-horizontal'],
+    };
+    const placements = collectCandidatePlacements(
+      setup.hostTeam,
+      blockTemplate,
+      setup.hostJoined.state.width,
+      setup.hostJoined.state.height,
+      transform,
+    );
+    const placement = placements[0];
+    if (!placement) {
+      throw new Error(
+        'Expected transformed placement candidate for parity test',
+      );
+    }
+
+    setup.host.emit('build:preview', {
+      templateId: blockTemplate.id,
+      x: placement.x,
+      y: placement.y,
+      transform,
+    });
+    const preview = (await waitForEvent(
+      setup.host,
+      'build:preview',
+    )) as BuildPreview;
+
+    expect(preview.reason).toBeUndefined();
+    expect(preview.transform.operations).toEqual(transform.operations);
+    expect(preview.footprint.length).toBeGreaterThan(0);
+
+    const queueResponsePromise = waitForBuildQueueResponse(setup.host);
+    setup.host.emit('build:queue', {
+      templateId: blockTemplate.id,
+      x: placement.x,
+      y: placement.y,
+      transform,
+      delayTicks: 8,
+    });
+    const queueResponse = await queueResponsePromise;
+    if ('error' in queueResponse) {
+      throw new Error(
+        `Expected transformed queue acceptance, received ${queueResponse.error.reason}`,
+      );
+    }
+
+    const queued = queueResponse.queued;
+    const outcomesById = await collectBuildOutcomes(
+      setup.host,
+      [queued.eventId],
+      10_000,
+    );
+    const outcome = outcomesById.get(queued.eventId)?.[0];
+    expect(outcome).toMatchObject({
+      eventId: queued.eventId,
+      outcome: 'applied',
+    });
+
+    const settledState = await waitForCondition(
+      setup.host,
+      (state) => {
+        const hostTeam = getTeamByPlayerId(state, setup.hostJoined.playerId);
+        return hostTeam.structures.some(
+          (structure) =>
+            !structure.isCore &&
+            structure.templateId === blockTemplate.id &&
+            structure.x === placement.x &&
+            structure.y === placement.y &&
+            structure.width === preview.bounds.width &&
+            structure.height === preview.bounds.height &&
+            structure.hp > 0,
+        );
+      },
+      40,
+    );
+
+    const hostTeam = getTeamByPlayerId(settledState, setup.hostJoined.playerId);
+    const appliedStructure = hostTeam.structures.find(
+      (structure) =>
+        !structure.isCore &&
+        structure.templateId === blockTemplate.id &&
+        structure.x === placement.x &&
+        structure.y === placement.y &&
+        structure.width === preview.bounds.width &&
+        structure.height === preview.bounds.height,
+    );
+
+    expect(appliedStructure).toBeDefined();
+    expect(appliedStructure?.footprint).toEqual(preview.footprint);
+
+    setup.host.close();
+    setup.guest.close();
+    await server.stop();
+  }, 25_000);
+
+  test('keeps execute-time insufficient rejection metadata stable for transformed queues', async () => {
+    const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
+    const port = await server.start();
+
+    const setup = await setupActiveMatch(port);
+    const generatorTemplate = setup.hostJoined.templates.find(
+      ({ id }) => id === 'generator',
+    );
+    if (!generatorTemplate) {
+      throw new Error('Expected generator template to be available');
+    }
+
+    const transform: PlacementTransformInput = {
+      operations: ['rotate', 'mirror-horizontal'],
+    };
+    const placements = collectCandidatePlacements(
+      setup.hostTeam,
+      generatorTemplate,
+      setup.hostJoined.state.width,
+      setup.hostJoined.state.height,
+      transform,
+    );
+
+    interface QueueCandidate {
+      placement: Cell;
+      needed: number;
+      current: number;
+      footprint: Set<string>;
+    }
+
+    const candidates: QueueCandidate[] = [];
+    for (const placement of placements.slice(0, 60)) {
+      setup.host.emit('build:preview', {
+        templateId: generatorTemplate.id,
+        x: placement.x,
+        y: placement.y,
+        transform,
+      });
+      const preview = (await waitForEvent(
+        setup.host,
+        'build:preview',
+      )) as BuildPreview;
+
+      if (
+        preview.reason !== undefined ||
+        typeof preview.needed !== 'number' ||
+        typeof preview.current !== 'number'
+      ) {
+        continue;
+      }
+
+      candidates.push({
+        placement,
+        needed: preview.needed,
+        current: preview.current,
+        footprint: new Set(
+          preview.footprint.map((cell) => `${cell.x},${cell.y}`),
+        ),
+      });
+    }
+
+    if (candidates.length < 3) {
+      throw new Error('Expected queueable transformed generator candidates');
+    }
+
+    const selected: Array<{
+      placement: Cell;
+      needed: number;
+      current: number;
+    }> = [];
+    const usedFootprint = new Set<string>();
+    let cumulativeNeeded = 0;
+    const baselineCurrent = candidates[0].current;
+
+    for (const candidate of candidates) {
+      const overlaps = [...candidate.footprint].some((key) =>
+        usedFootprint.has(key),
+      );
+      if (overlaps) {
+        continue;
+      }
+
+      selected.push({
+        placement: candidate.placement,
+        needed: candidate.needed,
+        current: candidate.current,
+      });
+      for (const key of candidate.footprint) {
+        usedFootprint.add(key);
+      }
+
+      cumulativeNeeded += candidate.needed;
+      if (selected.length >= 2 && cumulativeNeeded > baselineCurrent) {
+        break;
+      }
+    }
+
+    if (selected.length < 2 || cumulativeNeeded <= baselineCurrent) {
+      throw new Error(
+        'Expected disjoint transformed placements that exceed available resources',
+      );
+    }
+
+    const queuedEvents: Array<{
+      eventId: number;
+      needed: number;
+      current: number;
+    }> = [];
+    const outcomePromises = new Map<number, Promise<BuildOutcome>>();
+
+    for (const { placement, needed, current } of selected) {
+      const queueResponsePromise = waitForBuildQueueResponse(setup.host);
+      setup.host.emit('build:queue', {
+        templateId: generatorTemplate.id,
+        x: placement.x,
+        y: placement.y,
+        transform,
+        delayTicks: 12,
+      });
+      const queueResponse = await queueResponsePromise;
+      if ('error' in queueResponse) {
+        throw new Error(
+          `Expected transformed queue acceptance, received ${queueResponse.error.reason}`,
+        );
+      }
+
+      queuedEvents.push({
+        eventId: queueResponse.queued.eventId,
+        needed,
+        current,
+      });
+      outcomePromises.set(
+        queueResponse.queued.eventId,
+        waitForBuildOutcome(setup.host, queueResponse.queued.eventId, 20_000),
+      );
+    }
+
+    const orderedOutcomes = await Promise.all(
+      queuedEvents.map(({ eventId }) => {
+        const outcomePromise = outcomePromises.get(eventId);
+        if (!outcomePromise) {
+          throw new Error(`Missing outcome promise for event ${eventId}`);
+        }
+        return outcomePromise;
+      }),
+    );
+
+    const firstRejectedIndex = orderedOutcomes.findIndex(
+      (outcome) =>
+        outcome.outcome === 'rejected' &&
+        outcome.reason === 'insufficient-resources',
+    );
+    if (firstRejectedIndex < 0) {
+      throw new Error(
+        'Expected at least one execute-time insufficient-resources rejection',
+      );
+    }
+
+    const rejectedOutcome = orderedOutcomes[firstRejectedIndex];
+    expect(rejectedOutcome).toMatchObject({
+      eventId: queuedEvents[firstRejectedIndex].eventId,
+      outcome: 'rejected',
+      reason: 'insufficient-resources',
+      affordable: false,
+    });
+
+    if (
+      typeof rejectedOutcome.needed !== 'number' ||
+      typeof rejectedOutcome.current !== 'number' ||
+      typeof rejectedOutcome.deficit !== 'number'
+    ) {
+      throw new Error(
+        'Expected execute-time insufficient outcome metadata fields',
+      );
+    }
+
+    expect(rejectedOutcome.current).toBeLessThanOrEqual(
+      queuedEvents[firstRejectedIndex].current,
+    );
+    expect(rejectedOutcome.deficit).toBe(
+      Math.max(0, rejectedOutcome.needed - rejectedOutcome.current),
+    );
+
+    setup.host.close();
+    setup.guest.close();
+    await server.stop();
+  }, 30_000);
 
   test('returns affordability preview payloads for valid build placements', async () => {
     const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
