@@ -1,0 +1,16 @@
+name: Continuous Integration
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  node-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+      - run: npm ci --ignore-scripts  # suppress prepare script, pre-commit install
+      - run: npm run format:check
+      - run: npm run test
+      - run: npm run lint
