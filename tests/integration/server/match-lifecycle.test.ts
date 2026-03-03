@@ -9,6 +9,8 @@ import {
 import type {
   BuildQueuedPayload,
   ChatMessagePayload,
+  DestroyOutcomePayload,
+  DestroyQueuedPayload,
   RoomCountdownPayload,
   MatchStartedPayload,
   RoomErrorPayload,
@@ -52,7 +54,7 @@ interface ActiveMatch extends ConnectedPair {
   guestTeamId: number;
   hostBaseTopLeft: { x: number; y: number };
   guestBaseTopLeft: { x: number; y: number };
-  initialGrid: Uint8Array;
+  initialGrid: ArrayBuffer;
 }
 
 function createClient(port: number, options: ClientOptions = {}): Socket {
@@ -159,6 +161,64 @@ function waitForBuildQueueResponse(
   });
 }
 
+function waitForDestroyQueueResponse(
+  socket: Socket,
+  timeoutMs = 2500,
+): Promise<{ queued: DestroyQueuedPayload } | { error: RoomErrorPayload }> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timed out waiting for destroy queue response'));
+    }, timeoutMs);
+
+    function cleanup(): void {
+      clearTimeout(timer);
+      socket.off('destroy:queued', onQueued);
+      socket.off('room:error', onError);
+    }
+
+    function onQueued(payload: DestroyQueuedPayload): void {
+      cleanup();
+      resolve({ queued: payload });
+    }
+
+    function onError(payload: RoomErrorPayload): void {
+      cleanup();
+      resolve({ error: payload });
+    }
+
+    socket.once('destroy:queued', onQueued);
+    socket.once('room:error', onError);
+  });
+}
+
+function waitForDestroyOutcome(
+  socket: Socket,
+  eventId: number,
+  timeoutMs = 12_000,
+): Promise<DestroyOutcomePayload> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off('destroy:outcome', onOutcome);
+      reject(
+        new Error(`Timed out waiting for destroy:outcome for event ${eventId}`),
+      );
+    }, timeoutMs);
+
+    function onOutcome(payload: DestroyOutcomePayload): void {
+      if (payload.eventId !== eventId) {
+        return;
+      }
+
+      clearTimeout(timer);
+      socket.off('destroy:outcome', onOutcome);
+      resolve(payload);
+    }
+
+    socket.on('destroy:outcome', onOutcome);
+  });
+}
+
 async function setupConnectedPair(
   connect: () => Socket,
 ): Promise<ConnectedPair> {
@@ -261,46 +321,48 @@ async function moveToActive(pair: ConnectedPair): Promise<ActiveMatch> {
 async function breachGuestCore(
   match: ActiveMatch,
 ): Promise<MatchFinishedPayload> {
-  const breachCandidates = [
-    { x: match.guestBaseTopLeft.x, y: match.guestBaseTopLeft.y },
-    { x: match.guestBaseTopLeft.x + 2, y: match.guestBaseTopLeft.y },
-    { x: match.guestBaseTopLeft.x, y: match.guestBaseTopLeft.y + 2 },
-    { x: match.guestBaseTopLeft.x + 2, y: match.guestBaseTopLeft.y + 2 },
-  ];
-
-  let accepted = 0;
-  for (const candidate of breachCandidates) {
-    match.guest.emit('build:queue', {
-      templateId: 'glider',
-      x: candidate.x,
-      y: candidate.y,
-      delayTicks: accepted + 1,
-    });
-
-    const response = await waitForBuildQueueResponse(match.guest);
-    if ('error' in response) {
-      continue;
-    }
-
-    const queued = response.queued;
-    expect(queued.eventId).toBeGreaterThan(0);
-    expect(queued.executeTick).toBeGreaterThan(0);
-    accepted += 1;
-
-    if (accepted >= 2) {
-      break;
-    }
+  const activeState = await waitForState(
+    match.host,
+    (payload) => payload.roomId === match.room.roomId,
+  );
+  const guestTeam = activeState.teams.find(
+    ({ id }) => id === match.guestTeamId,
+  );
+  if (!guestTeam) {
+    throw new Error('Guest team was not found in active match state');
   }
 
-  if (accepted === 0) {
-    throw new Error('Expected at least one accepted breach queue event');
+  const guestCore = guestTeam.structures.find(({ isCore }) => isCore);
+  if (!guestCore) {
+    throw new Error('Guest core structure was not found');
   }
 
-  return waitForEvent<MatchFinishedPayload>(
+  const finishedPromise = waitForEvent<MatchFinishedPayload>(
     match.host,
     'room:match-finished',
-    7000,
+    15_000,
   );
+
+  const queueResponsePromise = waitForDestroyQueueResponse(match.guest);
+  match.guest.emit('destroy:queue', {
+    structureKey: guestCore.key,
+    delayTicks: 1,
+  });
+  const queueResponse = await queueResponsePromise;
+  if ('error' in queueResponse) {
+    throw new Error(
+      `Expected guest core destroy queue acceptance, received ${queueResponse.error.reason}`,
+    );
+  }
+
+  const destroyOutcome = await waitForDestroyOutcome(
+    match.guest,
+    queueResponse.queued.eventId,
+  );
+  expect(destroyOutcome.outcome).toBe('destroyed');
+  expect(destroyOutcome.structureKey).toBe(guestCore.key);
+
+  return finishedPromise;
 }
 
 describe('server match lifecycle contract', () => {
@@ -693,8 +755,10 @@ describe('server match lifecycle contract', () => {
     const secondFinished = await breachGuestCore(restartedMatch);
     expect(
       secondFinished.ranked.some(
-        ({ queuedBuildCount }) => queuedBuildCount > 0,
+        ({ teamId, coreState }) =>
+          teamId === restartedMatch.guestTeamId && coreState === 'destroyed',
       ),
     ).toBe(true);
+    expect(secondFinished.winner.teamId).toBe(restartedMatch.hostTeamId);
   }, 60_000);
 });

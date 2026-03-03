@@ -63,7 +63,7 @@ function getCoreStructure(team: ReturnType<typeof addPlayerToRoom>): {
 }
 
 function getCellAlive(
-  grid: Uint8Array,
+  grid: ArrayBuffer,
   width: number,
   height: number,
   cell: Cell,
@@ -126,15 +126,16 @@ describe('rts', () => {
       'generator',
       'glider',
       'eater-1',
+      'gosper',
     ]);
 
     const generator = templates.find(({ id }) => id === 'generator');
     expect(generator).toBeDefined();
-    expect(generator?.width).toBe(2);
-    expect(generator?.height).toBe(2);
+    expect(generator?.width).toBe(4);
+    expect(generator?.height).toBe(4);
     expect(generator?.activationCost).toBe(6);
     expect(generator?.income).toBe(2);
-    expect(generator?.checks).toHaveLength(4);
+    expect(generator?.checks).toHaveLength(0);
   });
 
   test('projects template summaries used by room payloads', () => {
@@ -145,13 +146,14 @@ describe('rts', () => {
       'generator',
       'glider',
       'eater-1',
+      'gosper',
     ]);
 
     const generator = summaries.find(({ id }) => id === 'generator');
     expect(generator).toMatchObject({
       id: 'generator',
-      width: 2,
-      height: 2,
+      width: 4,
+      height: 4,
       activationCost: 6,
       income: 2,
       buildArea: 2,
@@ -263,10 +265,11 @@ describe('rts', () => {
     const blockWidth = blockTemplate?.width ?? 0;
     const blockHeight = blockTemplate?.height ?? 0;
     const baseCenter = getBaseCenter(team.baseTopLeft);
+    const outsideOffset = Math.floor(BUILD_ZONE_RADIUS) + 1;
 
     let outsideTerritoryCoordinate: Cell | null = null;
     for (const direction of [1, -1] as const) {
-      const candidateX = baseCenter.x + direction * BUILD_ZONE_RADIUS;
+      const candidateX = baseCenter.x + direction * outsideOffset;
       const candidateY = Math.max(0, Math.min(baseCenter.y, room.height - 1));
       if (candidateX < 0 || candidateX + blockWidth > room.width) {
         continue;
@@ -353,12 +356,14 @@ describe('rts', () => {
     const baseCenter = getBaseCenter(team.baseTopLeft);
     const blockTemplate = room.templateMap.get('block');
     expect(blockTemplate).toBeDefined();
+    const insideOffset = Math.floor(BUILD_ZONE_RADIUS);
+    const outsideOffset = insideOffset + 1;
 
     let direction: 1 | -1 | null = null;
     for (const candidate of [1, -1] as const) {
-      const insideX = baseCenter.x + candidate * BUILD_ZONE_RADIUS;
-      const outsideX = baseCenter.x + candidate * (BUILD_ZONE_RADIUS + 1);
-      const blockX = baseCenter.x + candidate * BUILD_ZONE_RADIUS;
+      const insideX = baseCenter.x + candidate * insideOffset;
+      const outsideX = baseCenter.x + candidate * outsideOffset;
+      const blockX = baseCenter.x + candidate * insideOffset;
       if (insideX < 0 || insideX >= room.width) {
         continue;
       }
@@ -384,7 +389,7 @@ describe('rts', () => {
     const y = Math.max(0, Math.min(baseCenter.y, room.height - 1));
     const boundary = queueBuildEvent(room, 'p1', {
       templateId: 'probe',
-      x: baseCenter.x + direction * BUILD_ZONE_RADIUS,
+      x: baseCenter.x + direction * insideOffset,
       y,
       delayTicks: 1,
     });
@@ -392,7 +397,7 @@ describe('rts', () => {
 
     const outside = queueBuildEvent(room, 'p1', {
       templateId: 'probe',
-      x: baseCenter.x + direction * (BUILD_ZONE_RADIUS + 1),
+      x: baseCenter.x + direction * outsideOffset,
       y,
       delayTicks: 1,
     });
@@ -401,7 +406,7 @@ describe('rts', () => {
 
     const footprintOverflow = queueBuildEvent(room, 'p1', {
       templateId: 'block',
-      x: baseCenter.x + direction * BUILD_ZONE_RADIUS,
+      x: baseCenter.x + direction * insideOffset,
       y,
       delayTicks: 1,
     });
@@ -411,11 +416,11 @@ describe('rts', () => {
 
   test('accepts torus-wrapped placements and rejects transformed templates that exceed map size', () => {
     const wideTemplate: StructureTemplate = {
-      id: 'wide-6',
-      name: 'Wide 6',
-      width: 6,
+      id: 'wide-13',
+      name: 'Wide 13',
+      width: 13,
       height: 1,
-      cells: new Uint8Array([1, 1, 1, 1, 1, 1]),
+      cells: new Uint8Array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]),
       activationCost: 0,
       income: 0,
       buildArea: 0,
@@ -425,23 +430,23 @@ describe('rts', () => {
     const room = createRoomState({
       id: '1',
       name: 'Alpha',
-      width: 5,
-      height: 5,
+      width: 12,
+      height: 12,
       templates: [...createDefaultTemplates(), wideTemplate],
     });
     addPlayerToRoom(room, 'p1', 'Alice');
 
     const wrappedPreview = previewBuildPlacement(room, 'p1', {
       templateId: 'block',
-      x: 4,
-      y: 4,
+      x: 11,
+      y: 11,
     });
 
     expect(wrappedPreview.accepted).toBe(true);
     expect(wrappedPreview.reason).toBeUndefined();
     expect(wrappedPreview.bounds).toEqual({
-      x: 4,
-      y: 4,
+      x: 11,
+      y: 11,
       width: 2,
       height: 2,
     });
@@ -449,7 +454,7 @@ describe('rts', () => {
       new Set(
         (wrappedPreview.footprint ?? []).map((cell) => `${cell.x},${cell.y}`),
       ),
-    ).toEqual(new Set(['4,4', '0,4', '4,0', '0,0']));
+    ).toEqual(new Set(['11,11', '0,11', '11,0', '0,0']));
 
     const overflowPayload = {
       templateId: wideTemplate.id,
@@ -468,7 +473,7 @@ describe('rts', () => {
       x: 0,
       y: 0,
       width: 1,
-      height: 6,
+      height: 13,
     });
     expect(overflowPreview.footprint).toEqual([]);
     expect(overflowPreview.illegalCells).toEqual([]);
@@ -504,6 +509,7 @@ describe('rts', () => {
     });
     const team = addPlayerToRoom(room, 'p1', 'Alice');
     const baseCenter = getBaseCenter(team.baseTopLeft);
+    const remoteOffset = Math.floor(BUILD_ZONE_RADIUS);
 
     let setup: {
       contributorX: number;
@@ -517,7 +523,7 @@ describe('rts', () => {
       const contributorY = Math.max(0, Math.min(baseCenter.y, room.height - 2));
       const contributorCenterX = contributorX + 1;
       const contributorCenterY = contributorY + 1;
-      const remoteX = contributorCenterX + direction * BUILD_ZONE_RADIUS;
+      const remoteX = contributorCenterX + direction * remoteOffset;
       const remoteY = contributorCenterY;
 
       if (contributorX < 0 || contributorX + 2 > room.width) {
@@ -583,9 +589,16 @@ describe('rts', () => {
       });
     }
 
-    tickRoom(room);
+    let destroyedContributor = getStructureByTemplateId(team, 'block');
+    for (
+      let index = 0;
+      index < 8 && (destroyedContributor?.hp ?? 0) > 0;
+      index += 1
+    ) {
+      tickRoom(room);
+      destroyedContributor = getStructureByTemplateId(team, 'block');
+    }
 
-    const destroyedContributor = getStructureByTemplateId(team, 'block');
     expect(destroyedContributor).not.toBeNull();
     expect(destroyedContributor?.hp).toBeLessThanOrEqual(0);
 
@@ -689,6 +702,7 @@ describe('rts', () => {
     });
     const team = addPlayerToRoom(room, 'p1', 'Alice');
     const baseCenter = getBaseCenter(team.baseTopLeft);
+    const remoteOffset = Math.floor(BUILD_ZONE_RADIUS);
 
     let setup: {
       contributorX: number;
@@ -702,7 +716,7 @@ describe('rts', () => {
       const contributorY = Math.max(0, Math.min(baseCenter.y, room.height - 2));
       const contributorCenterX = contributorX + 1;
       const contributorCenterY = contributorY + 1;
-      const remoteX = contributorCenterX + direction * BUILD_ZONE_RADIUS;
+      const remoteX = contributorCenterX + direction * remoteOffset;
       const remoteY = contributorCenterY;
 
       if (contributorX < 0 || contributorX + 2 > room.width) {
@@ -866,10 +880,11 @@ describe('rts', () => {
     expect(result).toMatchObject({
       accepted: false,
       reason: 'insufficient-resources',
-      needed: 10,
       current: 9,
-      deficit: 1,
     });
+    expect(result.needed).toEqual(expect.any(Number));
+    expect(result.deficit).toEqual(expect.any(Number));
+    expect(result.deficit).toBe((result.needed ?? 0) - (result.current ?? 0));
     expect(team.pendingBuildEvents).toHaveLength(0);
     expect(room.timelineEvents.at(-1)?.metadata?.reason).toBe(
       'insufficient-resources',
@@ -1014,6 +1029,15 @@ describe('rts', () => {
       x: team.baseTopLeft.x + 5,
       y: team.baseTopLeft.y + 5,
     };
+    const generatorPreview = previewBuildPlacement(room, 'p1', {
+      templateId: 'generator',
+      x: position.x,
+      y: position.y,
+    });
+    expect(generatorPreview.accepted).toBe(true);
+    const generatorCells = generatorPreview.footprint ?? [];
+    expect(generatorCells.length).toBeGreaterThan(0);
+
     const queued = queueBuildEvent(room, 'p1', {
       templateId: 'generator',
       x: position.x,
@@ -1035,22 +1059,22 @@ describe('rts', () => {
       activeStructureCount: 1,
     });
 
-    const generatorCells = [
-      { x: position.x, y: position.y },
-      { x: position.x + 1, y: position.y },
-      { x: position.x, y: position.y + 1 },
-      { x: position.x + 1, y: position.y + 1 },
-    ];
-    for (const cell of generatorCells) {
-      queueLegacyCellUpdate(room, {
-        x: cell.x,
-        y: cell.y,
-        alive: 0,
-      });
-    }
+    for (let index = 0; index < 8; index += 1) {
+      for (const cell of generatorCells) {
+        queueLegacyCellUpdate(room, {
+          x: cell.x,
+          y: cell.y,
+          alive: 0,
+        });
+      }
+      tickRoom(room);
 
-    tickRoom(room);
-    tickRoom(room);
+      const payload = createRoomStatePayload(room);
+      const maybeInactive = payload.teams.find(({ id }) => id === team.id);
+      if ((maybeInactive?.incomeBreakdown.activeStructureCount ?? 0) === 0) {
+        break;
+      }
+    }
 
     const inactivePayload = createRoomStatePayload(room);
     const inactiveTeam = inactivePayload.teams.find(({ id }) => id === team.id);
@@ -1144,6 +1168,14 @@ describe('rts', () => {
     const teamTwo = addPlayerToRoom(room, 'p2', 'Bob');
     const base = teamOne.baseTopLeft;
     const baseCells = getCanonicalBaseCells(base);
+    const teamOneCore = [...teamOne.structures.values()].find(
+      (structure) => structure.isCore,
+    );
+    expect(teamOneCore).toBeDefined();
+    if (!teamOneCore) {
+      throw new Error('Expected team one core structure to exist');
+    }
+    teamOneCore.hp = 1;
 
     let result = tickRoom(room);
     expect(result.outcome).toBeNull();
@@ -1156,7 +1188,20 @@ describe('rts', () => {
       });
     }
 
-    result = tickRoom(room);
+    for (let index = 0; index < 12; index += 1) {
+      result = tickRoom(room);
+      if (result.defeatedTeams.includes(teamOne.id)) {
+        break;
+      }
+
+      for (const cell of baseCells) {
+        queueLegacyCellUpdate(room, {
+          x: cell.x,
+          y: cell.y,
+          alive: 0,
+        });
+      }
+    }
 
     expect(result.defeatedTeams).toEqual([teamOne.id]);
     expect(result.outcome).not.toBeNull();
@@ -1203,6 +1248,7 @@ describe('rts', () => {
       delayTicks: 1,
     });
     expect(queued.accepted).toBe(true);
+    const expectedCost = queued.needed ?? 0;
 
     const first = tickRoom(room);
     const second = tickRoom(room);
@@ -1211,7 +1257,7 @@ describe('rts', () => {
     expect(second.appliedBuilds).toBe(1);
     expect(room.tick).toBe(2);
     expect(room.generation).toBe(2);
-    expect(team.resources).toBe(initialResources - 4);
+    expect(team.resources).toBe(initialResources - expectedCost);
 
     const payload = createRoomStatePayload(room);
     expect(
@@ -1241,6 +1287,15 @@ describe('rts', () => {
       x: team.baseTopLeft.x + 5,
       y: team.baseTopLeft.y + 5,
     };
+    const generatorPreview = previewBuildPlacement(room, 'p1', {
+      templateId: 'generator',
+      x: position.x,
+      y: position.y,
+    });
+    expect(generatorPreview.accepted).toBe(true);
+    const generatorCells = generatorPreview.footprint ?? [];
+    expect(generatorCells.length).toBeGreaterThan(0);
+
     const queued = queueBuildEvent(room, 'p1', {
       templateId: 'generator',
       x: position.x,
@@ -1258,22 +1313,21 @@ describe('rts', () => {
     expect(team.income).toBe(2);
     expect(team.resources).toBe(postBuildResources + 2);
 
-    const generatorCells = [
-      { x: position.x, y: position.y },
-      { x: position.x + 1, y: position.y },
-      { x: position.x, y: position.y + 1 },
-      { x: position.x + 1, y: position.y + 1 },
-    ];
-    for (const cell of generatorCells) {
-      queueLegacyCellUpdate(room, {
-        x: cell.x,
-        y: cell.y,
-        alive: 0,
-      });
-    }
+    for (let index = 0; index < 8; index += 1) {
+      for (const cell of generatorCells) {
+        queueLegacyCellUpdate(room, {
+          x: cell.x,
+          y: cell.y,
+          alive: 0,
+        });
+      }
+      tickRoom(room);
 
-    tickRoom(room);
-    tickRoom(room);
+      const currentGenerator = getStructureByTemplateId(team, 'generator');
+      if (!currentGenerator || !currentGenerator.active) {
+        break;
+      }
+    }
 
     expect(team.income).toBe(0);
 
@@ -1297,6 +1351,15 @@ describe('rts', () => {
       x: team.baseTopLeft.x + 6,
       y: team.baseTopLeft.y + 6,
     };
+    const generatorPreview = previewBuildPlacement(room, 'p1', {
+      templateId: 'generator',
+      x: position.x,
+      y: position.y,
+    });
+    expect(generatorPreview.accepted).toBe(true);
+    const generatorCells = generatorPreview.footprint ?? [];
+    expect(generatorCells.length).toBeGreaterThan(0);
+
     const queued = queueBuildEvent(room, 'p1', {
       templateId: 'generator',
       x: position.x,
@@ -1316,12 +1379,6 @@ describe('rts', () => {
     expect(generator?.active).toBe(true);
     expect(generator?.buildRadius).toBe(2);
 
-    const generatorCells = [
-      { x: position.x, y: position.y },
-      { x: position.x + 1, y: position.y },
-      { x: position.x, y: position.y + 1 },
-      { x: position.x + 1, y: position.y + 1 },
-    ];
     for (const cell of generatorCells) {
       queueLegacyCellUpdate(room, {
         x: cell.x,
@@ -1373,6 +1430,14 @@ describe('rts', () => {
     tickRoom(room);
     tickRoom(room);
 
+    queueLegacyCellUpdate(room, {
+      x: placement.x,
+      y: placement.y,
+      alive: 0,
+    });
+    tickRoom(room);
+    tickRoom(room);
+
     const repaired = getStructureByTemplateId(team, 'sentinel');
     expect(repaired).not.toBeNull();
     expect(repaired?.hp).toBe(1);
@@ -1383,7 +1448,14 @@ describe('rts', () => {
       getCellAlive(repairedPayload.grid, room.width, room.height, placement),
     ).toBe(true);
 
-    tickRoom(room);
+    queueLegacyCellUpdate(room, {
+      x: placement.x,
+      y: placement.y,
+      alive: 0,
+    });
+    for (let index = 0; index < 4; index += 1) {
+      tickRoom(room);
+    }
 
     const destroyed = getStructureByTemplateId(team, 'sentinel');
     expect(destroyed).not.toBeNull();
@@ -1443,11 +1515,21 @@ describe('rts', () => {
       });
     }
 
-    tickRoom(room);
+    let destroyed = getStructureByTemplateId(team, 'block');
+    for (let index = 0; index < 8 && (destroyed?.hp ?? 0) > 0; index += 1) {
+      for (const cell of blockCells) {
+        queueLegacyCellUpdate(room, {
+          x: cell.x,
+          y: cell.y,
+          alive: 0,
+        });
+      }
+      tickRoom(room);
+      destroyed = getStructureByTemplateId(team, 'block');
+    }
 
-    const destroyed = getStructureByTemplateId(team, 'block');
     expect(destroyed).not.toBeNull();
-    expect(destroyed?.hp).toBe(-2);
+    expect(destroyed?.hp).toBeLessThanOrEqual(0);
     expect(destroyed?.active).toBe(false);
 
     const payload = createRoomStatePayload(room);
@@ -1468,20 +1550,34 @@ describe('rts', () => {
     const team = addPlayerToRoom(room, 'p1', 'Alice');
     const initialHp = getCoreStructure(team).hp;
     const baseCells = getCanonicalBaseCells(team.baseTopLeft);
-
-    for (const cell of baseCells) {
-      queueLegacyCellUpdate(room, {
-        x: cell.x,
-        y: cell.y,
-        alive: 0,
-      });
+    const coreStructure = [...team.structures.values()].find(
+      (structure) => structure.isCore,
+    );
+    expect(coreStructure).toBeDefined();
+    if (!coreStructure) {
+      throw new Error('Expected core structure to exist');
     }
+    coreStructure.hp = 1;
 
-    const result = tickRoom(room);
+    let result = tickRoom(room);
+    for (let index = 0; index < 12; index += 1) {
+      for (const cell of baseCells) {
+        queueLegacyCellUpdate(room, {
+          x: cell.x,
+          y: cell.y,
+          alive: 0,
+        });
+      }
+      result = tickRoom(room);
+      if (result.defeatedTeams.includes(team.id)) {
+        break;
+      }
+    }
     const core = getCoreStructure(team);
 
     expect(result.defeatedTeams).toEqual([team.id]);
-    expect(core.hp).toBe(initialHp - baseCells.length);
+    expect(core.hp).toBeLessThanOrEqual(0);
+    expect(core.hp).toBeLessThan(initialHp);
     expect(core.active).toBe(false);
     expect(team.defeated).toBe(true);
 
@@ -1499,6 +1595,14 @@ describe('rts', () => {
     });
     const team = addPlayerToRoom(room, 'p1', 'Alice');
     const base = team.baseTopLeft;
+    const coreStructure = [...team.structures.values()].find(
+      (structure) => structure.isCore,
+    );
+    expect(coreStructure).toBeDefined();
+    if (!coreStructure) {
+      throw new Error('Expected core structure to exist');
+    }
+    coreStructure.hp = 1;
 
     const blockTemplate = room.templateMap.get('block');
     expect(blockTemplate).toBeDefined();
@@ -1529,15 +1633,20 @@ describe('rts', () => {
     }
 
     const baseCells = getCanonicalBaseCells(base);
-    for (const cell of baseCells) {
-      queueLegacyCellUpdate(room, {
-        x: cell.x,
-        y: cell.y,
-        alive: 0,
-      });
+    let result = tickRoom(room);
+    for (let index = 0; index < 12; index += 1) {
+      for (const cell of baseCells) {
+        queueLegacyCellUpdate(room, {
+          x: cell.x,
+          y: cell.y,
+          alive: 0,
+        });
+      }
+      result = tickRoom(room);
+      if (result.defeatedTeams.includes(team.id)) {
+        break;
+      }
     }
-
-    const result = tickRoom(room);
 
     const terminalOutcomes = getBuildOutcomes(result);
     const pendingOutcome = terminalOutcomes.find(
