@@ -10,16 +10,7 @@ import {
   type PlayerSession,
 } from './lobby-session.js';
 
-import {
-  claimLobbySlot,
-  createLobbyRoom,
-  getLobbySnapshot,
-  joinLobby,
-  leaveLobby,
-  setLobbyReady,
-  type LobbyRejectionReason,
-  type LobbyRoomState,
-} from '#rts-engine';
+import { LobbyRoom, type LobbyRejectionReason } from '#rts-engine';
 import {
   addPlayerToRoom,
   type BuildPreviewPayload,
@@ -102,7 +93,7 @@ function configureStaticAssets(app: Express, mode: ClientAssetsMode): void {
 
 interface RuntimeRoom {
   state: RoomState;
-  lobby: LobbyRoomState;
+  lobby: LobbyRoom;
   roomCode: string;
   revision: number;
   status: RoomStatus;
@@ -325,7 +316,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   function buildRuntimeRoom(roomState: RoomState): RuntimeRoom {
     return {
       state: roomState,
-      lobby: createLobbyRoom({
+      lobby: LobbyRoom.create({
         roomId: roomState.id,
         slotIds: [...PLAYER_SLOT_IDS],
       }),
@@ -388,10 +379,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
   }
 
   function buildMembershipPayload(room: RuntimeRoom): RoomMembershipPayload {
-    const snapshot = getLobbySnapshot(room.lobby);
+    const snapshot = room.lobby.snapshot();
+    const slotIds = room.lobby.slotIds();
     const heldSlots: RoomMembershipPayload['heldSlots'] = {};
 
-    for (const slotId of room.lobby.slotIds) {
+    for (const slotId of slotIds) {
       const sessionId = snapshot.slots[slotId];
       if (!sessionId) {
         heldSlots[slotId] = null;
@@ -450,7 +442,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   function emitRoomList(target?: GameSocket): void {
     const payload = [...rooms.values()]
       .map((room): RoomListPayloadEntry => {
-        const snapshot = getLobbySnapshot(room.lobby);
+        const snapshot = room.lobby.snapshot();
         const players = snapshot.participants.filter(
           ({ role }) => role === 'player',
         ).length;
@@ -527,7 +519,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       return false;
     }
 
-    if (room.lobby.participants.size > 0) {
+    if (room.lobby.participantCount() > 0) {
       return false;
     }
 
@@ -574,10 +566,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
     room: RuntimeRoom,
     sessionId: string,
   ): boolean {
-    const existingParticipant = room.lobby.participants.get(sessionId);
+    const existingParticipant = room.lobby.getParticipant(sessionId);
     const wasPlayer = Boolean(existingParticipant?.role === 'player');
 
-    leaveLobby(room.lobby, sessionId);
+    room.lobby.leave(sessionId);
     if (wasPlayer) {
       removePlayerFromRoom(room.state, sessionId);
     }
@@ -642,7 +634,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
     const previousRoomId = room.state.id;
 
-    const existingParticipant = room.lobby.participants.get(session.id);
+    const existingParticipant = room.lobby.getParticipant(session.id);
     const heldSlotId =
       existingParticipant?.role === 'player'
         ? existingParticipant.slotId
@@ -714,7 +706,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
     void socket.join(roomChannel(room.state.id));
     sessionCoordinator.clearHold(session.id);
-    joinLobby(room.lobby, {
+    room.lobby.join({
       sessionId: session.id,
       displayName: session.name,
     });
@@ -782,7 +774,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       return;
     }
 
-    const result = claimLobbySlot(room.lobby, session.id, trimmedSlotId);
+    const result = room.lobby.claimSlot(session.id, trimmedSlotId);
     if (!result.ok) {
       const mapped = mapLobbyReasonToError(
         result.reason ?? 'participant-not-found',
@@ -807,7 +799,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
   }
 
   function allSlotsReady(room: RuntimeRoom): boolean {
-    const snapshot = getLobbySnapshot(room.lobby);
+    const snapshot = room.lobby.snapshot();
+    const slotIds = room.lobby.slotIds();
     const bySession = new Map(
       snapshot.participants.map((participant) => [
         participant.sessionId,
@@ -815,7 +808,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       ]),
     );
 
-    for (const slotId of room.lobby.slotIds) {
+    for (const slotId of slotIds) {
       const sessionId = snapshot.slots[slotId];
       if (!sessionId) {
         return false;
@@ -833,16 +826,17 @@ export function createServer(options: ServerOptions = {}): GameServer {
   function getLifecyclePreconditions(
     room: RuntimeRoom,
   ): LifecyclePreconditions {
-    const snapshot = getLobbySnapshot(room.lobby);
-    const assignedSessionIds = room.lobby.slotIds
+    const snapshot = room.lobby.snapshot();
+    const slotIds = room.lobby.slotIds();
+    const assignedSessionIds = slotIds
       .map((slotId) => snapshot.slots[slotId])
       .filter(
         (sessionId): sessionId is string => typeof sessionId === 'string',
       );
 
     const hasRequiredPlayers =
-      assignedSessionIds.length === room.lobby.slotIds.length &&
-      new Set(assignedSessionIds).size === room.lobby.slotIds.length &&
+      assignedSessionIds.length === slotIds.length &&
+      new Set(assignedSessionIds).size === slotIds.length &&
       assignedSessionIds.every((sessionId) =>
         snapshot.participants.some(
           (participant) =>
@@ -852,7 +846,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       );
 
     const allPlayersConnected =
-      assignedSessionIds.length === room.lobby.slotIds.length &&
+      assignedSessionIds.length === slotIds.length &&
       assignedSessionIds.every((sessionId) =>
         sessionCoordinator.isSessionConnected(sessionId),
       );
@@ -868,7 +862,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   function resetRoomStateForRestart(room: RuntimeRoom): void {
     const previousState = room.state;
-    const snapshot = getLobbySnapshot(room.lobby);
+    const snapshot = room.lobby.snapshot();
+    const slotIds = room.lobby.slotIds();
     const participantBySession = new Map(
       snapshot.participants.map((participant) => [
         participant.sessionId,
@@ -884,7 +879,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       templates: previousState.templates,
     });
 
-    for (const slotId of room.lobby.slotIds) {
+    for (const slotId of slotIds) {
       const sessionId = snapshot.slots[slotId];
       if (!sessionId) {
         continue;
@@ -1282,7 +1277,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
       const room = getRoomOrNull(session.roomId);
       if (room) {
-        joinLobby(room.lobby, {
+        room.lobby.join({
           sessionId: session.id,
           displayName: nextName,
         });
@@ -1388,7 +1383,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      const result = setLobbyReady(room.lobby, session.id, ready);
+      const result = room.lobby.setReady(session.id, ready);
       if (!result.ok) {
         const mapped = mapLobbyReasonToError(
           result.reason ?? 'participant-not-found',
@@ -1411,7 +1406,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      const hostSessionId = getLobbySnapshot(room.lobby).hostSessionId;
+      const hostSessionId = room.lobby.snapshot().hostSessionId;
       if (hostSessionId !== session.id) {
         roomError(socket, 'Only the host can start the match', 'not-host');
         return;
@@ -1475,7 +1470,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      const hostSessionId = getLobbySnapshot(room.lobby).hostSessionId;
+      const hostSessionId = room.lobby.snapshot().hostSessionId;
       if (hostSessionId !== session.id) {
         roomError(socket, 'Only the host can cancel countdown', 'not-host');
         return;
@@ -1796,7 +1791,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         }
       }
 
-      if (room.lobby.participants.size > 0) {
+      if (room.lobby.participantCount() > 0) {
         if (room.status === 'active' || room.status === 'finished') {
           emitRoomState(room);
         }
