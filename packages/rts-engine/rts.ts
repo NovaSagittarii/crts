@@ -37,12 +37,13 @@ import {
   projectTemplateWithTransform,
   wrapCoordinate,
   type PlacementBounds,
+  type TransformTemplateInput,
   type PlacementTransformInput,
   type PlacementTransformState,
   type TransformedTemplate,
 } from './placement-transform.js';
 
-export interface StructureTemplate {
+export interface StructureTemplateOptions {
   id: string;
   name: string;
   width: number;
@@ -53,6 +54,104 @@ export interface StructureTemplate {
   buildArea: number;
   checks: Vector2[];
   requiresDestroyConfirm?: boolean;
+}
+
+export type StructureTemplateInput =
+  | StructureTemplate
+  | StructureTemplateOptions;
+
+export interface StructureInstantiationOptions {
+  key: string;
+  x: number;
+  y: number;
+  transform: PlacementTransformState;
+  hp: number;
+  active: boolean;
+  isCore: boolean;
+}
+
+interface StructureOptions extends StructureInstantiationOptions {
+  template: StructureTemplate;
+}
+
+export class StructureTemplate implements TransformTemplateInput {
+  public readonly id: string;
+
+  public readonly name: string;
+
+  public readonly width: number;
+
+  public readonly height: number;
+
+  public readonly cells: Uint8Array;
+
+  public readonly activationCost: number;
+
+  public readonly income: number;
+
+  public readonly buildArea: number;
+
+  public readonly checks: Vector2[];
+
+  public readonly requiresDestroyConfirm: boolean;
+
+  public constructor(options: StructureTemplateOptions) {
+    this.id = options.id;
+    this.name = options.name;
+    this.width = options.width;
+    this.height = options.height;
+    this.cells = new Uint8Array(options.cells);
+    this.activationCost = options.activationCost;
+    this.income = options.income;
+    this.buildArea = options.buildArea;
+    this.checks = options.checks.map((check) => ({ x: check.x, y: check.y }));
+    this.requiresDestroyConfirm = Boolean(options.requiresDestroyConfirm);
+  }
+
+  public static from(input: StructureTemplateInput): StructureTemplate {
+    return input instanceof StructureTemplate
+      ? input
+      : new StructureTemplate(input);
+  }
+
+  public instantiate(options: StructureInstantiationOptions): Structure {
+    return new Structure({
+      template: this,
+      ...options,
+    });
+  }
+
+  public project(transform: PlacementTransformState): TransformedTemplate {
+    return projectTemplateWithTransform(this, transform);
+  }
+
+  public projectPlacement(
+    x: number,
+    y: number,
+    transform: PlacementTransformState,
+    roomWidth: number,
+    roomHeight: number,
+  ): ReturnType<typeof projectPlacementToWorld> {
+    return projectPlacementToWorld(
+      this.project(transform),
+      x,
+      y,
+      roomWidth,
+      roomHeight,
+    );
+  }
+
+  public toSummary(): StructureTemplateSummary {
+    return {
+      id: this.id,
+      name: this.name,
+      width: this.width,
+      height: this.height,
+      activationCost: this.activationCost,
+      income: this.income,
+      buildArea: this.buildArea,
+    };
+  }
 }
 
 export interface StructureTemplateSummary {
@@ -102,17 +201,97 @@ interface AcceptedBuildEvent extends BuildEvent {
   projection: BuildPlacementProjectionResult;
 }
 
-export interface StructureInstance {
-  key: string;
-  templateId: string;
-  x: number;
-  y: number;
-  transform: PlacementTransformState;
-  active: boolean;
-  hp: number;
-  isCore: boolean;
-  buildRadius: number;
+export class Structure {
+  public readonly key: string;
+
+  public readonly template: StructureTemplate;
+
+  public readonly x: number;
+
+  public readonly y: number;
+
+  public readonly transform: PlacementTransformState;
+
+  public active: boolean;
+
+  public hp: number;
+
+  public readonly isCore: boolean;
+
+  public constructor(options: StructureOptions) {
+    this.key = options.key;
+    this.template = options.template;
+    this.x = options.x;
+    this.y = options.y;
+    this.transform = options.transform;
+    this.active = options.active;
+    this.hp = options.hp;
+    this.isCore = options.isCore;
+  }
+
+  public get templateId(): string {
+    return this.template.id;
+  }
+
+  public get buildRadius(): number {
+    return this.active && !this.isCore ? this.template.buildArea : 0;
+  }
+
+  public projectTemplate(): TransformedTemplate {
+    return this.template.project(this.transform);
+  }
+
+  public projectPlacement(
+    roomWidth: number,
+    roomHeight: number,
+  ): ReturnType<typeof projectPlacementToWorld> {
+    return this.template.projectPlacement(
+      this.x,
+      this.y,
+      this.transform,
+      roomWidth,
+      roomHeight,
+    );
+  }
+
+  public destroy(): void {
+    this.hp = 0;
+    this.active = false;
+  }
+
+  public deactivate(): void {
+    this.active = false;
+  }
+
+  public setActive(next: boolean): void {
+    this.active = this.hp > 0 && next;
+  }
+
+  public applyIntegrityDamage(amount: number): void {
+    this.hp -= amount;
+  }
+
+  public toPayload(roomWidth: number, roomHeight: number): StructurePayload {
+    const transformedTemplate = this.projectTemplate();
+    const projection = this.projectPlacement(roomWidth, roomHeight);
+    return {
+      key: this.key,
+      templateId: this.template.id,
+      templateName: this.template.name,
+      x: this.x,
+      y: this.y,
+      width: transformedTemplate.width,
+      height: transformedTemplate.height,
+      hp: this.hp,
+      active: this.active,
+      isCore: this.isCore,
+      requiresDestroyConfirm: this.template.requiresDestroyConfirm,
+      footprint: projection.occupiedCells,
+    };
+  }
 }
+
+export type StructureInstance = Structure;
 
 export interface BuildPreviewProjection {
   transform: PlacementTransformState;
@@ -350,7 +529,7 @@ export interface CreateRoomOptions {
   name: string;
   width: number;
   height: number;
-  templates?: StructureTemplate[];
+  templates?: StructureTemplateInput[];
 }
 
 interface StructureTemplateRowsOptions {
@@ -613,7 +792,7 @@ export class RtsEngine {
   }: StructureTemplateRowsOptions): StructureTemplate {
     const parsed = RtsEngine.parseTemplateRows(rows);
     const padded = RtsEngine.padTemplate(parsed, padding);
-    return {
+    return new StructureTemplate({
       id: id,
       name: name,
       width: padded.width,
@@ -625,7 +804,7 @@ export class RtsEngine {
       requiresDestroyConfirm: requiresDestroyConfirm,
       checks: [], // TODO: implement checked and checks
       // checked,
-    };
+    });
   }
 
   private static appendTimelineEvent(
@@ -783,16 +962,14 @@ export class RtsEngine {
   }
 
   private static projectPendingDestroys(
-    room: RoomState,
+    _room: RoomState,
     team: TeamState,
   ): PendingDestroyPayload[] {
     const pending = [...team.pendingDestroyEvents];
     pending.sort(RtsEngine.compareDestroyEvents);
     return pending.map((event) => {
       const structure = team.structures.get(event.structureKey);
-      const template = structure
-        ? RtsEngine.getStructureTemplate(room, structure)
-        : null;
+      const template = structure?.template;
 
       return {
         eventId: event.id,
@@ -802,7 +979,7 @@ export class RtsEngine {
         templateName: template?.name ?? structure?.templateId ?? 'Unknown',
         x: structure?.x ?? 0,
         y: structure?.y ?? 0,
-        requiresDestroyConfirm: Boolean(template?.requiresDestroyConfirm),
+        requiresDestroyConfirm: template?.requiresDestroyConfirm ?? false,
       };
     });
   }
@@ -821,37 +998,7 @@ export class RtsEngine {
         continue;
       }
 
-      const template = RtsEngine.getStructureTemplate(room, structure);
-      if (!template) {
-        continue;
-      }
-
-      const transformedTemplate = projectTemplateWithTransform(
-        template,
-        structure.transform,
-      );
-      const projection = projectPlacementToWorld(
-        transformedTemplate,
-        structure.x,
-        structure.y,
-        room.width,
-        room.height,
-      );
-
-      projected.push({
-        key: structure.key,
-        templateId: structure.templateId,
-        templateName: template.name,
-        x: structure.x,
-        y: structure.y,
-        width: transformedTemplate.width,
-        height: transformedTemplate.height,
-        hp: structure.hp,
-        active: structure.active,
-        isCore: structure.isCore,
-        requiresDestroyConfirm: Boolean(template.requiresDestroyConfirm),
-        footprint: projection.occupiedCells,
-      });
+      projected.push(structure.toPayload(room.width, room.height));
     }
 
     return projected;
@@ -966,17 +1113,6 @@ export class RtsEngine {
     }
   }
 
-  private static getStructureTemplate(
-    room: RoomState,
-    structure: StructureInstance,
-  ): StructureTemplate | null {
-    if (structure.isCore) {
-      return RtsEngine.CORE_STRUCTURE_TEMPLATE;
-    }
-
-    return room.templateMap.get(structure.templateId) ?? null;
-  }
-
   private static getCoreStructure(team: TeamState): StructureInstance | null {
     for (const structure of team.structures.values()) {
       if (structure.isCore) {
@@ -1061,15 +1197,7 @@ export class RtsEngine {
         continue;
       }
 
-      const template = RtsEngine.getStructureTemplate(room, structure);
-      if (!template) {
-        continue;
-      }
-
-      const transformedTemplate = projectTemplateWithTransform(
-        template,
-        structure.transform,
-      );
+      const transformedTemplate = structure.projectTemplate();
 
       contributorProjectionInputs.push({
         x: structure.x,
@@ -1092,10 +1220,7 @@ export class RtsEngine {
     transformInput: PlacementTransformInput | null | undefined,
   ): BuildPlacementValidationResult {
     const transform = normalizePlacementTransform(transformInput);
-    const transformedTemplate = projectTemplateWithTransform(
-      template,
-      transform,
-    );
+    const transformedTemplate = template.project(transform);
     const bounds: PlacementBounds = {
       x,
       y,
@@ -1192,15 +1317,11 @@ export class RtsEngine {
 
   private static getIntegrityMaskCells(
     structure: StructureInstance,
-    template: StructureTemplate,
   ): readonly IntegrityMaskCell[] {
-    const transformedTemplate = projectTemplateWithTransform(
-      template,
-      structure.transform,
-    );
+    const transformedTemplate = structure.projectTemplate();
 
     const sourceChecks =
-      template.checks.length > 0
+      structure.template.checks.length > 0
         ? transformedTemplate.checks
         : transformedTemplate.occupiedCells;
 
@@ -1222,11 +1343,10 @@ export class RtsEngine {
   private static collectIntegrityMismatches(
     room: RoomState,
     structure: StructureInstance,
-    template: StructureTemplate,
   ): IntegrityMismatchCell[] {
     const mismatches: IntegrityMismatchCell[] = [];
 
-    for (const check of RtsEngine.getIntegrityMaskCells(structure, template)) {
+    for (const check of RtsEngine.getIntegrityMaskCells(structure)) {
       const x = wrapCoordinate(structure.x + check.x, room.width);
       const y = wrapCoordinate(structure.y + check.y, room.height);
       const actual = RtsEngine.gridCellAt(
@@ -1263,12 +1383,8 @@ export class RtsEngine {
   private static checkStructureIntegrity(
     room: RoomState,
     structure: StructureInstance,
-    template: StructureTemplate,
   ): boolean {
-    return (
-      RtsEngine.collectIntegrityMismatches(room, structure, template).length ===
-      0
-    );
+    return RtsEngine.collectIntegrityMismatches(room, structure).length === 0;
   }
 
   private static isBaseIntact(room: RoomState, team: TeamState): boolean {
@@ -1277,11 +1393,7 @@ export class RtsEngine {
       return false;
     }
 
-    return RtsEngine.checkStructureIntegrity(
-      room,
-      core,
-      RtsEngine.CORE_STRUCTURE_TEMPLATE,
-    );
+    return RtsEngine.checkStructureIntegrity(room, core);
   }
 
   private static countTerritoryCells(room: RoomState, team: TeamState): number {
@@ -1568,20 +1680,13 @@ export class RtsEngine {
     let territoryBonus = 0;
 
     for (const structure of team.structures.values()) {
-      const template = RtsEngine.getStructureTemplate(room, structure);
-      if (!template) {
-        structure.active = false;
-        structure.buildRadius = 0;
-        continue;
-      }
+      const template = structure.template;
 
       const active =
-        structure.hp > 0 &&
-        RtsEngine.checkStructureIntegrity(room, structure, template);
-      structure.active = active;
-      structure.buildRadius = active ? template.buildArea : 0;
+        structure.hp > 0 && RtsEngine.checkStructureIntegrity(room, structure);
+      structure.setActive(active);
 
-      if (active && !structure.isCore) {
+      if (structure.active && !structure.isCore) {
         structureIncome += template.income;
         activeStructureCount += 1;
         territoryBonus += structure.buildRadius;
@@ -1646,9 +1751,7 @@ export class RtsEngine {
         continue;
       }
 
-      structure.hp = 0;
-      structure.active = false;
-      structure.buildRadius = 0;
+      structure.destroy();
 
       RtsEngine.appendTimelineEvent(room, {
         teamId: team.id,
@@ -1801,26 +1904,16 @@ export class RtsEngine {
 
       for (const structure of orderedStructures) {
         if (structure.hp <= 0) {
-          structure.active = false;
-          structure.buildRadius = 0;
-          continue;
-        }
-
-        const template = RtsEngine.getStructureTemplate(room, structure);
-        if (!template) {
-          structure.active = false;
-          structure.buildRadius = 0;
+          structure.deactivate();
           continue;
         }
 
         const mismatches = RtsEngine.collectIntegrityMismatches(
           room,
           structure,
-          template,
         );
         if (mismatches.length === 0) {
-          structure.active = true;
-          structure.buildRadius = structure.isCore ? 0 : template.buildArea;
+          structure.setActive(true);
           continue;
         }
 
@@ -1831,7 +1924,7 @@ export class RtsEngine {
           coreHpBeforeResolution.set(team.id, hpBefore);
         }
 
-        structure.hp -= restoreCost;
+        structure.applyIntegrityDamage(restoreCost);
         if (structure.isCore) {
           RtsEngine.appendTimelineEvent(room, {
             teamId: team.id,
@@ -1846,8 +1939,7 @@ export class RtsEngine {
 
         if (structure.hp > 0) {
           RtsEngine.restoreIntegrityMismatches(room, mismatches);
-          structure.active = true;
-          structure.buildRadius = structure.isCore ? 0 : template.buildArea;
+          structure.setActive(true);
 
           RtsEngine.appendTimelineEvent(room, {
             teamId: team.id,
@@ -1864,8 +1956,7 @@ export class RtsEngine {
           continue;
         }
 
-        structure.active = false;
-        structure.buildRadius = 0;
+        structure.deactivate();
 
         const category: IntegrityOutcomeCategory = structure.isCore
           ? 'core-defeat'
@@ -1958,19 +2049,15 @@ export class RtsEngine {
   public static createTemplateSummaries(
     templates: StructureTemplate[],
   ): StructureTemplateSummary[] {
-    return templates.map((template) => ({
-      id: template.id,
-      name: template.name,
-      width: template.width,
-      height: template.height,
-      activationCost: template.activationCost,
-      income: template.income,
-      buildArea: template.buildArea,
-    }));
+    return templates.map((template) => template.toSummary());
   }
 
   public static createRoomState(options: CreateRoomOptions): RoomState {
-    const templates = options.templates ?? RtsEngine.createDefaultTemplates();
+    const templateInputs =
+      options.templates ?? RtsEngine.createDefaultTemplates();
+    const templates = templateInputs.map((template) =>
+      StructureTemplate.from(template),
+    );
     const templateMap = new Map<string, StructureTemplate>();
     for (const template of templates) {
       templateMap.set(template.id, template);
@@ -2069,17 +2156,18 @@ export class RtsEngine {
     );
 
     const structures = new Map<string, StructureInstance>();
-    structures.set(coreKey, {
-      key: coreKey,
-      templateId: CORE_TEMPLATE_ID,
-      x: baseTopLeft.x,
-      y: baseTopLeft.y,
-      transform: createIdentityPlacementTransform(),
-      active: true,
-      hp: CORE_STARTING_HP,
-      isCore: true,
-      buildRadius: 0,
-    });
+    structures.set(
+      coreKey,
+      RtsEngine.CORE_STRUCTURE_TEMPLATE.instantiate({
+        key: coreKey,
+        x: baseTopLeft.x,
+        y: baseTopLeft.y,
+        transform: createIdentityPlacementTransform(),
+        active: true,
+        hp: CORE_STARTING_HP,
+        isCore: true,
+      }),
+    );
 
     const team: TeamState = {
       id: teamId,
@@ -2609,17 +2697,18 @@ export class RtsEngine {
           event.projection.bounds,
         )
       ) {
-        team.structures.set(event.structureKey, {
-          key: event.structureKey,
-          templateId: template.id,
-          x: event.x,
-          y: event.y,
-          transform: event.projection.transform,
-          active: false,
-          hp: STRUCTURE_STARTING_HP,
-          isCore: false,
-          buildRadius: 0,
-        });
+        team.structures.set(
+          event.structureKey,
+          template.instantiate({
+            key: event.structureKey,
+            x: event.x,
+            y: event.y,
+            transform: event.projection.transform,
+            active: false,
+            hp: STRUCTURE_STARTING_HP,
+            isCore: false,
+          }),
+        );
 
         appliedBuilds += 1;
         team.buildStats.applied += 1;
