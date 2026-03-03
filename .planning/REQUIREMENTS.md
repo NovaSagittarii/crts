@@ -55,17 +55,25 @@ Deferred requirements not included in the v0.0.3 roadmap.
 
 Which phases cover which requirements. Updated during roadmap creation.
 
-| Requirement                               | Phase | Status |
-| ----------------------------------------- | ----- | ------ |
-| _To be populated during roadmap creation_ | —     | —      |
+| Requirement | Phase    | Status  |
+| ----------- | -------- | ------- |
+| REF-01      | Phase 14 | Pending |
+| REF-02      | Phase 14 | Pending |
+| REF-03      | Phase 13 | Pending |
+| REF-04      | Phase 16 | Pending |
+| REF-05      | Phase 15 | Pending |
+| REF-06      | Phase 17 | Pending |
+| REF-07      | Phase 15 | Pending |
+| REF-08      | Phase 18 | Pending |
+| REF-09      | Phase 18 | Pending |
 
 **Coverage:**
 
 - v0.0.3 requirements: 9 total
-- Mapped to phases: 0
-- Unmapped: 9 ⚠️
+- Mapped to phases: 9 ✅
+- Unmapped: 0
 
 ---
 
 _Requirements defined: 2026-03-03_
-_Last updated: 2026-03-03 after v0.0.3 scope definition_
+_Last updated: 2026-03-03 after v0.0.3 roadmap creation_
