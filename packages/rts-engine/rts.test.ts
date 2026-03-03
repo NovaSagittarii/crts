@@ -249,6 +249,174 @@ describe('rts', () => {
     expect(queued.illegalCells).toEqual(preview.illegalCells);
   });
 
+  test('keeps transformed preview footprint aligned with applied structure footprint coordinates', () => {
+    const room = createRoomState({
+      id: 'wrapped-alignment-room',
+      name: 'Wrapped Alignment',
+      width: 20,
+      height: 20,
+    });
+    const team = addPlayerToRoom(room, 'p1', 'Alice');
+    const core = [...team.structures.values()].find(
+      (structure) => structure.isCore,
+    );
+    if (!core) {
+      throw new Error('Expected seeded core structure');
+    }
+
+    // Keep coverage centered so wrapped cells stay inside build-zone checks.
+    core.x = 5;
+    core.y = 5;
+
+    const payload = {
+      templateId: 'glider',
+      x: 19,
+      y: 19,
+      delayTicks: 1,
+      transform: {
+        operations: ['rotate' as const, 'mirror-horizontal' as const],
+      },
+    };
+
+    const preview = previewBuildPlacement(room, 'p1', payload);
+    const queued = queueBuildEvent(room, 'p1', payload);
+
+    expect(preview.accepted).toBe(true);
+    expect(queued.accepted).toBe(true);
+    expect(queued.footprint).toEqual(preview.footprint);
+
+    tickRoom(room);
+    const resolved = tickRoom(room);
+    const appliedOutcome = getBuildOutcomes(resolved).find(
+      ({ eventId }) => eventId === queued.eventId,
+    );
+
+    expect(appliedOutcome).toMatchObject({
+      eventId: queued.eventId,
+      outcome: 'applied',
+    });
+
+    const payloadState = createRoomStatePayload(room);
+    const payloadTeam = payloadState.teams.find(({ id }) => id === team.id);
+    const structure = payloadTeam?.structures.find(
+      ({ templateId, x, y }) =>
+        templateId === payload.templateId && x === payload.x && y === payload.y,
+    );
+
+    expect(structure).toBeDefined();
+    expect(structure?.footprint).toEqual(preview.footprint);
+    expect(structure?.key).toBe(
+      `${payload.x},${payload.y},${preview.bounds?.width ?? 0},${preview.bounds?.height ?? 0}`,
+    );
+  });
+
+  test('preserves occupied-site precedence over insufficient resources at execute time', () => {
+    const room = createRoomState({
+      id: 'occupied-precedence-room',
+      name: 'Occupied Precedence',
+      width: 70,
+      height: 70,
+    });
+    const team = addPlayerToRoom(room, 'p1', 'Alice');
+    const payload = {
+      templateId: 'generator',
+      x: team.baseTopLeft.x + 7,
+      y: team.baseTopLeft.y + 7,
+      transform: {
+        operations: ['rotate' as const, 'mirror-horizontal' as const],
+      },
+    };
+
+    const preview = previewBuildPlacement(room, 'p1', {
+      ...payload,
+      delayTicks: 1,
+    });
+    expect(preview.accepted).toBe(true);
+    const needed = preview.needed ?? 0;
+    team.resources = needed;
+
+    const first = queueBuildEvent(room, 'p1', {
+      ...payload,
+      delayTicks: 1,
+    });
+    const second = queueBuildEvent(room, 'p1', {
+      ...payload,
+      delayTicks: 2,
+    });
+
+    expect(first.accepted).toBe(true);
+    expect(second.accepted).toBe(true);
+
+    tickRoom(room);
+    const firstResolved = tickRoom(room);
+    const secondResolved = tickRoom(room);
+
+    const firstOutcome = getBuildOutcomes(firstResolved).find(
+      ({ eventId }) => eventId === first.eventId,
+    );
+    expect(firstOutcome).toMatchObject({
+      eventId: first.eventId,
+      outcome: 'applied',
+    });
+
+    const resourcesAfterFirst = team.resources;
+    const secondOutcome = getBuildOutcomes(secondResolved).find(
+      ({ eventId }) => eventId === second.eventId,
+    );
+    expect(secondOutcome).toMatchObject({
+      eventId: second.eventId,
+      outcome: 'rejected',
+      reason: 'occupied-site',
+    });
+    expect(team.resources).toBe(resourcesAfterFirst);
+  });
+
+  test('does not charge resources when transformed execute-time revalidation becomes unaffordable', () => {
+    const room = createRoomState({
+      id: 'revalidation-cost-room',
+      name: 'Revalidation Cost',
+      width: 70,
+      height: 70,
+    });
+    const team = addPlayerToRoom(room, 'p1', 'Alice');
+    const payload = {
+      templateId: 'generator',
+      x: team.baseTopLeft.x + 6,
+      y: team.baseTopLeft.y + 6,
+      delayTicks: 1,
+      transform: {
+        operations: ['rotate' as const, 'mirror-horizontal' as const],
+      },
+    };
+
+    const preview = previewBuildPlacement(room, 'p1', payload);
+    expect(preview.accepted).toBe(true);
+    const needed = preview.needed ?? 0;
+    team.resources = needed;
+
+    const queued = queueBuildEvent(room, 'p1', payload);
+    expect(queued.accepted).toBe(true);
+
+    team.resources = needed - 1;
+
+    tickRoom(room);
+    const resolved = tickRoom(room);
+    const rejectedOutcome = getBuildOutcomes(resolved).find(
+      ({ eventId }) => eventId === queued.eventId,
+    );
+
+    expect(rejectedOutcome).toMatchObject({
+      eventId: queued.eventId,
+      outcome: 'rejected',
+      reason: 'insufficient-resources',
+      affordable: false,
+      needed,
+      current: needed - 1,
+      deficit: 1,
+    });
+    expect(team.resources).toBe(needed - 1);
+  });
+
   test('keeps transformed structure payloads deterministic and fallback integrity masks active', () => {
     const transformedTemplate: StructureTemplate = withTemplateGrid({
       id: 'sentinel-eater',
@@ -574,11 +742,11 @@ describe('rts', () => {
 
   test('accepts torus-wrapped placements and rejects transformed templates that exceed map size', () => {
     const wideTemplate: StructureTemplate = withTemplateGrid({
-      id: 'wide-6',
-      name: 'Wide 6',
-      width: 6,
+      id: 'wide-21',
+      name: 'Wide 21',
+      width: 21,
       height: 1,
-      cells: new Uint8Array([1, 1, 1, 1, 1, 1]),
+      cells: new Uint8Array(21).fill(1),
       activationCost: 0,
       income: 0,
       buildArea: 0,
@@ -588,23 +756,31 @@ describe('rts', () => {
     const room = createRoomState({
       id: '1',
       name: 'Alpha',
-      width: 5,
-      height: 5,
+      width: 20,
+      height: 20,
       templates: [...createDefaultTemplates(), wideTemplate],
     });
-    addPlayerToRoom(room, 'p1', 'Alice');
+    const team = addPlayerToRoom(room, 'p1', 'Alice');
+    const core = [...team.structures.values()].find(
+      (structure) => structure.isCore,
+    );
+    if (!core) {
+      throw new Error('Expected core structure to seed build-zone coverage');
+    }
+    core.x = 5;
+    core.y = 5;
 
     const wrappedPreview = previewBuildPlacement(room, 'p1', {
       templateId: 'block',
-      x: 4,
-      y: 4,
+      x: 19,
+      y: 19,
     });
 
     expect(wrappedPreview.accepted).toBe(true);
     expect(wrappedPreview.reason).toBeUndefined();
     expect(wrappedPreview.bounds).toEqual({
-      x: 4,
-      y: 4,
+      x: 19,
+      y: 19,
       width: 2,
       height: 2,
     });
@@ -612,7 +788,7 @@ describe('rts', () => {
       new Set(
         (wrappedPreview.footprint ?? []).map((cell) => `${cell.x},${cell.y}`),
       ),
-    ).toEqual(new Set(['4,4', '0,4', '4,0', '0,0']));
+    ).toEqual(new Set(['19,19', '0,19', '19,0', '0,0']));
 
     const overflowPayload = {
       templateId: wideTemplate.id,
@@ -631,7 +807,7 @@ describe('rts', () => {
       x: 0,
       y: 0,
       width: 1,
-      height: 6,
+      height: 21,
     });
     expect(overflowPreview.footprint).toEqual([]);
     expect(overflowPreview.illegalCells).toEqual([]);
