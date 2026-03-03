@@ -1,123 +1,125 @@
 # Feature Research
 
-**Domain:** Conway RTS prototype - v0.0.2 Gameplay Expansion
-**Researched:** 2026-03-01
-**Confidence:** HIGH (milestone scope and behavior are defined in project docs)
+**Domain:** Conway RTS prototype - v0.0.3 Template/GridView refactor
+**Researched:** 2026-03-03
+**Confidence:** HIGH (based on current milestone scope plus shipped transform and integration behavior)
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-Features players should experience as baseline in v0.0.2. Missing these makes the gameplay expansion feel incomplete.
+These are must-haves for this cleanup milestone. Missing any of them means the refactor is incomplete or unsafe.
 
-| Feature                                                         | Expected Player-Facing Behavior                                                                                                                   | Complexity | Dependencies (Existing Systems)                                                                                                    | Milestone Notes                                              |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `STRUCT-INT`: Template-wide integrity + HP repair loop          | Structures that fail integrity auto-restore on repair intervals by consuming structure HP; exhausted HP leads to predictable collapse/degradation | HIGH       | Deterministic tick simulation; structure HP/state model; authoritative state snapshots; unit/integration quality gates from v0.0.1 | Land backend + tests before rich UI for structure status     |
-| `BASE-SHAPE`: 5x5 base footprint (16 cells)                     | Bases are easier to pressure and breach paths are broader, creating more active attack/defense play than a tiny core                              | MEDIUM     | Spawn/base initialization rules; breach/defeat resolution; client rendering for base geometry                                      | Keep one canonical 5x5 layout for this milestone             |
-| `BUILD-ZONE`: Union of per-structure build zones (radius 15)    | Build eligibility expands or contracts from owned structures, replacing one global build radius with spatially meaningful pressure zones          | HIGH       | Existing build queue validation/rejection flow; structure ownership index; geometry helpers; affordability feedback loop           | Radius is fixed at 15 in v0.0.2 to avoid rebalance churn     |
-| `UI-ARCH`: Lobby and in-game screen separation with transitions | Players move through a clear lobby flow into a focused in-game view with explicit state transitions at match start/end                            | MEDIUM     | Existing room/match lifecycle events and reconnect state; current web state machine                                                | Keep Socket.IO lobby contract stable while UI flow changes   |
-| `UI-ARCH` enabler: UI modularization into focused files         | No direct new button, but players get fewer regressions while new controls/overlays ship and iterate                                              | MEDIUM     | Existing `apps/web/src/client.ts` responsibilities; build tooling and event wiring                                                 | Treat as mandatory delivery foundation, not optional cleanup |
+| Feature                                                                          | Why Expected                                                                                 | Complexity | Dependencies (Existing Systems)                                                                                                           | Notes (Concrete, Testable Behavior)                                                                                                                                                             |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `REF-01` `template.grid()` canonical entrypoint                                  | The milestone goal is to stop branching between template and offset-template pathways        | MEDIUM     | `StructureTemplate` shape in `packages/rts-engine/rts.ts`; existing transform-aware placement flow                                        | `template.grid()` returns a transform-ready `GridView` anchored to template-local coordinates; repeated calls are behaviorally equivalent and do not mutate template source data                |
+| `REF-02` `GridView.translate`, `GridView.rotate`, `GridView.applyTransform`      | Rotate/mirror placement is already shipped; refactor must preserve exact transform semantics | HIGH       | Shared helpers in `packages/rts-engine/placement-transform.ts`; existing preview/queue/apply parity and web transform controls            | `rotate()` applies 90-degree steps with four rotates returning identity; `applyTransform` stays order-sensitive; `translate(dx, dy)` applies signed offset without torus wrapping at this layer |
+| `REF-03` `GridView.cells()` returns transformed `{ x, y, alive }` for every cell | Compare/apply/integrity logic needs complete transformed grids, not only occupied cells      | HIGH       | Existing compare/apply/integrity loops in `packages/rts-engine/rts.ts`; deterministic tick model                                          | `cells()` emits each transformed coordinate exactly once, includes `alive: 0` and `alive: 1`, and uses stable deterministic order (row-major by transformed `y`, then `x`)                      |
+| `REF-04` deduplicate template vs offset-template logic with no outcome drift     | Main purpose of this milestone is simplification without gameplay behavior change            | HIGH       | Deterministic lifecycle ordering, authoritative queue validation taxonomy, reconnect-safe destroy projection, tactical overlay data feeds | For same input payloads, preview legality, rejection reason, queued outcome, applied footprint, and integrity effects remain unchanged versus baseline                                          |
+| `REF-QUAL` parity safety net for refactor                                        | Internal cleanups need guardrails to prove no simulation or contract regressions             | MEDIUM     | Existing tests in `packages/rts-engine/*.test.ts`, `tests/integration/server/server.test.ts`, and transform view-model tests              | Add/keep assertions that old and new pathways are equivalent on transformed bounds, footprint cells, illegal cells, and rejection reasons                                                       |
 
-### Differentiators (High-Value Gameplay/UI Leverage)
+### Differentiators (Optional but High Leverage)
 
-These features increase strategic expression and readability once table stakes are stable.
+These are optional improvements that increase maintainability and performance, but are not required for milestone closure.
 
-| Feature                                                           | Value Proposition                                                                                              | Complexity | Dependencies (Existing Systems)                                                                              | Milestone Notes                                                        |
-| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| `PLACE-XFORM`: Rotate/mirror placement transforms                 | Players can adapt the same template to many tactical contexts without requiring a much larger template catalog | HIGH       | Template placement pipeline; server-side build validation; client preview/ghost placement handling           | Ship canonical transforms only (90-degree rotations + mirror)          |
-| `UI-MAP`: Structure hover details + destroy action                | Players can inspect ownership/health role and intentionally remove weak or misplaced structures                | MEDIUM     | Authoritative structure identifiers and metadata in snapshots; action validation and acknowledgment pipeline | Start with single-structure select + confirm destroy (no bulk actions) |
-| `UI-MAP`: Pan/zoom camera + in-grid overlays (economy/build/team) | Larger base/build-zone mechanics stay readable and pressure is understandable at gameplay speed                | HIGH       | Camera/world coordinate transform layer; authoritative economy/team/build-zone data feeds; render layering   | Prioritize correctness and legibility over animation polish            |
+| Feature                                                    | Value Proposition                                                               | Complexity | Dependencies (Existing Systems)                                      | Notes                                                                                                              |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `REF-05A` Shared adapters for common GridView consumers    | Reduces repeated loops in compare/apply/integrity/build-zone projection code    | MEDIUM     | Core call sites in `packages/rts-engine/rts.ts`                      | Good candidate for the "additional low-risk simplification" requirement if diff stays small and tests remain green |
+| `REF-05B` Lightweight transform projection caching         | Cuts repeated projection/allocation cost during rapid preview transform changes | MEDIUM     | Deterministic transform keying from operation sequence + translation | Only worthwhile if profiling shows hot paths; cache must be local and deterministic                                |
+| `REF-05C` Temporary migration assertions (old vs new path) | Speeds verification while deleting duplicated code                              | LOW        | Existing unit/integration test harness                               | Keep during refactor, then remove once parity is locked and duplicate path is deleted                              |
 
-### Anti-Features (Out of Scope / Risky Scope Expansion)
+### Anti-Features (Commonly Requested, Often Problematic)
 
-| Anti-Feature                                                 | Why Requested                                    | Why Problematic in v0.0.2                                                                                                  | Alternative                                                      |
-| ------------------------------------------------------------ | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Full custom template editor + user-uploaded template sharing | More creativity and content variety              | Expands validation surface, abuse risk, and balance volatility while core transform/build-zone rules are still stabilizing | Keep curated templates and ship rotate/mirror first              |
-| Minimap, fog-of-war, cinematic camera effects                | Feels "more complete RTS"                        | High UI/system cost that competes with required pan/zoom + overlay correctness                                             | Deliver practical pan/zoom with clear, trustworthy overlays      |
-| Bulk destroy, undo/redo timeline editing                     | Convenience for correcting mistakes              | Requires rollback/history semantics and increases deterministic desync risk                                                | Single destroy action with explicit server acknowledgment        |
-| Multiple base archetypes or custom base geometry             | Variety/replayability request                    | Undercuts `BASE-SHAPE` balancing objective and multiplies breach test matrix                                               | Lock to one 5x5 (16-cell) base shape this milestone              |
-| Frontend framework migration during modularization           | Team ergonomics and long-term architecture goals | High delivery risk and minimal immediate player value for this milestone                                                   | Modularize the current TypeScript/Vite client incrementally      |
-| Client-predicted build-zone/repair outcomes                  | Faster apparent responsiveness                   | Risks divergence from authoritative simulation and confusing mismatch states                                               | Keep server-authoritative outcomes with clear pending indicators |
+| Feature                                                                             | Why Requested                                                 | Why Problematic                                                                          | Alternative                                                                                          |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| New transform types in this milestone (arbitrary-angle rotation, scaling, shearing) | "If we are touching transforms, add more transform power now" | Expands validation matrix and drift risk while cleanup work is trying to reduce risk     | Keep current transform scope only; consider expanded transforms in a separate milestone              |
+| Client/runtime-specific transform forks                                             | "Frontend can compute faster locally"                         | Reintroduces cross-layer drift that v0.0.2 eliminated via shared transform utilities     | Keep transform math centralized in shared helpers and consume same semantics everywhere              |
+| Mutable GridView/template APIs with in-place side effects                           | "Fewer allocations"                                           | Hidden mutation undermines deterministic reasoning and makes parity bugs hard to isolate | Keep GridView operations pure/chainable and leave wrapping/application to authoritative engine paths |
+| Network contract churn during refactor                                              | "Clean up payloads while we refactor internals"               | High regression risk for server/web integration and reconnect-safe flows                 | Preserve existing payload shapes and reason taxonomy; refactor internals only                        |
+| Broad unrelated cleanup bundled into v0.0.3                                         | "Touch nearby files while we're here"                         | Increases review surface and makes behavior regressions harder to attribute              | Limit scope to template/grid unification plus one explicitly scoped low-risk simplification          |
 
 ## Feature Dependencies
 
 ```text
-[Deterministic tick + authoritative state broadcast] (v0.0.1 baseline)
-    └──enables──> [STRUCT-INT integrity/HP repair loop]
-                        └──feeds──> [Hover structure health/details]
+[placement-transform.ts shared math]
+    └──requires──> [REF-02 GridView transform APIs]
+                        └──requires──> [REF-03 GridView.cells deterministic transformed output]
+                                             └──required-by──> [preview/queue/apply + integrity + overlay parity]
 
-[Spawn/base initialization + breach resolver] (v0.0.1 baseline)
-    └──required-by──> [BASE-SHAPE 5x5/16-cell footprint]
+[REF-01 template.grid canonical entrypoint]
+    └──required-by──> [REF-04 remove template/offset-template duplication]
+                         └──must-preserve──> [deterministic lifecycle + authoritative queue validation + reconnect-safe destroy]
 
-[Build queue validation + rejection reasons] (v0.0.1 baseline)
-    └──required-by──> [BUILD-ZONE union radius=15]
-                            └──enhanced-by──> [PLACE-XFORM rotate/mirror]
-                            └──updated-by──> [Destroy action shrinks zones]
-
-[UI modularization]
-    └──enables──> [Lobby/in-game separation]
-                       └──enables──> [Pan/zoom + overlays + hover interactions]
+[REF-QUAL parity tests]
+    └──gates──> [REF-05 optional simplifications]
 ```
 
 ### Dependency Notes
 
-- **`STRUCT-INT` before rich structure UI:** hover/detail surfaces are only trustworthy once template-wide integrity and HP behavior are authoritative.
-- **`BASE-SHAPE` and `BUILD-ZONE` should be validated together:** footprint/radius changes jointly define pressure lanes and breach pacing.
-- **`PLACE-XFORM` depends on stable legality checks:** transformed placements must run through the same authoritative validation as non-transformed placements.
-- **Destroy must immediately affect build eligibility:** removing structures must recompute union zones to avoid stale client previews.
-- **UI modularization should precede heavy map UI work:** lowers regression risk while adding camera transforms, overlays, and hover interactions.
+- **`REF-02` depends on existing transform semantics:** operation order, rotate cycle behavior, and matrix normalization must match current authoritative placement behavior.
+- **`REF-03` is the bridge between refactor and gameplay safety:** if `cells()` order/content drifts, compare/apply/integrity outcomes can change even when APIs compile.
+- **`REF-04` depends on baseline invariants already shipped:** deterministic tick order and queue taxonomy must not be altered by cleanup.
+- **Destroy and overlays are indirect dependencies:** stable structure projection data is needed so reconnect-safe destroy UI and tactical overlays remain trustworthy.
+- **`REF-05` should ship only behind parity evidence:** do not merge optional simplification work without explicit regression coverage.
 
 ## MVP Definition
 
-### Launch With (v0.0.2)
+### Launch With (v0.0.3)
 
-- [ ] `STRUCT-INT` template-wide integrity/HP repair loop with deterministic tests
-- [ ] `BASE-SHAPE` 5x5/16-cell base footprint integrated with breach outcomes
-- [ ] `BUILD-ZONE` union-of-structure build eligibility at radius 15
-- [ ] `PLACE-XFORM` rotate/mirror placement supported in validation + UI controls
-- [ ] `UI-MAP` baseline structure hover details + single-structure destroy flow
-- [ ] `UI-MAP` practical pan/zoom + economy/build/team overlays
-- [ ] `UI-ARCH` lobby/in-game separation and modularized UI code organization
+- [ ] `REF-01` `template.grid()` available as canonical transformable shape entrypoint
+- [ ] `REF-02` `GridView.translate/rotate/applyTransform` implemented via shared transform helpers
+- [ ] `REF-03` `GridView.cells()` yields deterministic transformed `{ x, y, alive }` entries for all cells
+- [ ] `REF-04` duplicate template/offset-template paths removed with no authoritative behavior drift
+- [ ] `REF-QUAL` regression tests proving preview/queue/apply/integrity parity
 
-### Add After Validation (v0.0.2.x)
+### Add After Validation (v0.0.3.x)
 
-- [ ] Overlay polish (extra visual modes, richer toggles) after readability is confirmed in playtests
-- [ ] Transform QoL (hotkeys, repeat placement workflows) after baseline rotate/mirror adoption is validated
-- [ ] Advanced structure panel workflows (sorting/filtering/history) after baseline hover/destroy telemetry exists
+- [ ] `REF-05A` central helper extraction for repeated GridView consumer loops after parity lock
+- [ ] `REF-05B` targeted caching if profiling shows transform projection hotspots
+- [ ] Remove temporary migration assertions once duplicate pathway deletion is complete
 
-### Future Consideration (v0.0.3+)
+### Future Consideration (v0.0.4+)
 
-- [ ] New transport/runtime stack changes (WASM/protobuf/protocol redesign)
-- [ ] Auth, progression, and matchmaking services
-- [ ] High-scale map/performance rearchitecture
-- [ ] Replay, spectator, or timeline-scrubbing systems
+- [ ] Expanded transform model (only if gameplay requirements demand it)
+- [ ] Template authoring/editor capabilities (separate product scope, not cleanup scope)
 
 ## Feature Prioritization Matrix
 
-| Feature                                           | User Value               | Implementation Cost | Priority |
-| ------------------------------------------------- | ------------------------ | ------------------- | -------- |
-| `STRUCT-INT`                                      | HIGH                     | HIGH                | P1       |
-| `BASE-SHAPE`                                      | HIGH                     | MEDIUM              | P1       |
-| `BUILD-ZONE`                                      | HIGH                     | HIGH                | P1       |
-| `UI-ARCH` separation + modularization             | HIGH                     | MEDIUM              | P1       |
-| `PLACE-XFORM`                                     | HIGH                     | HIGH                | P1       |
-| `UI-MAP` hover + destroy                          | HIGH                     | MEDIUM              | P1       |
-| `UI-MAP` pan/zoom + overlays                      | HIGH                     | HIGH                | P1       |
-| Overlay/transform QoL polish                      | MEDIUM                   | MEDIUM              | P2       |
-| Minimap/fog-of-war/replay/custom-template systems | LOW (for this milestone) | HIGH                | P3       |
+| Feature                                                  | User Value | Implementation Cost | Priority |
+| -------------------------------------------------------- | ---------- | ------------------- | -------- |
+| `REF-01` `template.grid()` canonical entrypoint          | HIGH       | MEDIUM              | P1       |
+| `REF-02` GridView transform APIs via shared helpers      | HIGH       | HIGH                | P1       |
+| `REF-03` deterministic transformed `cells()` output      | HIGH       | HIGH                | P1       |
+| `REF-04` duplicate path removal without behavior changes | HIGH       | HIGH                | P1       |
+| `REF-QUAL` parity regression coverage                    | HIGH       | MEDIUM              | P1       |
+| `REF-05A` shared helper extraction                       | MEDIUM     | MEDIUM              | P2       |
+| `REF-05B` transform projection caching                   | MEDIUM     | MEDIUM              | P2       |
+| Transform model expansion in same milestone              | LOW        | HIGH                | P3       |
 
 **Priority key:**
 
-- P1: Must have for v0.0.2 milestone closure
-- P2: Add once v0.0.2 core behavior is validated
-- P3: Explicitly deferred
+- P1: Must have for v0.0.3 milestone closure
+- P2: Optional improvement after parity is proven
+- P3: Explicitly deferred anti-feature for this milestone
+
+## Implementation Pattern Analysis
+
+| Feature Area          | Existing Path A                                   | Existing Path B                            | Our Approach                                                            |
+| --------------------- | ------------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------- |
+| Template shape access | Direct template cell loops in multiple call sites | Offset-template style pathway duplication  | One `template.grid()` entrypoint consumed across call sites             |
+| Transform application | Per-call projection + ad-hoc usage                | Separate branches for offset handling      | Shared GridView transform operations backed by shared transform helpers |
+| Cell iteration        | Different loops for compare/apply/integrity       | Potentially different ordering assumptions | Single deterministic `GridView.cells()` contract reused everywhere      |
 
 ## Sources
 
 - `/home/alpine/crts-opencode/.planning/PROJECT.md` (HIGH)
-- `/home/alpine/crts-opencode/conway-rts/DESIGN.md` (HIGH)
+- `/home/alpine/crts-opencode/.planning/MILESTONES.md` (HIGH)
+- `/home/alpine/crts-opencode/packages/rts-engine/placement-transform.ts` (HIGH)
+- `/home/alpine/crts-opencode/packages/rts-engine/placement-transform.test.ts` (HIGH)
+- `/home/alpine/crts-opencode/packages/rts-engine/rts.ts` (HIGH)
+- `/home/alpine/crts-opencode/tests/integration/server/server.test.ts` (HIGH)
 
 ---
 
-_Feature research for: Conway RTS prototype - v0.0.2 Gameplay Expansion_
-_Researched: 2026-03-01_
+_Feature research for: Conway RTS prototype - v0.0.3 Template/GridView refactor_
+_Researched: 2026-03-03_

@@ -1,291 +1,301 @@
 # Architecture Research
 
-**Domain:** Conway RTS v0.0.2 gameplay expansion (deterministic multiplayer, server authoritative)
-**Researched:** 2026-03-01
-**Confidence:** HIGH for backend integration points and contracts; MEDIUM for exact frontend module split shape
+**Domain:** Conway RTS v0.0.3 template/grid cleanup integration
+**Researched:** 2026-03-03
+**Confidence:** HIGH
 
 ## Standard Architecture
 
 ### System Overview
 
 ```text
-┌───────────────────────────────────── Browser (apps/web) ─────────────────────────────────────┐
-│  Lobby View  <->  Game View  <->  Overlay Layer (hover/details/build-zone/economy badges)    │
-│         │                  │                     │                                              │
-│         └────────────── UI Store (authoritative state + local camera/input state) ───────────┘
-│                                            │                                                    │
-│                                   Typed Socket Adapter                                          │
-└────────────────────────────────────────────┬─────────────────────────────────────────────────────┘
-                                             │
-┌────────────────────────────────────────────┴─────────────────────────────────────────────────────┐
-│                          Server Runtime (apps/server/src/server.ts)                              │
-│  Socket handlers -> payload parsing -> lifecycle gate -> engine command APIs -> room broadcast   │
-│                                            │                                                      │
-│                                        Tick Loop                                                  │
-└────────────────────────────────────────────┬─────────────────────────────────────────────────────┘
-                                             │
-┌────────────────────────────────────────────┴─────────────────────────────────────────────────────┐
-│                         Deterministic Engine (packages/rts-engine)                               │
-│  placement transforms | union build-zone checks | queue commands (build/destroy)                │
-│  structure integrity + HP repair | base geometry | room payload projection                       │
-└───────────────────────────────────────────────────────────────────────────────────────────────────┘
++----------------------------- Runtime Layer ------------------------------+
+| apps/web/src/client.ts  <->  apps/server/src/server.ts                  |
+| (input/render)                (socket parsing, lifecycle gate, emits)   |
++-----------------------------------+-------------------------------------+
+                                    |
+                                    v
++----------------------- Deterministic Domain Layer -----------------------+
+| packages/rts-engine/rts.ts                                              |
+|  - previewBuildPlacement / queueBuildEvent / tickRoom                   |
+|  - projectStructures / integrity checks / payload projection             |
+|                                                                          |
+| NEW internal canonical path:                                             |
+|   template.grid() -> GridView.applyTransform(...) -> translate(...)      |
+|   -> cells() -> legality/apply/integrity/projection consumers            |
++-------------------+-------------------------+----------------------------+
+                    |                         |
+                    v                         v
+      +-------------+-------------+   +-------+---------------------------+
+      | grid-view.ts (NEW)        |   | placement-transform.ts (MOD)      |
+      | immutable transformed view|   | normalize transform + wrap helper |
+      +-------------+-------------+   +-------+---------------------------+
+                    |                         |
+                    +------------+------------+
+                                 v
+                      +----------+----------+
+                      | conway-core/grid.ts |
+                      | authoritative grid  |
+                      | mutation/step/pack  |
+                      +---------------------+
 ```
 
 ### Component Responsibilities
 
-| Component                                         | Responsibility                                                                                        | Typical Implementation                                               |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `packages/rts-engine` deterministic core          | Own build validation, transform normalization, queue execution, integrity/HP rules, base breach logic | Pure functions called from server tick and socket handlers           |
-| `apps/server/src/server.ts` runtime orchestration | Own socket events, lifecycle gating (`lobby/countdown/active/finished`), room-scoped emissions        | Parse payload -> call package API -> emit `state` and outcome events |
-| `packages/rts-engine/socket-contract.ts`          | Own wire-level TypeScript contracts for client/server/integration tests                               | Shared event interfaces and payload types                            |
-| `apps/web` app state + rendering                  | Own view transitions, map camera (pan/zoom), overlay rendering, local input state                     | Split store/socket/render/view modules; no simulation logic          |
-| `tests/integration/server/*`                      | Lock end-to-end event and lifecycle behavior                                                          | Socket-level contract tests with two clients and deterministic waits |
+| Component                                          | Responsibility                                                         | Typical Implementation                                                                              |
+| -------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `StructureTemplate` (`packages/rts-engine/rts.ts`) | Own template metadata and expose canonical `grid()` entrypoint         | Keep existing metadata (`id`, `name`, `width`, `height`, `cells`, `checks`) plus `grid(): GridView` |
+| `GridView` (`packages/rts-engine/grid-view.ts`)    | Represent immutable transformed/translated template cells              | Chainable methods: `translate`, `rotate`, `applyTransform`, `cells()`                               |
+| `placement-transform.ts`                           | Keep network-facing transform normalization and matrix state           | Reuse shared transform math; preserve existing `PlacementTransformState` contract                   |
+| `rts.ts`                                           | Orchestrate queue validation, apply, integrity, and payload projection | Replace duplicate template-vs-offset loops with a single GridView pipeline                          |
+| `apps/server/src/server.ts`                        | Runtime payload parsing and server authority                           | No wire-contract change required for this refactor                                                  |
 
 ## Recommended Project Structure
 
 ```text
 packages/rts-engine/
-├── rts.ts                         # Existing orchestrator; keep as main tick entry
-├── placement-transform.ts         # NEW: rotate/mirror normalization + transformed template projection
-├── build-zone.ts                  # NEW: union-of-structure-radius predicates + overlay projection
-├── structure-integrity.ts         # NEW: generic K-tick integrity check + HP repair resolution
-├── structure-commands.ts          # NEW: build/destroy queue command union + deterministic ordering
-├── socket-contract.ts             # Existing wire contracts; extend events/payloads
-└── *.test.ts                      # Expand deterministic unit coverage before server/UI wiring
+├── rts.ts                      # MOD: adopt template.grid() + GridView pipeline
+├── placement-transform.ts      # MOD: keep transform normalization; share matrix helpers
+├── grid-view.ts                # NEW: GridView abstraction and cell iteration
+├── grid-view.test.ts           # NEW: deterministic unit tests for GridView behavior
+├── index.ts                    # MOD: export GridView APIs
+└── *.test.ts                   # MOD: parity tests for preview/queue/apply/integrity
 
 apps/server/src/
-├── server.ts                      # Existing runtime; extend handlers and emissions
-├── gameplay-payloads.ts           # NEW: transform + destroy payload parsing/validation helpers
-└── lobby-session.ts               # Existing reconnect/session authority logic
+└── server.ts                   # NO REQUIRED CHANGE (payload contracts stay stable)
 
 apps/web/src/
-├── client.ts                      # Convert to bootstrap only
-├── app/store.ts                   # NEW: canonical client state + derived selectors
-├── app/socket.ts                  # NEW: event bindings and dispatch bridge
-├── views/lobby-view.ts            # NEW: lobby-focused DOM/render logic
-├── views/game-view.ts             # NEW: in-match DOM/render logic
-├── render/camera.ts               # NEW: pan/zoom transforms and world<->screen helpers
-├── render/grid-renderer.ts        # NEW: grid canvas paint path
-├── render/overlay-renderer.ts     # NEW: build-zone, structure hover, placement previews
-├── features/placement-controls.ts # NEW: rotate/mirror controls + preview queue interactions
-└── features/structure-actions.ts  # NEW: destroy action UX flow
+└── client.ts                   # NO REQUIRED CHANGE (consumes same preview/state payloads)
+
+tests/integration/server/
+├── quality-gate-loop.test.ts   # MOD: validate transformed-size assumptions via shared helpers
+├── server.test.ts              # MOD (optional): extract duplicated placement helper
+└── destroy-determinism.test.ts # MOD (optional): reuse extracted placement helper
 ```
 
 ### Structure Rationale
 
-- **`placement-transform.ts` + `structure-commands.ts`:** keeps rotation/mirror and destroy changes out of `rts.ts` mega-function sprawl.
-- **`build-zone.ts`:** isolates the new union-radius algorithm so queue validation, preview, and overlays share one implementation.
-- **`gameplay-payloads.ts` on server:** avoids ad-hoc parsing branches inside an already large `server.ts`.
-- **`app/store.ts` and dedicated render/view modules:** makes lobby/game transition and camera overlays testable without socket coupling.
+- **`grid-view.ts` is the only required new module:** this keeps scope focused on REF-01 through REF-04 without changing runtime boundaries.
+- **`rts.ts` remains orchestrator-only:** transform/cell mechanics move behind `template.grid()` to reduce logic sprawl in placement, apply, and integrity paths.
+- **Server/web stay stable:** no additional socket event fields are needed because this is an internal engine refactor.
 
 ## Architectural Patterns
 
-### Pattern 1: Command Queue Union (Build + Destroy)
+### Pattern 1: Template Normalization at Room Boundary
 
-**What:** Keep one deterministic queue model with a command union instead of parallel ad-hoc queues.
-**When to use:** Any gameplay mutation that changes structures/grid state (`build`, `destroy`).
-**Trade-offs:** Slight refactor now, less long-term event-order ambiguity and less duplicate validation logic.
-
-**Example:**
-
-```typescript
-type PlacementTransform = {
-  rotationQuarterTurns: 0 | 1 | 2 | 3;
-  mirrorX: boolean;
-};
-
-type QueuedCommand =
-  | {
-      kind: 'build';
-      eventId: number;
-      teamId: number;
-      executeTick: number;
-      templateId: string;
-      x: number;
-      y: number;
-      transform: PlacementTransform;
-    }
-  | {
-      kind: 'destroy';
-      eventId: number;
-      teamId: number;
-      executeTick: number;
-      structureId: string;
-    };
-```
-
-### Pattern 2: Shared Validation Path for Preview and Queue
-
-**What:** Preview and queue should call the same engine validator, not diverging code paths.
-**When to use:** Build placement with transforms, destroy checks, affordability checks.
-**Trade-offs:** Requires extracting validator API from `queueBuildEvent`; removes clone/probe drift risk.
+**What:** Normalize templates once when constructing room state so every template has a canonical `grid()` API, including test-injected templates.
+**When to use:** In `createRoomState` and `createDefaultTemplates` construction paths.
+**Trade-offs:** Small setup overhead, much lower regression risk for custom template fixtures.
 
 **Example:**
 
 ```typescript
-const preview = validateBuildCommand(room, teamId, payload);
-if (!preview.ok) return reject(preview.reason);
+interface StructureTemplate {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  cells: Uint8Array;
+  checks: Vector2[];
+  grid(): GridView;
+}
 
-const queued = queueValidatedBuildCommand(room, preview.normalized);
+function normalizeTemplate(
+  template: StructureTemplateInput,
+): StructureTemplate {
+  const base = createGridView(template.width, template.height, template.cells);
+  return {
+    ...template,
+    grid: () => base,
+  };
+}
 ```
 
-### Pattern 3: Server-Projected Structure Metadata for Grid-Attached UI
+### Pattern 2: Immutable GridView Transform Chain
 
-**What:** Server emits structure snapshots and build-zone sources; client only renders and interacts.
-**When to use:** Hover details, destroy affordance, build-zone overlays, camera-aware annotations.
-**Trade-offs:** Larger `state` payload; avoids client/server rules drift.
+**What:** Replace two-step template projection (`projectTemplateWithTransform` then `projectPlacementToWorld`) with one immutable chain.
+**When to use:** Preview legality, queue validation, apply, integrity checks, and structure footprint projection.
+**Trade-offs:** More short-lived objects; removes duplicated coordinate math and keeps behavior consistent.
+
+**Example:**
+
+```typescript
+const normalized = normalizePlacementTransform(payload.transform);
+const worldView = template
+  .grid()
+  .applyTransform(normalized.matrix)
+  .translate(anchorX, anchorY);
+
+for (const cell of worldView.cells()) {
+  // cell: { x, y, alive }
+}
+```
+
+### Pattern 3: Adapter-First Migration
+
+**What:** Keep existing exported helper APIs during migration and implement them via GridView internally.
+**When to use:** During phased rollout to avoid breaking tests and runtime contracts mid-milestone.
+**Trade-offs:** Temporary duplication of type names, but lower regression blast radius.
+
+**Example:**
+
+```typescript
+export function projectTemplateWithTransform(
+  template: TransformTemplateInput,
+  transform: PlacementTransformState,
+): TransformedTemplate {
+  return toTransformedTemplate(
+    createGridView(
+      template.width,
+      template.height,
+      template.cells,
+    ).applyTransform(transform.matrix),
+  );
+}
+```
 
 ## Data Flow
 
-### Flow A: Rotate/Mirror Build Path (Preview -> Queue -> Commit)
+### Request Flow (Preview/Queue)
 
 ```text
-[UI transform controls + board click]
-    -> build:preview {templateId, x, y, rotationQuarterTurns, mirrorX}
-    -> server payload parser + lifecycle gate
-    -> engine validateBuildPlacement(...)
-    -> build:preview response (affordability + rejection reason + normalized transform)
-    -> build:queue (same payload)
-    -> engine queue command
-    -> tick executes command deterministically
-    -> build:outcome + state broadcast
+[Web build click + transform state]
+    -> apps/server parseBuildPayload
+    -> previewBuildPlacement / queueBuildEvent (rts.ts)
+    -> template.grid().applyTransform(...).translate(x, y)
+    -> GridView.cells() (all cells with alive flag)
+    -> partition data:
+         - areaCells (all)
+         - footprint (alive only)
+         - bounds (derived extents)
+    -> legality + affordability + apply pipeline
+    -> existing build:preview / build:queued / build:outcome events
 ```
 
-### Flow B: Destroy Structure End-to-End
-
-```text
-[Hover structure -> Destroy action]
-    -> structure:destroy {structureId, delayTicks}
-    -> server validates active state + ownership + not defeated
-    -> engine queues destroy command
-    -> tick resolves command (remove structure, recompute build-zone sources)
-    -> structure:outcome + state broadcast
-```
-
-### Flow C: Generic Integrity + HP Repair Loop
+### Tick Flow (Deterministic)
 
 ```text
 tickRoom
-  1) apply economy + due queued commands
-  2) apply grid mutations from accepted commands
-  3) apply legacy updates (until removed)
+  1) applyTeamEconomyAndQueue (validation uses GridView)
+  2) apply accepted builds (GridView-derived cell stream)
+  3) apply legacy updates
   4) step Conway grid
-  5) every K ticks: integrity checks for all structures with checks[]
-     - failed check => hp--, then restore template if hp > 0
-  6) evaluate defeat + match outcome
-  7) project state payload
+  5) resolve integrity checks (same transformed cell basis)
+  6) project payloads (footprints from same basis)
 ```
 
-### Key Data Flows
+### Data-Flow Impact Summary
 
-1. **Transform propagation:** UI controls -> preview payload -> queued command -> outcome/state metadata.
-2. **Build-zone propagation:** structure active/radius changes -> server build-zone source projection -> client overlay render.
-3. **Destroy propagation:** hover-selected `structureId` -> queued destroy command -> state removal and outcome event.
+| Data Artifact                      | Current Producer                                                       | Recommended Producer                                                   | External Contract Impact |
+| ---------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------ |
+| Build preview `footprint`/`bounds` | `projectTemplateWithTransform` + `projectPlacementToWorld` in `rts.ts` | `template.grid().applyTransform().translate().cells()` pipeline        | None                     |
+| `compareTemplate` diff counting    | Nested loops over transformed array + bounds offsets                   | Iterate GridView cell stream directly                                  | None                     |
+| `applyTemplate` writes             | Nested loops over transformed array + bounds offsets                   | Iterate GridView cell stream directly                                  | None                     |
+| Integrity mask expected values     | Mix of transformed checks + occupied cells arrays                      | Same checks path, but cell expectations read from GridView coordinates | None                     |
+| `StructurePayload.footprint`       | `projectTemplateWithTransform` + world projection                      | GridView pipeline filtered to alive cells                              | None                     |
 
 ## Integration Points
 
-### New Artifacts (Create)
+### New Components
 
-| Artifact                                                              | Layer  | Responsibility                                                                    | Depends On                            |
-| --------------------------------------------------------------------- | ------ | --------------------------------------------------------------------------------- | ------------------------------------- |
-| `packages/rts-engine/placement-transform.ts`                          | Engine | Deterministic rotate/mirror projection for cells/checks and normalized dimensions | Existing template model in `rts.ts`   |
-| `packages/rts-engine/build-zone.ts`                                   | Engine | Union-of-structure-radius validation and overlay source projection                | Structure snapshots and active status |
-| `packages/rts-engine/structure-integrity.ts`                          | Engine | Generic integrity check + HP repair (not core-only)                               | Tick order in `tickRoom`              |
-| `packages/rts-engine/structure-commands.ts`                           | Engine | Build/destroy command queue model + deterministic sorting                         | Queue/event IDs in room state         |
-| `apps/server/src/gameplay-payloads.ts`                                | Server | Parse and normalize transform/destroy payload fields                              | Socket contracts                      |
-| `apps/web/src/render/camera.ts`                                       | Web    | Pan/zoom and world/screen conversion helpers                                      | Canvas render and pointer handlers    |
-| `apps/web/src/render/overlay-renderer.ts`                             | Web    | Build-zone outlines, hover cards, placement footprints                            | State payload structure metadata      |
-| `apps/web/src/views/lobby-view.ts`, `apps/web/src/views/game-view.ts` | Web    | Explicit lobby/game view transitions                                              | App store state machine               |
+| Component                               | Layer        | Responsibility                                         | Why New                                     |
+| --------------------------------------- | ------------ | ------------------------------------------------------ | ------------------------------------------- |
+| `packages/rts-engine/grid-view.ts`      | Engine       | Canonical immutable transformed grid abstraction       | Required by REF-01/REF-02/REF-03            |
+| `packages/rts-engine/grid-view.test.ts` | Engine tests | Lock deterministic transform/translation/cell ordering | Prevent subtle regressions during migration |
 
-### Existing Artifacts (Modify)
+### Modified Components
 
-| Artifact                                                                                           | Change Type          | Required Changes                                                                                                           |
-| -------------------------------------------------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `packages/rts-engine/rts.ts`                                                                       | Modify               | Base shape constants/template, queue event model, structure ID strategy, new zone/integrity calls, destroy command support |
-| `packages/rts-engine/socket-contract.ts`                                                           | Modify               | Extend build payloads with transform fields; add destroy events/payloads; extend state team payload for structures/zones   |
-| `packages/rts-engine/index.ts`                                                                     | Modify               | Export newly extracted modules/types                                                                                       |
-| `packages/rts-engine/rts.test.ts`                                                                  | Modify               | Add tests for transform validity, 5x5 base checks, union-zone checks, destroy command, deterministic same-tick ordering    |
-| `apps/server/src/server.ts`                                                                        | Modify               | Wire new payload parsers, `structure:destroy` path, extended outcome emissions, updated reason mappings                    |
-| `apps/web/src/client.ts`                                                                           | Modify (then shrink) | Migrate monolith logic into store/socket/render/view modules; keep bootstrap only                                          |
-| `apps/web/index.html`                                                                              | Modify               | Add explicit lobby/game containers, map viewport wrapper, overlay layer anchors, transform/destroy controls                |
-| `tests/integration/server/server.test.ts` and `tests/integration/server/quality-gate-loop.test.ts` | Modify               | Assert new wire contracts, destroy flow, transform-aware preview/queue/outcome, and no regressions in existing lifecycle   |
+| Component                                            | Change Type | Required Change                                                                                     |
+| ---------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------- |
+| `packages/rts-engine/rts.ts`                         | Modify      | Add `template.grid()` usage in placement projection, compare/apply, integrity, structure projection |
+| `packages/rts-engine/placement-transform.ts`         | Modify      | Reuse shared transform math with GridView adapters; preserve existing exported transform types      |
+| `packages/rts-engine/index.ts`                       | Modify      | Export GridView APIs for package consumers/tests                                                    |
+| `packages/rts-engine/rts.test.ts`                    | Modify      | Add parity tests proving same outcomes for preview/queue/apply/integrity after refactor             |
+| `packages/rts-engine/placement-transform.test.ts`    | Modify      | Assert adapter behavior remains backward-compatible                                                 |
+| `tests/integration/server/quality-gate-loop.test.ts` | Modify      | Use shared transformed-size logic to avoid local transform drift                                    |
 
-### Critical Data Contract Extensions
+### Explicitly Unchanged Components
 
-| Contract                     | Extension                                                                                                                   | Why                                                                              |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `BuildPreviewRequestPayload` | add `rotationQuarterTurns`, `mirrorX`                                                                                       | Preview must match final queued orientation/mirror                               |
-| `BuildQueuePayload`          | add `rotationQuarterTurns`, `mirrorX`                                                                                       | Commit path must carry transform deterministically                               |
-| `BuildPreviewPayload`        | echo normalized transform + transformed `width/height`                                                                      | Client preview box must match server-validated footprint                         |
-| `BuildRejectionReason`       | add transform/destroy reasons (e.g. `invalid-transform`, `unknown-structure`, `cannot-destroy-core`, `structure-not-owned`) | Distinguish failure causes for UX and tests                                      |
-| `RoomStatePayload.teams[]`   | add `structures[]` and `buildZoneSources[]` projections                                                                     | Needed for hover details, destroy targeting, and grid-attached overlay rendering |
-| `ClientToServerEvents`       | add `structure:destroy`                                                                                                     | End-to-end destroy command                                                       |
-| `ServerToClientEvents`       | add `structure:queued` and `structure:outcome`                                                                              | Destroy command lifecycle observability                                          |
+| Component                                | Why Keep Unchanged                                                              |
+| ---------------------------------------- | ------------------------------------------------------------------------------- |
+| `apps/server/src/server.ts`              | Build payload shape and result payload shape do not need schema changes         |
+| `apps/web/src/client.ts`                 | Existing preview + state payloads remain stable; UI behavior should not regress |
+| `packages/rts-engine/socket-contract.ts` | No new wire fields are required for this cleanup refactor                       |
 
-### Cross-Layer Wiring Points and Failure-Prone Links
+### Internal Boundaries
 
-| Boundary                                     | Wiring Point                                                    | Failure Risk                                      | Mitigation                                                                           |
-| -------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Web input -> server preview                  | Transform payload (`rotationQuarterTurns`, `mirrorX`)           | UI preview mismatch versus server acceptance      | Normalize transform in server parser and echo normalized payload in preview response |
-| Server preview -> engine queue               | Separate validation paths (`runQueueBuildProbe` clone vs queue) | Drift between preview and queue rejection reasons | Replace clone/probe with shared validator API in engine                              |
-| Engine structure identity -> destroy payload | Reusing `x,y,width,height` key                                  | Collisions after rotations/mirrors and stale IDs  | Introduce stable monotonic `structureId` and project it in `state`                   |
-| Engine zone math -> overlay renderer         | Client recomputes zone differently                              | Visual zone differs from authoritative validator  | Emit server-projected `buildZoneSources[]`; client renders only projection           |
-| Camera math -> gameplay coordinates          | Pan/zoom + DPR pointer translation errors                       | Wrong cells queued/destroyed at non-default zoom  | Centralize world/screen conversion in `camera.ts` and unit test conversion           |
-| Lifecycle gate -> destroy/build commands     | Missing status checks for new event                             | Mutations during lobby/countdown/finished         | Reuse `assertGameplayMutationAllowed` for all command handlers                       |
+| Boundary                             | Communication                                                     | Notes                                         |
+| ------------------------------------ | ----------------------------------------------------------------- | --------------------------------------------- |
+| `apps/server` -> `rts.ts`            | Existing queue/preview function calls                             | Keep server-authoritative flow unchanged      |
+| `rts.ts` -> `grid-view.ts`           | Direct API calls (`grid`, `applyTransform`, `translate`, `cells`) | New canonical internal integration point      |
+| `rts.ts` -> `placement-transform.ts` | Normalize wire transform and wrapping helpers                     | Keep existing transform payload compatibility |
+| `rts.ts` -> `build-zone.ts`          | Pass extents/area cells from GridView output                      | Build-zone semantics unchanged                |
 
-## Dependency-Aware Build Order (Backend + Tests First)
+## Dependency-Aware Build Order (Low Regression Risk)
 
-| Phase | Deliverable                                                                       | New vs Modified Artifacts                                                                          | Test Gate                                                          | Why This Order                                                |
-| ----- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------- |
-| 1     | Engine seam extraction (no behavior change)                                       | NEW `placement-transform.ts`, `build-zone.ts`, `structure-integrity.ts`; MOD `rts.ts` exports only | `npm run test:unit` unchanged behavior                             | Reduces risk before introducing new rules                     |
-| 2     | Base geometry upgrade (5x5 / 16-cell core shape)                                  | MOD `rts.ts`, spawn geometry usage, payload base metadata                                          | New unit tests for base seed, integrity, defeat                    | Base shape drives later zone + destroy targeting              |
-| 3     | Generic integrity + HP repair for all checked structures                          | MOD tick pipeline and structure model; NEW integrity helpers                                       | Unit tests for K-tick damage/repair determinism                    | Required before destroy and zone radius semantics settle      |
-| 4     | Union build-zone validator (radius 15)                                            | MOD queue validation + preview validation; NEW zone projection                                     | Unit tests for inclusion/exclusion and deterministic ordering      | Queue/preview contract should stabilize before UI consumes it |
-| 5     | Transform-aware build queue + preview contracts                                   | MOD `socket-contract.ts`, server parser, queue/build tests                                         | Integration tests for preview->queue->outcome parity               | Locks wire contracts before frontend refactor                 |
-| 6     | Destroy command end-to-end                                                        | NEW destroy event/contracts + engine command path; MOD server handlers                             | Integration tests for ownership/core-protection/lifecycle lockouts | Completes backend feature set before UI implementation        |
-| 7     | Frontend module split + lobby/game view state machine                             | NEW web modules, MOD `client.ts` to bootstrap                                                      | Existing web + integration tests must still pass                   | Avoid adding camera/overlay complexity to monolith            |
-| 8     | UI gameplay features (pan/zoom, overlays, rotate/mirror controls, destroy action) | NEW camera/overlay/feature modules + MOD `index.html`                                              | Focused web tests + `npm run test:quality`                         | Final UX layer builds on stable backend contracts             |
-| 9     | Regression hardening and requirement trace closure                                | MOD integration tests (`QUAL-01`, `QUAL-02` plus new req IDs)                                      | `npm run test:quality` green                                       | Prevents milestone drift and catches cross-layer regressions  |
+| Phase | Deliverable                                           | New vs Modified Components                                                                        | Test Gate                                                                 | Why This Order                                         |
+| ----- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------ |
+| 1     | GridView foundation (no runtime call-site changes)    | NEW `grid-view.ts`, NEW `grid-view.test.ts`                                                       | `npm run test:unit` with new GridView tests                               | Creates safe primitive before touching game logic      |
+| 2     | Template normalization + `template.grid()` entrypoint | MOD `rts.ts` template construction (`createTemplateFromRows`, `createRoomState`)                  | Existing `rts.test.ts` template creation tests pass                       | Makes new API available without behavior changes       |
+| 3     | Read-only projection migration                        | MOD `projectStructures`, `collectTeamBuildZoneContributors` in `rts.ts`                           | Snapshot/parity assertions for structure footprint and bounds             | Touches non-mutating paths first                       |
+| 4     | Validation/apply migration                            | MOD `projectBuildPlacement`, `compareTemplate`, `applyTemplate` in `rts.ts`                       | Queue preview/outcome parity tests in `rts.test.ts` and integration tests | Highest gameplay risk after primitives are stable      |
+| 5     | Integrity migration and duplicate path removal        | MOD `getIntegrityMaskCells`, mismatch restore flow; retire duplicate offset-template helpers      | Deterministic integrity tests and quality gates                           | Ensures one canonical transformed-cell path everywhere |
+| 6     | Cleanup + optional low-risk simplification            | Optional extraction of template parsing helpers and duplicated integration test placement helpers | `npm run test:quality`                                                    | Finishes REF-04 and ships REF-05 candidate safely      |
 
-## Anti-Patterns
+**Phase ordering rationale:**
 
-### Anti-Pattern 1: Client-Side Rule Reimplementation
+1. Introduce and verify the primitive first.
+2. Expose the new template API without changing behavior.
+3. Migrate read paths before write paths.
+4. Migrate mutation paths only after parity confidence is high.
+5. Remove old paths last, after deterministic tests prove equivalence.
 
-**What people do:** Recompute transform legality, zone union, or integrity status in browser logic.
-**Why it is wrong:** Causes server/client divergence and false-positive UI affordances.
-**Do this instead:** Keep server authoritative and render only server-projected previews/zones/outcomes.
+## Anti-Patterns to Avoid
 
-### Anti-Pattern 2: Identity by Coordinates Only
+### Anti-Pattern 1: Partial Migration (Two Projection Pipelines)
 
-**What people do:** Use `(x,y,width,height)` as persistent structure identity.
-**Why it is wrong:** Rotations/mirrors and future template changes can collide or invalidate IDs.
-**Do this instead:** Assign deterministic `structureId` on apply and use that ID across state/hover/destroy.
+**What people do:** Migrate preview to GridView but keep apply/integrity on old loops.
+**Why it is wrong:** Preview/queue/apply can diverge despite passing unit tests.
+**Do this instead:** Move all transformed-cell consumers to the same GridView chain before deleting old code.
 
-### Anti-Pattern 3: UI Refactor and Protocol Refactor in Same Slice
+### Anti-Pattern 2: `cells()` Returns Alive-Only Entries
 
-**What people do:** Refactor `apps/web/src/client.ts` while event payloads are still changing.
-**Why it is wrong:** Creates cascading churn and hard-to-isolate regressions.
-**Do this instead:** Freeze backend contracts first, then split UI modules against stable types.
+**What people do:** Emit only occupied cells from GridView.
+**Why it is wrong:** Breaks REF-03 and forces callers to reconstruct dead-space bounds.
+**Do this instead:** Return all cells with `alive` flag and let consumers filter for footprint use cases.
+
+### Anti-Pattern 3: Wrapping Coordinates Inside GridView Core
+
+**What people do:** Bake torus wrapping directly into GridView transforms.
+**Why it is wrong:** Hides map-size guard logic and couples reusable transforms to room dimensions.
+**Do this instead:** Keep GridView in raw transformed coordinates; wrap at room projection boundaries.
 
 ## Scaling Considerations
 
-| Scale                         | Architecture Adjustments                                                                            |
-| ----------------------------- | --------------------------------------------------------------------------------------------------- |
-| Prototype (current)           | Full `state` payload with structure projections is acceptable; prioritize deterministic correctness |
-| Larger matches/maps           | Consider incremental structure/zone delta payloads to reduce `state` bandwidth                      |
-| Multi-room concurrency growth | Keep deterministic engine pure and isolate server handler parsing to control hot-path complexity    |
+| Scale                                             | Architecture Adjustments                                                             |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| 0-1k concurrent players (current prototype range) | Recompute GridView per preview/queue call; prioritize correctness                    |
+| 1k-10k concurrent players                         | Cache transformed local views by `(templateId, transform.matrix)` before translation |
+| 10k+ concurrent players                           | Precompute immutable transformed templates and reuse across room ticks               |
+
+## Open Questions
+
+1. Should `applyTransform` accept only orthogonal integer matrices, or any numeric matrix? Recommendation: restrict to orthogonal integer matrices this milestone to preserve grid determinism.
+2. Should `StructureTemplate.grid` be required in public type immediately? Recommendation: normalize at room boundary first, then make it required after tests stop constructing raw literal templates.
 
 ## Sources
 
-- Project scope and constraints: `.planning/PROJECT.md` (HIGH)
-- Milestone rationale and gameplay intent: `conway-rts/DESIGN.md` (HIGH)
-- Current deterministic engine implementation: `packages/rts-engine/rts.ts` (HIGH)
-- Current wire contracts: `packages/rts-engine/socket-contract.ts` (HIGH)
-- Current runtime wiring: `apps/server/src/server.ts` and `apps/server/src/lobby-session.ts` (HIGH)
-- Current frontend architecture: `apps/web/src/client.ts`, `apps/web/src/economy-view-model.ts`, `apps/web/index.html` (HIGH)
-- Current quality gate/integration behavior: `tests/integration/server/server.test.ts`, `tests/integration/server/match-lifecycle.test.ts`, `tests/integration/server/quality-gate-loop.test.ts` (HIGH)
+- `.planning/PROJECT.md` (HIGH)
+- `packages/rts-engine/rts.ts` (HIGH)
+- `packages/rts-engine/placement-transform.ts` (HIGH)
+- `packages/rts-engine/placement-transform.test.ts` (HIGH)
+- `packages/rts-engine/rts.test.ts` (HIGH)
+- `apps/server/src/server.ts` (HIGH)
+- `packages/rts-engine/socket-contract.ts` (HIGH)
+- `tests/integration/server/quality-gate-loop.test.ts` (HIGH)
+- `tests/integration/server/server.test.ts` and `tests/integration/server/destroy-determinism.test.ts` (HIGH)
 
 ---
 
-_Architecture research for: Conway RTS v0.0.2 gameplay expansion_
-_Researched: 2026-03-01_
+_Architecture research for: Conway RTS v0.0.3 template/grid cleanup integration_
+_Researched: 2026-03-03_

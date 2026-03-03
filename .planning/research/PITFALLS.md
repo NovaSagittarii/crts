@@ -1,307 +1,290 @@
 # Pitfalls Research
 
-**Domain:** Deterministic multiplayer Conway RTS milestone v0.0.2 gameplay expansion
-**Researched:** 2026-03-01
+**Domain:** Conway RTS v0.0.3 template/grid API unification (`template.grid()` + `GridView`)
+**Researched:** 2026-03-03
 **Confidence:** HIGH
 
-## Assumed Mitigation Phases (for placement guidance)
+## Assumed Mitigation Phases (for roadmap placement)
 
-1. **Phase 1 - Contract and deterministic rule freeze**
-2. **Phase 2 - Integrity generalization + 5x5 base/breach rebalance**
-3. **Phase 3 - Union build-zone + transform-aware placement validation**
-4. **Phase 4 - Destroy interactions + structure lifecycle cohesion**
-5. **Phase 5 - UI architecture split + explicit lobby/in-game screen state**
-6. **Phase 6 - Camera pan/zoom + overlays + interaction hardening**
-7. **Phase 7 - Quality-gate expansion (unit/integration/replay/perf)**
+1. **Phase 13 - GridView contract freeze and parity harness**
+2. **Phase 14 - GridView core implementation (`translate`/`rotate`/`applyTransform`/`cells`)**
+3. **Phase 15 - Engine migration (`preview`/`queue`/`apply`/integrity/build-zone)**
+4. **Phase 16 - Runtime integration (server/web/test contract alignment)**
+5. **Phase 17 - Legacy-path deletion, deterministic hardening, and perf guardrails**
 
 ## Critical Pitfalls
 
-### Pitfall 1: Tick-order drift while generalizing periodic integrity checks
+### Pitfall 1: `GridView.cells()` drops dead cells or emits duplicate coordinates
 
 **What goes wrong:**
-Template-wide integrity and HP repair are introduced in multiple places, and the same input sequence no longer resolves to the same tick-by-tick outcomes.
+Build compare/apply logic silently changes because only alive cells are iterated (or the same transformed coordinate is emitted twice). This changes resource cost (`diffCells`), placement outcomes, and integrity behavior.
 
 **Why it happens:**
-Current behavior is tightly ordered (`applyTeamEconomyAndQueue -> applyTemplate -> stepGrid -> resolveCoreRestoreChecks`). Expanding checks from core-only to all structures invites ad hoc checks during queue validation, preview probes, or UI hooks.
+Developers optimize for footprint rendering and accidentally implement sparse iteration, but the engine currently relies on full-grid comparisons (`compareTemplate`) and full writes (`applyTemplate`).
 
 **How to avoid:**
-Define one authoritative integrity phase in engine code and run it once per tick in a deterministic order (teamId asc, then stable structure ordering). Keep all HP/repair writes inside that phase only.
+Lock `cells()` contract in Phase 13: emit exactly `width * height` entries, each coordinate exactly once, with `alive` as `0/1`. Add a deterministic row-major ordering rule (`y`, then `x`) and enforce it with unit tests before migration.
 
 **Warning signs:**
-Same scripted match yields different defeat tick; intermittent failures in outcome/comparator tests; timeline event ordering differs between runs.
+
+- Build costs become lower/higher than baseline for identical placements.
+- Applied templates leave stale cells behind after supposedly dead template cells.
+- Preview/queue parity tests pass for footprint-only checks but fail on execute-time outcomes.
 
 **Phase to address:**
-Phase 1 (rule freeze) and Phase 2 (engine implementation).
+Phase 13 and Phase 14.
 
 ---
 
-### Pitfall 2: Hidden 2x2 base assumptions survive the 5x5 geometry migration
+### Pitfall 2: Transform semantics drift from existing authoritative math
 
 **What goes wrong:**
-Placement validation, spawn spacing, breach checks, or UI markers still behave as if the base is a 2x2 block, creating unfair pressure and contradictory validation.
+`rotate`/`applyTransform` in `GridView` produce different bounds or coordinates than `projectTemplateWithTransform`, causing transform-specific rejects, shifted footprints, or changed `template-exceeds-map-size` behavior.
 
 **Why it happens:**
-The code currently hardcodes 2x2 assumptions in multiple places (`BASE_BLOCK_WIDTH/HEIGHT`, `baseTopLeft + 1` center math, spawn min distance, core checks).
+Refactor reimplements matrix composition or pivot semantics instead of delegating to existing shared transform helpers.
 
 **How to avoid:**
-Introduce a single `BaseGeometry` model (footprint cells, center, check cells, bounding box) and replace all magic offsets/constants with geometry-derived helpers.
+Make `GridView` a thin API over `normalizePlacementTransform` + `projectTemplateWithTransform` semantics. Reuse existing transform fixtures (including asymmetric templates) and add equivalence tests old-path vs new-path for all operation sequences used by runtime.
 
 **Warning signs:**
-"Outside territory" near expected legal base-adjacent cells; spawn overlap regressions; base hover/marker offset from actual vulnerable cells.
+
+- Rotated placement passes preview but rejects on queue/execute.
+- Four rotates no longer return to identity shape.
+- Integration case "rejected queue preview refreshes with same transform" starts failing.
 
 **Phase to address:**
-Phase 2.
+Phase 14.
 
 ---
 
-### Pitfall 3: Breach-pressure rebalance done by constant tweaking without deterministic scenarios
+### Pitfall 3: Local transform translation gets mixed with world wrapping
 
 **What goes wrong:**
-The new base shape plus repair loop produces degenerate matches (snowball in <30s, or stalemates that rarely finish).
+Placements near edges shift or wrap incorrectly because translation is applied in world space too early, or wrap occurs inside `GridView` instead of projection-to-world.
 
 **Why it happens:**
-Balance changes are validated only with ad hoc playtests instead of replayable scripted pressure cases.
+`GridView.translate` and placement projection concerns are mixed into one method during unification.
 
 **How to avoid:**
-Create deterministic scenario fixtures (mirrored openings, sustained pressure windows, repeated breach attempts) and set numeric acceptance bands for match duration and comeback frequency.
+Keep `GridView` purely in template-local integer space. Apply torus wrapping only at projection stage (`projectPlacementToWorld`-equivalent). Add edge-anchor parity fixtures (`x=width-1`, `y=height-1`, negative translation) against baseline behavior.
 
 **Warning signs:**
-Match duration distribution collapses to extremes; one opening dominates win rate; repeated unresolved matches in integration smoke runs.
+
+- Edge placements show one-cell drift in preview overlays.
+- Wrapped footprints differ between `previewBuildPlacement` and `tickRoom` apply.
+- `outside-territory` spikes near map seams only.
 
 **Phase to address:**
-Phase 2 (initial tuning) and Phase 7 (regression gate).
+Phase 14 and Phase 15.
 
 ---
 
-### Pitfall 4: Union build-zone logic diverges between preview, queue, and UI
+### Pitfall 4: Mutable `GridView` aliasing leaks transform state across calls
 
 **What goes wrong:**
-Client preview says placement is valid, queue rejects it (or inverse), especially after structure activation/deactivation.
+Calling `rotate()` or `translate()` on one flow mutates shared view state used by another flow, creating order-dependent bugs and flaky deterministic tests.
 
 **Why it happens:**
-Current validation is radius-based around base center. Migrating to union-of-structure zones can leave mixed logic paths if only one call site is updated.
+In-place mutation seems cheaper during refactor, and `template.grid()` may accidentally return a cached mutable instance.
 
 **How to avoid:**
-Use one engine helper for eligibility (`isPlacementBuildEligible`) and route both preview probes and queue validation through that exact helper. Drive overlays from authoritative state, not separate client math.
+Keep `GridView` immutable: operations return a new view, and `template.grid()` returns a fresh equivalent view each call. Add tests that call `template.grid()` repeatedly in different orders and verify identical outputs.
 
 **Warning signs:**
-Spike in `outside-territory` rejections immediately after green/affordable previews; user reports "overlay says yes, server says no".
+
+- Running tests in different order changes outcomes.
+- A "default orientation" preview appears transformed after a prior rotated preview.
+- Intermittent transform-related flakes without code changes.
 
 **Phase to address:**
-Phase 3.
+Phase 13 and Phase 14.
 
 ---
 
-### Pitfall 5: Rotate/mirror transforms are implemented twice and disagree
+### Pitfall 5: Partial migration leaves preview/queue/apply/integrity on different geometry paths
 
 **What goes wrong:**
-A placement accepted by client preview applies shifted/rotated differently on the server, causing reject noise and trust loss.
+Preview uses `GridView`, but queue execution or integrity checks still use legacy loops, so authoritative outcomes diverge from what users see.
 
 **Why it happens:**
-Transform math (pivot, anchor, even/odd footprint handling) is duplicated in client rendering and server validation.
+Refactor is applied incrementally per call site without a migration gate or parity harness.
 
 **How to avoid:**
-Implement transforms once in shared package code and reuse on both server and web. Add golden fixtures for all transform states against known templates (including asymmetric templates).
+Plan migration as one engine slice: switch all geometry consumers (`compareTemplate`, `applyTemplate`, integrity mask extraction, structure projection) to the same adapter in Phase 15. Keep dual-path parity assertions temporarily, then delete the legacy path in Phase 17.
 
 **Warning signs:**
-Orientation-specific rejects (`out-of-bounds`/`occupied-site`) for otherwise valid clicks; applied shape appears one cell off from ghost.
+
+- Queue accepted after preview but rejected/applied differently at execute tick with no intervening state change.
+- Build outcomes reason taxonomy shifts unexpectedly.
+- Overlay/footprint metadata differs from applied structure footprint.
 
 **Phase to address:**
-Phase 3 (shared math) and Phase 6 (UI consumption).
+Phase 15 and Phase 17.
 
 ---
 
-### Pitfall 6: Structure identity collisions under transform + destroy
+### Pitfall 6: Deterministic ordering regresses due unstable cell iteration
 
 **What goes wrong:**
-Destroy requests target the wrong structure or fail to target any structure after rotation/mirroring, especially for templates sharing width/height anchors.
+Equal input sequences produce different timeline ordering or end states across runs because transformed cells/checks are emitted in non-stable order.
 
 **Why it happens:**
-Current structure keying is anchor+dimensions. That is not robust once transform state and lifecycle actions are first-class.
+Use of insertion-order containers without explicit sorting, or sort criteria changes during unification.
 
 **How to avoid:**
-Give every placed structure a stable `structureId` (event-derived), persist transform metadata, and resolve destroy actions by ID plus ownership checks.
+Define and enforce ordering invariants: `GridView.cells()` sorted by transformed `y,x`; transformed checks sorted similarly; existing team/structure ordering (`teamId`, `structure.key`) unchanged. Add twin-run determinism assertions for outcomes and packed grid payload.
 
 **Warning signs:**
-Destroy action removes neighbor structure; `occupied-site` conflicts on apparently empty anchors; timeline metadata references non-existent keys.
+
+- Determinism tests (`equal-run` style) become flaky.
+- Same scripted queue produces different timeline event sequences.
+- Snapshot diffs show reordered but semantically "similar" arrays.
 
 **Phase to address:**
-Phase 3 (identity model) and Phase 4 (destroy flows).
+Phase 15 and Phase 17.
 
 ---
 
-### Pitfall 7: Destroy interactions bypass queue-validation and lifecycle gates
+### Pitfall 7: Structure key derivation changes unintentionally under new bounds source
 
 **What goes wrong:**
-Immediate destroy mutations race with queued builds and defeat resolution, creating non-deterministic state and broken outcome accounting.
+`createStructureKey(x,y,width,height)` yields different keys for the same effective placement, breaking destroy targeting and occupancy checks.
 
 **Why it happens:**
-Destroy is treated as a direct UI action instead of a queued, server-authoritative gameplay mutation.
+Width/height or anchor semantics drift when bounds start coming from `GridView` instead of legacy transformed-template code.
 
 **How to avoid:**
-Model destroy as queued intent with execute tick, terminal outcome, and explicit reasons (`unknown-structure`, `not-owner`, `core-locked`, `team-defeated`). Enforce the same mutation gate used by build queue.
+Freeze key derivation semantics before migration and assert key stability on a transform matrix of placements. During Phase 15, compare old/new key output for baseline fixtures before switching producer code.
 
 **Warning signs:**
-Build outcomes reference structures that no longer exist; different clients disagree on structure presence; defeated players can still issue destroy actions.
+
+- `occupied-site` rejects appear for apparently empty anchors.
+- Destroy requests return `invalid-target` for just-placed structures.
+- Pending destroy rows reference keys not found in `team.structures`.
 
 **Phase to address:**
-Phase 4.
+Phase 15 and Phase 16.
 
 ---
 
-### Pitfall 8: Derived state (income/build-zone/hover data) lags after destroy or repair
+### Pitfall 8: Contract and test harness drift masks cross-runtime regressions
 
 **What goes wrong:**
-Income, build-zone eligibility, and hover status reflect stale pre-destroy/pre-repair values for one or more ticks.
+Server, web, and tests all compile, but runtime behavior diverges because tests still use approximate local transform helpers (instead of canonical engine view/projection semantics) and contract assertions are too loose.
 
 **Why it happens:**
-Derived values are recalculated in scattered places, and new lifecycle transitions add more invalidation points.
+Refactor is treated as "internal only" and integration tests are not tightened to assert transformed payload parity and reason stability.
 
 **How to avoid:**
-Centralize all derived-state recomputation in one post-mutation pass per tick. Tie previews to that pass, and include versioned derived-state metadata for UI invalidation.
+In Phase 16, route integration helpers to shared engine semantics where possible; otherwise add explicit parity assertions for `transform`, `bounds`, `footprint`, and rejection reasons. In Phase 17, keep requirement-traceable deterministic gates (`test:unit`, `test:integration:serial`, `test:quality`) as merge blockers.
 
 **Warning signs:**
-Income does not drop after destroy; overlay still shows removed structure influence; hover HP/status disagrees with latest state payload.
+
+- Unit tests green but integration tests fail on payload details.
+- Preview overlay looks correct while queue/apply outcomes drift.
+- Refactor PR requires ad hoc test updates with relaxed assertions.
 
 **Phase to address:**
-Phase 4 (engine) and Phase 6 (UI sync behavior).
-
----
-
-### Pitfall 9: Pan/zoom + UI refactor breaks coordinate mapping and multiplies event handlers
-
-**What goes wrong:**
-Clicks target wrong cells at non-default zoom, or one input emits multiple preview/queue events due duplicate listeners after screen transitions.
-
-**Why it happens:**
-Current pointer mapping assumes no camera transform, and `client.ts` is monolithic with many side effects tied directly to DOM/socket events.
-
-**How to avoid:**
-Introduce explicit camera state with inverse coordinate mapping, and split UI into mount/unmount-safe modules with one-time socket registration and explicit screen FSM.
-
-**Warning signs:**
-Cursor-to-cell drift increases with zoom; duplicate queue acks from one click; frame drops when overlays are enabled during active tick updates.
-
-**Phase to address:**
-Phase 5 (architecture split) and Phase 6 (camera/overlay interactions).
-
----
-
-### Pitfall 10: Event-contract drift for new fields (transform, destroy, structure status)
-
-**What goes wrong:**
-Server, client, and tests compile independently but disagree at runtime on payload shape/reason enums, causing silent fallback copy and wrong UX.
-
-**Why it happens:**
-New fields are appended ad hoc in handlers before shared contract/types and integration assertions are updated.
-
-**How to avoid:**
-Update `socket-contract.ts` first, then server/client handlers, then integration tests. Keep reason codes union-typed and ban catch-all reason mapping for new gameplay events.
-
-**Warning signs:**
-UI falls back to generic "validation failed" text for new rejection paths; integration tests fail on undefined payload fields.
-
-**Phase to address:**
-Phase 1 (contract-first) and Phase 7 (quality gate enforcement).
+Phase 16 and Phase 17.
 
 ---
 
 ## Technical Debt Patterns
 
-Shortcuts that look fast now but create costly rewrites in this milestone.
+Shortcuts that seem fast for this refactor but create expensive follow-up work.
 
-| Shortcut                                                               | Immediate Benefit                 | Long-term Cost                                           | When Acceptable                |
-| ---------------------------------------------------------------------- | --------------------------------- | -------------------------------------------------------- | ------------------------------ |
-| Keep scalar `territoryRadius` logic and fake union zones only in UI    | Faster demo of build-zone feature | Preview/queue mismatch and fairness bugs                 | Never                          |
-| Implement rotate/mirror math separately in client and server           | Faster local iteration per layer  | Persistent offset/rejection bugs that are hard to debug  | Never                          |
-| Reuse anchor-based structure key as destroy target                     | Minimal schema changes            | Wrong-target destroy and key collisions under transforms | Never                          |
-| Add pan/zoom directly into monolithic `client.ts` without module split | Fast feature spike                | Listener leaks, state coupling, transition regressions   | Only as throwaway spike branch |
-| Tune breach constants from ad hoc playtests only                       | Immediate balance tweaks          | Rebalance churn with no deterministic baseline           | Never for milestone closure    |
+| Shortcut                                              | Immediate Benefit          | Long-term Cost                                 | When Acceptable                                               |
+| ----------------------------------------------------- | -------------------------- | ---------------------------------------------- | ------------------------------------------------------------- |
+| Keep both legacy and `GridView` pathways indefinitely | Easier incremental merge   | Permanent drift risk and doubled maintenance   | Never beyond temporary parity assertions in one PR            |
+| Reimplement transform math inside `GridView`          | Faster local coding        | Semantics drift from authoritative helpers     | Never                                                         |
+| Return mutable `GridView` for performance             | Fewer allocations          | Order-dependent bugs and flaky determinism     | Never                                                         |
+| Relax integration assertions to "any rejection"       | Quick green pipeline       | Hides reason taxonomy regressions and UX drift | Never                                                         |
+| Bundle unrelated cleanup in same milestone            | Single large refactor pass | Harder rollback/root-cause isolation           | Only if change is test-backed and strictly no behavior impact |
 
 ## Integration Gotchas
 
-| Integration                        | Common Mistake                                          | Correct Approach                                                       |
-| ---------------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `rts-engine` <-> server build APIs | Update queue path but not preview probe path            | Keep preview and queue on same engine validator and transform helpers  |
-| server <-> web placement payloads  | Add transform fields in one direction only              | Extend shared socket contract first, then both emit/listen paths       |
-| destroy action <-> lifecycle gate  | Allow destroy during lobby/finished or for spectators   | Reuse gameplay mutation gate and room status checks                    |
-| state payload <-> overlays         | Compute overlay zones from client-local estimates       | Render overlays from authoritative payload and shared geometry helpers |
-| tests <-> runtime event reasons    | Keep generic string assertions after adding new reasons | Assert exact typed reason unions and terminal outcomes                 |
+| Integration Boundary                                         | Common Mistake                                                           | Correct Approach                                                             |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| `packages/rts-engine/rts.ts` compare/apply/integrity         | Migrate one consumer to `GridView` and leave others on legacy loops      | Switch all geometry consumers behind one adapter in same phase               |
+| `apps/server/src/server.ts` preview payload construction     | Assume fallback bounds/transform hide internal drift                     | Assert returned `transform`, `bounds`, `footprint` parity from engine output |
+| `apps/web/src/client.ts` overlay rendering                   | Render from local assumptions instead of authoritative preview payload   | Keep preview overlays sourced from server `build:preview` payload only       |
+| `tests/integration/server/quality-gate-loop.test.ts` helpers | Keep ad hoc `estimateTransformedTemplateSize` assumptions after refactor | Replace/augment with canonical engine-based parity checks                    |
+| `packages/rts-engine/socket-contract.ts` usage in tests/web  | Allow broad string reasons and partial payload assertions                | Assert exact reason unions and transformed payload fields                    |
 
 ## Performance Traps
 
-| Trap                                                                 | Symptoms                                  | Prevention                                                                       | When It Breaks                                       |
-| -------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| Recomputing union build zones from scratch every tick                | Tick duration climbs with structure count | Incremental invalidation keyed by structure lifecycle changes                    | Mid-size rooms with many active structures           |
-| Running `structuredClone` preview probes at pointermove frequency    | CPU spikes and delayed preview feedback   | Throttle preview emits per tick and cache unchanged placement results            | During rapid placement scanning at active tick rates |
-| Full canvas resize + full redraw every `state` while adding pan/zoom | Frame drops and input lag                 | Resize on dimension change only, draw on animation frame, apply camera transform | Larger maps with overlays enabled                    |
-| Hover detail lookups scanning all structures per move                | UI stutter while panning/hovering         | Spatial index or cell-to-structure map updated per tick                          | Dense late-game structure fields                     |
+| Trap                                                                         | Symptoms                           | Prevention                                                                            | When It Breaks                                     |
+| ---------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Recomputing transformed cells for unchanged selection on every preview pulse | CPU spikes while rotating/hovering | Cache per `(templateId, transform.operations, translate)` within request scope        | Rapid transform toggling and dense preview traffic |
+| Materializing full `cells()` arrays repeatedly in one tick path              | Higher tick latency and GC churn   | Use streaming iteration where possible; avoid duplicate transformations per call site | Late-game with many active structures              |
+| Keeping dual-path parity checks in production code                           | Tick overhead after migration      | Restrict parity checks to tests/dev builds; remove in Phase 17                        | Any non-trivial room size                          |
+| Debug logging every transformed cell                                         | Frame/tick stutter and giant logs  | Log aggregate stats only (counts, bounds, hash)                                       | Integration load tests and CI                      |
 
 ## Security Mistakes
 
-| Mistake                                       | Risk                                           | Prevention                                                          |
-| --------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------- |
-| Destroy payload lacks strict ownership checks | Cross-team griefing via forged structure IDs   | Validate team ownership and room membership before queueing destroy |
-| Transform payload accepts arbitrary values    | Invalid states or parser abuse paths           | Restrict transform to strict enum and reject unknown values         |
-| No rate limit on preview/destroy spam         | Event flood starves tick and UI responsiveness | Per-socket throttles and bounded pending intent queues              |
+| Mistake                                                            | Risk                                                       | Prevention                                                                  |
+| ------------------------------------------------------------------ | ---------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Accept unbounded transform operation arrays at runtime boundaries  | CPU amplification via large payload parsing/projection     | Keep strict enum validation and cap operation count at boundary parser      |
+| Expose new transform primitives over wire during internal refactor | Expanded attack/abuse surface without requirement need     | Keep refactor internal; do not change public payload schema unless required |
+| Add debug toggles that switch legacy/new paths from client payload | Behavior tampering and inconsistent authoritative outcomes | Keep migration toggles server-internal and test-only                        |
 
 ## UX Pitfalls
 
-| Pitfall                                                  | User Impact                                     | Better Approach                                                       |
-| -------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------- |
-| Ghost placement orientation does not match applied shape | Players lose trust in controls                  | Render ghost using server-shared transform helpers                    |
-| Overlay shows eligible area that server rejects          | Feels random and unfair                         | Drive overlay from authoritative zone model/versioned state           |
-| Destroy action has no clear terminal feedback            | Users think command was ignored                 | Show queued -> applied/rejected lifecycle for destroy intents         |
-| Lobby/in-game transition keeps stale build selection     | Accidental invalid queues after screen switches | Reset interaction state on screen transitions with explicit FSM hooks |
+| Pitfall                                                     | User Impact                                       | Better Approach                                                               |
+| ----------------------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Preview ghost orientation does not match applied structure  | Loss of trust in controls                         | Assert preview->queue->apply parity for each transform operation sequence     |
+| Edge placement ghost wraps differently than applied outcome | "Random" rejections near borders                  | Keep wrap logic in one projection stage and test seam anchors                 |
+| Rejection copy changes taxonomy after refactor              | Users cannot act on errors                        | Preserve existing reason unions and mapping copy during cleanup milestone     |
+| Overlay highlights stale legality after transform change    | Players queue invalid actions despite green hints | Refresh authoritative preview on transform revision and reject stale previews |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Integrity generalization:** All templates checked, but tick order changed - verify deterministic replay snapshots still match expected timeline.
-- [ ] **Base migration:** Visual 5x5 shape added - verify spawn spacing, center math, and breach checks are geometry-driven (no hardcoded +1 center assumptions).
-- [ ] **Union zones:** Overlay renders union - verify preview and queue use the same server validator and produce no contradictory outcomes.
-- [ ] **Transforms:** Rotate/mirror UI works - verify all transform states apply identically server-side with no orientation-specific offset.
-- [ ] **Destroy flow:** Button removes structure in UI - verify destroy is queue-validated with terminal outcomes and defeat/lifecycle gating.
-- [ ] **Pan/zoom overlays:** Camera feels good - verify pointer-to-cell correctness at multiple zoom levels and no duplicate event emissions after transitions.
-- [ ] **Quality gates:** New features pass unit tests - verify integration scenarios cover cross-client deterministic outcomes and rejection reasons.
+- [ ] **`GridView.cells()` contract:** Verify every transformed coordinate is emitted exactly once with `alive` values for full grid, not only footprint.
+- [ ] **Transform equivalence:** Verify `GridView.rotate/applyTransform` outputs match existing `projectTemplateWithTransform` fixtures.
+- [ ] **Wrap semantics:** Verify seam placements produce identical `bounds`, `footprint`, and legality before/after refactor.
+- [ ] **Engine path unification:** Verify preview, queue, apply, and integrity all use the same geometry source.
+- [ ] **Structure key stability:** Verify transformed placement keys remain stable for destroy and occupied-site checks.
+- [ ] **Cross-runtime parity:** Verify server `build:preview` payload still matches web overlay expectations and integration assertions.
+- [ ] **Determinism:** Verify twin-run scripts produce identical `buildOutcomes`, `destroyOutcomes`, timeline ordering, and packed grid payload.
+- [ ] **Legacy cleanup:** Verify old template/offset-template path is fully removed (no dead code fallback).
 
 ## Recovery Strategies
 
-| Pitfall                                        | Recovery Cost | Recovery Steps                                                                                                        |
-| ---------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Tick-order drift in integrity/repair           | HIGH          | Revert to last deterministic tick order, add replay fixtures, reintroduce generalized checks behind one ordered phase |
-| 5x5 base migration with hidden 2x2 assumptions | HIGH          | Introduce explicit geometry model, migrate all call sites, re-baseline spawn/territory/breach tests                   |
-| Transform mismatch across client/server        | MEDIUM        | Centralize transform helper in shared package, update both layers, add golden transform fixtures                      |
-| Destroy bypass path shipped                    | HIGH          | Disable direct destroy endpoint, route through queued flow, backfill terminal outcome and ownership checks            |
-| UI camera/refactor regressions                 | MEDIUM        | Roll back to stable interaction controller, add mount/unmount listener guardrails, re-enable pan/zoom incrementally   |
+| Pitfall                            | Recovery Cost | Recovery Steps                                                                                                             |
+| ---------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `cells()` completeness/order drift | HIGH          | Revert to baseline adapter, lock contract tests (`count`, uniqueness, order), then re-enable migration by one engine slice |
+| Transform semantic mismatch        | HIGH          | Route `GridView` methods through existing transform helpers, replay fixture matrix, re-baseline overflow/reject tests      |
+| Preview/queue/apply divergence     | HIGH          | Introduce temporary dual-path assertion harness in tests, switch all call sites atomically, then remove legacy path        |
+| Structure key drift                | MEDIUM        | Freeze legacy key snapshots, patch bounds derivation compatibility layer, backfill destroy/occupied-site regression tests  |
+| Integration harness drift          | MEDIUM        | Replace ad hoc transform estimators with canonical engine projections and tighten payload/reason assertions                |
 
 ## Pitfall-to-Phase Mapping
 
-| Pitfall                                          | Prevention Phase   | Verification                                                                                  |
-| ------------------------------------------------ | ------------------ | --------------------------------------------------------------------------------------------- |
-| Tick-order drift during integrity generalization | Phase 1 -> Phase 2 | Deterministic replay suite reproduces identical timeline and defeat ticks                     |
-| Hidden 2x2 assumptions after base migration      | Phase 2            | Geometry invariants pass for spawn, territory checks, and breach detection                    |
-| Breach-pressure rebalance without scenarios      | Phase 2 -> Phase 7 | Scenario-based duration/comeback metrics remain inside defined acceptance bands               |
-| Union zone divergence (preview vs queue vs UI)   | Phase 3            | Integration tests show zero contradictory preview/queue outcomes for sampled placements       |
-| Transform math divergence                        | Phase 3 -> Phase 6 | Golden fixtures and E2E placement tests pass for all transform states                         |
-| Structure identity collisions under destroy      | Phase 3 -> Phase 4 | Destroy-by-ID tests remove only intended structure across transform variants                  |
-| Destroy bypassing deterministic queue            | Phase 4            | Every destroy intent resolves with terminal outcome and lifecycle gate compliance             |
-| Stale derived state after lifecycle changes      | Phase 4 -> Phase 6 | Income/zone/hover values update coherently within same tick payload                           |
-| Pan/zoom + transition interaction regressions    | Phase 5 -> Phase 6 | Pointer mapping tests pass at varied zoom; no duplicate event emissions after screen switches |
-| Event contract drift for new fields/reasons      | Phase 1 -> Phase 7 | Shared contract types compile across layers and integration asserts full payload shape        |
+| Pitfall                                       | Prevention Phase     | Verification                                                                                            |
+| --------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------- |
+| `cells()` completeness/uniqueness/order drift | Phase 13 -> Phase 14 | Unit tests assert transformed cell count, uniqueness, and row-major ordering invariants                 |
+| Transform semantic mismatch                   | Phase 14             | Golden fixture parity against existing placement-transform outputs                                      |
+| Local/world coordinate and wrapping mix-up    | Phase 14 -> Phase 15 | Edge-anchor integration matrix passes for preview, queue, apply, and footprint overlays                 |
+| Mutable `GridView` aliasing                   | Phase 13 -> Phase 14 | Repeated `template.grid()` calls remain order-independent and deterministic                             |
+| Partial migration path divergence             | Phase 15 -> Phase 17 | Same input produces same preview reason, queue result, execute outcome, and final grid hash             |
+| Deterministic ordering regression             | Phase 15 -> Phase 17 | Equal-run deterministic tests match timeline/order/outcomes exactly                                     |
+| Structure key drift                           | Phase 15 -> Phase 16 | Destroy/occupied-site tests pass with unchanged key expectations across transforms                      |
+| Contract/test drift                           | Phase 16 -> Phase 17 | `test:integration:serial` and `test:quality` assert full transformed payload parity and reason taxonomy |
 
 ## Sources
 
-- [HIGH] Milestone scope and constraints: `.planning/PROJECT.md`.
-- [HIGH] Original domain mechanics and intended UI controls: `conway-rts/DESIGN.md`.
-- [HIGH] Engine invariants and current tick order: `packages/rts-engine/rts.ts`.
-- [HIGH] Shared event contract surface: `packages/rts-engine/socket-contract.ts`.
-- [HIGH] Runtime lifecycle/mutation gates and preview/queue wiring: `apps/server/src/server.ts`.
-- [HIGH] Current UI interaction model (pointer mapping, rendering, transitions): `apps/web/src/client.ts`.
-- [HIGH] Existing unit coverage boundaries: `packages/rts-engine/rts.test.ts`.
-- [HIGH] Existing integration coverage boundaries: `tests/integration/server/server.test.ts`, `tests/integration/server/quality-gate-loop.test.ts`, `tests/integration/server/match-lifecycle.test.ts`.
-- [MEDIUM] Prior concern inventory for fragile areas and coverage gaps: `.planning/codebase/CONCERNS.md` (dated 2026-02-27; partially stale, used only as secondary corroboration).
+- [HIGH] `.planning/PROJECT.md` - v0.0.3 requirements (`REF-01`..`REF-05`) and hard constraints.
+- [HIGH] `.planning/STATE.md` - continuous phase numbering and backend-first delivery model.
+- [HIGH] `.planning/research/FEATURES.md` - explicit `GridView` contract targets and dependency framing.
+- [HIGH] `packages/rts-engine/rts.ts` - current authoritative placement/compare/apply/integrity/queue behavior and deterministic tick order.
+- [HIGH] `packages/rts-engine/placement-transform.ts` and `packages/rts-engine/placement-transform.test.ts` - current transform semantics to preserve.
+- [HIGH] `packages/rts-engine/socket-contract.ts` - cross-runtime payload and rejection-reason contract surface.
+- [HIGH] `apps/server/src/server.ts` - preview/queue wiring, payload parsing, and rejection propagation.
+- [HIGH] `apps/web/src/client.ts` and `apps/web/src/placement-transform-view-model.ts` - authoritative preview consumption and transform UI behavior.
+- [HIGH] `tests/integration/server/server.test.ts` and `tests/integration/server/quality-gate-loop.test.ts` - parity and deterministic integration guardrails.
 
 ---
 
-_Pitfalls research for: Conway RTS v0.0.2 Gameplay Expansion_
-_Researched: 2026-03-01_
+_Pitfalls research for: Conway RTS v0.0.3 Template/GridView refactor_
+_Researched: 2026-03-03_
