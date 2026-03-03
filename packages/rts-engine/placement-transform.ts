@@ -1,4 +1,5 @@
 import type { Vector2 } from './geometry.js';
+import { GridView } from './grid-view.js';
 
 export type PlacementTransformOperation =
   | 'rotate'
@@ -41,6 +42,7 @@ export interface TransformedTemplate {
   cells: Uint8Array;
   occupiedCells: Vector2[];
   checks: Vector2[];
+  gridView: GridView;
 }
 
 export interface PlacementProjection {
@@ -225,26 +227,23 @@ export function projectTemplateWithTransform(
   );
   const transformedWidth = extents.maxX - extents.minX + 1;
   const transformedHeight = extents.maxY - extents.minY + 1;
-  const transformedCells = new Uint8Array(transformedWidth * transformedHeight);
 
-  const occupiedCells: Vector2[] = [];
+  const transformedGridCells: Array<{ x: number; y: number; alive: boolean }> =
+    [];
   for (let y = 0; y < template.height; y += 1) {
     for (let x = 0; x < template.width; x += 1) {
       const sourceValue = template.cells[y * template.width + x];
       const transformed = applyMatrix(transform.matrix, x, y);
-      const normalizedX = transformed.x - extents.minX;
-      const normalizedY = transformed.y - extents.minY;
-      transformedCells[normalizedY * transformedWidth + normalizedX] =
-        sourceValue;
-
-      if (sourceValue === 1) {
-        occupiedCells.push({
-          x: normalizedX,
-          y: normalizedY,
-        });
-      }
+      transformedGridCells.push({
+        x: transformed.x - extents.minX,
+        y: transformed.y - extents.minY,
+        alive: sourceValue === 1,
+      });
     }
   }
+
+  const gridView = GridView.fromCells(transformedGridCells);
+  const transformedCells = gridView.toUint8Array();
 
   const transformedChecks = uniqueSortedCells(
     template.checks.map((check) => {
@@ -260,8 +259,14 @@ export function projectTemplateWithTransform(
     width: transformedWidth,
     height: transformedHeight,
     cells: transformedCells,
-    occupiedCells: uniqueSortedCells(occupiedCells),
+    occupiedCells: uniqueSortedCells(
+      gridView.occupiedCells().map((cell) => ({
+        x: cell.x,
+        y: cell.y,
+      })),
+    ),
     checks: transformedChecks,
+    gridView,
   };
 }
 
