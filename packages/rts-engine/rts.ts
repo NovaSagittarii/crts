@@ -502,7 +502,6 @@ export class RtsEngine {
     requiresDestroyConfirm = false,
     buildArea = 0,
     padding = 0,
-    checked = false,
   }: StructureTemplateRowsOptions): StructureTemplate {
     const parsed = RtsEngine.parseTemplateRows(rows);
     const padded = RtsEngine.padTemplate(parsed, padding);
@@ -624,11 +623,16 @@ export class RtsEngine {
     queue.splice(insertIndex, 0, event);
   }
 
-  private static compareBuildEvents(a: BuildEvent, b: BuildEvent): number {
+  private static compareBuildEvents(
+    this: void,
+    a: BuildEvent,
+    b: BuildEvent,
+  ): number {
     return a.executeTick - b.executeTick || a.id - b.id;
   }
 
   private static compareDestroyEvents(
+    this: void,
     a: DestroyEvent,
     b: DestroyEvent,
   ): number {
@@ -636,6 +640,7 @@ export class RtsEngine {
   }
 
   private static compareBuildOutcomes(
+    this: void,
     a: BuildOutcome,
     b: BuildOutcome,
   ): number {
@@ -643,6 +648,7 @@ export class RtsEngine {
   }
 
   private static compareDestroyOutcomes(
+    this: void,
     a: DestroyOutcome,
     b: DestroyOutcome,
   ): number {
@@ -1649,6 +1655,7 @@ export class RtsEngine {
   }
 
   private static compareStructuresByKey(
+    this: void,
     left: StructureInstance,
     right: StructureInstance,
   ): number {

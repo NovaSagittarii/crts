@@ -7,7 +7,6 @@ import {
 } from '../../../apps/server/src/server.js';
 
 import type {
-  BuildQueuedPayload,
   ChatMessagePayload,
   DestroyOutcomePayload,
   DestroyQueuedPayload,
@@ -128,37 +127,6 @@ async function waitForState(
   }
 
   throw new Error('State condition not met in allotted attempts');
-}
-
-function waitForBuildQueueResponse(
-  socket: Socket,
-  timeoutMs = 2500,
-): Promise<{ queued: BuildQueuedPayload } | { error: RoomErrorPayload }> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('Timed out waiting for build queue response'));
-    }, timeoutMs);
-
-    function cleanup(): void {
-      clearTimeout(timer);
-      socket.off('build:queued', onQueued);
-      socket.off('room:error', onError);
-    }
-
-    function onQueued(payload: BuildQueuedPayload): void {
-      cleanup();
-      resolve({ queued: payload });
-    }
-
-    function onError(payload: RoomErrorPayload): void {
-      cleanup();
-      resolve({ error: payload });
-    }
-
-    socket.once('build:queued', onQueued);
-    socket.once('room:error', onError);
-  });
 }
 
 function waitForDestroyQueueResponse(
