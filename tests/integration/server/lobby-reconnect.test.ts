@@ -57,27 +57,43 @@ async function waitForMembership(
   attempts = 20,
   timeoutMs = 2000,
 ): Promise<RoomMembershipPayload> {
-  for (let index = 0; index < attempts; index += 1) {
-    let payload: RoomMembershipPayload;
-    try {
-      payload = await waitForEvent<RoomMembershipPayload>(
-        socket,
-        'room:membership',
-        timeoutMs,
-      );
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('Timed out')) {
-        continue;
-      }
-      throw error;
-    }
-
-    if (payload.roomId === roomId && predicate(payload)) {
-      return payload;
-    }
+  const overallTimeoutMs = attempts * timeoutMs;
+  if (overallTimeoutMs <= 0) {
+    throw new Error('Membership condition not met in allotted attempts');
   }
 
-  throw new Error('Membership condition not met in allotted attempts');
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('Membership condition not met in allotted attempts'));
+    }, overallTimeoutMs);
+
+    function cleanup(): void {
+      clearTimeout(timer);
+      socket.off('room:membership', onMembership);
+    }
+
+    function onMembership(payload: RoomMembershipPayload): void {
+      if (payload.roomId !== roomId) {
+        return;
+      }
+
+      try {
+        if (!predicate(payload)) {
+          return;
+        }
+      } catch (error) {
+        cleanup();
+        reject(error);
+        return;
+      }
+
+      cleanup();
+      resolve(payload);
+    }
+
+    socket.on('room:membership', onMembership);
+  });
 }
 
 describe('lobby reconnect reliability', () => {

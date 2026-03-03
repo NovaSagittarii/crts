@@ -70,6 +70,47 @@ function waitForEvent(
   });
 }
 
+function waitForPredicateEvent<T>(
+  socket: Socket,
+  event: string,
+  predicate: (payload: T) => boolean,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+
+    function cleanup(): void {
+      clearTimeout(timer);
+      socket.off(event, onEvent);
+    }
+
+    function onEvent(payload: T): void {
+      let matches = false;
+
+      try {
+        matches = predicate(payload);
+      } catch (error) {
+        cleanup();
+        reject(error);
+        return;
+      }
+
+      if (!matches) {
+        return;
+      }
+
+      cleanup();
+      resolve(payload);
+    }
+
+    socket.on(event, onEvent);
+  });
+}
+
 function createClient(port: number): Socket {
   const socket = io(`http://localhost:${port}`, {
     autoConnect: false,
@@ -97,11 +138,13 @@ async function waitForCondition(
   predicate: (state: StatePayload) => boolean,
   attempts = 6,
 ): Promise<StatePayload> {
-  for (let i = 0; i < attempts; i += 1) {
-    const state = (await waitForEvent(socket, 'state')) as StatePayload;
-    if (predicate(state)) return state;
-  }
-  throw new Error('Condition not met in allotted attempts');
+  return waitForPredicateEvent<StatePayload>(
+    socket,
+    'state',
+    predicate,
+    attempts * 2500,
+    'Condition not met in allotted attempts',
+  );
 }
 
 async function claimSlot(
@@ -124,11 +167,13 @@ async function waitForRoomList(
   predicate: (rooms: RoomListEntry[]) => boolean,
   attempts = 6,
 ): Promise<RoomListEntry[]> {
-  for (let i = 0; i < attempts; i += 1) {
-    const rooms = (await waitForEvent(socket, 'room:list')) as RoomListEntry[];
-    if (predicate(rooms)) return rooms;
-  }
-  throw new Error('Room list condition not met in allotted attempts');
+  return waitForPredicateEvent<RoomListEntry[]>(
+    socket,
+    'room:list',
+    predicate,
+    attempts * 2500,
+    'Room list condition not met in allotted attempts',
+  );
 }
 
 async function waitForMembership(
@@ -136,17 +181,13 @@ async function waitForMembership(
   predicate: (membership: RoomMembershipPayload) => boolean,
   attempts = 20,
 ): Promise<RoomMembershipPayload> {
-  for (let i = 0; i < attempts; i += 1) {
-    const membership = (await waitForEvent(
-      socket,
-      'room:membership',
-    )) as RoomMembershipPayload;
-    if (predicate(membership)) {
-      return membership;
-    }
-  }
-
-  throw new Error('Membership condition not met in allotted attempts');
+  return waitForPredicateEvent<RoomMembershipPayload>(
+    socket,
+    'room:membership',
+    predicate,
+    attempts * 2500,
+    'Membership condition not met in allotted attempts',
+  );
 }
 
 function waitForBuildQueueResponse(
@@ -184,6 +225,7 @@ function collectBuildOutcomes(
   socket: Socket,
   eventIds: number[],
   timeoutMs = 8000,
+  settleMs = 0,
 ): Promise<Map<number, BuildOutcome[]>> {
   return new Promise((resolve, reject) => {
     const expected = new Set(eventIds);
@@ -205,10 +247,16 @@ function collectBuildOutcomes(
 
     function maybeScheduleResolve(): void {
       if (expected.size === 0 && !settleTimer) {
+        if (settleMs <= 0) {
+          cleanup();
+          resolve(outcomesById);
+          return;
+        }
+
         settleTimer = setTimeout(() => {
           cleanup();
           resolve(outcomesById);
-        }, 200);
+        }, settleMs);
       }
     }
 
@@ -228,6 +276,7 @@ function collectBuildOutcomes(
     }
 
     socket.on('build:outcome', onOutcome);
+    maybeScheduleResolve();
   });
 }
 
@@ -266,6 +315,7 @@ function collectDestroyOutcomes(
   socket: Socket,
   eventIds: number[],
   timeoutMs = 8000,
+  settleMs = 0,
 ): Promise<Map<number, DestroyOutcome[]>> {
   return new Promise((resolve, reject) => {
     const expected = new Set(eventIds);
@@ -287,10 +337,16 @@ function collectDestroyOutcomes(
 
     function maybeScheduleResolve(): void {
       if (expected.size === 0 && !settleTimer) {
+        if (settleMs <= 0) {
+          cleanup();
+          resolve(outcomesById);
+          return;
+        }
+
         settleTimer = setTimeout(() => {
           cleanup();
           resolve(outcomesById);
-        }, 200);
+        }, settleMs);
       }
     }
 
@@ -310,6 +366,7 @@ function collectDestroyOutcomes(
     }
 
     socket.on('destroy:outcome', onOutcome);
+    maybeScheduleResolve();
   });
 }
 
@@ -535,6 +592,7 @@ describe('GameServer', () => {
       setup.host,
       [...queuedById.keys()],
       10_000,
+      200,
     );
 
     expect(outcomesById.size).toBe(queuedById.size);
@@ -644,8 +702,8 @@ describe('GameServer', () => {
       queuedEvents.map((queued) => [queued.eventId, queued]),
     );
     const [hostOutcomesById, guestOutcomesById] = await Promise.all([
-      collectBuildOutcomes(setup.host, eventIds, 12_000),
-      collectBuildOutcomes(setup.guest, eventIds, 12_000),
+      collectBuildOutcomes(setup.host, eventIds, 12_000, 200),
+      collectBuildOutcomes(setup.guest, eventIds, 12_000, 200),
     ]);
 
     for (const eventId of eventIds) {
@@ -1141,8 +1199,18 @@ describe('GameServer', () => {
     }
 
     const [hostOutcomesById, guestOutcomesById] = await Promise.all([
-      collectDestroyOutcomes(setup.host, [firstDestroyQueued.eventId], 12_000),
-      collectDestroyOutcomes(setup.guest, [firstDestroyQueued.eventId], 12_000),
+      collectDestroyOutcomes(
+        setup.host,
+        [firstDestroyQueued.eventId],
+        12_000,
+        200,
+      ),
+      collectDestroyOutcomes(
+        setup.guest,
+        [firstDestroyQueued.eventId],
+        12_000,
+        200,
+      ),
     ]);
 
     const hostOutcomes = hostOutcomesById.get(firstDestroyQueued.eventId) ?? [];
