@@ -1,16 +1,16 @@
-import { CORE_STRUCTURE_TEMPLATE } from './rts.js';
+import { RtsEngine } from './rts.js';
 
 export interface Vector2 {
   x: number;
   y: number;
 }
 
-export const BASE_FOOTPRINT_WIDTH = CORE_STRUCTURE_TEMPLATE.width;
-export const BASE_FOOTPRINT_HEIGHT = CORE_STRUCTURE_TEMPLATE.height;
+export const BASE_FOOTPRINT_WIDTH = RtsEngine.CORE_STRUCTURE_TEMPLATE.width;
+export const BASE_FOOTPRINT_HEIGHT = RtsEngine.CORE_STRUCTURE_TEMPLATE.height;
 export const BASE_CENTER_OFFSET = Math.floor(BASE_FOOTPRINT_WIDTH / 2);
 
 export function isCanonicalBaseCell(localX: number, localY: number): boolean {
-  return !!CORE_STRUCTURE_TEMPLATE.cells[
+  return !!RtsEngine.CORE_STRUCTURE_TEMPLATE.cells[
     localY * BASE_FOOTPRINT_WIDTH + localX
   ];
 }
