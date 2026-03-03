@@ -27,6 +27,7 @@ import {
   tickRoom,
   type StructureTemplate,
 } from './rts.js';
+import { GridView } from './grid-view.js';
 
 interface Cell {
   x: number;
@@ -63,12 +64,15 @@ function getCoreStructure(team: ReturnType<typeof addPlayerToRoom>): {
 }
 
 function getCellAlive(
-  grid: Uint8Array,
+  grid: Uint8Array | ArrayBuffer,
   width: number,
   height: number,
   cell: Cell,
 ): boolean {
-  const unpackedGrid = unpackGridBits(grid, width, height);
+  const packedGrid = (
+    grid instanceof Uint8Array ? Uint8Array.from(grid).buffer : grid
+  ) as ArrayBuffer;
+  const unpackedGrid = unpackGridBits(packedGrid, width, height);
   return unpackedGrid[cell.y * width + cell.x] === 1;
 }
 
@@ -87,10 +91,17 @@ function getBuildOutcomes(
 function probeQueueBuild(
   room: ReturnType<typeof createRoomState>,
   playerId: string,
-  payload: { templateId: string; x: number; y: number; delayTicks?: number },
-): ReturnType<typeof queueBuildEvent> {
-  const probeRoom = structuredClone(room);
-  return queueBuildEvent(probeRoom, playerId, payload);
+  payload: {
+    templateId: string;
+    x: number;
+    y: number;
+    delayTicks?: number;
+    transform?: {
+      operations: Array<'rotate' | 'mirror-horizontal' | 'mirror-vertical'>;
+    };
+  },
+): ReturnType<typeof previewBuildPlacement> {
+  return previewBuildPlacement(room, playerId, payload);
 }
 
 function getStructureByTemplateId(
@@ -114,6 +125,33 @@ function getStructureByTemplateId(
     hp: structure.hp,
     active: structure.active,
     buildRadius: structure.buildRadius,
+  };
+}
+
+function withTemplateGrid(
+  template: Omit<StructureTemplate, 'grid'>,
+): StructureTemplate {
+  const cells = new Uint8Array(template.cells);
+  const checks = template.checks.map((check) => ({ x: check.x, y: check.y }));
+
+  return {
+    ...template,
+    cells,
+    checks,
+    grid(): GridView {
+      const gridCells = [];
+      for (let y = 0; y < template.height; y += 1) {
+        for (let x = 0; x < template.width; x += 1) {
+          gridCells.push({
+            x,
+            y,
+            alive: cells[y * template.width + x] === 1,
+          });
+        }
+      }
+
+      return GridView.fromCells(gridCells);
+    },
   };
 }
 
@@ -156,6 +194,59 @@ describe('rts', () => {
       income: 2,
       buildArea: 2,
     });
+  });
+
+  test('normalizes templates with canonical fresh grid() views', () => {
+    const room = createRoomState({
+      id: 'grid-room',
+      name: 'Grid Room',
+      width: 40,
+      height: 40,
+    });
+    const template = room.templateMap.get('glider');
+
+    expect(template).toBeDefined();
+    const firstView = template?.grid();
+    const secondView = template?.grid();
+
+    expect(firstView).toBeDefined();
+    expect(secondView).toBeDefined();
+    expect(firstView).not.toBe(secondView);
+    expect(firstView?.cells()).toEqual(secondView?.cells());
+
+    const rotated = firstView?.rotate();
+    expect(template?.grid().cells()).toEqual(secondView?.cells());
+    expect(rotated?.cells()).not.toEqual(secondView?.cells());
+  });
+
+  test('keeps preview and queue parity for canonical transformed placements', () => {
+    const room = createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 70,
+      height: 70,
+    });
+    const team = addPlayerToRoom(room, 'p1', 'Alice');
+
+    const payload = {
+      templateId: 'glider',
+      x: team.baseTopLeft.x + 6,
+      y: team.baseTopLeft.y + 6,
+      delayTicks: 1,
+      transform: {
+        operations: ['rotate' as const, 'mirror-horizontal' as const],
+      },
+    };
+
+    const preview = previewBuildPlacement(room, 'p1', payload);
+    const queued = queueBuildEvent(room, 'p1', payload);
+
+    expect(preview.accepted).toBe(true);
+    expect(queued.accepted).toBe(true);
+    expect(queued.transform).toEqual(preview.transform);
+    expect(queued.bounds).toEqual(preview.bounds);
+    expect(queued.footprint).toEqual(preview.footprint);
+    expect(queued.illegalCells).toEqual(preview.illegalCells);
   });
 
   test('adds players, seeds base cells, and lists room occupancy', () => {
@@ -330,7 +421,7 @@ describe('rts', () => {
   });
 
   test('[BUILD-02] enforces inclusive radius-15 union-zone checks', () => {
-    const probeTemplate: StructureTemplate = {
+    const probeTemplate: StructureTemplate = withTemplateGrid({
       id: 'probe',
       name: 'Probe',
       width: 1,
@@ -340,7 +431,7 @@ describe('rts', () => {
       income: 0,
       buildArea: 0,
       checks: [],
-    };
+    });
 
     const room = createRoomState({
       id: '1',
@@ -410,7 +501,7 @@ describe('rts', () => {
   });
 
   test('accepts torus-wrapped placements and rejects transformed templates that exceed map size', () => {
-    const wideTemplate: StructureTemplate = {
+    const wideTemplate: StructureTemplate = withTemplateGrid({
       id: 'wide-6',
       name: 'Wide 6',
       width: 6,
@@ -420,7 +511,7 @@ describe('rts', () => {
       income: 0,
       buildArea: 0,
       checks: [],
-    };
+    });
 
     const room = createRoomState({
       id: '1',
@@ -483,7 +574,7 @@ describe('rts', () => {
   });
 
   test('[BUILD-01] updates union-zone eligibility after build completion and structure destruction', () => {
-    const probeTemplate: StructureTemplate = {
+    const probeTemplate: StructureTemplate = withTemplateGrid({
       id: 'probe',
       name: 'Probe',
       width: 1,
@@ -493,7 +584,7 @@ describe('rts', () => {
       income: 0,
       buildArea: 0,
       checks: [],
-    };
+    });
 
     const room = createRoomState({
       id: '1',
@@ -668,7 +759,7 @@ describe('rts', () => {
   });
 
   test('[STRUCT-02] applies queued destroy outcomes and removes contributor build zone', () => {
-    const probeTemplate: StructureTemplate = {
+    const probeTemplate: StructureTemplate = withTemplateGrid({
       id: 'probe',
       name: 'Probe',
       width: 1,
@@ -678,7 +769,7 @@ describe('rts', () => {
       income: 0,
       buildArea: 0,
       checks: [],
-    };
+    });
 
     const room = createRoomState({
       id: '1',
@@ -1338,7 +1429,7 @@ describe('rts', () => {
   });
 
   test('[STRUCT-01] tracks templates without checks using default integrity masks', () => {
-    const sentinelTemplate: StructureTemplate = {
+    const sentinelTemplate: StructureTemplate = withTemplateGrid({
       id: 'sentinel',
       name: 'Sentinel',
       width: 1,
@@ -1348,7 +1439,7 @@ describe('rts', () => {
       income: 0,
       buildArea: 0,
       checks: [],
-    };
+    });
     const room = createRoomState({
       id: '1',
       name: 'Alpha',

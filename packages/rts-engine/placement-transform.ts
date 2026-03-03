@@ -1,5 +1,11 @@
 import type { Vector2 } from './geometry.js';
-import { GridView } from './grid-view.js';
+import type { GridView, GridViewTransformMatrix } from './grid-view.js';
+import {
+  GRID_VIEW_FLIP_HORIZONTAL_MATRIX,
+  GRID_VIEW_FLIP_VERTICAL_MATRIX,
+  GRID_VIEW_IDENTITY_MATRIX,
+  GRID_VIEW_ROTATE_MATRIX,
+} from './grid-view.js';
 
 export type PlacementTransformOperation =
   | 'rotate'
@@ -10,12 +16,7 @@ export interface PlacementTransformInput {
   operations?: PlacementTransformOperation[];
 }
 
-export interface PlacementTransformMatrix {
-  xx: number;
-  xy: number;
-  yx: number;
-  yy: number;
-}
+export type PlacementTransformMatrix = GridViewTransformMatrix;
 
 export interface PlacementTransformState {
   operations: PlacementTransformOperation[];
@@ -52,48 +53,14 @@ export interface PlacementProjection {
   checks: Vector2[];
 }
 
-const IDENTITY_MATRIX: PlacementTransformMatrix = {
-  xx: 1,
-  xy: 0,
-  yx: 0,
-  yy: 1,
-};
-
 const OPERATION_MATRICES: Record<
   PlacementTransformOperation,
   PlacementTransformMatrix
 > = {
-  rotate: {
-    xx: 0,
-    xy: 1,
-    yx: -1,
-    yy: 0,
-  },
-  'mirror-horizontal': {
-    xx: -1,
-    xy: 0,
-    yx: 0,
-    yy: 1,
-  },
-  'mirror-vertical': {
-    xx: 1,
-    xy: 0,
-    yx: 0,
-    yy: -1,
-  },
+  rotate: GRID_VIEW_ROTATE_MATRIX,
+  'mirror-horizontal': GRID_VIEW_FLIP_HORIZONTAL_MATRIX,
+  'mirror-vertical': GRID_VIEW_FLIP_VERTICAL_MATRIX,
 };
-
-interface MatrixPoint {
-  x: number;
-  y: number;
-}
-
-interface MatrixExtents {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-}
 
 function isPlacementTransformOperation(
   value: string,
@@ -117,29 +84,6 @@ function multiplyMatrices(
   };
 }
 
-function applyMatrix(
-  matrix: PlacementTransformMatrix,
-  x: number,
-  y: number,
-): MatrixPoint {
-  return {
-    x: matrix.xx * x + matrix.xy * y,
-    y: matrix.yx * x + matrix.yy * y,
-  };
-}
-
-function compareCells(left: Vector2, right: Vector2): number {
-  return left.y - right.y || left.x - right.x;
-}
-
-function uniqueSortedCells(cells: Vector2[]): Vector2[] {
-  const unique = new Map<string, Vector2>();
-  for (const cell of cells) {
-    unique.set(`${cell.x},${cell.y}`, cell);
-  }
-  return [...unique.values()].sort(compareCells);
-}
-
 function normalizeOperations(
   input: PlacementTransformInput | null | undefined,
 ): PlacementTransformOperation[] {
@@ -160,38 +104,19 @@ function normalizeOperations(
   return operations;
 }
 
-function deriveMatrixExtents(
-  width: number,
-  height: number,
-  matrix: PlacementTransformMatrix,
-): MatrixExtents {
-  const corners = [
-    applyMatrix(matrix, 0, 0),
-    applyMatrix(matrix, width - 1, 0),
-    applyMatrix(matrix, 0, height - 1),
-    applyMatrix(matrix, width - 1, height - 1),
-  ];
-
-  let minX = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-
-  for (const point of corners) {
-    minX = Math.min(minX, point.x);
-    maxX = Math.max(maxX, point.x);
-    minY = Math.min(minY, point.y);
-    maxY = Math.max(maxY, point.y);
-  }
-
-  return { minX, minY, maxX, maxY };
+function createLegacyEntrypointError(
+  entrypoint: 'projectTemplateWithTransform' | 'projectPlacementToWorld',
+): Error {
+  return new Error(
+    `${entrypoint} has been retired. Migrate to template.grid().applyTransform(normalizePlacementTransform(payload.transform).matrix) and derive wrapped world coordinates with GridView.translate(...) plus wrapCoordinate().`,
+  );
 }
 
 export function normalizePlacementTransform(
   input: PlacementTransformInput | null | undefined,
 ): PlacementTransformState {
   const operations = normalizeOperations(input);
-  let matrix = IDENTITY_MATRIX;
+  let matrix = GRID_VIEW_IDENTITY_MATRIX;
   for (const operation of operations) {
     matrix = multiplyMatrices(OPERATION_MATRICES[operation], matrix);
   }
@@ -205,74 +130,15 @@ export function normalizePlacementTransform(
 export function createIdentityPlacementTransform(): PlacementTransformState {
   return {
     operations: [],
-    matrix: IDENTITY_MATRIX,
+    matrix: GRID_VIEW_IDENTITY_MATRIX,
   };
 }
 
 export function projectTemplateWithTransform(
-  template: TransformTemplateInput,
-  transform: PlacementTransformState,
+  _template: TransformTemplateInput,
+  _transform: PlacementTransformState,
 ): TransformedTemplate {
-  if (template.width <= 0 || template.height <= 0) {
-    throw new Error('Template dimensions must be positive');
-  }
-  if (template.cells.length !== template.width * template.height) {
-    throw new Error('Template cell dimensions do not match width/height');
-  }
-
-  const extents = deriveMatrixExtents(
-    template.width,
-    template.height,
-    transform.matrix,
-  );
-  const transformedWidth = extents.maxX - extents.minX + 1;
-  const transformedHeight = extents.maxY - extents.minY + 1;
-  const transformedCells = new Uint8Array(transformedWidth * transformedHeight);
-
-  const transformedGridCells: Array<{ x: number; y: number; alive: boolean }> =
-    [];
-  for (let y = 0; y < template.height; y += 1) {
-    for (let x = 0; x < template.width; x += 1) {
-      const sourceValue = template.cells[y * template.width + x];
-      const transformed = applyMatrix(transform.matrix, x, y);
-      const normalizedX = transformed.x - extents.minX;
-      const normalizedY = transformed.y - extents.minY;
-      transformedCells[normalizedY * transformedWidth + normalizedX] =
-        sourceValue;
-
-      transformedGridCells.push({
-        x: normalizedX,
-        y: normalizedY,
-        alive: sourceValue === 1,
-      });
-    }
-  }
-
-  const gridView = GridView.fromCells(transformedGridCells);
-
-  const transformedChecks = uniqueSortedCells(
-    template.checks.map((check) => {
-      const transformed = applyMatrix(transform.matrix, check.x, check.y);
-      return {
-        x: transformed.x - extents.minX,
-        y: transformed.y - extents.minY,
-      };
-    }),
-  );
-
-  return {
-    width: transformedWidth,
-    height: transformedHeight,
-    cells: transformedCells,
-    occupiedCells: uniqueSortedCells(
-      gridView.occupiedCells().map((cell) => ({
-        x: cell.x,
-        y: cell.y,
-      })),
-    ),
-    checks: transformedChecks,
-    gridView,
-  };
+  throw createLegacyEntrypointError('projectTemplateWithTransform');
 }
 
 export function wrapCoordinate(value: number, size: number): number {
@@ -280,44 +146,14 @@ export function wrapCoordinate(value: number, size: number): number {
 }
 
 export function projectPlacementToWorld(
-  transformedTemplate: Pick<
+  _transformedTemplate: Pick<
     TransformedTemplate,
     'width' | 'height' | 'occupiedCells' | 'checks'
   >,
-  anchorX: number,
-  anchorY: number,
-  roomWidth: number,
-  roomHeight: number,
+  _anchorX: number,
+  _anchorY: number,
+  _roomWidth: number,
+  _roomHeight: number,
 ): PlacementProjection {
-  const areaCells: Vector2[] = [];
-  for (let y = 0; y < transformedTemplate.height; y += 1) {
-    for (let x = 0; x < transformedTemplate.width; x += 1) {
-      areaCells.push({
-        x: wrapCoordinate(anchorX + x, roomWidth),
-        y: wrapCoordinate(anchorY + y, roomHeight),
-      });
-    }
-  }
-
-  const occupiedCells = transformedTemplate.occupiedCells.map((cell) => ({
-    x: wrapCoordinate(anchorX + cell.x, roomWidth),
-    y: wrapCoordinate(anchorY + cell.y, roomHeight),
-  }));
-
-  const checks = transformedTemplate.checks.map((check) => ({
-    x: wrapCoordinate(anchorX + check.x, roomWidth),
-    y: wrapCoordinate(anchorY + check.y, roomHeight),
-  }));
-
-  return {
-    bounds: {
-      x: anchorX,
-      y: anchorY,
-      width: transformedTemplate.width,
-      height: transformedTemplate.height,
-    },
-    areaCells: uniqueSortedCells(areaCells),
-    occupiedCells: uniqueSortedCells(occupiedCells),
-    checks: uniqueSortedCells(checks),
-  };
+  throw createLegacyEntrypointError('projectPlacementToWorld');
 }

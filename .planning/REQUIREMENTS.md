@@ -9,8 +9,8 @@ Requirements for milestone `v0.0.3 Template Grid Unification`.
 
 ### GridView Core API
 
-- [ ] **REF-01**: Engine exposes `template.grid()` as the canonical transformable template entrypoint.
-- [ ] **REF-02**: `GridView` supports `translate`, `rotate`, and `applyTransform` with semantics equivalent to existing placement transforms.
+- [x] **REF-01**: Engine exposes `template.grid()` as the canonical transformable template entrypoint.
+- [x] **REF-02**: `GridView` supports `translate`, `rotate`, and `applyTransform` with semantics equivalent to existing placement transforms.
 - [x] **REF-03**: `GridView.cells()` emits deterministic transformed `{ x, y, alive }` entries for every cell in transformed bounds (not alive-only and no duplicates).
 
 ### Engine Path Unification
@@ -57,8 +57,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase    | Status   |
 | ----------- | -------- | -------- |
-| REF-01      | Phase 14 | Pending  |
-| REF-02      | Phase 14 | Pending  |
+| REF-01      | Phase 14 | Complete |
+| REF-02      | Phase 14 | Complete |
 | REF-03      | Phase 13 | Complete |
 | REF-04      | Phase 16 | Pending  |
 | REF-05      | Phase 15 | Pending  |
@@ -76,4 +76,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 ---
 
 _Requirements defined: 2026-03-03_
-_Last updated: 2026-03-03 after Phase 13 execution_
+_Last updated: 2026-03-03 after Phase 14 execution_

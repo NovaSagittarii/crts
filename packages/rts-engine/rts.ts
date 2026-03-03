@@ -33,14 +33,13 @@ import { createTorusSpawnLayout, wrappedDelta } from './spawn.js';
 import {
   createIdentityPlacementTransform,
   normalizePlacementTransform,
-  projectPlacementToWorld,
-  projectTemplateWithTransform,
   wrapCoordinate,
   type PlacementBounds,
   type PlacementTransformInput,
   type PlacementTransformState,
   type TransformedTemplate,
 } from './placement-transform.js';
+import { GridView, type GridViewCell } from './grid-view.js';
 
 export interface StructureTemplate {
   id: string;
@@ -48,12 +47,15 @@ export interface StructureTemplate {
   width: number;
   height: number;
   cells: Uint8Array;
+  grid(): GridView;
   activationCost: number;
   income: number;
   buildArea: number;
   checks: Vector2[];
   requiresDestroyConfirm?: boolean;
 }
+
+type StructureTemplateSeed = Omit<StructureTemplate, 'grid'>;
 
 export interface StructureTemplateSummary {
   id: string;
@@ -387,6 +389,92 @@ interface PackedGrid {
   cells: Uint8Array;
 }
 
+function compareCells(left: Vector2, right: Vector2): number {
+  return left.y - right.y || left.x - right.x;
+}
+
+function uniqueSortedCells(cells: readonly Vector2[]): Vector2[] {
+  const unique = new Map<string, Vector2>();
+  for (const cell of cells) {
+    unique.set(`${cell.x},${cell.y}`, { x: cell.x, y: cell.y });
+  }
+  return [...unique.values()].sort(compareCells);
+}
+
+function validateTemplateDimensions(
+  template: Pick<StructureTemplateSeed, 'width' | 'height' | 'cells'>,
+): void {
+  if (template.width <= 0 || template.height <= 0) {
+    throw new Error('Template dimensions must be positive');
+  }
+  if (template.cells.length !== template.width * template.height) {
+    throw new Error('Template cell dimensions do not match width/height');
+  }
+}
+
+function createTemplateGridCells(
+  width: number,
+  height: number,
+  cells: Uint8Array,
+): GridViewCell[] {
+  const gridCells: GridViewCell[] = [];
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      gridCells.push({
+        x,
+        y,
+        alive: cells[y * width + x] === 1,
+      });
+    }
+  }
+  return gridCells;
+}
+
+function normalizeStructureTemplate(
+  template: StructureTemplateSeed,
+): StructureTemplate {
+  validateTemplateDimensions(template);
+
+  const cells = new Uint8Array(template.cells);
+  const checks = template.checks.map((check) => ({ x: check.x, y: check.y }));
+  const gridCells = createTemplateGridCells(
+    template.width,
+    template.height,
+    cells,
+  );
+
+  return {
+    ...template,
+    cells,
+    checks,
+    grid(): GridView {
+      return GridView.fromCells(gridCells);
+    },
+  };
+}
+
+function ensureTemplateGrid(template: StructureTemplate): StructureTemplate {
+  const templateWithOptionalGrid = template as StructureTemplate & {
+    grid?: unknown;
+  };
+  if (typeof templateWithOptionalGrid.grid === 'function') {
+    return template;
+  }
+
+  return normalizeStructureTemplate({
+    id: template.id,
+    name: template.name,
+    width: template.width,
+    height: template.height,
+    cells: template.cells,
+    activationCost: template.activationCost,
+    income: template.income,
+    buildArea: template.buildArea,
+    checks: template.checks,
+    requiresDestroyConfirm: template.requiresDestroyConfirm,
+  });
+}
+
 function parseTemplateRows(rows: string[]): PackedGrid {
   if (rows.length === 0) {
     throw new Error('Template rows must not be empty');
@@ -452,7 +540,7 @@ function createTemplateFromRows({
 }: StructureTemplateRowsOptions): StructureTemplate {
   const parsed = parseTemplateRows(rows);
   const padded = padTemplate(parsed, padding);
-  return {
+  return normalizeStructureTemplate({
     id: id,
     name: name,
     width: padded.width,
@@ -464,7 +552,7 @@ function createTemplateFromRows({
     requiresDestroyConfirm: requiresDestroyConfirm,
     checks: [], // TODO: implement checked and checks
     // checked,
-  };
+  });
 }
 
 export const CORE_STRUCTURE_TEMPLATE = createTemplateFromRows({
@@ -653,11 +741,11 @@ function projectStructures(
       continue;
     }
 
-    const transformedTemplate = projectTemplateWithTransform(
+    const transformedTemplate = transformTemplateWithGridView(
       template,
       structure.transform,
     );
-    const projection = projectPlacementToWorld(
+    const projection = projectTransformedTemplateToWorld(
       transformedTemplate,
       structure.x,
       structure.y,
@@ -859,6 +947,96 @@ function transformedTemplateFitsRoom(
   );
 }
 
+function transformTemplateWithGridView(
+  template: StructureTemplate,
+  transform: PlacementTransformState,
+): TransformedTemplate {
+  const canonicalTemplate = ensureTemplateGrid(template);
+  validateTemplateDimensions(canonicalTemplate);
+
+  const gridView = canonicalTemplate.grid().applyTransform(transform.matrix);
+  const transformedCellsOrdered = gridView.cells();
+  const originCell = transformedCellsOrdered[0];
+  if (!originCell) {
+    throw new Error('Template dimensions must be positive');
+  }
+
+  const bounds = gridView.bounds();
+  const transformedCells = new Uint8Array(bounds.width * bounds.height);
+  for (let index = 0; index < transformedCellsOrdered.length; index += 1) {
+    const target = transformedCellsOrdered[index];
+    transformedCells[target.y * bounds.width + target.x] =
+      canonicalTemplate.cells[index];
+  }
+
+  const transformedChecks = uniqueSortedCells(
+    canonicalTemplate.checks.map((check) => ({
+      x:
+        transform.matrix.xx * check.x +
+        transform.matrix.xy * check.y +
+        originCell.x,
+      y:
+        transform.matrix.yx * check.x +
+        transform.matrix.yy * check.y +
+        originCell.y,
+    })),
+  );
+
+  return {
+    width: bounds.width,
+    height: bounds.height,
+    cells: transformedCells,
+    occupiedCells: uniqueSortedCells(
+      gridView.occupiedCells().map((cell) => ({ x: cell.x, y: cell.y })),
+    ),
+    checks: transformedChecks,
+    gridView,
+  };
+}
+
+function projectTransformedTemplateToWorld(
+  transformedTemplate: Pick<
+    TransformedTemplate,
+    'gridView' | 'width' | 'height' | 'occupiedCells' | 'checks'
+  >,
+  anchorX: number,
+  anchorY: number,
+  roomWidth: number,
+  roomHeight: number,
+): {
+  bounds: PlacementBounds;
+  areaCells: Vector2[];
+  occupiedCells: Vector2[];
+  checks: Vector2[];
+} {
+  const areaCells = transformedTemplate.gridView.cells().map((cell) => ({
+    x: wrapCoordinate(anchorX + cell.x, roomWidth),
+    y: wrapCoordinate(anchorY + cell.y, roomHeight),
+  }));
+
+  const occupiedCells = transformedTemplate.occupiedCells.map((cell) => ({
+    x: wrapCoordinate(anchorX + cell.x, roomWidth),
+    y: wrapCoordinate(anchorY + cell.y, roomHeight),
+  }));
+
+  const checks = transformedTemplate.checks.map((check) => ({
+    x: wrapCoordinate(anchorX + check.x, roomWidth),
+    y: wrapCoordinate(anchorY + check.y, roomHeight),
+  }));
+
+  return {
+    bounds: {
+      x: anchorX,
+      y: anchorY,
+      width: transformedTemplate.width,
+      height: transformedTemplate.height,
+    },
+    areaCells: uniqueSortedCells(areaCells),
+    occupiedCells: uniqueSortedCells(occupiedCells),
+    checks: uniqueSortedCells(checks),
+  };
+}
+
 function createStructureKey(
   x: number,
   y: number,
@@ -887,7 +1065,7 @@ function collectTeamBuildZoneContributors(
       continue;
     }
 
-    const transformedTemplate = projectTemplateWithTransform(
+    const transformedTemplate = transformTemplateWithGridView(
       template,
       structure.transform,
     );
@@ -928,7 +1106,10 @@ function projectBuildPlacement(
   transformInput: PlacementTransformInput | null | undefined,
 ): BuildPlacementValidationResult {
   const transform = normalizePlacementTransform(transformInput);
-  const transformedTemplate = projectTemplateWithTransform(template, transform);
+  const transformedTemplate = transformTemplateWithGridView(
+    template,
+    transform,
+  );
   const bounds: PlacementBounds = {
     x,
     y,
@@ -951,7 +1132,7 @@ function projectBuildPlacement(
     };
   }
 
-  const projected = projectPlacementToWorld(
+  const projected = projectTransformedTemplateToWorld(
     transformedTemplate,
     x,
     y,
@@ -1039,7 +1220,7 @@ function getIntegrityMaskCells(
   structure: StructureInstance,
   template: StructureTemplate,
 ): readonly IntegrityMaskCell[] {
-  const transformedTemplate = projectTemplateWithTransform(
+  const transformedTemplate = transformTemplateWithGridView(
     template,
     structure.transform,
   );
@@ -1759,7 +1940,21 @@ export function createTemplateSummaries(
 }
 
 export function createRoomState(options: CreateRoomOptions): RoomState {
-  const templates = options.templates ?? createDefaultTemplates();
+  const templates = (options.templates ?? createDefaultTemplates()).map(
+    (template) =>
+      normalizeStructureTemplate({
+        id: template.id,
+        name: template.name,
+        width: template.width,
+        height: template.height,
+        cells: template.cells,
+        activationCost: template.activationCost,
+        income: template.income,
+        buildArea: template.buildArea,
+        checks: template.checks,
+        requiresDestroyConfirm: template.requiresDestroyConfirm,
+      }),
+  );
   const templateMap = new Map<string, StructureTemplate>();
   for (const template of templates) {
     templateMap.set(template.id, template);

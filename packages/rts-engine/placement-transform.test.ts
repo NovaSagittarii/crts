@@ -1,15 +1,13 @@
 import { describe, expect, test } from 'vitest';
 
+import { GridView } from './grid-view.js';
 import {
   createIdentityPlacementTransform,
   normalizePlacementTransform,
   projectPlacementToWorld,
   projectTemplateWithTransform,
+  wrapCoordinate,
 } from './placement-transform.js';
-
-function asKeySet(cells: ReadonlyArray<{ x: number; y: number }>): Set<string> {
-  return new Set(cells.map((cell) => `${cell.x},${cell.y}`));
-}
 
 describe('placement-transform', () => {
   test('keeps composition order-sensitive for transform operations', () => {
@@ -23,65 +21,58 @@ describe('placement-transform', () => {
     expect(rotateThenMirror.matrix).not.toEqual(mirrorThenRotate.matrix);
   });
 
-  test('rotates rectangular templates and returns to identity after four rotates', () => {
-    const template = {
-      width: 3,
-      height: 2,
-      cells: new Uint8Array([1, 0, 1, 1, 1, 0]),
-      checks: [
-        { x: 0, y: 0 },
-        { x: 2, y: 0 },
-        { x: 1, y: 1 },
-      ],
-    };
+  test('creates identity transforms for empty and invalid payloads', () => {
+    expect(createIdentityPlacementTransform()).toEqual({
+      operations: [],
+      matrix: {
+        xx: 1,
+        xy: 0,
+        yx: 0,
+        yy: 1,
+      },
+    });
 
-    const rotated = projectTemplateWithTransform(
-      template,
-      normalizePlacementTransform({ operations: ['rotate'] }),
+    expect(normalizePlacementTransform(undefined)).toEqual(
+      createIdentityPlacementTransform(),
     );
-
-    expect(rotated.width).toBe(2);
-    expect(rotated.height).toBe(3);
-    expect(rotated.gridView.cells()).toEqual([
-      { x: 0, y: 2, alive: true },
-      { x: 0, y: 1, alive: false },
-      { x: 0, y: 0, alive: true },
-      { x: 1, y: 2, alive: true },
-      { x: 1, y: 1, alive: true },
-      { x: 1, y: 0, alive: false },
-    ]);
-    expect(Array.from(rotated.cells)).toEqual([1, 0, 0, 1, 1, 1]);
-    expect(asKeySet(rotated.occupiedCells)).toEqual(
-      new Set(['0,0', '1,1', '0,2', '1,2']),
-    );
-
-    const rotatedAgain = projectTemplateWithTransform(
-      template,
-      normalizePlacementTransform({ operations: ['rotate'] }),
-    );
-    expect(rotatedAgain.gridView.cells()).toEqual(rotated.gridView.cells());
-
-    const cycled = projectTemplateWithTransform(
-      template,
+    expect(
       normalizePlacementTransform({
-        operations: ['rotate', 'rotate', 'rotate', 'rotate'],
+        operations: ['rotate', 'bad-op' as 'rotate', 'mirror-vertical'],
       }),
-    );
+    ).toEqual({
+      operations: ['rotate', 'mirror-vertical'],
+      matrix: {
+        xx: 0,
+        xy: 1,
+        yx: 1,
+        yy: 0,
+      },
+    });
+  });
 
-    expect(cycled.width).toBe(template.width);
-    expect(cycled.height).toBe(template.height);
-    expect(Array.from(cycled.cells)).toEqual(Array.from(template.cells));
-    expect(asKeySet(cycled.occupiedCells)).toEqual(
-      asKeySet(
-        projectTemplateWithTransform(
-          template,
-          createIdentityPlacementTransform(),
-        ).occupiedCells,
-      ),
+  test('keeps normalizePlacementTransform matrices equivalent to GridView chains', () => {
+    const baseGrid = GridView.fromCells([
+      { x: 0, y: 0, alive: true },
+      { x: 1, y: 0, alive: false },
+      { x: 2, y: 0, alive: true },
+      { x: 0, y: 1, alive: true },
+      { x: 1, y: 1, alive: true },
+      { x: 2, y: 1, alive: false },
+    ]);
+
+    const normalized = normalizePlacementTransform({
+      operations: ['rotate', 'mirror-horizontal', 'rotate'],
+    });
+    const fromMatrix = baseGrid.applyTransform(normalized.matrix);
+    const fromChain = baseGrid.rotate().flipHorizontal().rotate();
+
+    expect(fromMatrix.cells()).toEqual(fromChain.cells());
+    expect(baseGrid.applyTransform(normalized.matrix).cells()).toEqual(
+      fromMatrix.cells(),
     );
   });
 
-  test('throws when transform projection creates duplicate coordinates', () => {
+  test('fails fast on retired legacy projection entrypoints', () => {
     expect(() => {
       projectTemplateWithTransform(
         {
@@ -90,46 +81,40 @@ describe('placement-transform', () => {
           cells: new Uint8Array([1, 0, 0, 1]),
           checks: [],
         },
-        {
-          operations: [],
-          matrix: {
-            xx: 0,
-            xy: 0,
-            yx: 0,
-            yy: 0,
-          },
-        },
+        createIdentityPlacementTransform(),
       );
-    }).toThrow(/duplicate coordinates/iu);
+    }).toThrow(/retired/iu);
+    expect(() => {
+      projectTemplateWithTransform(
+        {
+          width: 2,
+          height: 2,
+          cells: new Uint8Array([1, 0, 0, 1]),
+          checks: [],
+        },
+        createIdentityPlacementTransform(),
+      );
+    }).toThrow(/template\.grid\(\)/iu);
+
+    expect(() => {
+      projectPlacementToWorld(
+        {
+          width: 1,
+          height: 1,
+          occupiedCells: [{ x: 0, y: 0 }],
+          checks: [],
+        },
+        0,
+        0,
+        5,
+        5,
+      );
+    }).toThrow(/retired/iu);
   });
 
-  test('projects wrapped world placement for area, footprint, and checks', () => {
-    const projection = projectPlacementToWorld(
-      {
-        width: 2,
-        height: 2,
-        occupiedCells: [
-          { x: 0, y: 0 },
-          { x: 1, y: 1 },
-        ],
-        checks: [{ x: 1, y: 0 }],
-      },
-      4,
-      4,
-      5,
-      5,
-    );
-
-    expect(projection.bounds).toEqual({
-      x: 4,
-      y: 4,
-      width: 2,
-      height: 2,
-    });
-    expect(asKeySet(projection.areaCells)).toEqual(
-      new Set(['4,4', '0,4', '4,0', '0,0']),
-    );
-    expect(asKeySet(projection.occupiedCells)).toEqual(new Set(['4,4', '0,0']));
-    expect(asKeySet(projection.checks)).toEqual(new Set(['0,4']));
+  test('wraps positive and negative coordinates within room bounds', () => {
+    expect(wrapCoordinate(7, 5)).toBe(2);
+    expect(wrapCoordinate(-1, 5)).toBe(4);
+    expect(wrapCoordinate(-6, 5)).toBe(4);
   });
 });

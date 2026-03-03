@@ -13,7 +13,7 @@
 ## Phases
 
 - [x] **Phase 13: GridView Contract and Cell Semantics** - Freeze deterministic transformed cell output used by all downstream geometry consumers. (completed 2026-03-03)
-- [ ] **Phase 14: Canonical GridView API Adoption** - Make `template.grid()` and shared transform operations the standard template entrypoint.
+- [x] **Phase 14: Canonical GridView API Adoption** - Make `template.grid()` and shared transform operations the standard template entrypoint. (completed 2026-03-03)
 - [ ] **Phase 15: Read-Path and Cross-Codebase GridView Unification** - Move read-side geometry and other duplicated transformed-grid paths onto shared GridView utilities.
 - [ ] **Phase 16: Write-Path GridView Unification** - Use one GridView-backed geometry flow for preview, queue validation, and build apply.
 - [ ] **Phase 17: Legacy Geometry Removal with Outcome Parity** - Remove duplicate template/offset-template logic while preserving authoritative outcomes.
@@ -45,7 +45,12 @@
 2. `GridView.translate`, `GridView.rotate`, and `GridView.applyTransform` produce the same placement semantics users already expect.
 3. Rotated/translated placement previews remain behaviorally unchanged for equivalent user inputs.
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+
+- [x] 14-01-PLAN.md — Implement immutable GridView transform APIs (`translate`, `rotate`, `flipHorizontal`, `flipVertical`, `applyTransform`) with placement-safe matrix validation and parity tests. (completed 2026-03-03)
+- [x] 14-02-PLAN.md — Expose canonical `template.grid()` entrypoint, cut over engine geometry acquisition to GridView transforms, and retire legacy offset-template entrypoints with fail-fast migration errors. (completed 2026-03-03)
 
 ### Phase 15: Read-Path and Cross-Codebase GridView Unification
 
@@ -101,14 +106,14 @@
 
 ## Progress
 
-| Phase                                                 | Plans Complete | Status      | Completed |
-| ----------------------------------------------------- | -------------- | ----------- | --------- |
-| 13. GridView Contract and Cell Semantics              | 1/1 | Complete   | 2026-03-03 |
-| 14. Canonical GridView API Adoption                   | 0/TBD          | Not started | -         |
-| 15. Read-Path and Cross-Codebase GridView Unification | 0/TBD          | Not started | -         |
-| 16. Write-Path GridView Unification                   | 0/TBD          | Not started | -         |
-| 17. Legacy Geometry Removal with Outcome Parity       | 0/TBD          | Not started | -         |
-| 18. Parity Closure and Migration Cleanup              | 0/TBD          | Not started | -         |
+| Phase                                                 | Plans Complete | Status      | Completed  |
+| ----------------------------------------------------- | -------------- | ----------- | ---------- |
+| 13. GridView Contract and Cell Semantics              | 1/1            | Complete    | 2026-03-03 |
+| 14. Canonical GridView API Adoption                   | 2/2            | Complete    | 2026-03-03 |
+| 15. Read-Path and Cross-Codebase GridView Unification | 0/TBD          | Not started | -          |
+| 16. Write-Path GridView Unification                   | 0/TBD          | Not started | -          |
+| 17. Legacy Geometry Removal with Outcome Parity       | 0/TBD          | Not started | -          |
+| 18. Parity Closure and Migration Cleanup              | 0/TBD          | Not started | -          |
 
 ## Requirement Coverage
 

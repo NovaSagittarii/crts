@@ -18,14 +18,146 @@ export interface GridViewBounds {
   height: number;
 }
 
+export interface GridViewTransformMatrix {
+  xx: number;
+  xy: number;
+  yx: number;
+  yy: number;
+}
+
+export const GRID_VIEW_IDENTITY_MATRIX: GridViewTransformMatrix = {
+  xx: 1,
+  xy: 0,
+  yx: 0,
+  yy: 1,
+};
+
+export const GRID_VIEW_ROTATE_MATRIX: GridViewTransformMatrix = {
+  xx: 0,
+  xy: 1,
+  yx: -1,
+  yy: 0,
+};
+
+export const GRID_VIEW_FLIP_HORIZONTAL_MATRIX: GridViewTransformMatrix = {
+  xx: -1,
+  xy: 0,
+  yx: 0,
+  yy: 1,
+};
+
+export const GRID_VIEW_FLIP_VERTICAL_MATRIX: GridViewTransformMatrix = {
+  xx: 1,
+  xy: 0,
+  yx: 0,
+  yy: -1,
+};
+
+interface MatrixExtents {
+  minX: number;
+  minY: number;
+}
+
 function coordinateKey(x: number, y: number): string {
   return `${x},${y}`;
 }
 
-function assertIntegerCoordinate(value: number, axis: 'x' | 'y'): void {
+function assertIntegerCoordinate(value: number, axis: string): void {
   if (!Number.isInteger(value)) {
     throw new Error(`GridView ${axis} coordinate must be an integer`);
   }
+}
+
+function assertIntegerValue(value: number, label: string): void {
+  if (!Number.isInteger(value)) {
+    throw new Error(`GridView ${label} must be an integer`);
+  }
+}
+
+function isUnitAxisValue(value: number): boolean {
+  return value === -1 || value === 0 || value === 1;
+}
+
+export function isPlacementSafeTransformMatrix(
+  matrix: GridViewTransformMatrix,
+): boolean {
+  const { xx, xy, yx, yy } = matrix;
+  if (
+    !Number.isInteger(xx) ||
+    !Number.isInteger(xy) ||
+    !Number.isInteger(yx) ||
+    !Number.isInteger(yy)
+  ) {
+    return false;
+  }
+  if (
+    !isUnitAxisValue(xx) ||
+    !isUnitAxisValue(xy) ||
+    !isUnitAxisValue(yx) ||
+    !isUnitAxisValue(yy)
+  ) {
+    return false;
+  }
+
+  const rowOneLength = xx * xx + xy * xy;
+  const rowTwoLength = yx * yx + yy * yy;
+  const colOneLength = xx * xx + yx * yx;
+  const colTwoLength = xy * xy + yy * yy;
+  const dotRows = xx * yx + xy * yy;
+  const determinant = xx * yy - xy * yx;
+
+  return (
+    rowOneLength === 1 &&
+    rowTwoLength === 1 &&
+    colOneLength === 1 &&
+    colTwoLength === 1 &&
+    dotRows === 0 &&
+    Math.abs(determinant) === 1
+  );
+}
+
+export function assertPlacementSafeTransformMatrix(
+  matrix: GridViewTransformMatrix,
+  methodName = 'GridView.applyTransform',
+): void {
+  if (isPlacementSafeTransformMatrix(matrix)) {
+    return;
+  }
+
+  throw new Error(
+    `${methodName} requires a placement-safe orthogonal integer matrix (xx, xy, yx, yy in -1|0|1 with determinant +/-1). Use rotate(), flipHorizontal(), flipVertical(), or normalizePlacementTransform(...).matrix.`,
+  );
+}
+
+export function applyTransformMatrixToCoordinate(
+  matrix: GridViewTransformMatrix,
+  x: number,
+  y: number,
+): GridViewCoordinate {
+  return {
+    x: matrix.xx * x + matrix.xy * y,
+    y: matrix.yx * x + matrix.yy * y,
+  };
+}
+
+function deriveMatrixExtents(
+  cells: ReadonlyArray<GridViewCell>,
+  matrix: GridViewTransformMatrix,
+): MatrixExtents {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+
+  for (const cell of cells) {
+    const transformed = applyTransformMatrixToCoordinate(
+      matrix,
+      cell.x,
+      cell.y,
+    );
+    minX = Math.min(minX, transformed.x);
+    minY = Math.min(minY, transformed.y);
+  }
+
+  return { minX, minY };
 }
 
 function createEmptyBounds(): GridViewBounds {
@@ -155,5 +287,66 @@ export class GridView {
     }
 
     return cells;
+  }
+
+  public translate(dx: number, dy: number): GridView {
+    assertIntegerValue(dx, 'translate dx');
+    assertIntegerValue(dy, 'translate dy');
+
+    return GridView.fromCells(
+      this.orderedCells.map((cell) => ({
+        x: cell.x + dx,
+        y: cell.y + dy,
+        alive: cell.alive,
+      })),
+    );
+  }
+
+  public rotate(times = 1): GridView {
+    assertIntegerValue(times, 'rotate times');
+    const normalizedTimes = ((times % 4) + 4) % 4;
+
+    let view = GridView.fromCells(this.orderedCells);
+    for (let index = 0; index < normalizedTimes; index += 1) {
+      view = view.applyTransform(GRID_VIEW_ROTATE_MATRIX);
+    }
+
+    return view;
+  }
+
+  public flipHorizontal(): GridView {
+    return this.applyTransform(GRID_VIEW_FLIP_HORIZONTAL_MATRIX);
+  }
+
+  public flipVertical(): GridView {
+    return this.applyTransform(GRID_VIEW_FLIP_VERTICAL_MATRIX);
+  }
+
+  public applyTransform(matrix: GridViewTransformMatrix): GridView {
+    assertPlacementSafeTransformMatrix(matrix);
+    if (this.orderedCells.length === 0) {
+      return GridView.fromCells([]);
+    }
+
+    const extents = deriveMatrixExtents(this.orderedCells, matrix);
+    return GridView.fromCells(
+      this.orderedCells.map((cell) => {
+        const transformed = applyTransformMatrixToCoordinate(
+          matrix,
+          cell.x,
+          cell.y,
+        );
+
+        return {
+          x: transformed.x - extents.minX,
+          y: transformed.y - extents.minY,
+          alive: cell.alive,
+        };
+      }),
+    );
+  }
+
+  public applyMatrix(matrix: GridViewTransformMatrix): GridView {
+    return this.applyTransform(matrix);
   }
 }
