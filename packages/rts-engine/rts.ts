@@ -467,7 +467,7 @@ function createTemplateFromRows({
   };
 }
 
-export const CORE_STRUCTURE_TEMPLATE = createTemplateFromRows({
+const CORE_STRUCTURE_TEMPLATE = createTemplateFromRows({
   id: CORE_TEMPLATE_ID,
   name: 'Core',
   rows: ['##.##', '##.##', '.....', '##.##', '##.##'],
@@ -1378,7 +1378,7 @@ function evaluateBuildPlacement(
   };
 }
 
-export function previewBuildPlacement(
+function previewBuildPlacement(
   room: RoomState,
   playerId: string,
   payload: BuildQueuePayload,
@@ -1690,7 +1690,7 @@ function applyTeamEconomyAndQueue(
   team.pendingBuildEvents = deferred;
 }
 
-export function createDefaultTemplates(): StructureTemplate[] {
+function createDefaultTemplates(): StructureTemplate[] {
   return [
     createTemplateFromRows({
       id: 'block',
@@ -1744,7 +1744,7 @@ export function createDefaultTemplates(): StructureTemplate[] {
   ];
 }
 
-export function createTemplateSummaries(
+function createTemplateSummaries(
   templates: StructureTemplate[],
 ): StructureTemplateSummary[] {
   return templates.map((template) => ({
@@ -1758,7 +1758,7 @@ export function createTemplateSummaries(
   }));
 }
 
-export function createRoomState(options: CreateRoomOptions): RoomState {
+function createRoomState(options: CreateRoomOptions): RoomState {
   const templates = options.templates ?? createDefaultTemplates();
   const templateMap = new Map<string, StructureTemplate>();
   for (const template of templates) {
@@ -1789,7 +1789,7 @@ export function createRoomState(options: CreateRoomOptions): RoomState {
   };
 }
 
-export function listRooms(rooms: Map<string, RoomState>): RoomListEntry[] {
+function listRooms(rooms: Map<string, RoomState>): RoomListEntry[] {
   const entries: RoomListEntry[] = [];
   for (const room of rooms.values()) {
     entries.push({
@@ -1804,7 +1804,7 @@ export function listRooms(rooms: Map<string, RoomState>): RoomListEntry[] {
   return entries;
 }
 
-export function addPlayerToRoom(
+function addPlayerToRoom(
   room: RoomState,
   playerId: string,
   playerName: string,
@@ -1878,7 +1878,7 @@ export function addPlayerToRoom(
   return team;
 }
 
-export function renamePlayerInRoom(
+function renamePlayerInRoom(
   room: RoomState,
   playerId: string,
   name: string,
@@ -1895,10 +1895,7 @@ export function renamePlayerInRoom(
   return true;
 }
 
-export function removePlayerFromRoom(
-  room: RoomState,
-  playerId: string,
-): boolean {
+function removePlayerFromRoom(room: RoomState, playerId: string): boolean {
   const player = room.players.get(playerId);
   if (!player) {
     return false;
@@ -1916,14 +1913,11 @@ export function removePlayerFromRoom(
   return true;
 }
 
-export function queueLegacyCellUpdate(
-  room: RoomState,
-  update: CellUpdate,
-): void {
+function queueLegacyCellUpdate(room: RoomState, update: CellUpdate): void {
   room.pendingLegacyUpdates.push(update);
 }
 
-export function queueBuildEvent(
+function queueBuildEvent(
   room: RoomState,
   playerId: string,
   payload: BuildQueuePayload,
@@ -2010,7 +2004,7 @@ export function queueBuildEvent(
   };
 }
 
-export function queueDestroyEvent(
+function queueDestroyEvent(
   room: RoomState,
   playerId: string,
   payload: DestroyQueuePayload,
@@ -2143,7 +2137,7 @@ export function queueDestroyEvent(
   };
 }
 
-export function createRoomStatePayload(room: RoomState): RoomStatePayload {
+function createRoomStatePayload(room: RoomState): RoomStatePayload {
   const teams: TeamPayload[] = [];
   for (const team of room.teams.values()) {
     teams.push({
@@ -2318,7 +2312,7 @@ function resolveIntegrityChecks(room: RoomState): Map<number, number> {
   return coreHpBeforeResolution;
 }
 
-export function createTeamOutcomeSnapshots(
+function createTeamOutcomeSnapshots(
   room: RoomState,
   coreHpBeforeResolution: ReadonlyMap<number, number> = new Map(),
 ): TeamOutcomeSnapshot[] {
@@ -2342,7 +2336,7 @@ export function createTeamOutcomeSnapshots(
   return snapshots;
 }
 
-export function createCanonicalMatchOutcome(
+function createCanonicalMatchOutcome(
   room: RoomState,
   coreHpBeforeResolution: ReadonlyMap<number, number> = new Map(),
 ): MatchOutcome | null {
@@ -2351,7 +2345,7 @@ export function createCanonicalMatchOutcome(
   );
 }
 
-export function tickRoom(room: RoomState): RoomTickResult {
+function tickRoom(room: RoomState): RoomTickResult {
   const acceptedEvents: AcceptedBuildEvent[] = [];
   const buildOutcomes: BuildOutcome[] = [];
   const destroyOutcomes: DestroyOutcome[] = [];
