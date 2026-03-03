@@ -16,7 +16,7 @@
 - [x] **Phase 14: Canonical GridView API Adoption** - Make `template.grid()` and shared transform operations the standard template entrypoint. (completed 2026-03-03)
 - [x] **Phase 15: Read-Path and Cross-Codebase GridView Unification** - Move read-side geometry and other duplicated transformed-grid paths onto shared GridView utilities. (completed 2026-03-03)
 - [x] **Phase 16: Write-Path GridView Unification** - Use one GridView-backed geometry flow for preview, queue validation, and build apply. (completed 2026-03-03)
-- [ ] **Phase 17: Legacy Geometry Removal with Outcome Parity** - Remove duplicate template/offset-template logic while preserving authoritative outcomes.
+- [x] **Phase 17: Legacy Geometry Removal with Outcome Parity** - Remove duplicate template/offset-template logic while preserving authoritative outcomes. (completed 2026-03-03)
 - [ ] **Phase 18: Parity Closure and Migration Cleanup** - Lock parity with tests and retire temporary migration-only assertions.
 
 ## Phase Details
@@ -99,7 +99,12 @@ Plans:
 2. Clients continue receiving the same rejection taxonomy and outcome behavior for equivalent invalid actions.
 3. Deterministic reruns of the same action timelines end in the same structure/resource state as pre-cleanup baselines.
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+
+- [x] 17-01-PLAN.md - Extract authoritative build-geometry evaluation helpers and remove duplicate template/offset-template traversal from `rts.ts` while preserving rejection/resource semantics.
+- [x] 17-02-PLAN.md - Prove representative transformed outcome parity with deterministic action-checkpoint coverage for rejection cadence, reason taxonomy, and resource/structure state.
 
 ### Phase 18: Parity Closure and Migration Cleanup
 
@@ -122,7 +127,7 @@ Plans:
 | 14. Canonical GridView API Adoption                   | 2/2            | Complete    | 2026-03-03 |
 | 15. Read-Path and Cross-Codebase GridView Unification | 2/2            | Complete    | 2026-03-03 |
 | 16. Write-Path GridView Unification                   | 2/2            | Complete    | 2026-03-03 |
-| 17. Legacy Geometry Removal with Outcome Parity       | 0/TBD          | Not started | -          |
+| 17. Legacy Geometry Removal with Outcome Parity       | 2/2            | Complete    | 2026-03-03 |
 | 18. Parity Closure and Migration Cleanup              | 0/TBD          | Not started | -          |
 
 ## Requirement Coverage
