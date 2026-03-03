@@ -1378,107 +1378,6 @@ function evaluateBuildPlacement(
   };
 }
 
-function previewBuildPlacement(
-  room: RoomState,
-  playerId: string,
-  payload: BuildQueuePayload,
-): QueueBuildResult {
-  const x = Number(payload.x);
-  const y = Number(payload.y);
-
-  const player = room.players.get(playerId);
-  if (!player) {
-    return {
-      accepted: false,
-      error: 'Player is not in this room',
-      ...createEmptyBuildProjection(x, y, payload.transform),
-    };
-  }
-
-  const team = room.teams.get(player.teamId);
-  if (!team) {
-    return {
-      accepted: false,
-      error: 'Team is not available',
-      ...createEmptyBuildProjection(x, y, payload.transform),
-    };
-  }
-
-  if (team.defeated) {
-    return {
-      accepted: false,
-      error: 'Team is defeated',
-      reason: 'team-defeated',
-      ...createEmptyBuildProjection(x, y, payload.transform),
-      affordable: false,
-      needed: 0,
-      current: team.resources,
-      deficit: 0,
-    };
-  }
-
-  const template = room.templateMap.get(payload.templateId);
-  if (!template) {
-    return {
-      accepted: false,
-      error: 'Unknown template',
-      reason: 'unknown-template',
-      ...createEmptyBuildProjection(x, y, payload.transform),
-      affordable: false,
-      needed: 0,
-      current: team.resources,
-      deficit: 0,
-    };
-  }
-
-  if (!Number.isInteger(x) || !Number.isInteger(y)) {
-    return {
-      accepted: false,
-      error: 'x and y must be integers',
-      reason: 'invalid-coordinates',
-      ...createEmptyBuildProjection(x, y, payload.transform),
-      affordable: false,
-      needed: 0,
-      current: team.resources,
-      deficit: 0,
-    };
-  }
-
-  const evaluation = evaluateBuildPlacement(
-    room,
-    team,
-    template,
-    x,
-    y,
-    payload.transform,
-  );
-
-  const result: QueueBuildResult = {
-    accepted: evaluation.reason === undefined,
-    reason: evaluation.reason,
-    transform: evaluation.projection.transform,
-    footprint: evaluation.projection.footprint,
-    illegalCells: evaluation.projection.illegalCells,
-    bounds: evaluation.projection.bounds,
-    affordable: evaluation.affordability?.affordable ?? false,
-    needed: evaluation.affordability?.needed ?? 0,
-    current: evaluation.affordability?.current ?? team.resources,
-    deficit: evaluation.affordability?.deficit ?? 0,
-  };
-
-  if (evaluation.reason === 'outside-territory') {
-    result.error = 'Outside build zone - build closer to your structures.';
-  } else if (evaluation.reason === 'template-exceeds-map-size') {
-    result.error = 'Template exceeds map size';
-  } else if (evaluation.reason === 'insufficient-resources') {
-    result.error = 'Insufficient resources';
-  } else if (evaluation.reason === 'template-compare-failed') {
-    result.error = 'Unable to compare template with current state';
-  }
-
-  return result;
-}
-
 function applyTeamEconomyAndQueue(
   room: RoomState,
   team: TeamState,
@@ -1690,226 +1589,6 @@ function applyTeamEconomyAndQueue(
   team.pendingBuildEvents = deferred;
 }
 
-function queueBuildEvent(
-  room: RoomState,
-  playerId: string,
-  payload: BuildQueuePayload,
-): QueueBuildResult {
-  const player = room.players.get(playerId);
-  if (!player) {
-    return {
-      accepted: false,
-      error: 'Player is not in this room',
-    };
-  }
-
-  const team = room.teams.get(player.teamId);
-  if (!team) {
-    return {
-      accepted: false,
-      error: 'Team is not available',
-    };
-  }
-
-  const preview = previewBuildPlacement(room, playerId, payload);
-  if (!preview.accepted) {
-    if (preview.reason) {
-      const affordability =
-        preview.reason === 'insufficient-resources' &&
-        typeof preview.needed === 'number' &&
-        typeof preview.current === 'number' &&
-        typeof preview.deficit === 'number'
-          ? {
-              affordable: false,
-              needed: preview.needed,
-              current: preview.current,
-              deficit: preview.deficit,
-            }
-          : undefined;
-
-      rejectBuild(room, team, preview.reason, undefined, affordability);
-    }
-    return preview;
-  }
-
-  const delay = Number(payload.delayTicks ?? 2);
-  if (!Number.isInteger(delay)) {
-    rejectBuild(room, team, 'invalid-delay');
-    return {
-      ...preview,
-      accepted: false,
-      error: 'delayTicks must be an integer',
-      reason: 'invalid-delay',
-    };
-  }
-
-  const clampedDelay = Math.max(1, Math.min(MAX_DELAY_TICKS, delay));
-  const x = Number(payload.x);
-  const y = Number(payload.y);
-  const event: BuildEvent = {
-    id: room.nextBuildEventId,
-    teamId: team.id,
-    playerId,
-    templateId: payload.templateId,
-    x,
-    y,
-    transform: preview.transform ?? createIdentityPlacementTransform(),
-    executeTick: room.tick + clampedDelay,
-  };
-  room.nextBuildEventId += 1;
-
-  insertBuildEventSorted(team.pendingBuildEvents, event);
-  team.buildStats.queued += 1;
-  appendTimelineEvent(room, {
-    teamId: team.id,
-    type: 'build-queued',
-    metadata: {
-      eventId: event.id,
-      executeTick: event.executeTick,
-    },
-  });
-
-  return {
-    ...preview,
-    accepted: true,
-    eventId: event.id,
-    executeTick: event.executeTick,
-  };
-}
-
-function queueDestroyEvent(
-  room: RoomState,
-  playerId: string,
-  payload: DestroyQueuePayload,
-): QueueDestroyResult {
-  const player = room.players.get(playerId);
-  if (!player) {
-    return {
-      accepted: false,
-      error: 'Player is not in this room',
-    };
-  }
-
-  const team = room.teams.get(player.teamId);
-  if (!team) {
-    return {
-      accepted: false,
-      error: 'Team is not available',
-    };
-  }
-
-  if (team.defeated) {
-    rejectDestroy(room, team, 'team-defeated');
-    return {
-      accepted: false,
-      error: 'Team is defeated',
-      reason: 'team-defeated',
-    };
-  }
-
-  const structureKey =
-    typeof payload.structureKey === 'string' ? payload.structureKey.trim() : '';
-  if (!structureKey) {
-    rejectDestroy(room, team, 'invalid-target');
-    return {
-      accepted: false,
-      error: 'Invalid structure target',
-      reason: 'invalid-target',
-    };
-  }
-
-  const duplicate = team.pendingDestroyEvents.find(
-    (event) => event.structureKey === structureKey,
-  );
-  if (duplicate) {
-    return {
-      accepted: true,
-      eventId: duplicate.id,
-      executeTick: duplicate.executeTick,
-      structureKey,
-      idempotent: true,
-    };
-  }
-
-  const ownerTeam = findStructureOwnerTeam(room, structureKey);
-  if (!ownerTeam) {
-    rejectDestroy(room, team, 'invalid-target', undefined, structureKey);
-    return {
-      accepted: false,
-      error: 'Target structure does not exist',
-      reason: 'invalid-target',
-      structureKey,
-    };
-  }
-
-  if (ownerTeam.id !== team.id) {
-    rejectDestroy(room, team, 'wrong-owner', undefined, structureKey);
-    return {
-      accepted: false,
-      error: 'Cannot destroy structures owned by another team',
-      reason: 'wrong-owner',
-      structureKey,
-    };
-  }
-
-  const structure = ownerTeam.structures.get(structureKey);
-  if (!structure || structure.hp <= 0) {
-    rejectDestroy(
-      room,
-      team,
-      'invalid-lifecycle-state',
-      undefined,
-      structureKey,
-    );
-    return {
-      accepted: false,
-      error: 'Target structure is not destroyable',
-      reason: 'invalid-lifecycle-state',
-      structureKey,
-    };
-  }
-
-  const delay = Number(payload.delayTicks ?? 1);
-  if (!Number.isInteger(delay)) {
-    rejectDestroy(room, team, 'invalid-delay', undefined, structureKey);
-    return {
-      accepted: false,
-      error: 'delayTicks must be an integer',
-      reason: 'invalid-delay',
-      structureKey,
-    };
-  }
-
-  const clampedDelay = Math.max(1, Math.min(MAX_DELAY_TICKS, delay));
-  const event: DestroyEvent = {
-    id: room.nextBuildEventId,
-    teamId: team.id,
-    playerId,
-    structureKey,
-    executeTick: room.tick + clampedDelay,
-  };
-  room.nextBuildEventId += 1;
-
-  insertDestroyEventSorted(team.pendingDestroyEvents, event);
-  appendTimelineEvent(room, {
-    teamId: team.id,
-    type: 'destroy-queued',
-    metadata: {
-      eventId: event.id,
-      executeTick: event.executeTick,
-      structureKey,
-    },
-  });
-
-  return {
-    accepted: true,
-    eventId: event.id,
-    executeTick: event.executeTick,
-    structureKey,
-    idempotent: false,
-  };
-}
-
 type IntegrityOutcomeCategory = 'repaired' | 'destroyed-debris' | 'core-defeat';
 
 function compareStructuresByKey(
@@ -2044,147 +1723,6 @@ function resolveIntegrityChecks(room: RoomState): Map<number, number> {
   }
 
   return coreHpBeforeResolution;
-}
-
-function tickRoom(room: RoomState): RoomTickResult {
-  const acceptedEvents: AcceptedBuildEvent[] = [];
-  const buildOutcomes: BuildOutcome[] = [];
-  const destroyOutcomes: DestroyOutcome[] = [];
-
-  for (const team of room.teams.values()) {
-    applyTeamEconomyAndQueue(
-      room,
-      team,
-      acceptedEvents,
-      buildOutcomes,
-      destroyOutcomes,
-    );
-  }
-
-  acceptedEvents.sort(compareBuildEvents);
-
-  let appliedBuilds = 0;
-  for (const event of acceptedEvents) {
-    const template = room.templateMap.get(event.templateId);
-    const team = room.teams.get(event.teamId);
-    if (!template || !team) {
-      continue;
-    }
-
-    if (
-      applyTemplate(
-        room,
-        event.projection.transformedTemplate,
-        event.projection.bounds,
-      )
-    ) {
-      team.structures.set(event.structureKey, {
-        key: event.structureKey,
-        templateId: template.id,
-        x: event.x,
-        y: event.y,
-        transform: event.projection.transform,
-        active: false,
-        hp: STRUCTURE_STARTING_HP,
-        isCore: false,
-        buildRadius: 0,
-      });
-
-      appliedBuilds += 1;
-      team.buildStats.applied += 1;
-      appendTimelineEvent(room, {
-        teamId: team.id,
-        type: 'build-applied',
-        metadata: { eventId: event.id },
-      });
-      buildOutcomes.push({
-        eventId: event.id,
-        teamId: team.id,
-        outcome: 'applied',
-        executeTick: event.executeTick,
-        resolvedTick: room.tick,
-      });
-      continue;
-    }
-
-    rejectBuild(room, team, 'apply-failed', event.id);
-    recordRejectedBuildOutcome(buildOutcomes, event, 'apply-failed', room.tick);
-  }
-
-  if (room.pendingLegacyUpdates.length > 0) {
-    applyUpdates(room.grid, room.pendingLegacyUpdates, room.width, room.height);
-    room.pendingLegacyUpdates = [];
-  }
-
-  room.grid = stepGrid(room.grid, room.width, room.height);
-  room.tick += 1;
-  room.generation += 1;
-
-  const coreHpBeforeResolution = resolveIntegrityChecks(room);
-  const defeatedTeams: number[] = [];
-  for (const team of room.teams.values()) {
-    const core = getCoreStructure(team);
-    const defeated = !core || core.hp <= 0;
-    if (defeated && !team.defeated) {
-      team.defeated = true;
-      drainPendingBuildEvents(
-        room,
-        [team],
-        'team-defeated',
-        room.tick,
-        buildOutcomes,
-      );
-      drainPendingDestroyEvents(
-        room,
-        [team],
-        'team-defeated',
-        room.tick,
-        destroyOutcomes,
-      );
-      defeatedTeams.push(team.id);
-      appendTimelineEvent(room, {
-        teamId: team.id,
-        type: 'team-defeated',
-      });
-    }
-  }
-
-  const outcome =
-    defeatedTeams.length > 0
-      ? RtsEngine.createCanonicalMatchOutcome(room, coreHpBeforeResolution)
-      : null;
-
-  if (outcome) {
-    const teamsWithPending = [...room.teams.values()].filter(
-      ({ pendingBuildEvents, pendingDestroyEvents }) =>
-        pendingBuildEvents.length > 0 || pendingDestroyEvents.length > 0,
-    );
-    drainPendingBuildEvents(
-      room,
-      teamsWithPending,
-      'match-finished',
-      room.tick,
-      buildOutcomes,
-    );
-    drainPendingDestroyEvents(
-      room,
-      teamsWithPending,
-      'match-finished',
-      room.tick,
-      destroyOutcomes,
-    );
-  }
-
-  buildOutcomes.sort(compareBuildOutcomes);
-  destroyOutcomes.sort(compareDestroyOutcomes);
-
-  return {
-    appliedBuilds,
-    defeatedTeams,
-    outcome,
-    buildOutcomes,
-    destroyOutcomes,
-  };
 }
 
 export class RtsEngine {
@@ -2423,7 +1961,100 @@ export class RtsEngine {
     playerId: string,
     payload: BuildQueuePayload,
   ): QueueBuildResult {
-    return previewBuildPlacement(room, playerId, payload);
+    const x = Number(payload.x);
+    const y = Number(payload.y);
+
+    const player = room.players.get(playerId);
+    if (!player) {
+      return {
+        accepted: false,
+        error: 'Player is not in this room',
+        ...createEmptyBuildProjection(x, y, payload.transform),
+      };
+    }
+
+    const team = room.teams.get(player.teamId);
+    if (!team) {
+      return {
+        accepted: false,
+        error: 'Team is not available',
+        ...createEmptyBuildProjection(x, y, payload.transform),
+      };
+    }
+
+    if (team.defeated) {
+      return {
+        accepted: false,
+        error: 'Team is defeated',
+        reason: 'team-defeated',
+        ...createEmptyBuildProjection(x, y, payload.transform),
+        affordable: false,
+        needed: 0,
+        current: team.resources,
+        deficit: 0,
+      };
+    }
+
+    const template = room.templateMap.get(payload.templateId);
+    if (!template) {
+      return {
+        accepted: false,
+        error: 'Unknown template',
+        reason: 'unknown-template',
+        ...createEmptyBuildProjection(x, y, payload.transform),
+        affordable: false,
+        needed: 0,
+        current: team.resources,
+        deficit: 0,
+      };
+    }
+
+    if (!Number.isInteger(x) || !Number.isInteger(y)) {
+      return {
+        accepted: false,
+        error: 'x and y must be integers',
+        reason: 'invalid-coordinates',
+        ...createEmptyBuildProjection(x, y, payload.transform),
+        affordable: false,
+        needed: 0,
+        current: team.resources,
+        deficit: 0,
+      };
+    }
+
+    const evaluation = evaluateBuildPlacement(
+      room,
+      team,
+      template,
+      x,
+      y,
+      payload.transform,
+    );
+
+    const result: QueueBuildResult = {
+      accepted: evaluation.reason === undefined,
+      reason: evaluation.reason,
+      transform: evaluation.projection.transform,
+      footprint: evaluation.projection.footprint,
+      illegalCells: evaluation.projection.illegalCells,
+      bounds: evaluation.projection.bounds,
+      affordable: evaluation.affordability?.affordable ?? false,
+      needed: evaluation.affordability?.needed ?? 0,
+      current: evaluation.affordability?.current ?? team.resources,
+      deficit: evaluation.affordability?.deficit ?? 0,
+    };
+
+    if (evaluation.reason === 'outside-territory') {
+      result.error = 'Outside build zone - build closer to your structures.';
+    } else if (evaluation.reason === 'template-exceeds-map-size') {
+      result.error = 'Template exceeds map size';
+    } else if (evaluation.reason === 'insufficient-resources') {
+      result.error = 'Insufficient resources';
+    } else if (evaluation.reason === 'template-compare-failed') {
+      result.error = 'Unable to compare template with current state';
+    }
+
+    return result;
   }
 
   public static queueBuildEvent(
@@ -2431,7 +2062,86 @@ export class RtsEngine {
     playerId: string,
     payload: BuildQueuePayload,
   ): QueueBuildResult {
-    return queueBuildEvent(room, playerId, payload);
+    const player = room.players.get(playerId);
+    if (!player) {
+      return {
+        accepted: false,
+        error: 'Player is not in this room',
+      };
+    }
+
+    const team = room.teams.get(player.teamId);
+    if (!team) {
+      return {
+        accepted: false,
+        error: 'Team is not available',
+      };
+    }
+
+    const preview = RtsEngine.previewBuildPlacement(room, playerId, payload);
+    if (!preview.accepted) {
+      if (preview.reason) {
+        const affordability =
+          preview.reason === 'insufficient-resources' &&
+          typeof preview.needed === 'number' &&
+          typeof preview.current === 'number' &&
+          typeof preview.deficit === 'number'
+            ? {
+                affordable: false,
+                needed: preview.needed,
+                current: preview.current,
+                deficit: preview.deficit,
+              }
+            : undefined;
+
+        rejectBuild(room, team, preview.reason, undefined, affordability);
+      }
+      return preview;
+    }
+
+    const delay = Number(payload.delayTicks ?? 2);
+    if (!Number.isInteger(delay)) {
+      rejectBuild(room, team, 'invalid-delay');
+      return {
+        ...preview,
+        accepted: false,
+        error: 'delayTicks must be an integer',
+        reason: 'invalid-delay',
+      };
+    }
+
+    const clampedDelay = Math.max(1, Math.min(MAX_DELAY_TICKS, delay));
+    const x = Number(payload.x);
+    const y = Number(payload.y);
+    const event: BuildEvent = {
+      id: room.nextBuildEventId,
+      teamId: team.id,
+      playerId,
+      templateId: payload.templateId,
+      x,
+      y,
+      transform: preview.transform ?? createIdentityPlacementTransform(),
+      executeTick: room.tick + clampedDelay,
+    };
+    room.nextBuildEventId += 1;
+
+    insertBuildEventSorted(team.pendingBuildEvents, event);
+    team.buildStats.queued += 1;
+    appendTimelineEvent(room, {
+      teamId: team.id,
+      type: 'build-queued',
+      metadata: {
+        eventId: event.id,
+        executeTick: event.executeTick,
+      },
+    });
+
+    return {
+      ...preview,
+      accepted: true,
+      eventId: event.id,
+      executeTick: event.executeTick,
+    };
   }
 
   public static queueDestroyEvent(
@@ -2439,7 +2149,134 @@ export class RtsEngine {
     playerId: string,
     payload: DestroyQueuePayload,
   ): QueueDestroyResult {
-    return queueDestroyEvent(room, playerId, payload);
+    const player = room.players.get(playerId);
+    if (!player) {
+      return {
+        accepted: false,
+        error: 'Player is not in this room',
+      };
+    }
+
+    const team = room.teams.get(player.teamId);
+    if (!team) {
+      return {
+        accepted: false,
+        error: 'Team is not available',
+      };
+    }
+
+    if (team.defeated) {
+      rejectDestroy(room, team, 'team-defeated');
+      return {
+        accepted: false,
+        error: 'Team is defeated',
+        reason: 'team-defeated',
+      };
+    }
+
+    const structureKey =
+      typeof payload.structureKey === 'string'
+        ? payload.structureKey.trim()
+        : '';
+    if (!structureKey) {
+      rejectDestroy(room, team, 'invalid-target');
+      return {
+        accepted: false,
+        error: 'Invalid structure target',
+        reason: 'invalid-target',
+      };
+    }
+
+    const duplicate = team.pendingDestroyEvents.find(
+      (event) => event.structureKey === structureKey,
+    );
+    if (duplicate) {
+      return {
+        accepted: true,
+        eventId: duplicate.id,
+        executeTick: duplicate.executeTick,
+        structureKey,
+        idempotent: true,
+      };
+    }
+
+    const ownerTeam = findStructureOwnerTeam(room, structureKey);
+    if (!ownerTeam) {
+      rejectDestroy(room, team, 'invalid-target', undefined, structureKey);
+      return {
+        accepted: false,
+        error: 'Target structure does not exist',
+        reason: 'invalid-target',
+        structureKey,
+      };
+    }
+
+    if (ownerTeam.id !== team.id) {
+      rejectDestroy(room, team, 'wrong-owner', undefined, structureKey);
+      return {
+        accepted: false,
+        error: 'Cannot destroy structures owned by another team',
+        reason: 'wrong-owner',
+        structureKey,
+      };
+    }
+
+    const structure = ownerTeam.structures.get(structureKey);
+    if (!structure || structure.hp <= 0) {
+      rejectDestroy(
+        room,
+        team,
+        'invalid-lifecycle-state',
+        undefined,
+        structureKey,
+      );
+      return {
+        accepted: false,
+        error: 'Target structure is not destroyable',
+        reason: 'invalid-lifecycle-state',
+        structureKey,
+      };
+    }
+
+    const delay = Number(payload.delayTicks ?? 1);
+    if (!Number.isInteger(delay)) {
+      rejectDestroy(room, team, 'invalid-delay', undefined, structureKey);
+      return {
+        accepted: false,
+        error: 'delayTicks must be an integer',
+        reason: 'invalid-delay',
+        structureKey,
+      };
+    }
+
+    const clampedDelay = Math.max(1, Math.min(MAX_DELAY_TICKS, delay));
+    const event: DestroyEvent = {
+      id: room.nextBuildEventId,
+      teamId: team.id,
+      playerId,
+      structureKey,
+      executeTick: room.tick + clampedDelay,
+    };
+    room.nextBuildEventId += 1;
+
+    insertDestroyEventSorted(team.pendingDestroyEvents, event);
+    appendTimelineEvent(room, {
+      teamId: team.id,
+      type: 'destroy-queued',
+      metadata: {
+        eventId: event.id,
+        executeTick: event.executeTick,
+        structureKey,
+      },
+    });
+
+    return {
+      accepted: true,
+      eventId: event.id,
+      executeTick: event.executeTick,
+      structureKey,
+      idempotent: false,
+    };
   }
 
   public static createRoomStatePayload(room: RoomState): RoomStatePayload {
@@ -2515,6 +2352,153 @@ export class RtsEngine {
   }
 
   public static tickRoom(room: RoomState): RoomTickResult {
-    return tickRoom(room);
+    const acceptedEvents: AcceptedBuildEvent[] = [];
+    const buildOutcomes: BuildOutcome[] = [];
+    const destroyOutcomes: DestroyOutcome[] = [];
+
+    for (const team of room.teams.values()) {
+      applyTeamEconomyAndQueue(
+        room,
+        team,
+        acceptedEvents,
+        buildOutcomes,
+        destroyOutcomes,
+      );
+    }
+
+    acceptedEvents.sort(compareBuildEvents);
+
+    let appliedBuilds = 0;
+    for (const event of acceptedEvents) {
+      const template = room.templateMap.get(event.templateId);
+      const team = room.teams.get(event.teamId);
+      if (!template || !team) {
+        continue;
+      }
+
+      if (
+        applyTemplate(
+          room,
+          event.projection.transformedTemplate,
+          event.projection.bounds,
+        )
+      ) {
+        team.structures.set(event.structureKey, {
+          key: event.structureKey,
+          templateId: template.id,
+          x: event.x,
+          y: event.y,
+          transform: event.projection.transform,
+          active: false,
+          hp: STRUCTURE_STARTING_HP,
+          isCore: false,
+          buildRadius: 0,
+        });
+
+        appliedBuilds += 1;
+        team.buildStats.applied += 1;
+        appendTimelineEvent(room, {
+          teamId: team.id,
+          type: 'build-applied',
+          metadata: { eventId: event.id },
+        });
+        buildOutcomes.push({
+          eventId: event.id,
+          teamId: team.id,
+          outcome: 'applied',
+          executeTick: event.executeTick,
+          resolvedTick: room.tick,
+        });
+        continue;
+      }
+
+      rejectBuild(room, team, 'apply-failed', event.id);
+      recordRejectedBuildOutcome(
+        buildOutcomes,
+        event,
+        'apply-failed',
+        room.tick,
+      );
+    }
+
+    if (room.pendingLegacyUpdates.length > 0) {
+      applyUpdates(
+        room.grid,
+        room.pendingLegacyUpdates,
+        room.width,
+        room.height,
+      );
+      room.pendingLegacyUpdates = [];
+    }
+
+    room.grid = stepGrid(room.grid, room.width, room.height);
+    room.tick += 1;
+    room.generation += 1;
+
+    const coreHpBeforeResolution = resolveIntegrityChecks(room);
+    const defeatedTeams: number[] = [];
+    for (const team of room.teams.values()) {
+      const core = getCoreStructure(team);
+      const defeated = !core || core.hp <= 0;
+      if (defeated && !team.defeated) {
+        team.defeated = true;
+        drainPendingBuildEvents(
+          room,
+          [team],
+          'team-defeated',
+          room.tick,
+          buildOutcomes,
+        );
+        drainPendingDestroyEvents(
+          room,
+          [team],
+          'team-defeated',
+          room.tick,
+          destroyOutcomes,
+        );
+        defeatedTeams.push(team.id);
+        appendTimelineEvent(room, {
+          teamId: team.id,
+          type: 'team-defeated',
+        });
+      }
+    }
+
+    const outcome =
+      defeatedTeams.length > 0
+        ? RtsEngine.createCanonicalMatchOutcome(room, coreHpBeforeResolution)
+        : null;
+
+    if (outcome) {
+      const teamsWithPending = [...room.teams.values()].filter(
+        ({ pendingBuildEvents, pendingDestroyEvents }) =>
+          pendingBuildEvents.length > 0 || pendingDestroyEvents.length > 0,
+      );
+      drainPendingBuildEvents(
+        room,
+        teamsWithPending,
+        'match-finished',
+        room.tick,
+        buildOutcomes,
+      );
+      drainPendingDestroyEvents(
+        room,
+        teamsWithPending,
+        'match-finished',
+        room.tick,
+        destroyOutcomes,
+      );
+    }
+
+    buildOutcomes.sort(compareBuildOutcomes);
+    destroyOutcomes.sort(compareDestroyOutcomes);
+
+    return {
+      appliedBuilds,
+      defeatedTeams,
+      outcome,
+      buildOutcomes,
+      destroyOutcomes,
+    };
   }
 }
