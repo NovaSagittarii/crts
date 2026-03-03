@@ -281,9 +281,9 @@ describe('lobby reliability regression', () => {
 
     let usingFakeTimers = false;
     try {
-      observer.disconnect();
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       usingFakeTimers = true;
+      observer.disconnect();
 
       const observerHeld = await waitForMembership(
         playerTwo,

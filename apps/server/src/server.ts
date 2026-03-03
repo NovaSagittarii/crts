@@ -52,6 +52,8 @@ const DIST_CLIENT_DIR = path.join(process.cwd(), 'dist', 'client');
 const DIST_CLIENT_INDEX_HTML = path.join(DIST_CLIENT_DIR, 'index.html');
 const PLAYER_SLOT_IDS = ['team-1', 'team-2'] as const;
 const COUNTDOWN_SECONDS = 3;
+const MEMBERSHIP_RESYNC_INTERVAL_MS = 300;
+const FINISHED_ROOM_RESYNC_INTERVAL_MS = 500;
 
 type IntervalHandle = ReturnType<typeof setInterval>;
 type TimeoutHandle = ReturnType<typeof setTimeout>;
@@ -330,6 +332,14 @@ export function createServer(options: ServerOptions = {}): GameServer {
   const width = options.width ?? 100;
   const height = options.height ?? 100;
   const tickMs = options.tickMs ?? 100;
+  const membershipResyncIntervalTicks = Math.max(
+    1,
+    Math.ceil(MEMBERSHIP_RESYNC_INTERVAL_MS / tickMs),
+  );
+  const finishedRoomResyncIntervalTicks = Math.max(
+    1,
+    Math.ceil(FINISHED_ROOM_RESYNC_INTERVAL_MS / tickMs),
+  );
   const clientAssetsMode = options.clientAssetsMode ?? 'optional';
   const countdownSeconds =
     typeof options.countdownSeconds === 'number' &&
@@ -1001,8 +1011,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
       room.status = transition.nextStatus;
       emitMembership(room);
       emitRoomList();
-      io.to(roomChannel(room.state.id)).emit('room:match-started', {
-        roomId: room.state.id,
+      io.to(roomChannel(getRuntimeRoomId(room))).emit('room:match-started', {
+        roomId: getRuntimeRoomId(room),
       });
       return;
     }
@@ -1829,6 +1839,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   });
 
   let interval: IntervalHandle | null = null;
+  let tickCounter = 0;
 
   function getStatePayload(): StatePayload {
     const room = rooms.get(defaultRoomId);
@@ -1849,6 +1860,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
   }
 
   function tick(): void {
+    tickCounter += 1;
+    const emitMembershipResync =
+      tickCounter % membershipResyncIntervalTicks === 0;
+    const emitFinishedRoomResync =
+      tickCounter % finishedRoomResyncIntervalTicks === 0;
+
     for (const room of rooms.values()) {
       if (room.status === 'active') {
         const tickResult = RtsEngine.tickRoom(room.state);
@@ -1883,12 +1900,18 @@ export function createServer(options: ServerOptions = {}): GameServer {
       }
 
       if (room.lobby.participantCount() > 0) {
-        if (room.status === 'active' || room.status === 'finished') {
+        if (room.status === 'active') {
+          emitRoomState(room);
+        } else if (room.status === 'finished' && emitFinishedRoomResync) {
           emitRoomState(room);
         }
-        // Re-emit authoritative membership snapshots so late listeners can resync.
-        emitMembership(room, false);
-        if (room.status === 'finished') {
+
+        // Re-emit authoritative snapshots on a heartbeat for late listeners.
+        if (emitMembershipResync) {
+          emitMembership(room, false);
+        }
+
+        if (room.status === 'finished' && emitFinishedRoomResync) {
           emitMatchFinished(room);
         }
       }

@@ -174,9 +174,9 @@ describe('lobby reconnect reliability', () => {
 
     let usingFakeTimers = false;
     try {
-      player.disconnect();
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       usingFakeTimers = true;
+      player.disconnect();
 
       const heldMembership = await waitForMembership(
         host,

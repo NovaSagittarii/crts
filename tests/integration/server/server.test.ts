@@ -561,7 +561,7 @@ describe('GameServer', () => {
         templateId: generatorTemplate.id,
         x: placement.x,
         y: placement.y,
-        delayTicks: 12,
+        delayTicks: 40,
       });
 
       const response = await waitForBuildQueueResponse(setup.host);
