@@ -4,6 +4,7 @@ import { io, type Socket } from 'socket.io-client';
 import {
   createServer,
   type GameServer,
+  type ServerOptions,
 } from '../../../apps/server/src/server.js';
 
 import type {
@@ -17,6 +18,29 @@ interface ClientOptions {
 }
 
 const HOLD_EXPIRY_ADVANCE_MS = 31_000;
+const DEFAULT_RECONNECT_HOLD_MS = 30_000;
+
+const DEFAULT_SERVER_OPTIONS: ServerOptions = {
+  port: 0,
+  width: 52,
+  height: 52,
+  tickMs: 40,
+};
+
+const INVALID_RECONNECT_HOLD_MS_CASES = [
+  {
+    label: 'negative value',
+    reconnectHoldMs: -1,
+  },
+  {
+    label: 'NaN',
+    reconnectHoldMs: Number.NaN,
+  },
+  {
+    label: 'Infinity',
+    reconnectHoldMs: Number.POSITIVE_INFINITY,
+  },
+] as const;
 
 function createClient(port: number, options: ClientOptions = {}): Socket {
   const socket = io(`http://localhost:${port}`, {
@@ -101,8 +125,14 @@ describe('lobby reconnect reliability', () => {
   let port = 0;
   const sockets: Socket[] = [];
 
+  async function restartServer(options: ServerOptions): Promise<void> {
+    await server.stop();
+    server = createServer(options);
+    port = await server.start();
+  }
+
   beforeEach(async () => {
-    server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
+    server = createServer(DEFAULT_SERVER_OPTIONS);
     port = await server.start();
   });
 
@@ -239,6 +269,58 @@ describe('lobby reconnect reliability', () => {
     expect(lateParticipant?.role).toBe('spectator');
     expect(finalMembership.slots['team-1']).toBe('replacement-player');
   }, 50_000);
+
+  test.each(INVALID_RECONNECT_HOLD_MS_CASES)(
+    'falls back to default hold window when reconnectHoldMs is $label',
+    async ({ reconnectHoldMs }) => {
+      const scheduledHoldDelays: number[] = [];
+      await restartServer({
+        ...DEFAULT_SERVER_OPTIONS,
+        reconnectHoldMs,
+        setTimeout: (callback, delayMs) => {
+          scheduledHoldDelays.push(delayMs);
+          return setTimeout(callback, delayMs);
+        },
+        clearTimeout: (timer) => clearTimeout(timer),
+      });
+
+      const host = connectClient({ sessionId: 'host-invalid-hold' });
+      await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
+
+      host.emit('room:create', {
+        name: 'Invalid Hold Room',
+        width: 52,
+        height: 52,
+      });
+      const created = await waitForEvent<RoomJoinedPayload>(
+        host,
+        'room:joined',
+      );
+
+      const player = connectClient({ sessionId: 'session-invalid-hold' });
+      await waitForEvent<RoomJoinedPayload>(player, 'room:joined');
+      player.emit('room:join', { roomId: created.roomId });
+      await waitForEvent<RoomJoinedPayload>(player, 'room:joined');
+
+      player.emit('room:claim-slot', { slotId: 'team-1' });
+      await waitForMembership(
+        host,
+        created.roomId,
+        (payload) => payload.slots['team-1'] === 'session-invalid-hold',
+      );
+
+      player.disconnect();
+
+      await waitForMembership(
+        host,
+        created.roomId,
+        () => scheduledHoldDelays.length > 0,
+      );
+
+      expect(scheduledHoldDelays).toHaveLength(1);
+      expect(scheduledHoldDelays[0]).toBe(DEFAULT_RECONNECT_HOLD_MS);
+    },
+  );
 
   test('gives reconnecting session priority over spectator slot claim races', async () => {
     const host = connectClient({ sessionId: 'host-race' });
