@@ -7,6 +7,7 @@ import {
 } from '../../../apps/server/src/server.js';
 
 import type {
+  BuildOutcomePayload,
   BuildQueuedPayload,
   ChatMessagePayload,
   RoomCountdownPayload,
@@ -52,7 +53,7 @@ interface ActiveMatch extends ConnectedPair {
   guestTeamId: number;
   hostBaseTopLeft: { x: number; y: number };
   guestBaseTopLeft: { x: number; y: number };
-  initialGrid: Uint8Array;
+  initialGrid: ArrayBuffer;
 }
 
 function createClient(port: number, options: ClientOptions = {}): Socket {
@@ -157,6 +158,176 @@ function waitForBuildQueueResponse(
     socket.once('build:queued', onQueued);
     socket.once('room:error', onError);
   });
+}
+
+function collectOrderedBuildOutcomes(
+  socket: Socket,
+  eventIds: number[],
+  timeoutMs = 16_000,
+): Promise<BuildOutcomePayload[]> {
+  return new Promise((resolve, reject) => {
+    const pending = new Set(eventIds);
+    const ordered: BuildOutcomePayload[] = [];
+
+    function cleanup(): void {
+      clearTimeout(timeout);
+      socket.off('build:outcome', onOutcome);
+    }
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timed out collecting ordered build outcomes'));
+    }, timeoutMs);
+
+    function onOutcome(payload: BuildOutcomePayload): void {
+      if (!pending.has(payload.eventId)) {
+        return;
+      }
+
+      ordered.push(payload);
+      pending.delete(payload.eventId);
+      if (pending.size === 0) {
+        cleanup();
+        resolve(ordered);
+      }
+    }
+
+    socket.on('build:outcome', onOutcome);
+  });
+}
+
+function createPlacementCandidates(
+  baseTopLeft: { x: number; y: number },
+  width: number,
+  height: number,
+): Array<{ x: number; y: number }> {
+  const offsets = [
+    { x: 4, y: 4 },
+    { x: 6, y: 4 },
+    { x: 4, y: 6 },
+    { x: 8, y: 4 },
+    { x: 6, y: 6 },
+    { x: 10, y: 4 },
+    { x: -4, y: 4 },
+    { x: 4, y: -4 },
+  ];
+
+  const unique = new Set<string>();
+  const candidates: Array<{ x: number; y: number }> = [];
+  for (const offset of offsets) {
+    const x = baseTopLeft.x + offset.x;
+    const y = baseTopLeft.y + offset.y;
+    if (x < 0 || y < 0 || x >= width || y >= height) {
+      continue;
+    }
+
+    const key = `${x},${y}`;
+    if (unique.has(key)) {
+      continue;
+    }
+    unique.add(key);
+    candidates.push({ x, y });
+  }
+
+  return candidates;
+}
+
+async function queueFirstAcceptedBuild(
+  socket: Socket,
+  templateId: string,
+  candidates: Array<{ x: number; y: number }>,
+  delayTicks: number,
+): Promise<{
+  queued: BuildQueuedPayload;
+  placement: { x: number; y: number };
+}> {
+  for (const candidate of candidates) {
+    const queueResponsePromise = waitForBuildQueueResponse(socket, 4000);
+    socket.emit('build:queue', {
+      templateId,
+      x: candidate.x,
+      y: candidate.y,
+      delayTicks,
+    });
+
+    const response = await queueResponsePromise;
+    if ('error' in response) {
+      continue;
+    }
+
+    return {
+      queued: response.queued,
+      placement: candidate,
+    };
+  }
+
+  throw new Error(`Unable to queue accepted ${templateId} build`);
+}
+
+async function runQueuedOutcomeTimeline(match: ActiveMatch): Promise<
+  Array<{
+    teamId: number;
+    outcome: BuildOutcomePayload['outcome'];
+    reason: BuildOutcomePayload['reason'] | null;
+    executeTick: number;
+    resolvedTick: number;
+  }>
+> {
+  const roomWidth = match.room.state.width;
+  const roomHeight = match.room.state.height;
+  const hostCandidates = createPlacementCandidates(
+    match.hostBaseTopLeft,
+    roomWidth,
+    roomHeight,
+  );
+  const guestCandidates = createPlacementCandidates(
+    match.guestBaseTopLeft,
+    roomWidth,
+    roomHeight,
+  );
+
+  const hostApplied = await queueFirstAcceptedBuild(
+    match.host,
+    'block',
+    hostCandidates,
+    8,
+  );
+  const guestApplied = await queueFirstAcceptedBuild(
+    match.guest,
+    'block',
+    guestCandidates,
+    8,
+  );
+
+  const duplicateQueuePromise = waitForBuildQueueResponse(match.host, 4000);
+  match.host.emit('build:queue', {
+    templateId: 'block',
+    x: hostApplied.placement.x,
+    y: hostApplied.placement.y,
+    delayTicks: 9,
+  });
+  const duplicateQueueResponse = await duplicateQueuePromise;
+  if ('error' in duplicateQueueResponse) {
+    throw new Error(
+      `Expected duplicate queue acceptance, received ${duplicateQueueResponse.error.reason}`,
+    );
+  }
+
+  const orderedOutcomes = await collectOrderedBuildOutcomes(match.host, [
+    hostApplied.queued.eventId,
+    guestApplied.queued.eventId,
+    duplicateQueueResponse.queued.eventId,
+  ]);
+  const baseExecuteTick = orderedOutcomes[0]?.executeTick ?? 0;
+  const baseResolvedTick = orderedOutcomes[0]?.resolvedTick ?? 0;
+
+  return orderedOutcomes.map((outcome) => ({
+    teamId: outcome.teamId,
+    outcome: outcome.outcome,
+    reason: outcome.reason ?? null,
+    executeTick: outcome.executeTick - baseExecuteTick,
+    resolvedTick: outcome.resolvedTick - baseResolvedTick,
+  }));
 }
 
 async function setupConnectedPair(
@@ -575,6 +746,28 @@ describe('server match lifecycle contract', () => {
     );
     expect(finishedChat.message).toBe('still chatting while defeated');
   }, 35_000);
+
+  test('keeps queued action outcome ordering deterministic across reruns', async () => {
+    const firstRunPair = await setupConnectedPair(() => connectClient());
+    const firstRunMatch = await moveToActive(firstRunPair);
+    const firstRunOutcomes = await runQueuedOutcomeTimeline(firstRunMatch);
+
+    firstRunMatch.host.close();
+    firstRunMatch.guest.close();
+
+    const secondRunPair = await setupConnectedPair(() => connectClient());
+    const secondRunMatch = await moveToActive(secondRunPair);
+    const secondRunOutcomes = await runQueuedOutcomeTimeline(secondRunMatch);
+
+    expect(firstRunOutcomes).toEqual(secondRunOutcomes);
+    expect(
+      firstRunOutcomes.map(({ outcome, reason }) => ({ outcome, reason })),
+    ).toEqual([
+      { outcome: 'applied', reason: null },
+      { outcome: 'applied', reason: null },
+      { outcome: 'rejected', reason: 'occupied-site' },
+    ]);
+  }, 60_000);
 
   test('supports host-only restart from finished and resets prior match state', async () => {
     const setup = await setupConnectedPair(() => connectClient());

@@ -893,6 +893,188 @@ describe('GameServer', () => {
     await server.stop();
   }, 25_000);
 
+  test('preserves rejection taxonomy and cadence for equivalent transformed invalid queues', async () => {
+    const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
+    const port = await server.start();
+
+    const setup = await setupActiveMatch(port);
+    const blockTemplate = setup.hostJoined.templates.find(
+      ({ id }) => id === 'block',
+    );
+    if (!blockTemplate) {
+      throw new Error('Expected block template to be available');
+    }
+    const blockTemplateId = blockTemplate.id;
+    const blockTemplateShape = {
+      width: blockTemplate.width,
+      height: blockTemplate.height,
+    };
+
+    const equivalentTransform: PlacementTransformInput = {
+      operations: ['rotate', 'rotate', 'rotate', 'rotate'],
+    };
+
+    async function findOutsideTerritoryPlacement(
+      transform?: PlacementTransformInput,
+    ): Promise<Cell> {
+      const transformedSize = estimateTransformedTemplateBounds(
+        blockTemplateShape,
+        transform,
+      );
+      const maxX = setup.hostJoined.state.width - transformedSize.width;
+      const maxY = setup.hostJoined.state.height - transformedSize.height;
+      const center = getBaseCenter(setup.hostTeam.baseTopLeft);
+      const seen = new Set<string>();
+
+      for (
+        let radius = BUILD_ZONE_RADIUS + 2;
+        radius <= BUILD_ZONE_RADIUS + 12;
+        radius += 2
+      ) {
+        const offsets: Cell[] = [
+          { x: radius, y: 0 },
+          { x: -radius, y: 0 },
+          { x: 0, y: radius },
+          { x: 0, y: -radius },
+          { x: radius, y: radius },
+          { x: -radius, y: radius },
+          { x: radius, y: -radius },
+          { x: -radius, y: -radius },
+        ];
+
+        for (const offset of offsets) {
+          const candidate: Cell = {
+            x: Math.max(0, Math.min(maxX, center.x + offset.x)),
+            y: Math.max(0, Math.min(maxY, center.y + offset.y)),
+          };
+          const key = `${candidate.x},${candidate.y}`;
+          if (seen.has(key)) {
+            continue;
+          }
+          seen.add(key);
+
+          setup.host.emit('build:preview', {
+            templateId: blockTemplateId,
+            x: candidate.x,
+            y: candidate.y,
+            transform,
+          });
+          const preview = (await waitForEvent(
+            setup.host,
+            'build:preview',
+          )) as BuildPreview;
+
+          if (preview.reason === 'outside-territory') {
+            return candidate;
+          }
+        }
+      }
+
+      throw new Error(
+        'Unable to locate an outside-territory transformed queue',
+      );
+    }
+
+    const invalidPlacement = await findOutsideTerritoryPlacement();
+
+    setup.host.emit('build:preview', {
+      templateId: blockTemplateId,
+      x: invalidPlacement.x,
+      y: invalidPlacement.y,
+    });
+    const identityPreview = (await waitForEvent(
+      setup.host,
+      'build:preview',
+    )) as BuildPreview;
+
+    setup.host.emit('build:preview', {
+      templateId: blockTemplateId,
+      x: invalidPlacement.x,
+      y: invalidPlacement.y,
+      transform: equivalentTransform,
+    });
+    const equivalentPreview = (await waitForEvent(
+      setup.host,
+      'build:preview',
+    )) as BuildPreview;
+
+    expect(identityPreview.reason).toBe('outside-territory');
+    expect(equivalentPreview.reason).toBe(identityPreview.reason);
+    expect(equivalentPreview.affordable).toBe(identityPreview.affordable);
+
+    async function queueInvalidSequence(
+      transform?: PlacementTransformInput,
+    ): Promise<string[]> {
+      const reasons: string[] = [];
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const queueResponsePromise = waitForBuildQueueResponse(
+          setup.host,
+          4000,
+        );
+        setup.host.emit('build:queue', {
+          templateId: blockTemplateId,
+          x: invalidPlacement.x,
+          y: invalidPlacement.y,
+          transform,
+          delayTicks: 1,
+        });
+
+        const response = await queueResponsePromise;
+        if ('queued' in response) {
+          throw new Error(
+            `Expected outside-territory rejection, received queued event ${response.queued.eventId}`,
+          );
+        }
+
+        reasons.push(response.error.reason ?? 'unknown-reason');
+      }
+
+      return reasons;
+    }
+
+    const stateBefore = await waitForCondition(
+      setup.host,
+      (state) => state.teams.some(({ id }) => id === setup.hostTeam.id),
+      20,
+    );
+    const resourcesBefore = getTeam(stateBefore, setup.hostTeam.id).resources;
+
+    const hostBuildOutcomes: BuildOutcome[] = [];
+    const onBuildOutcome = (payload: BuildOutcome): void => {
+      if (payload.teamId === setup.hostTeam.id) {
+        hostBuildOutcomes.push(payload);
+      }
+    };
+    setup.host.on('build:outcome', onBuildOutcome);
+
+    const identityReasons = await queueInvalidSequence();
+    const equivalentReasons = await queueInvalidSequence(equivalentTransform);
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    setup.host.off('build:outcome', onBuildOutcome);
+
+    const stateAfter = await waitForCondition(
+      setup.host,
+      (state) => state.teams.some(({ id }) => id === setup.hostTeam.id),
+      20,
+    );
+    const resourcesAfter = getTeam(stateAfter, setup.hostTeam.id).resources;
+
+    expect(identityReasons).toEqual([
+      'outside-territory',
+      'outside-territory',
+      'outside-territory',
+    ]);
+    expect(equivalentReasons).toEqual(identityReasons);
+    expect(hostBuildOutcomes).toEqual([]);
+    expect(resourcesAfter).toBe(resourcesBefore);
+
+    setup.host.close();
+    setup.guest.close();
+    await server.stop();
+  }, 30_000);
+
   test('keeps execute-time insufficient rejection metadata stable for transformed queues', async () => {
     const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
     const port = await server.start();

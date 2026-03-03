@@ -39,6 +39,10 @@ interface BuildOutcomeRecord {
   teamId: number;
   outcome: 'applied' | 'rejected';
   reason?: string;
+  affordable?: boolean;
+  needed?: number;
+  current?: number;
+  deficit?: number;
   executeTick: number;
   resolvedTick: number;
 }
@@ -102,6 +106,75 @@ function probeQueueBuild(
   },
 ): ReturnType<typeof previewBuildPlacement> {
   return previewBuildPlacement(room, playerId, payload);
+}
+
+function findAcceptedPlacement(
+  room: ReturnType<typeof createRoomState>,
+  playerId: string,
+  templateId: string,
+  transform:
+    | {
+        operations: Array<'rotate' | 'mirror-horizontal' | 'mirror-vertical'>;
+      }
+    | undefined,
+  predicate?: (
+    preview: ReturnType<typeof previewBuildPlacement>,
+    x: number,
+    y: number,
+  ) => boolean,
+): {
+  x: number;
+  y: number;
+  preview: ReturnType<typeof previewBuildPlacement>;
+} {
+  for (let y = 0; y < room.height; y += 1) {
+    for (let x = 0; x < room.width; x += 1) {
+      const preview = probeQueueBuild(room, playerId, {
+        templateId,
+        x,
+        y,
+        delayTicks: 1,
+        transform,
+      });
+      if (!preview.accepted) {
+        continue;
+      }
+      if (predicate && !predicate(preview, x, y)) {
+        continue;
+      }
+
+      return {
+        x,
+        y,
+        preview,
+      };
+    }
+  }
+
+  throw new Error(`Unable to find accepted ${templateId} placement`);
+}
+
+function normalizeOutcome(outcome: BuildOutcomeRecord): {
+  outcome: 'applied' | 'rejected';
+  reason: string | null;
+  affordable: boolean | null;
+  needed: number | null;
+  current: number | null;
+  deficit: number | null;
+  executeTick: number;
+  resolvedTick: number;
+} {
+  return {
+    outcome: outcome.outcome,
+    reason: outcome.reason ?? null,
+    affordable:
+      typeof outcome.affordable === 'boolean' ? outcome.affordable : null,
+    needed: typeof outcome.needed === 'number' ? outcome.needed : null,
+    current: typeof outcome.current === 'number' ? outcome.current : null,
+    deficit: typeof outcome.deficit === 'number' ? outcome.deficit : null,
+    executeTick: outcome.executeTick,
+    resolvedTick: outcome.resolvedTick,
+  };
 }
 
 function getStructureByTemplateId(
@@ -307,6 +380,166 @@ describe('rts', () => {
     expect(structure?.footprint).toEqual(preview.footprint);
     expect(structure?.key).toBe(
       `${payload.x},${payload.y},${preview.bounds?.width ?? 0},${preview.bounds?.height ?? 0}`,
+    );
+  });
+
+  test('keeps representative action-timeline parity after legacy geometry cleanup', () => {
+    // Temporary migration guard: remove this old-vs-new checkpoint suite in Phase 18.
+    const transform = {
+      operations: ['rotate' as const, 'mirror-horizontal' as const],
+    };
+
+    function runRepresentativeTimeline(): {
+      queueAccepted: boolean[];
+      queueReasons: Array<string | null>;
+      outcomesAtFirstResolution: ReturnType<typeof normalizeOutcome>[];
+      outcomesAtSecondResolution: ReturnType<typeof normalizeOutcome>[];
+      resourcesAfterFirstResolution: number;
+      resourcesAfterSecondResolution: number;
+      structureKeys: string[];
+    } {
+      const room = createRoomState({
+        id: 'representative-parity-room',
+        name: 'Representative Parity',
+        width: 70,
+        height: 70,
+      });
+      const team = addPlayerToRoom(room, 'p1', 'Alice');
+      addPlayerToRoom(room, 'p2', 'Bob');
+
+      const firstPlacement = findAcceptedPlacement(
+        room,
+        'p1',
+        'generator',
+        transform,
+      );
+      const firstNeeded = firstPlacement.preview.needed ?? 0;
+      const firstFootprint = new Set(
+        (firstPlacement.preview.footprint ?? []).map(
+          (cell) => `${cell.x},${cell.y}`,
+        ),
+      );
+
+      const secondPlacement = findAcceptedPlacement(
+        room,
+        'p1',
+        'generator',
+        transform,
+        (preview, x, y) => {
+          if (x === firstPlacement.x && y === firstPlacement.y) {
+            return false;
+          }
+
+          const needed = preview.needed ?? 0;
+          if (needed > firstNeeded) {
+            return false;
+          }
+
+          return !(preview.footprint ?? []).some((cell) =>
+            firstFootprint.has(`${cell.x},${cell.y}`),
+          );
+        },
+      );
+
+      team.resources = firstNeeded;
+
+      const firstQueued = queueBuildEvent(room, 'p1', {
+        templateId: 'generator',
+        x: firstPlacement.x,
+        y: firstPlacement.y,
+        transform,
+        delayTicks: 1,
+      });
+      const duplicateQueuedFirst = queueBuildEvent(room, 'p1', {
+        templateId: 'generator',
+        x: firstPlacement.x,
+        y: firstPlacement.y,
+        transform,
+        delayTicks: 2,
+      });
+      const duplicateQueuedSecond = queueBuildEvent(room, 'p1', {
+        templateId: 'generator',
+        x: firstPlacement.x,
+        y: firstPlacement.y,
+        transform,
+        delayTicks: 2,
+      });
+      const lowResourceQueued = queueBuildEvent(room, 'p1', {
+        templateId: 'generator',
+        x: secondPlacement.x,
+        y: secondPlacement.y,
+        transform,
+        delayTicks: 2,
+      });
+
+      expect(firstQueued.accepted).toBe(true);
+      expect(duplicateQueuedFirst.accepted).toBe(true);
+      expect(duplicateQueuedSecond.accepted).toBe(true);
+      expect(lowResourceQueued.accepted).toBe(true);
+
+      const warmup = tickRoom(room);
+      expect(getBuildOutcomes(warmup)).toEqual([]);
+
+      const firstResolved = tickRoom(room);
+      const resourcesAfterFirstResolution = team.resources;
+      const secondResolved = tickRoom(room);
+
+      return {
+        queueAccepted: [
+          firstQueued.accepted,
+          duplicateQueuedFirst.accepted,
+          duplicateQueuedSecond.accepted,
+          lowResourceQueued.accepted,
+        ],
+        queueReasons: [
+          firstQueued.reason ?? null,
+          duplicateQueuedFirst.reason ?? null,
+          duplicateQueuedSecond.reason ?? null,
+          lowResourceQueued.reason ?? null,
+        ],
+        outcomesAtFirstResolution:
+          getBuildOutcomes(firstResolved).map(normalizeOutcome),
+        outcomesAtSecondResolution:
+          getBuildOutcomes(secondResolved).map(normalizeOutcome),
+        resourcesAfterFirstResolution,
+        resourcesAfterSecondResolution: team.resources,
+        structureKeys: [...team.structures.keys()].sort(),
+      };
+    }
+
+    const firstRun = runRepresentativeTimeline();
+    const secondRun = runRepresentativeTimeline();
+
+    expect(firstRun).toEqual(secondRun);
+    expect(firstRun.queueAccepted).toEqual([true, true, true, true]);
+    expect(firstRun.queueReasons).toEqual([null, null, null, null]);
+    expect(
+      firstRun.outcomesAtFirstResolution.map(({ outcome, reason }) => ({
+        outcome,
+        reason,
+      })),
+    ).toEqual([{ outcome: 'applied', reason: null }]);
+    expect(
+      firstRun.outcomesAtSecondResolution.map(({ outcome, reason }) => ({
+        outcome,
+        reason,
+      })),
+    ).toEqual([
+      { outcome: 'rejected', reason: 'occupied-site' },
+      { outcome: 'rejected', reason: 'occupied-site' },
+      { outcome: 'rejected', reason: 'insufficient-resources' },
+    ]);
+
+    const lowResourceOutcome = firstRun.outcomesAtSecondResolution[2];
+    expect(lowResourceOutcome?.affordable).toBe(false);
+    expect(lowResourceOutcome?.needed).toBeGreaterThan(
+      lowResourceOutcome?.current ?? 0,
+    );
+    expect(lowResourceOutcome?.deficit).toBe(
+      Math.max(
+        0,
+        (lowResourceOutcome?.needed ?? 0) - (lowResourceOutcome?.current ?? 0),
+      ),
     );
   });
 
