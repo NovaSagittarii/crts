@@ -262,20 +262,20 @@ export interface RoomPlayerState {
 }
 
 export interface RoomState {
-  id: string;
-  name: string;
-  width: number;
-  height: number;
+  readonly id: string;
+  readonly name: string;
+  readonly width: number;
+  readonly height: number;
   generation: number;
   tick: number;
   nextTeamId: number;
   nextBuildEventId: number;
   grid: Uint8Array;
-  templateMap: Map<string, StructureTemplate>;
+  readonly templateMap: ReadonlyMap<string, StructureTemplate>;
   templates: StructureTemplate[];
   teams: Map<number, TeamState>;
   players: Map<string, RoomPlayerState>;
-  spawnOrientationSeed: number;
+  readonly spawnOrientationSeed: number;
   pendingLegacyUpdates: CellUpdate[];
   timelineEvents: TimelineEvent[];
 }
@@ -414,6 +414,11 @@ interface EvaluatedBuildPlacement {
 type IntegrityOutcomeCategory = 'repaired' | 'destroyed-debris' | 'core-defeat';
 
 export class RtsEngine {
+  private static readonly roomEngineByState = new WeakMap<
+    RoomState,
+    RtsEngine
+  >();
+
   public static readonly CORE_STRUCTURE_TEMPLATE =
     RtsEngine.createTemplateFromRows({
       id: CORE_TEMPLATE_ID,
@@ -423,6 +428,67 @@ export class RtsEngine {
       requiresDestroyConfirm: true,
       padding: 3,
     });
+
+  private readonly roomId: string;
+
+  private readonly roomName: string;
+
+  private readonly roomWidth: number;
+
+  private readonly roomHeight: number;
+
+  private readonly roomTemplateMap: Map<string, StructureTemplate>;
+
+  private readonly roomSpawnOrientationSeed: number;
+
+  private constructor(options: {
+    id: string;
+    name: string;
+    width: number;
+    height: number;
+    templateMap: Map<string, StructureTemplate>;
+    spawnOrientationSeed: number;
+  }) {
+    this.roomId = options.id;
+    this.roomName = options.name;
+    this.roomWidth = options.width;
+    this.roomHeight = options.height;
+    this.roomTemplateMap = options.templateMap;
+    this.roomSpawnOrientationSeed = options.spawnOrientationSeed;
+  }
+
+  private static getRoomEngine(room: RoomState): RtsEngine {
+    const engine = RtsEngine.roomEngineByState.get(room);
+    if (!engine) {
+      throw new Error('Room state is not bound to an engine instance');
+    }
+    return engine;
+  }
+
+  public static getRoomId(room: RoomState): string {
+    return RtsEngine.getRoomEngine(room).roomId;
+  }
+
+  public static getRoomName(room: RoomState): string {
+    return RtsEngine.getRoomEngine(room).roomName;
+  }
+
+  public static getRoomWidth(room: RoomState): number {
+    return RtsEngine.getRoomEngine(room).roomWidth;
+  }
+
+  public static getRoomHeight(room: RoomState): number {
+    return RtsEngine.getRoomEngine(room).roomHeight;
+  }
+
+  public static getRoomTemplate(
+    room: RoomState,
+    templateId: string,
+  ): StructureTemplate | null {
+    return (
+      RtsEngine.getRoomEngine(room).roomTemplateMap.get(templateId) ?? null
+    );
+  }
 
   private static hashSpawnSeed(
     roomId: string,
@@ -1868,28 +1934,62 @@ export class RtsEngine {
       templateMap.set(template.id, template);
     }
 
-    return {
+    const engine = new RtsEngine({
       id: options.id,
       name: options.name,
       width: options.width,
       height: options.height,
-      generation: 0,
-      tick: 0,
-      nextTeamId: 1,
-      nextBuildEventId: 1,
-      grid: createGrid({ width: options.width, height: options.height }),
       templateMap,
-      templates,
-      teams: new Map<number, TeamState>(),
-      players: new Map<string, RoomPlayerState>(),
       spawnOrientationSeed: RtsEngine.hashSpawnSeed(
         options.id,
         options.width,
         options.height,
       ),
+    });
+
+    const room = {
+      generation: 0,
+      tick: 0,
+      nextTeamId: 1,
+      nextBuildEventId: 1,
+      grid: createGrid({ width: options.width, height: options.height }),
+      templates,
+      teams: new Map<number, TeamState>(),
+      players: new Map<string, RoomPlayerState>(),
       pendingLegacyUpdates: [],
       timelineEvents: [],
-    };
+    } as unknown as RoomState;
+
+    Object.defineProperties(room, {
+      id: {
+        enumerable: true,
+        get: () => engine.roomId,
+      },
+      name: {
+        enumerable: true,
+        get: () => engine.roomName,
+      },
+      width: {
+        enumerable: true,
+        get: () => engine.roomWidth,
+      },
+      height: {
+        enumerable: true,
+        get: () => engine.roomHeight,
+      },
+      templateMap: {
+        enumerable: true,
+        get: () => engine.roomTemplateMap,
+      },
+      spawnOrientationSeed: {
+        enumerable: true,
+        get: () => engine.roomSpawnOrientationSeed,
+      },
+    });
+
+    RtsEngine.roomEngineByState.set(room, engine);
+
+    return room;
   }
 
   public static listRooms(rooms: Map<string, RoomState>): RoomListEntry[] {

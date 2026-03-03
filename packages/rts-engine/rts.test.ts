@@ -76,6 +76,22 @@ function probeQueueBuild(
   return RtsEngine.queueBuildEvent(probeRoom, playerId, payload);
 }
 
+function getRoomId(room: ReturnType<typeof RtsEngine.createRoomState>): string {
+  return RtsEngine.getRoomId(room);
+}
+
+function getRoomWidth(
+  room: ReturnType<typeof RtsEngine.createRoomState>,
+): number {
+  return RtsEngine.getRoomWidth(room);
+}
+
+function getRoomHeight(
+  room: ReturnType<typeof RtsEngine.createRoomState>,
+): number {
+  return RtsEngine.getRoomHeight(room);
+}
+
 function getStructureByTemplateId(
   team: ReturnType<typeof RtsEngine.addPlayerToRoom>,
   templateId: string,
@@ -165,15 +181,20 @@ describe('rts', () => {
     for (let localY = 0; localY < BASE_FOOTPRINT_HEIGHT; localY += 1) {
       for (let localX = 0; localX < BASE_FOOTPRINT_WIDTH; localX += 1) {
         const expectedAlive = isCanonicalBaseCell(localX, localY);
-        const alive = getCellAlive(payload.grid, room.width, room.height, {
-          x: base.x + localX,
-          y: base.y + localY,
-        });
+        const alive = getCellAlive(
+          payload.grid,
+          getRoomWidth(room),
+          getRoomHeight(room),
+          {
+            x: base.x + localX,
+            y: base.y + localY,
+          },
+        );
         expect(alive).toBe(expectedAlive);
       }
     }
 
-    const rooms = RtsEngine.listRooms(new Map([[room.id, room]]));
+    const rooms = RtsEngine.listRooms(new Map([[getRoomId(room), room]]));
     expect(rooms).toEqual([
       {
         roomId: '1',
@@ -245,7 +266,7 @@ describe('rts', () => {
       'outside-territory',
     );
 
-    const blockTemplate = room.templateMap.get('block');
+    const blockTemplate = RtsEngine.getRoomTemplate(room, 'block');
     expect(blockTemplate).toBeDefined();
     const blockWidth = blockTemplate?.width ?? 0;
     const blockHeight = blockTemplate?.height ?? 0;
@@ -255,11 +276,14 @@ describe('rts', () => {
     let outsideTerritoryCoordinate: Cell | null = null;
     for (const direction of [1, -1] as const) {
       const candidateX = baseCenter.x + direction * outsideOffset;
-      const candidateY = Math.max(0, Math.min(baseCenter.y, room.height - 1));
-      if (candidateX < 0 || candidateX + blockWidth > room.width) {
+      const candidateY = Math.max(
+        0,
+        Math.min(baseCenter.y, getRoomHeight(room) - 1),
+      );
+      if (candidateX < 0 || candidateX + blockWidth > getRoomWidth(room)) {
         continue;
       }
-      if (candidateY + blockHeight > room.height) {
+      if (candidateY + blockHeight > getRoomHeight(room)) {
         continue;
       }
 
@@ -339,7 +363,7 @@ describe('rts', () => {
     });
     const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
     const baseCenter = getBaseCenter(team.baseTopLeft);
-    const blockTemplate = room.templateMap.get('block');
+    const blockTemplate = RtsEngine.getRoomTemplate(room, 'block');
     expect(blockTemplate).toBeDefined();
     const insideOffset = Math.floor(BUILD_ZONE_RADIUS);
     const outsideOffset = insideOffset + 1;
@@ -349,16 +373,16 @@ describe('rts', () => {
       const insideX = baseCenter.x + candidate * insideOffset;
       const outsideX = baseCenter.x + candidate * outsideOffset;
       const blockX = baseCenter.x + candidate * insideOffset;
-      if (insideX < 0 || insideX >= room.width) {
+      if (insideX < 0 || insideX >= getRoomWidth(room)) {
         continue;
       }
-      if (outsideX < 0 || outsideX >= room.width) {
+      if (outsideX < 0 || outsideX >= getRoomWidth(room)) {
         continue;
       }
       if (
         blockX < 0 ||
-        blockX + (blockTemplate?.width ?? 0) > room.width ||
-        baseCenter.y + (blockTemplate?.height ?? 0) > room.height
+        blockX + (blockTemplate?.width ?? 0) > getRoomWidth(room) ||
+        baseCenter.y + (blockTemplate?.height ?? 0) > getRoomHeight(room)
       ) {
         continue;
       }
@@ -371,7 +395,7 @@ describe('rts', () => {
       throw new Error('Unable to locate in-bounds boundary direction');
     }
 
-    const y = Math.max(0, Math.min(baseCenter.y, room.height - 1));
+    const y = Math.max(0, Math.min(baseCenter.y, getRoomHeight(room) - 1));
     const boundary = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'probe',
       x: baseCenter.x + direction * insideOffset,
@@ -513,16 +537,19 @@ describe('rts', () => {
 
     for (const direction of [1, -1] as const) {
       const contributorX = baseCenter.x + direction * 13;
-      const contributorY = Math.max(0, Math.min(baseCenter.y, room.height - 2));
+      const contributorY = Math.max(
+        0,
+        Math.min(baseCenter.y, getRoomHeight(room) - 2),
+      );
       const contributorCenterX = contributorX + 1;
       const contributorCenterY = contributorY + 1;
       const remoteX = contributorCenterX + direction * remoteOffset;
       const remoteY = contributorCenterY;
 
-      if (contributorX < 0 || contributorX + 2 > room.width) {
+      if (contributorX < 0 || contributorX + 2 > getRoomWidth(room)) {
         continue;
       }
-      if (remoteX < 0 || remoteX >= room.width) {
+      if (remoteX < 0 || remoteX >= getRoomWidth(room)) {
         continue;
       }
 
@@ -706,16 +733,19 @@ describe('rts', () => {
 
     for (const direction of [1, -1] as const) {
       const contributorX = baseCenter.x + direction * 13;
-      const contributorY = Math.max(0, Math.min(baseCenter.y, room.height - 2));
+      const contributorY = Math.max(
+        0,
+        Math.min(baseCenter.y, getRoomHeight(room) - 2),
+      );
       const contributorCenterX = contributorX + 1;
       const contributorCenterY = contributorY + 1;
       const remoteX = contributorCenterX + direction * remoteOffset;
       const remoteY = contributorCenterY;
 
-      if (contributorX < 0 || contributorX + 2 > room.width) {
+      if (contributorX < 0 || contributorX + 2 > getRoomWidth(room)) {
         continue;
       }
-      if (remoteX < 0 || remoteX >= room.width) {
+      if (remoteX < 0 || remoteX >= getRoomWidth(room)) {
         continue;
       }
 
@@ -1254,13 +1284,13 @@ describe('rts', () => {
 
     const payload = RtsEngine.createRoomStatePayload(room);
     expect(
-      getCellAlive(payload.grid, room.width, room.height, {
+      getCellAlive(payload.grid, getRoomWidth(room), getRoomHeight(room), {
         x: buildPosition.x,
         y: buildPosition.y,
       }),
     ).toBe(true);
     expect(
-      getCellAlive(payload.grid, room.width, room.height, {
+      getCellAlive(payload.grid, getRoomWidth(room), getRoomHeight(room), {
         x: buildPosition.x + 1,
         y: buildPosition.y + 1,
       }),
@@ -1438,7 +1468,12 @@ describe('rts', () => {
 
     const repairedPayload = RtsEngine.createRoomStatePayload(room);
     expect(
-      getCellAlive(repairedPayload.grid, room.width, room.height, placement),
+      getCellAlive(
+        repairedPayload.grid,
+        getRoomWidth(room),
+        getRoomHeight(room),
+        placement,
+      ),
     ).toBe(true);
 
     RtsEngine.queueLegacyCellUpdate(room, {
@@ -1527,9 +1562,14 @@ describe('rts', () => {
 
     const payload = RtsEngine.createRoomStatePayload(room);
     for (const cell of blockCells) {
-      expect(getCellAlive(payload.grid, room.width, room.height, cell)).toBe(
-        false,
-      );
+      expect(
+        getCellAlive(
+          payload.grid,
+          getRoomWidth(room),
+          getRoomHeight(room),
+          cell,
+        ),
+      ).toBe(false);
     }
   });
 
@@ -1597,16 +1637,20 @@ describe('rts', () => {
     }
     coreStructure.hp = 1;
 
-    const blockTemplate = room.templateMap.get('block');
+    const blockTemplate = RtsEngine.getRoomTemplate(room, 'block');
     expect(blockTemplate).toBeDefined();
 
     let queued: ReturnType<typeof RtsEngine.queueBuildEvent> | null = null;
     for (
       let y = 0;
-      y <= room.height - (blockTemplate?.height ?? 0) && !queued;
+      y <= getRoomHeight(room) - (blockTemplate?.height ?? 0) && !queued;
       y += 1
     ) {
-      for (let x = 0; x <= room.width - (blockTemplate?.width ?? 0); x += 1) {
+      for (
+        let x = 0;
+        x <= getRoomWidth(room) - (blockTemplate?.width ?? 0);
+        x += 1
+      ) {
         const result = RtsEngine.queueBuildEvent(room, 'p1', {
           templateId: 'block',
           x,

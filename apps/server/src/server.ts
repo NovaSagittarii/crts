@@ -102,6 +102,22 @@ function roomChannel(roomId: string): string {
   return `room:${roomId}`;
 }
 
+function getRuntimeRoomId(room: RuntimeRoom): string {
+  return RtsEngine.getRoomId(room.state);
+}
+
+function getRuntimeRoomName(room: RuntimeRoom): string {
+  return RtsEngine.getRoomName(room.state);
+}
+
+function getRuntimeRoomWidth(room: RuntimeRoom): number {
+  return RtsEngine.getRoomWidth(room.state);
+}
+
+function getRuntimeRoomHeight(room: RuntimeRoom): number {
+  return RtsEngine.getRoomHeight(room.state);
+}
+
 function sanitizePlayerName(value: unknown, fallback: string): string {
   if (typeof value !== 'string') {
     return fallback;
@@ -304,13 +320,14 @@ export function createServer(options: ServerOptions = {}): GameServer {
   const rooms = new Map<string, RuntimeRoom>();
 
   function buildRuntimeRoom(roomState: RoomState): RuntimeRoom {
+    const roomId = RtsEngine.getRoomId(roomState);
     return {
       state: roomState,
       lobby: LobbyRoom.create({
-        roomId: roomState.id,
+        roomId,
         slotIds: [...PLAYER_SLOT_IDS],
       }),
-      roomCode: roomState.id,
+      roomCode: roomId,
       revision: 0,
       status: 'lobby',
       countdownSecondsRemaining: null,
@@ -381,7 +398,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
       }
 
       const hold = sessionCoordinator.getHold(sessionId);
-      if (hold && hold.roomId === room.state.id && hold.slotId === slotId) {
+      if (
+        hold &&
+        hold.roomId === getRuntimeRoomId(room) &&
+        hold.slotId === slotId
+      ) {
         heldSlots[slotId] = {
           sessionId,
           holdExpiresAt: hold.expiresAt,
@@ -394,9 +415,9 @@ export function createServer(options: ServerOptions = {}): GameServer {
     }
 
     return {
-      roomId: room.state.id,
+      roomId: getRuntimeRoomId(room),
       roomCode: room.roomCode,
-      roomName: room.state.name,
+      roomName: getRuntimeRoomName(room),
       revision: room.revision,
       status: room.status,
       hostSessionId: snapshot.hostSessionId,
@@ -438,11 +459,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
         ).length;
 
         return {
-          roomId: room.state.id,
+          roomId: getRuntimeRoomId(room),
           roomCode: room.roomCode,
-          name: room.state.name,
-          width: room.state.width,
-          height: room.state.height,
+          name: getRuntimeRoomName(room),
+          width: getRuntimeRoomWidth(room),
+          height: getRuntimeRoomHeight(room),
           players,
           spectators: snapshot.participants.length - players,
           teams: room.state.teams.size,
@@ -461,7 +482,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   }
 
   function emitRoomState(room: RuntimeRoom): void {
-    io.to(roomChannel(room.state.id)).emit(
+    io.to(roomChannel(getRuntimeRoomId(room))).emit(
       'state',
       RtsEngine.createRoomStatePayload(room.state),
     );
@@ -472,7 +493,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     outcomes: BuildOutcomePayload[],
   ): void {
     for (const outcome of outcomes) {
-      io.to(roomChannel(room.state.id)).emit('build:outcome', outcome);
+      io.to(roomChannel(getRuntimeRoomId(room))).emit('build:outcome', outcome);
     }
   }
 
@@ -481,7 +502,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
     outcomes: DestroyOutcomePayload[],
   ): void {
     for (const outcome of outcomes) {
-      io.to(roomChannel(room.state.id)).emit('destroy:outcome', outcome);
+      io.to(roomChannel(getRuntimeRoomId(room))).emit(
+        'destroy:outcome',
+        outcome,
+      );
     }
   }
 
@@ -490,7 +514,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       room.revision += 1;
     }
 
-    io.to(roomChannel(room.state.id)).emit(
+    io.to(roomChannel(getRuntimeRoomId(room))).emit(
       'room:membership',
       buildMembershipPayload(room),
     );
@@ -505,7 +529,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   }
 
   function deleteRoomIfEmpty(room: RuntimeRoom): boolean {
-    if (room.state.id === defaultRoomId) {
+    if (getRuntimeRoomId(room) === defaultRoomId) {
       return false;
     }
 
@@ -514,7 +538,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     }
 
     stopCountdown(room);
-    rooms.delete(room.state.id);
+    rooms.delete(getRuntimeRoomId(room));
     return true;
   }
 
@@ -622,7 +646,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       return;
     }
 
-    const previousRoomId = room.state.id;
+    const previousRoomId = getRuntimeRoomId(room);
 
     const existingParticipant = room.lobby.getParticipant(session.id);
     const heldSlotId =
@@ -645,7 +669,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       sessionCoordinator.holdOnDisconnect({
         sessionId: session.id,
         socketId: socket.id,
-        roomId: room.state.id,
+        roomId: getRuntimeRoomId(room),
         slotId: heldSlotId,
         disconnectReason: options.disconnectReason ?? null,
         onExpire: (hold) => {
@@ -665,7 +689,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         options.disconnectReason ?? null,
       );
     } else {
-      void socket.leave(roomChannel(room.state.id));
+      void socket.leave(roomChannel(getRuntimeRoomId(room)));
     }
 
     const wasPlayer = removeSessionFromRoom(room, session.id);
@@ -687,27 +711,27 @@ export function createServer(options: ServerOptions = {}): GameServer {
     session: PlayerSession,
     room: RuntimeRoom,
   ): void {
-    if (session.roomId && session.roomId !== room.state.id) {
+    if (session.roomId && session.roomId !== getRuntimeRoomId(room)) {
       leaveCurrentRoom(socket, session, {
         emitLeft: true,
         preserveHold: false,
       });
     }
 
-    void socket.join(roomChannel(room.state.id));
+    void socket.join(roomChannel(getRuntimeRoomId(room)));
     sessionCoordinator.clearHold(session.id);
     room.lobby.join({
       sessionId: session.id,
       displayName: session.name,
     });
 
-    sessionCoordinator.setRoom(session.id, room.state.id);
+    sessionCoordinator.setRoom(session.id, getRuntimeRoomId(room));
 
     const teamId = room.state.players.get(session.id)?.teamId ?? null;
     socket.emit('room:joined', {
-      roomId: room.state.id,
+      roomId: getRuntimeRoomId(room),
       roomCode: room.roomCode,
-      roomName: room.state.name,
+      roomName: getRuntimeRoomName(room),
       playerId: session.id,
       playerName: session.name,
       teamId,
@@ -752,7 +776,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
     const trimmedSlotId = slotId.trim();
     const heldBySessionId = sessionCoordinator.getHeldSessionForSlot(
-      room.state.id,
+      getRuntimeRoomId(room),
       trimmedSlotId,
     );
     if (heldBySessionId && heldBySessionId !== session.id) {
@@ -778,7 +802,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     }
 
     socket.emit('room:slot-claimed', {
-      roomId: room.state.id,
+      roomId: getRuntimeRoomId(room),
       slotId: trimmedSlotId,
       teamId: room.state.players.get(session.id)?.teamId ?? null,
     });
@@ -845,7 +869,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       hasRequiredPlayers,
       allPlayersConnected,
       reconnectHoldPending: sessionCoordinator.hasPendingHoldForRoom(
-        room.state.id,
+        getRuntimeRoomId(room),
       ),
     };
   }
@@ -862,10 +886,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
     );
 
     const nextState = RtsEngine.createRoomState({
-      id: previousState.id,
-      name: previousState.name,
-      width: previousState.width,
-      height: previousState.height,
+      id: RtsEngine.getRoomId(previousState),
+      name: RtsEngine.getRoomName(previousState),
+      width: RtsEngine.getRoomWidth(previousState),
+      height: RtsEngine.getRoomHeight(previousState),
       templates: previousState.templates,
     });
 
@@ -891,8 +915,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
       return;
     }
 
-    io.to(roomChannel(room.state.id)).emit('room:match-finished', {
-      roomId: room.state.id,
+    io.to(roomChannel(getRuntimeRoomId(room))).emit('room:match-finished', {
+      roomId: getRuntimeRoomId(room),
       winner: room.matchOutcome.winner,
       ranked: room.matchOutcome.ranked,
       comparator: room.matchOutcome.comparator,
@@ -909,8 +933,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
     room.countdownSecondsRemaining = COUNTDOWN_SECONDS;
     emitMembership(room);
     emitRoomList();
-    io.to(roomChannel(room.state.id)).emit('room:countdown', {
-      roomId: room.state.id,
+    io.to(roomChannel(getRuntimeRoomId(room))).emit('room:countdown', {
+      roomId: getRuntimeRoomId(room),
       secondsRemaining: room.countdownSecondsRemaining,
     });
 
@@ -929,16 +953,16 @@ export function createServer(options: ServerOptions = {}): GameServer {
         room.status = transition.nextStatus;
         emitMembership(room);
         emitRoomList();
-        io.to(roomChannel(room.state.id)).emit('room:match-started', {
-          roomId: room.state.id,
+        io.to(roomChannel(getRuntimeRoomId(room))).emit('room:match-started', {
+          roomId: getRuntimeRoomId(room),
         });
         return;
       }
 
       room.countdownSecondsRemaining = next;
       emitMembership(room);
-      io.to(roomChannel(room.state.id)).emit('room:countdown', {
-        roomId: room.state.id,
+      io.to(roomChannel(getRuntimeRoomId(room))).emit('room:countdown', {
+        roomId: getRuntimeRoomId(room),
         secondsRemaining: next,
       });
     }, 1000);
@@ -1202,7 +1226,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     });
 
     const room = buildRuntimeRoom(roomState);
-    rooms.set(room.state.id, room);
+    rooms.set(getRuntimeRoomId(room), room);
     return room;
   }
 
@@ -1506,8 +1530,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      io.to(roomChannel(room.state.id)).emit('chat:message', {
-        roomId: room.state.id,
+      io.to(roomChannel(getRuntimeRoomId(room))).emit('chat:message', {
+        roomId: getRuntimeRoomId(room),
         senderSessionId: session.id,
         senderName: session.name,
         message,
@@ -1569,7 +1593,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       );
 
       const previewPayload = createBuildPreviewPayload(
-        room.state.id,
+        getRuntimeRoomId(room),
         gate.team.id,
         previewRequest,
         previewResult,
@@ -1650,7 +1674,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         socket.emit(
           'build:preview',
           createBuildPreviewPayload(
-            room.state.id,
+            getRuntimeRoomId(room),
             gate.team.id,
             previewRequest,
             refreshedPreview,
@@ -1762,12 +1786,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
         const buildOutcomes: BuildOutcomePayload[] =
           tickResult.buildOutcomes.map((outcome) => ({
             ...outcome,
-            roomId: room.state.id,
+            roomId: getRuntimeRoomId(room),
           }));
         const destroyOutcomes: DestroyOutcomePayload[] =
           tickResult.destroyOutcomes.map((outcome) => ({
             ...outcome,
-            roomId: room.state.id,
+            roomId: getRuntimeRoomId(room),
           }));
         emitBuildOutcomes(room, buildOutcomes);
         emitDestroyOutcomes(room, destroyOutcomes);
@@ -1777,7 +1801,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           if (transition.allowed) {
             room.status = transition.nextStatus;
             room.matchOutcome = {
-              roomId: room.state.id,
+              roomId: getRuntimeRoomId(room),
               winner: tickResult.outcome.winner,
               ranked: tickResult.outcome.ranked,
               comparator: tickResult.outcome.comparator,
