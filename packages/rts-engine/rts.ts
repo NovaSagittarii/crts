@@ -1690,233 +1690,6 @@ function applyTeamEconomyAndQueue(
   team.pendingBuildEvents = deferred;
 }
 
-function createDefaultTemplates(): StructureTemplate[] {
-  return [
-    createTemplateFromRows({
-      id: 'block',
-      name: 'Block 2x2',
-      rows: ['##', '##'],
-      activationCost: 0,
-      income: 0,
-      buildArea: 0,
-    }),
-    createTemplateFromRows({
-      id: 'generator',
-      name: 'Generator Block',
-      rows: ['##', '##'],
-      activationCost: 6,
-      income: 2,
-      buildArea: 2,
-      padding: 1,
-      checked: true,
-    }),
-    createTemplateFromRows({
-      id: 'glider',
-      name: 'Glider',
-      rows: ['.#.', '..#', '###'],
-      activationCost: 2,
-      income: 0,
-      buildArea: 0,
-    }),
-    createTemplateFromRows({
-      id: 'eater-1',
-      name: 'Eater 1',
-      rows: ['##..', '#.##', '.###', '..#.'],
-      activationCost: 4,
-      income: 0,
-      buildArea: 1,
-    }),
-    createTemplateFromRows({
-      id: 'gosper',
-      name: 'Gosper glider gun',
-      rows: [
-        '........................#...........',
-        '......................#.#...........',
-        '............##......##............##',
-        '...........#...#....##............##',
-        '##........#.....#...##..............',
-        '##........#...#.##....#.#...........',
-        '..........#.....#.......#...........',
-        '...........#...#....................',
-        '............##......................',
-      ],
-    }),
-  ];
-}
-
-function createTemplateSummaries(
-  templates: StructureTemplate[],
-): StructureTemplateSummary[] {
-  return templates.map((template) => ({
-    id: template.id,
-    name: template.name,
-    width: template.width,
-    height: template.height,
-    activationCost: template.activationCost,
-    income: template.income,
-    buildArea: template.buildArea,
-  }));
-}
-
-function createRoomState(options: CreateRoomOptions): RoomState {
-  const templates = options.templates ?? createDefaultTemplates();
-  const templateMap = new Map<string, StructureTemplate>();
-  for (const template of templates) {
-    templateMap.set(template.id, template);
-  }
-
-  return {
-    id: options.id,
-    name: options.name,
-    width: options.width,
-    height: options.height,
-    generation: 0,
-    tick: 0,
-    nextTeamId: 1,
-    nextBuildEventId: 1,
-    grid: createGrid({ width: options.width, height: options.height }),
-    templateMap,
-    templates,
-    teams: new Map<number, TeamState>(),
-    players: new Map<string, RoomPlayerState>(),
-    spawnOrientationSeed: hashSpawnSeed(
-      options.id,
-      options.width,
-      options.height,
-    ),
-    pendingLegacyUpdates: [],
-    timelineEvents: [],
-  };
-}
-
-function listRooms(rooms: Map<string, RoomState>): RoomListEntry[] {
-  const entries: RoomListEntry[] = [];
-  for (const room of rooms.values()) {
-    entries.push({
-      roomId: room.id,
-      name: room.name,
-      width: room.width,
-      height: room.height,
-      players: room.players.size,
-      teams: room.teams.size,
-    });
-  }
-  return entries;
-}
-
-function addPlayerToRoom(
-  room: RoomState,
-  playerId: string,
-  playerName: string,
-): TeamState {
-  const existing = room.players.get(playerId);
-  if (existing) {
-    const existingTeam = room.teams.get(existing.teamId);
-    if (existingTeam) {
-      return existingTeam;
-    }
-  }
-
-  const teamId = room.nextTeamId;
-  room.nextTeamId += 1;
-
-  const baseTopLeft = pickSpawnPosition(room, teamId);
-  const coreKey = createStructureKey(
-    baseTopLeft.x,
-    baseTopLeft.y,
-    CORE_STRUCTURE_TEMPLATE.width,
-    CORE_STRUCTURE_TEMPLATE.height,
-  );
-
-  const structures = new Map<string, StructureInstance>();
-  structures.set(coreKey, {
-    key: coreKey,
-    templateId: CORE_TEMPLATE_ID,
-    x: baseTopLeft.x,
-    y: baseTopLeft.y,
-    transform: createIdentityPlacementTransform(),
-    active: true,
-    hp: CORE_STARTING_HP,
-    isCore: true,
-    buildRadius: 0,
-  });
-
-  const team: TeamState = {
-    id: teamId,
-    name: `${playerName}'s Team`,
-    playerIds: new Set<string>([playerId]),
-    resources: DEFAULT_STARTING_RESOURCES,
-    income: 0,
-    incomeBreakdown: {
-      base: 0,
-      structures: 0,
-      total: 0,
-      activeStructureCount: 0,
-    },
-    lastIncomeTick: room.tick,
-    territoryRadius: DEFAULT_TEAM_TERRITORY_RADIUS,
-    baseTopLeft,
-    defeated: false,
-    structures,
-    pendingBuildEvents: [],
-    pendingDestroyEvents: [],
-    buildStats: {
-      queued: 0,
-      applied: 0,
-      rejected: 0,
-    },
-  };
-
-  room.players.set(playerId, {
-    id: playerId,
-    name: playerName,
-    teamId,
-  });
-  room.teams.set(teamId, team);
-  seedBase(room, baseTopLeft);
-
-  return team;
-}
-
-function renamePlayerInRoom(
-  room: RoomState,
-  playerId: string,
-  name: string,
-): boolean {
-  const player = room.players.get(playerId);
-  if (!player) {
-    return false;
-  }
-  player.name = name;
-  const team = room.teams.get(player.teamId);
-  if (team && team.playerIds.size === 1) {
-    team.name = `${name}'s Team`;
-  }
-  return true;
-}
-
-function removePlayerFromRoom(room: RoomState, playerId: string): boolean {
-  const player = room.players.get(playerId);
-  if (!player) {
-    return false;
-  }
-
-  const team = room.teams.get(player.teamId);
-  if (team) {
-    team.playerIds.delete(playerId);
-    if (team.playerIds.size === 0) {
-      room.teams.delete(team.id);
-    }
-  }
-
-  room.players.delete(playerId);
-  return true;
-}
-
-function queueLegacyCellUpdate(room: RoomState, update: CellUpdate): void {
-  room.pendingLegacyUpdates.push(update);
-}
-
 function queueBuildEvent(
   room: RoomState,
   playerId: string,
@@ -2137,45 +1910,6 @@ function queueDestroyEvent(
   };
 }
 
-function createRoomStatePayload(room: RoomState): RoomStatePayload {
-  const teams: TeamPayload[] = [];
-  for (const team of room.teams.values()) {
-    teams.push({
-      id: team.id,
-      name: team.name,
-      playerIds: [...team.playerIds],
-      resources: team.resources,
-      income: team.income,
-      incomeBreakdown: {
-        base: team.incomeBreakdown.base,
-        structures: team.incomeBreakdown.structures,
-        total: team.incomeBreakdown.total,
-        activeStructureCount: team.incomeBreakdown.activeStructureCount,
-      },
-      pendingBuilds: projectPendingBuilds(room, team),
-      pendingDestroys: projectPendingDestroys(room, team),
-      structures: projectStructures(room, team),
-      defeated: team.defeated,
-      baseTopLeft: {
-        x: team.baseTopLeft.x,
-        y: team.baseTopLeft.y,
-      },
-      baseIntact: isBaseIntact(room, team),
-    });
-  }
-
-  return {
-    roomId: room.id,
-    roomName: room.name,
-    width: room.width,
-    height: room.height,
-    generation: room.generation,
-    tick: room.tick,
-    grid: packGridBits(room.grid, room.width, room.height),
-    teams,
-  };
-}
-
 type IntegrityOutcomeCategory = 'repaired' | 'destroyed-debris' | 'core-defeat';
 
 function compareStructuresByKey(
@@ -2312,39 +2046,6 @@ function resolveIntegrityChecks(room: RoomState): Map<number, number> {
   return coreHpBeforeResolution;
 }
 
-function createTeamOutcomeSnapshots(
-  room: RoomState,
-  coreHpBeforeResolution: ReadonlyMap<number, number> = new Map(),
-): TeamOutcomeSnapshot[] {
-  const snapshots: TeamOutcomeSnapshot[] = [];
-
-  for (const team of room.teams.values()) {
-    const core = getCoreStructure(team);
-    const coreHp = core?.hp ?? 0;
-    snapshots.push({
-      teamId: team.id,
-      coreHp,
-      coreHpBeforeResolution: coreHpBeforeResolution.get(team.id) ?? coreHp,
-      coreDestroyed: coreHp <= 0,
-      territoryCellCount: countTerritoryCells(room, team),
-      queuedBuildCount: team.buildStats.queued,
-      appliedBuildCount: team.buildStats.applied,
-      rejectedBuildCount: team.buildStats.rejected,
-    });
-  }
-
-  return snapshots;
-}
-
-function createCanonicalMatchOutcome(
-  room: RoomState,
-  coreHpBeforeResolution: ReadonlyMap<number, number> = new Map(),
-): MatchOutcome | null {
-  return determineMatchOutcome(
-    createTeamOutcomeSnapshots(room, coreHpBeforeResolution),
-  );
-}
-
 function tickRoom(room: RoomState): RoomTickResult {
   const acceptedEvents: AcceptedBuildEvent[] = [];
   const buildOutcomes: BuildOutcome[] = [];
@@ -2450,7 +2151,7 @@ function tickRoom(room: RoomState): RoomTickResult {
 
   const outcome =
     defeatedTeams.length > 0
-      ? createCanonicalMatchOutcome(room, coreHpBeforeResolution)
+      ? RtsEngine.createCanonicalMatchOutcome(room, coreHpBeforeResolution)
       : null;
 
   if (outcome) {
@@ -2490,21 +2191,117 @@ export class RtsEngine {
   public static readonly CORE_STRUCTURE_TEMPLATE = CORE_STRUCTURE_TEMPLATE;
 
   public static createDefaultTemplates(): StructureTemplate[] {
-    return createDefaultTemplates();
+    return [
+      createTemplateFromRows({
+        id: 'block',
+        name: 'Block 2x2',
+        rows: ['##', '##'],
+        activationCost: 0,
+        income: 0,
+        buildArea: 0,
+      }),
+      createTemplateFromRows({
+        id: 'generator',
+        name: 'Generator Block',
+        rows: ['##', '##'],
+        activationCost: 6,
+        income: 2,
+        buildArea: 2,
+        padding: 1,
+        checked: true,
+      }),
+      createTemplateFromRows({
+        id: 'glider',
+        name: 'Glider',
+        rows: ['.#.', '..#', '###'],
+        activationCost: 2,
+        income: 0,
+        buildArea: 0,
+      }),
+      createTemplateFromRows({
+        id: 'eater-1',
+        name: 'Eater 1',
+        rows: ['##..', '#.##', '.###', '..#.'],
+        activationCost: 4,
+        income: 0,
+        buildArea: 1,
+      }),
+      createTemplateFromRows({
+        id: 'gosper',
+        name: 'Gosper glider gun',
+        rows: [
+          '........................#...........',
+          '......................#.#...........',
+          '............##......##............##',
+          '...........#...#....##............##',
+          '##........#.....#...##..............',
+          '##........#...#.##....#.#...........',
+          '..........#.....#.......#...........',
+          '...........#...#....................',
+          '............##......................',
+        ],
+      }),
+    ];
   }
 
   public static createTemplateSummaries(
     templates: StructureTemplate[],
   ): StructureTemplateSummary[] {
-    return createTemplateSummaries(templates);
+    return templates.map((template) => ({
+      id: template.id,
+      name: template.name,
+      width: template.width,
+      height: template.height,
+      activationCost: template.activationCost,
+      income: template.income,
+      buildArea: template.buildArea,
+    }));
   }
 
   public static createRoomState(options: CreateRoomOptions): RoomState {
-    return createRoomState(options);
+    const templates = options.templates ?? RtsEngine.createDefaultTemplates();
+    const templateMap = new Map<string, StructureTemplate>();
+    for (const template of templates) {
+      templateMap.set(template.id, template);
+    }
+
+    return {
+      id: options.id,
+      name: options.name,
+      width: options.width,
+      height: options.height,
+      generation: 0,
+      tick: 0,
+      nextTeamId: 1,
+      nextBuildEventId: 1,
+      grid: createGrid({ width: options.width, height: options.height }),
+      templateMap,
+      templates,
+      teams: new Map<number, TeamState>(),
+      players: new Map<string, RoomPlayerState>(),
+      spawnOrientationSeed: hashSpawnSeed(
+        options.id,
+        options.width,
+        options.height,
+      ),
+      pendingLegacyUpdates: [],
+      timelineEvents: [],
+    };
   }
 
   public static listRooms(rooms: Map<string, RoomState>): RoomListEntry[] {
-    return listRooms(rooms);
+    const entries: RoomListEntry[] = [];
+    for (const room of rooms.values()) {
+      entries.push({
+        roomId: room.id,
+        name: room.name,
+        width: room.width,
+        height: room.height,
+        players: room.players.size,
+        teams: room.teams.size,
+      });
+    }
+    return entries;
   }
 
   public static addPlayerToRoom(
@@ -2512,7 +2309,73 @@ export class RtsEngine {
     playerId: string,
     playerName: string,
   ): TeamState {
-    return addPlayerToRoom(room, playerId, playerName);
+    const existing = room.players.get(playerId);
+    if (existing) {
+      const existingTeam = room.teams.get(existing.teamId);
+      if (existingTeam) {
+        return existingTeam;
+      }
+    }
+
+    const teamId = room.nextTeamId;
+    room.nextTeamId += 1;
+
+    const baseTopLeft = pickSpawnPosition(room, teamId);
+    const coreKey = createStructureKey(
+      baseTopLeft.x,
+      baseTopLeft.y,
+      RtsEngine.CORE_STRUCTURE_TEMPLATE.width,
+      RtsEngine.CORE_STRUCTURE_TEMPLATE.height,
+    );
+
+    const structures = new Map<string, StructureInstance>();
+    structures.set(coreKey, {
+      key: coreKey,
+      templateId: CORE_TEMPLATE_ID,
+      x: baseTopLeft.x,
+      y: baseTopLeft.y,
+      transform: createIdentityPlacementTransform(),
+      active: true,
+      hp: CORE_STARTING_HP,
+      isCore: true,
+      buildRadius: 0,
+    });
+
+    const team: TeamState = {
+      id: teamId,
+      name: `${playerName}'s Team`,
+      playerIds: new Set<string>([playerId]),
+      resources: DEFAULT_STARTING_RESOURCES,
+      income: 0,
+      incomeBreakdown: {
+        base: 0,
+        structures: 0,
+        total: 0,
+        activeStructureCount: 0,
+      },
+      lastIncomeTick: room.tick,
+      territoryRadius: DEFAULT_TEAM_TERRITORY_RADIUS,
+      baseTopLeft,
+      defeated: false,
+      structures,
+      pendingBuildEvents: [],
+      pendingDestroyEvents: [],
+      buildStats: {
+        queued: 0,
+        applied: 0,
+        rejected: 0,
+      },
+    };
+
+    room.players.set(playerId, {
+      id: playerId,
+      name: playerName,
+      teamId,
+    });
+    room.teams.set(teamId, team);
+    seedBase(room, baseTopLeft);
+
+    return team;
   }
 
   public static renamePlayerInRoom(
@@ -2520,18 +2383,39 @@ export class RtsEngine {
     playerId: string,
     name: string,
   ): void {
-    renamePlayerInRoom(room, playerId, name);
+    const player = room.players.get(playerId);
+    if (!player) {
+      return;
+    }
+    player.name = name;
+    const team = room.teams.get(player.teamId);
+    if (team && team.playerIds.size === 1) {
+      team.name = `${name}'s Team`;
+    }
   }
 
   public static removePlayerFromRoom(room: RoomState, playerId: string): void {
-    removePlayerFromRoom(room, playerId);
+    const player = room.players.get(playerId);
+    if (!player) {
+      return;
+    }
+
+    const team = room.teams.get(player.teamId);
+    if (team) {
+      team.playerIds.delete(playerId);
+      if (team.playerIds.size === 0) {
+        room.teams.delete(team.id);
+      }
+    }
+
+    room.players.delete(playerId);
   }
 
   public static queueLegacyCellUpdate(
     room: RoomState,
     update: CellUpdate,
   ): void {
-    queueLegacyCellUpdate(room, update);
+    room.pendingLegacyUpdates.push(update);
   }
 
   public static previewBuildPlacement(
@@ -2559,21 +2443,75 @@ export class RtsEngine {
   }
 
   public static createRoomStatePayload(room: RoomState): RoomStatePayload {
-    return createRoomStatePayload(room);
+    const teams: TeamPayload[] = [];
+    for (const team of room.teams.values()) {
+      teams.push({
+        id: team.id,
+        name: team.name,
+        playerIds: [...team.playerIds],
+        resources: team.resources,
+        income: team.income,
+        incomeBreakdown: {
+          base: team.incomeBreakdown.base,
+          structures: team.incomeBreakdown.structures,
+          total: team.incomeBreakdown.total,
+          activeStructureCount: team.incomeBreakdown.activeStructureCount,
+        },
+        pendingBuilds: projectPendingBuilds(room, team),
+        pendingDestroys: projectPendingDestroys(room, team),
+        structures: projectStructures(room, team),
+        defeated: team.defeated,
+        baseTopLeft: {
+          x: team.baseTopLeft.x,
+          y: team.baseTopLeft.y,
+        },
+        baseIntact: isBaseIntact(room, team),
+      });
+    }
+
+    return {
+      roomId: room.id,
+      roomName: room.name,
+      width: room.width,
+      height: room.height,
+      generation: room.generation,
+      tick: room.tick,
+      grid: packGridBits(room.grid, room.width, room.height),
+      teams,
+    };
   }
 
   public static createTeamOutcomeSnapshots(
     room: RoomState,
     coreHpBeforeResolution: ReadonlyMap<number, number> = new Map(),
   ): TeamOutcomeSnapshot[] {
-    return createTeamOutcomeSnapshots(room, coreHpBeforeResolution);
+    const snapshots: TeamOutcomeSnapshot[] = [];
+
+    for (const team of room.teams.values()) {
+      const core = getCoreStructure(team);
+      const coreHp = core?.hp ?? 0;
+      snapshots.push({
+        teamId: team.id,
+        coreHp,
+        coreHpBeforeResolution: coreHpBeforeResolution.get(team.id) ?? coreHp,
+        coreDestroyed: coreHp <= 0,
+        territoryCellCount: countTerritoryCells(room, team),
+        queuedBuildCount: team.buildStats.queued,
+        appliedBuildCount: team.buildStats.applied,
+        rejectedBuildCount: team.buildStats.rejected,
+      });
+    }
+
+    return snapshots;
   }
 
   public static createCanonicalMatchOutcome(
     room: RoomState,
     coreHpBeforeResolution: ReadonlyMap<number, number> = new Map(),
   ): MatchOutcome | null {
-    return createCanonicalMatchOutcome(room, coreHpBeforeResolution);
+    return determineMatchOutcome(
+      RtsEngine.createTeamOutcomeSnapshots(room, coreHpBeforeResolution),
+    );
   }
 
   public static tickRoom(room: RoomState): RoomTickResult {
