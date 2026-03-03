@@ -32,7 +32,7 @@
 2. Re-running the same transform sequence yields identical `cells()` ordering and coordinates across runs.
 3. Geometry consumers observe no dropped dead-cells or duplicate coordinates when deriving transformed bounds.
 
-**Plans**: TBD
+**Plans**: 13-01-PLAN.md
 
 ### Phase 14: Canonical GridView API Adoption
 
