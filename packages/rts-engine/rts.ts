@@ -268,16 +268,12 @@ export interface RoomState {
   readonly height: number;
   generation: number;
   tick: number;
-  nextTeamId: number;
-  nextBuildEventId: number;
   grid: Uint8Array;
   readonly templateMap: ReadonlyMap<string, StructureTemplate>;
   templates: StructureTemplate[];
   teams: Map<number, TeamState>;
   players: Map<string, RoomPlayerState>;
   readonly spawnOrientationSeed: number;
-  pendingLegacyUpdates: CellUpdate[];
-  timelineEvents: TimelineEvent[];
 }
 
 export interface RoomListEntry {
@@ -441,6 +437,14 @@ export class RtsEngine {
 
   private readonly roomSpawnOrientationSeed: number;
 
+  private nextTeamId: number;
+
+  private nextBuildEventId: number;
+
+  private pendingLegacyUpdates: CellUpdate[];
+
+  private timelineEvents: TimelineEvent[];
+
   private constructor(options: {
     id: string;
     name: string;
@@ -455,6 +459,10 @@ export class RtsEngine {
     this.roomHeight = options.height;
     this.roomTemplateMap = options.templateMap;
     this.roomSpawnOrientationSeed = options.spawnOrientationSeed;
+    this.nextTeamId = 1;
+    this.nextBuildEventId = 1;
+    this.pendingLegacyUpdates = [];
+    this.timelineEvents = [];
   }
 
   private static getRoomEngine(room: RoomState): RtsEngine {
@@ -488,6 +496,40 @@ export class RtsEngine {
     return (
       RtsEngine.getRoomEngine(room).roomTemplateMap.get(templateId) ?? null
     );
+  }
+
+  public static getTimelineEvents(
+    room: RoomState,
+  ): ReadonlyArray<TimelineEvent> {
+    return [...RtsEngine.getRoomEngine(room).timelineEvents];
+  }
+
+  private static allocateTeamId(room: RoomState): number {
+    const engine = RtsEngine.getRoomEngine(room);
+    const teamId = engine.nextTeamId;
+    engine.nextTeamId += 1;
+    return teamId;
+  }
+
+  private static allocateBuildEventId(room: RoomState): number {
+    const engine = RtsEngine.getRoomEngine(room);
+    const eventId = engine.nextBuildEventId;
+    engine.nextBuildEventId += 1;
+    return eventId;
+  }
+
+  private static pushPendingLegacyUpdate(
+    room: RoomState,
+    update: CellUpdate,
+  ): void {
+    RtsEngine.getRoomEngine(room).pendingLegacyUpdates.push(update);
+  }
+
+  private static drainPendingLegacyUpdates(room: RoomState): CellUpdate[] {
+    const engine = RtsEngine.getRoomEngine(room);
+    const updates = engine.pendingLegacyUpdates;
+    engine.pendingLegacyUpdates = [];
+    return updates;
   }
 
   private static hashSpawnSeed(
@@ -590,7 +632,7 @@ export class RtsEngine {
     room: RoomState,
     event: Omit<TimelineEvent, 'tick'>,
   ): void {
-    room.timelineEvents.push({
+    RtsEngine.getRoomEngine(room).timelineEvents.push({
       ...event,
       tick: room.tick,
     });
@@ -1950,14 +1992,10 @@ export class RtsEngine {
     const room = {
       generation: 0,
       tick: 0,
-      nextTeamId: 1,
-      nextBuildEventId: 1,
       grid: createGrid({ width: options.width, height: options.height }),
       templates,
       teams: new Map<number, TeamState>(),
       players: new Map<string, RoomPlayerState>(),
-      pendingLegacyUpdates: [],
-      timelineEvents: [],
     } as unknown as RoomState;
 
     Object.defineProperties(room, {
@@ -2020,8 +2058,7 @@ export class RtsEngine {
       }
     }
 
-    const teamId = room.nextTeamId;
-    room.nextTeamId += 1;
+    const teamId = RtsEngine.allocateTeamId(room);
 
     const baseTopLeft = RtsEngine.pickSpawnPosition(room, teamId);
     const coreKey = RtsEngine.createStructureKey(
@@ -2118,7 +2155,7 @@ export class RtsEngine {
     room: RoomState,
     update: CellUpdate,
   ): void {
-    room.pendingLegacyUpdates.push(update);
+    RtsEngine.pushPendingLegacyUpdate(room, update);
   }
 
   public static previewBuildPlacement(
@@ -2284,8 +2321,9 @@ export class RtsEngine {
     const clampedDelay = Math.max(1, Math.min(MAX_DELAY_TICKS, delay));
     const x = Number(payload.x);
     const y = Number(payload.y);
+    const eventId = RtsEngine.allocateBuildEventId(room);
     const event: BuildEvent = {
-      id: room.nextBuildEventId,
+      id: eventId,
       teamId: team.id,
       playerId,
       templateId: payload.templateId,
@@ -2294,7 +2332,6 @@ export class RtsEngine {
       transform: preview.transform ?? createIdentityPlacementTransform(),
       executeTick: room.tick + clampedDelay,
     };
-    room.nextBuildEventId += 1;
 
     RtsEngine.insertBuildEventSorted(team.pendingBuildEvents, event);
     team.buildStats.queued += 1;
@@ -2439,14 +2476,14 @@ export class RtsEngine {
     }
 
     const clampedDelay = Math.max(1, Math.min(MAX_DELAY_TICKS, delay));
+    const eventId = RtsEngine.allocateBuildEventId(room);
     const event: DestroyEvent = {
-      id: room.nextBuildEventId,
+      id: eventId,
       teamId: team.id,
       playerId,
       structureKey,
       executeTick: room.tick + clampedDelay,
     };
-    room.nextBuildEventId += 1;
 
     RtsEngine.insertDestroyEventSorted(team.pendingDestroyEvents, event);
     RtsEngine.appendTimelineEvent(room, {
@@ -2610,14 +2647,9 @@ export class RtsEngine {
       );
     }
 
-    if (room.pendingLegacyUpdates.length > 0) {
-      applyUpdates(
-        room.grid,
-        room.pendingLegacyUpdates,
-        room.width,
-        room.height,
-      );
-      room.pendingLegacyUpdates = [];
+    const pendingLegacyUpdates = RtsEngine.drainPendingLegacyUpdates(room);
+    if (pendingLegacyUpdates.length > 0) {
+      applyUpdates(room.grid, pendingLegacyUpdates, room.width, room.height);
     }
 
     room.grid = stepGrid(room.grid, room.width, room.height);

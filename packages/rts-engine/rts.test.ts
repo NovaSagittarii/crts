@@ -72,8 +72,7 @@ function probeQueueBuild(
   playerId: string,
   payload: { templateId: string; x: number; y: number; delayTicks?: number },
 ): ReturnType<typeof RtsEngine.queueBuildEvent> {
-  const probeRoom = structuredClone(room);
-  return RtsEngine.queueBuildEvent(probeRoom, playerId, payload);
+  return RtsEngine.previewBuildPlacement(room, playerId, payload);
 }
 
 function getRoomId(room: ReturnType<typeof RtsEngine.createRoomState>): string {
@@ -262,7 +261,7 @@ describe('rts', () => {
     });
     expect(outsideBounds.accepted).toBe(false);
     expect(outsideBounds.reason).toBe('outside-territory');
-    expect(room.timelineEvents.at(-1)?.metadata?.reason).toBe(
+    expect(RtsEngine.getTimelineEvents(room).at(-1)?.metadata?.reason).toBe(
       'outside-territory',
     );
 
@@ -303,7 +302,7 @@ describe('rts', () => {
     });
     expect(outsideTerritory.accepted).toBe(false);
     expect(outsideTerritory.reason).toBe('outside-territory');
-    expect(room.timelineEvents.at(-1)?.metadata?.reason).toBe(
+    expect(RtsEngine.getTimelineEvents(room).at(-1)?.metadata?.reason).toBe(
       'outside-territory',
     );
 
@@ -315,8 +314,8 @@ describe('rts', () => {
     });
     expect(invalidDelay.accepted).toBe(false);
     expect(invalidDelay.error).toBe('delayTicks must be an integer');
-    const invalidDelayEvent =
-      room.timelineEvents[room.timelineEvents.length - 1];
+    const timelineEvents = RtsEngine.getTimelineEvents(room);
+    const invalidDelayEvent = timelineEvents[timelineEvents.length - 1];
     expect(invalidDelayEvent?.metadata?.reason).toBe('invalid-delay');
 
     const delayLow = RtsEngine.queueBuildEvent(room, 'p1', {
@@ -499,7 +498,7 @@ describe('rts', () => {
     expect(overflowQueue.accepted).toBe(false);
     expect(overflowQueue.reason).toBe('template-exceeds-map-size');
     expect(overflowQueue.transform?.operations).toEqual(['rotate']);
-    expect(room.timelineEvents.at(-1)?.metadata?.reason).toBe(
+    expect(RtsEngine.getTimelineEvents(room).at(-1)?.metadata?.reason).toBe(
       'template-exceeds-map-size',
     );
   });
@@ -909,7 +908,7 @@ describe('rts', () => {
     expect(result.deficit).toEqual(expect.any(Number));
     expect(result.deficit).toBe((result.needed ?? 0) - (result.current ?? 0));
     expect(team.pendingBuildEvents).toHaveLength(0);
-    expect(room.timelineEvents.at(-1)?.metadata?.reason).toBe(
+    expect(RtsEngine.getTimelineEvents(room).at(-1)?.metadata?.reason).toBe(
       'insufficient-resources',
     );
   });
@@ -1491,7 +1490,7 @@ describe('rts', () => {
     expect(destroyed?.active).toBe(false);
     expect(destroyed?.buildRadius).toBe(0);
 
-    const outcomes = room.timelineEvents
+    const outcomes = RtsEngine.getTimelineEvents(room)
       .filter(
         ({ type, metadata }) =>
           type === 'integrity-resolved' &&
