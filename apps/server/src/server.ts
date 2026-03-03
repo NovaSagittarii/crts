@@ -7,6 +7,7 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 
 import {
   LobbySessionCoordinator,
+  RECONNECT_HOLD_MS,
   type PlayerSession,
 } from './lobby-session.js';
 
@@ -139,6 +140,15 @@ function parseRoomDimension(value: unknown, fallback: number): number {
     return fallback;
   }
   return Math.max(24, Math.min(300, num));
+}
+
+function parseReconnectHoldMs(value: unknown): number {
+  const holdMs = Number(value);
+  if (!Number.isFinite(holdMs) || holdMs < 0) {
+    return RECONNECT_HOLD_MS;
+  }
+
+  return Math.floor(holdMs);
 }
 
 function parseRoomIdentifier(value: unknown): string | null {
@@ -310,7 +320,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     Number.isFinite(options.countdownSeconds)
       ? Math.max(0, Math.floor(options.countdownSeconds))
       : COUNTDOWN_SECONDS;
-  const reconnectHoldMs = options.reconnectHoldMs;
+  const reconnectHoldMs = parseReconnectHoldMs(options.reconnectHoldMs);
   const now = options.now ?? (() => Date.now());
   const setIntervalHook =
     options.setInterval ??
