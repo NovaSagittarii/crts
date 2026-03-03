@@ -26,7 +26,6 @@ interface BuildOutcomeRecord {
 }
 
 type RoomState = ReturnType<typeof RtsEngine.createRoomState>;
-type TeamState = ReturnType<typeof RtsEngine.addPlayerToRoom>;
 type RoomPayload = ReturnType<typeof RtsEngine.createRoomStatePayload>;
 type TeamPayload = RoomPayload['teams'][number];
 type StructurePayload = TeamPayload['structures'][number];
