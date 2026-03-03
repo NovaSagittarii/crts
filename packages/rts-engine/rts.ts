@@ -2491,3 +2491,98 @@ export function tickRoom(room: RoomState): RoomTickResult {
     destroyOutcomes,
   };
 }
+
+export class RtsEngine {
+  public static readonly CORE_STRUCTURE_TEMPLATE = CORE_STRUCTURE_TEMPLATE;
+
+  public static createDefaultTemplates(): StructureTemplate[] {
+    return createDefaultTemplates();
+  }
+
+  public static createTemplateSummaries(
+    templates: StructureTemplate[],
+  ): StructureTemplateSummary[] {
+    return createTemplateSummaries(templates);
+  }
+
+  public static createRoomState(options: CreateRoomOptions): RoomState {
+    return createRoomState(options);
+  }
+
+  public static listRooms(rooms: Map<string, RoomState>): RoomListEntry[] {
+    return listRooms(rooms);
+  }
+
+  public static addPlayerToRoom(
+    room: RoomState,
+    playerId: string,
+    playerName: string,
+  ): TeamState {
+    return addPlayerToRoom(room, playerId, playerName);
+  }
+
+  public static renamePlayerInRoom(
+    room: RoomState,
+    playerId: string,
+    name: string,
+  ): void {
+    renamePlayerInRoom(room, playerId, name);
+  }
+
+  public static removePlayerFromRoom(room: RoomState, playerId: string): void {
+    removePlayerFromRoom(room, playerId);
+  }
+
+  public static queueLegacyCellUpdate(
+    room: RoomState,
+    update: CellUpdate,
+  ): void {
+    queueLegacyCellUpdate(room, update);
+  }
+
+  public static previewBuildPlacement(
+    room: RoomState,
+    playerId: string,
+    payload: BuildQueuePayload,
+  ): QueueBuildResult {
+    return previewBuildPlacement(room, playerId, payload);
+  }
+
+  public static queueBuildEvent(
+    room: RoomState,
+    playerId: string,
+    payload: BuildQueuePayload,
+  ): QueueBuildResult {
+    return queueBuildEvent(room, playerId, payload);
+  }
+
+  public static queueDestroyEvent(
+    room: RoomState,
+    playerId: string,
+    payload: DestroyQueuePayload,
+  ): QueueDestroyResult {
+    return queueDestroyEvent(room, playerId, payload);
+  }
+
+  public static createRoomStatePayload(room: RoomState): RoomStatePayload {
+    return createRoomStatePayload(room);
+  }
+
+  public static createTeamOutcomeSnapshots(
+    room: RoomState,
+    coreHpBeforeResolution: ReadonlyMap<number, number> = new Map(),
+  ): TeamOutcomeSnapshot[] {
+    return createTeamOutcomeSnapshots(room, coreHpBeforeResolution);
+  }
+
+  public static createCanonicalMatchOutcome(
+    room: RoomState,
+    coreHpBeforeResolution: ReadonlyMap<number, number> = new Map(),
+  ): MatchOutcome | null {
+    return createCanonicalMatchOutcome(room, coreHpBeforeResolution);
+  }
+
+  public static tickRoom(room: RoomState): RoomTickResult {
+    return tickRoom(room);
+  }
+}
