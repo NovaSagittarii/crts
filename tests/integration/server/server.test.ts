@@ -95,7 +95,7 @@ function waitForPredicateEvent<T>(
         matches = predicate(payload);
       } catch (error) {
         cleanup();
-        reject(error);
+        reject(error instanceof Error ? error : new Error(String(error)));
         return;
       }
 
