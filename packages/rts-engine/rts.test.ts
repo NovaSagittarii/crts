@@ -343,6 +343,7 @@ describe('rts', () => {
       activationCost: 0,
       income: 0,
       buildArea: 0,
+      startingHp: 2,
       checks: [],
     });
 
@@ -425,6 +426,7 @@ describe('rts', () => {
       activationCost: 0,
       income: 0,
       buildArea: 0,
+      startingHp: 2,
       checks: [],
     });
 
@@ -506,6 +508,7 @@ describe('rts', () => {
       activationCost: 0,
       income: 0,
       buildArea: 0,
+      startingHp: 2,
       checks: [],
     });
 
@@ -701,6 +704,7 @@ describe('rts', () => {
       activationCost: 0,
       income: 0,
       buildArea: 0,
+      startingHp: 2,
       checks: [],
     });
 
@@ -1426,6 +1430,7 @@ describe('rts', () => {
       activationCost: 0,
       income: 0,
       buildArea: 0,
+      startingHp: 2,
       checks: [],
     });
     const room = RtsEngine.createRoomState({
@@ -1498,13 +1503,48 @@ describe('rts', () => {
   });
 
   test('[STRUCT-01] applies full restoration cost for destroyed non-core structures', () => {
+    const durableTemplate = new StructureTemplate({
+      id: 'durable',
+      name: 'Durable',
+      width: 1,
+      height: 1,
+      cells: new Uint8Array([1]),
+      activationCost: 0,
+      income: 0,
+      buildArea: 0,
+      startingHp: 7,
+      checks: [],
+    });
     const room = RtsEngine.createRoomState({
       id: '1',
       name: 'Alpha',
       width: 40,
       height: 40,
+      templates: [...RtsEngine.createDefaultTemplates(), durableTemplate],
     });
     const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+    const core = getCoreStructure(room, team.id);
+    expect(core).not.toBeNull();
+    expect(core?.hp).toBe(RtsEngine.CORE_STRUCTURE_TEMPLATE.startingHp);
+
+    const durablePlacement = {
+      x: team.baseTopLeft.x + 6,
+      y: team.baseTopLeft.y + 8,
+    };
+    const durableQueued = RtsEngine.queueBuildEvent(room, 'p1', {
+      templateId: 'durable',
+      x: durablePlacement.x,
+      y: durablePlacement.y,
+      delayTicks: 1,
+    });
+    expect(durableQueued.accepted).toBe(true);
+
+    RtsEngine.tickRoom(room);
+    RtsEngine.tickRoom(room);
+
+    const durable = getStructureByTemplateId(room, team.id, 'durable');
+    expect(durable).not.toBeNull();
+    expect(durable?.hp).toBe(7);
 
     const placement = {
       x: team.baseTopLeft.x + 8,
