@@ -14,7 +14,6 @@ import type {
   BuildOutcomePayload,
   BuildQueuedPayload,
   DestroyOutcomePayload,
-  DestroyQueuedPayload,
   RoomJoinedPayload,
   RoomMembershipPayload,
   RoomErrorPayload,
@@ -40,7 +39,6 @@ type RoomListEntry = RoomListEntryPayload;
 type BuildPreview = BuildPreviewPayload;
 type BuildQueued = BuildQueuedPayload;
 type BuildOutcome = BuildOutcomePayload;
-type DestroyQueued = DestroyQueuedPayload;
 type DestroyOutcome = DestroyOutcomePayload;
 type RoomError = RoomErrorPayload;
 
@@ -74,10 +72,10 @@ async function claimSlot(
   slotId: string,
 ): Promise<SlotClaimedPayload> {
   socket.emit('room:claim-slot', { slotId });
-  const claimed = (await waitForEvent(
+  const claimed = await waitForEvent<SlotClaimedPayload>(
     socket,
     'room:slot-claimed',
-  )) as SlotClaimedPayload;
+  );
   if (claimed.teamId === null) {
     throw new Error(`Expected slot claim for ${slotId} to assign a team`);
   }
@@ -318,18 +316,15 @@ async function setupActiveMatch(port: number): Promise<ActiveMatchSetup> {
     height: 52,
   });
 
-  const hostJoined = (await waitForEvent(
-    host,
-    'room:joined',
-  )) as RoomJoinedPayload;
+  const hostJoined = await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
 
   const guest = createClient(port);
   await waitForEvent(guest, 'room:joined');
   guest.emit('room:join', { roomId: hostJoined.roomId });
-  const guestJoined = (await waitForEvent(
+  const guestJoined = await waitForEvent<RoomJoinedPayload>(
     guest,
     'room:joined',
-  )) as RoomJoinedPayload;
+  );
 
   await claimSlot(host, 'team-1');
   await claimSlot(guest, 'team-2');
@@ -390,8 +385,8 @@ describe('GameServer', () => {
 
     const setup = await setupActiveMatch(port);
 
-    const first = (await waitForEvent(setup.host, 'state')) as StatePayload;
-    const second = (await waitForEvent(setup.host, 'state')) as StatePayload;
+    const first = await waitForEvent<StatePayload>(setup.host, 'state');
+    const second = await waitForEvent<StatePayload>(setup.host, 'state');
 
     expect(second.generation).toBeGreaterThan(first.generation);
     expect(second.tick).toBeGreaterThan(first.tick);
@@ -617,10 +612,7 @@ describe('GameServer', () => {
       y: 0,
       delayTicks: 1,
     });
-    const outOfBounds = (await waitForEvent(
-      setup.host,
-      'room:error',
-    )) as RoomError;
+    const outOfBounds = await waitForEvent<RoomError>(setup.host, 'room:error');
     expect(outOfBounds.reason).toBe('outside-territory');
 
     setup.host.emit('build:queue', {
@@ -629,10 +621,10 @@ describe('GameServer', () => {
       y: setup.guestTeam.baseTopLeft.y,
       delayTicks: 1,
     });
-    const outsideTerritory = (await waitForEvent(
+    const outsideTerritory = await waitForEvent<RoomError>(
       setup.host,
       'room:error',
-    )) as RoomError;
+    );
     expect(outsideTerritory.reason).toBe('outside-territory');
 
     setup.host.close();
@@ -663,10 +655,7 @@ describe('GameServer', () => {
       delayTicks: 1,
     });
 
-    const rejection = (await waitForEvent(
-      setup.host,
-      'room:error',
-    )) as RoomError;
+    const rejection = await waitForEvent<RoomError>(setup.host, 'room:error');
     expect(rejection.reason).toBe('outside-territory');
 
     const refreshedPreview = (await refreshedPreviewPromise) as BuildPreview;
@@ -715,10 +704,10 @@ describe('GameServer', () => {
       y: previewTarget.y,
     });
 
-    const preview = (await waitForEvent(
+    const preview = await waitForEvent<BuildPreview>(
       setup.host,
       'build:preview',
-    )) as BuildPreview;
+    );
 
     expect(preview.roomId).toBe(setup.roomId);
     expect(preview.teamId).toBe(setup.hostTeam.id);
@@ -1161,10 +1150,7 @@ describe('GameServer', () => {
       delayTicks: 1,
     });
 
-    const queued = (await waitForEvent(
-      setup.host,
-      'build:queued',
-    )) as BuildQueued;
+    const queued = await waitForEvent<BuildQueued>(setup.host, 'build:queued');
     expect(queued.eventId).toBeGreaterThan(0);
     expect(queued.executeTick).toBeGreaterThan(0);
 
@@ -1200,10 +1186,7 @@ describe('GameServer', () => {
         alive: false,
       });
 
-      const rejection = (await waitForEvent(
-        setup.host,
-        'room:error',
-      )) as RoomError;
+      const rejection = await waitForEvent<RoomError>(setup.host, 'room:error');
       expect(rejection.reason).toBe('queue-only-mutation-path');
     }
 
@@ -1235,10 +1218,7 @@ describe('GameServer', () => {
       height: 48,
     });
 
-    const joined = (await waitForEvent(
-      socket,
-      'room:joined',
-    )) as RoomJoinedPayload;
+    const joined = await waitForEvent<RoomJoinedPayload>(socket, 'room:joined');
     expect(joined.roomName).toBe('Skirmish');
     expect(joined.state.width).toBe(48);
     expect(joined.state.height).toBe(48);
@@ -1267,20 +1247,20 @@ describe('GameServer', () => {
       width: 40,
       height: 40,
     });
-    const ownerRoom = (await waitForEvent(
+    const ownerRoom = await waitForEvent<RoomJoinedPayload>(
       owner,
       'room:joined',
-    )) as RoomJoinedPayload;
+    );
     await claimSlot(owner, 'team-1');
 
     const guest = createClient(port);
     await waitForEvent(guest, 'room:joined');
     guest.emit('room:join', { roomId: ownerRoom.roomId });
 
-    const guestRoom = (await waitForEvent(
+    const guestRoom = await waitForEvent<RoomJoinedPayload>(
       guest,
       'room:joined',
-    )) as RoomJoinedPayload;
+    );
     expect(guestRoom.roomId).toBe(ownerRoom.roomId);
     await claimSlot(guest, 'team-2');
 
@@ -1292,10 +1272,7 @@ describe('GameServer', () => {
     expect(withTwoTeams.teams.length).toBeGreaterThanOrEqual(2);
 
     guest.emit('room:leave');
-    const leftPayload = (await waitForEvent(
-      guest,
-      'room:left',
-    )) as RoomLeftPayload;
+    const leftPayload = await waitForEvent<RoomLeftPayload>(guest, 'room:left');
     expect(leftPayload.roomId).toBe(ownerRoom.roomId);
 
     const backToOneTeam = await waitForCondition(
