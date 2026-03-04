@@ -60,7 +60,7 @@ function createRoom(
   status: RoomStatus = 'lobby',
 ): RuntimeBroadcastRoom {
   return {
-    state: RtsEngine.createRoomState({
+    rtsRoom: RtsEngine.createRoom({
       id: roomId,
       name: `Room ${roomId}`,
       width: 24,
