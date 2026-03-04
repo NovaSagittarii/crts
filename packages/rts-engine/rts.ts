@@ -2490,14 +2490,6 @@ export class RtsEngine {
     };
   }
 
-  public static queueBuildEvent(
-    room: RoomState,
-    playerId: string,
-    payload: BuildQueuePayload,
-  ): QueueBuildResult {
-    return RtsEngine.requestBuild(room, playerId, payload);
-  }
-
   public static queueDestroyEvent(
     room: RoomState,
     playerId: string,
