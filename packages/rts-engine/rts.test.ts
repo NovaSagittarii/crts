@@ -117,6 +117,26 @@ function getStructureByTemplateId(
   );
 }
 
+function countStructuresByTemplateId(
+  room: RoomState,
+  teamId: number,
+  templateId: string,
+): number {
+  const team = room.teams.get(teamId);
+  if (!team) {
+    return 0;
+  }
+
+  let count = 0;
+  for (const structure of team.structures.values()) {
+    if (structure.templateId === templateId) {
+      count += 1;
+    }
+  }
+
+  return count;
+}
+
 function createTemplateGrid(
   width: number,
   height: number,
@@ -524,6 +544,78 @@ describe('rts', () => {
     );
   });
 
+  test('normalizes wrapped-equivalent anchors to one occupied site key', () => {
+    const probeTemplate = new StructureTemplate({
+      id: 'probe',
+      name: 'Probe',
+      grid: createTemplateGrid(1, 1, [1]),
+      activationCost: 0,
+      income: 0,
+      buildArea: 0,
+      startingHp: 2,
+      checks: [],
+    });
+
+    const room = RtsEngine.createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 80,
+      height: 80,
+      templates: [...RtsEngine.createDefaultTemplates(), probeTemplate],
+    });
+    const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+    const baseCenter = getBaseCenter(team.baseTopLeft);
+    const insideOffset = Math.floor(BUILD_ZONE_RADIUS);
+
+    let x: number | null = null;
+    for (const direction of [1, -1] as const) {
+      const candidateX = baseCenter.x + direction * insideOffset;
+      if (candidateX < 0 || candidateX >= getRoomWidth(room)) {
+        continue;
+      }
+
+      x = candidateX;
+      break;
+    }
+
+    expect(x).not.toBeNull();
+    if (x === null) {
+      throw new Error('Unable to find wrapped anchor candidate');
+    }
+
+    const y = Math.max(0, Math.min(baseCenter.y, getRoomHeight(room) - 1));
+
+    const first = RtsEngine.queueBuildEvent(room, 'p1', {
+      templateId: 'probe',
+      x,
+      y,
+      delayTicks: 1,
+    });
+    expect(first.accepted).toBe(true);
+
+    const aliased = RtsEngine.queueBuildEvent(room, 'p1', {
+      templateId: 'probe',
+      x: x + getRoomWidth(room),
+      y,
+      delayTicks: 1,
+    });
+    expect(aliased.accepted).toBe(true);
+
+    RtsEngine.tickRoom(room);
+    const tick = RtsEngine.tickRoom(room);
+    const applied = tick.buildOutcomes.filter((outcome) => {
+      return outcome.outcome === 'applied';
+    });
+    const rejected = tick.buildOutcomes.filter((outcome) => {
+      return outcome.outcome === 'rejected';
+    });
+
+    expect(applied).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]?.reason).toBe('occupied-site');
+    expect(countStructuresByTemplateId(room, team.id, 'probe')).toBe(1);
+  });
+
   test('[BUILD-01] updates union-zone eligibility after build completion and structure destruction', () => {
     const probeTemplate = new StructureTemplate({
       id: 'probe',
@@ -682,6 +774,32 @@ describe('rts', () => {
     expect(requireTeamPayload(room, teamTwo.id).pendingDestroys).toHaveLength(
       0,
     );
+
+    const teamOneStructure = room.teams
+      .get(teamOne.id)
+      ?.structures.get(ownStructure.key);
+    const teamTwoState = room.teams.get(teamTwo.id);
+    if (!teamOneStructure || !teamTwoState) {
+      throw new Error('Expected both teams to be present in room state');
+    }
+    teamTwoState.structures.set(
+      ownStructure.key,
+      teamOneStructure.template.instantiate({
+        key: ownStructure.key,
+        x: teamOneStructure.x,
+        y: teamOneStructure.y,
+        transform: teamOneStructure.transform,
+        active: true,
+        isCore: false,
+      }),
+    );
+
+    const ownDuplicateKey = RtsEngine.queueDestroyEvent(room, 'p2', {
+      structureKey: ownStructure.key,
+      delayTicks: 2,
+    });
+    expect(ownDuplicateKey.accepted).toBe(true);
+    expect(ownDuplicateKey.idempotent).toBe(false);
 
     const invalidTarget = RtsEngine.queueDestroyEvent(room, 'p1', {
       structureKey: 'missing-structure-key',
