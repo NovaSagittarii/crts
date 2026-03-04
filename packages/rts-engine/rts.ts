@@ -707,7 +707,7 @@ export class RtsEngine {
     return teamId;
   }
 
-  private static allocateBuildEventId(room: RoomState): number {
+  private static allocateEventId(room: RoomState): number {
     const engine = RtsEngine.getRoomEngine(room);
     const eventId = engine.nextBuildEventId;
     engine.nextBuildEventId += 1;
@@ -1650,24 +1650,17 @@ export class RtsEngine {
     };
   }
 
-  private static applyTeamEconomyAndQueue(
-    room: RoomState,
-    team: TeamState,
-    acceptedEvents: AcceptedBuildEvent[],
-    buildOutcomes: BuildOutcome[],
-    destroyOutcomes: DestroyOutcome[],
-  ): void {
-    if (team.defeated) {
-      team.income = 0;
-      team.incomeBreakdown = {
-        base: 0,
-        structures: 0,
-        total: 0,
-        activeStructureCount: 0,
-      };
-      return;
-    }
+  private static clearDefeatedTeamEconomy(team: TeamState): void {
+    team.income = 0;
+    team.incomeBreakdown = {
+      base: 0,
+      structures: 0,
+      total: 0,
+      activeStructureCount: 0,
+    };
+  }
 
+  private static refreshTeamEconomy(room: RoomState, team: TeamState): void {
     const baseIncome = 0;
     let structureIncome = 0;
     let activeStructureCount = 0;
@@ -1675,7 +1668,6 @@ export class RtsEngine {
 
     for (const structure of team.structures.values()) {
       const template = structure.template;
-
       const active =
         structure.hp > 0 && RtsEngine.checkStructureIntegrity(room, structure);
       structure.setActive(active);
@@ -1701,7 +1693,13 @@ export class RtsEngine {
       team.resources += elapsed * team.income;
       team.lastIncomeTick = room.tick;
     }
+  }
 
+  private static processDueDestroyEvents(
+    room: RoomState,
+    team: TeamState,
+    destroyOutcomes: DestroyOutcome[],
+  ): void {
     const deferredDestroys: DestroyEvent[] = [];
     for (const event of team.pendingDestroyEvents) {
       if (event.executeTick > room.tick) {
@@ -1746,7 +1744,6 @@ export class RtsEngine {
       }
 
       structure.destroy();
-
       RtsEngine.appendTimelineEvent(room, {
         teamId: team.id,
         type: 'destroy-applied',
@@ -1757,7 +1754,6 @@ export class RtsEngine {
           isCore: structure.isCore,
         },
       });
-
       destroyOutcomes.push({
         eventId: event.id,
         teamId: team.id,
@@ -1770,11 +1766,18 @@ export class RtsEngine {
     }
 
     team.pendingDestroyEvents = deferredDestroys;
+  }
 
-    const deferred: BuildEvent[] = [];
+  private static processDueBuildEvents(
+    room: RoomState,
+    team: TeamState,
+    acceptedEvents: AcceptedBuildEvent[],
+    buildOutcomes: BuildOutcome[],
+  ): void {
+    const deferredBuilds: BuildEvent[] = [];
     for (const event of team.pendingBuildEvents) {
       if (event.executeTick > room.tick) {
-        deferred.push(event);
+        deferredBuilds.push(event);
         continue;
       }
 
@@ -1856,7 +1859,24 @@ export class RtsEngine {
       });
     }
 
-    team.pendingBuildEvents = deferred;
+    team.pendingBuildEvents = deferredBuilds;
+  }
+
+  private static applyTeamEconomyAndQueue(
+    room: RoomState,
+    team: TeamState,
+    acceptedEvents: AcceptedBuildEvent[],
+    buildOutcomes: BuildOutcome[],
+    destroyOutcomes: DestroyOutcome[],
+  ): void {
+    if (team.defeated) {
+      RtsEngine.clearDefeatedTeamEconomy(team);
+      return;
+    }
+
+    RtsEngine.refreshTeamEconomy(room, team);
+    RtsEngine.processDueDestroyEvents(room, team, destroyOutcomes);
+    RtsEngine.processDueBuildEvents(room, team, acceptedEvents, buildOutcomes);
   }
 
   private static compareStructuresByKey(
@@ -2420,7 +2440,7 @@ export class RtsEngine {
     const clampedDelay = Math.max(1, Math.min(MAX_DELAY_TICKS, delay));
     const x = Number(payload.x);
     const y = Number(payload.y);
-    const eventId = RtsEngine.allocateBuildEventId(room);
+    const eventId = RtsEngine.allocateEventId(room);
     const event: BuildEvent = {
       id: eventId,
       teamId: team.id,
@@ -2578,7 +2598,7 @@ export class RtsEngine {
     }
 
     const clampedDelay = Math.max(1, Math.min(MAX_DELAY_TICKS, delay));
-    const eventId = RtsEngine.allocateBuildEventId(room);
+    const eventId = RtsEngine.allocateEventId(room);
     const event: DestroyEvent = {
       id: eventId,
       teamId: team.id,
@@ -2679,23 +2699,11 @@ export class RtsEngine {
     );
   }
 
-  public static tickRoom(room: RoomState): RoomTickResult {
-    const acceptedEvents: AcceptedBuildEvent[] = [];
-    const buildOutcomes: BuildOutcome[] = [];
-    const destroyOutcomes: DestroyOutcome[] = [];
-
-    for (const team of room.teams.values()) {
-      RtsEngine.applyTeamEconomyAndQueue(
-        room,
-        team,
-        acceptedEvents,
-        buildOutcomes,
-        destroyOutcomes,
-      );
-    }
-
-    acceptedEvents.sort(RtsEngine.compareBuildEvents);
-
+  private static applyAcceptedBuildEvents(
+    room: RoomState,
+    acceptedEvents: AcceptedBuildEvent[],
+    buildOutcomes: BuildOutcome[],
+  ): number {
     let appliedBuilds = 0;
     for (const event of acceptedEvents) {
       const template = room.templateMap.get(event.templateId);
@@ -2731,6 +2739,10 @@ export class RtsEngine {
       );
     }
 
+    return appliedBuilds;
+  }
+
+  private static applyLegacyUpdatesAndAdvanceGeneration(room: RoomState): void {
     const pendingLegacyUpdates = RtsEngine.drainPendingLegacyUpdates(room);
     if (pendingLegacyUpdates.length > 0) {
       applyUpdates(room.grid, pendingLegacyUpdates, room.width, room.height);
@@ -2739,9 +2751,16 @@ export class RtsEngine {
     room.grid = stepGrid(room.grid, room.width, room.height);
     room.tick += 1;
     room.generation += 1;
+  }
 
+  private static resolveDefeatAndOutcome(
+    room: RoomState,
+    buildOutcomes: BuildOutcome[],
+    destroyOutcomes: DestroyOutcome[],
+  ): { defeatedTeams: number[]; outcome: MatchOutcome | null } {
     const coreHpBeforeResolution = RtsEngine.resolveIntegrityChecks(room);
     const defeatedTeams: number[] = [];
+
     for (const team of room.teams.values()) {
       const core = RtsEngine.getCoreStructure(team);
       const defeated = !core || core.hp <= 0;
@@ -2794,6 +2813,38 @@ export class RtsEngine {
         destroyOutcomes,
       );
     }
+
+    return { defeatedTeams, outcome };
+  }
+
+  public static tickRoom(room: RoomState): RoomTickResult {
+    const acceptedEvents: AcceptedBuildEvent[] = [];
+    const buildOutcomes: BuildOutcome[] = [];
+    const destroyOutcomes: DestroyOutcome[] = [];
+
+    for (const team of room.teams.values()) {
+      RtsEngine.applyTeamEconomyAndQueue(
+        room,
+        team,
+        acceptedEvents,
+        buildOutcomes,
+        destroyOutcomes,
+      );
+    }
+
+    acceptedEvents.sort(RtsEngine.compareBuildEvents);
+
+    const appliedBuilds = RtsEngine.applyAcceptedBuildEvents(
+      room,
+      acceptedEvents,
+      buildOutcomes,
+    );
+    RtsEngine.applyLegacyUpdatesAndAdvanceGeneration(room);
+    const { defeatedTeams, outcome } = RtsEngine.resolveDefeatAndOutcome(
+      room,
+      buildOutcomes,
+      destroyOutcomes,
+    );
 
     buildOutcomes.sort(RtsEngine.compareBuildOutcomes);
     destroyOutcomes.sort(RtsEngine.compareDestroyOutcomes);
@@ -2855,7 +2906,7 @@ export class RtsRoom {
     return RtsEngine.getRoomTemplate(this.state, templateId);
   }
 
-  public getTimelineEvents(): TimelineEvent[] {
+  public getTimelineEvents(): ReadonlyArray<TimelineEvent> {
     return RtsEngine.getTimelineEvents(this.state);
   }
 
