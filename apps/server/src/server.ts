@@ -20,7 +20,7 @@ import {
   type BuildPreviewPayload,
   type BuildPreviewRequestPayload,
   type BuildPreviewResult,
-  type BuildRequestResult,
+  type QueueBuildResult,
   type BuildQueuePayload,
   type DestroyQueuePayload,
   type CellUpdatePayload as SocketCellUpdatePayload,
@@ -1095,7 +1095,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   }
 
   function getAffordabilityMetadata(
-    result: Pick<BuildRequestResult, 'needed' | 'current' | 'deficit'>,
+    result: Pick<QueueBuildResult, 'needed' | 'current' | 'deficit'>,
   ): AffordabilityMetadata | undefined {
     if (
       typeof result.needed !== 'number' ||
@@ -1112,9 +1112,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     };
   }
 
-  function resolveQueueBuildRejectionReason(
-    result: BuildRequestResult,
-  ): string {
+  function resolveQueueBuildRejectionReason(result: QueueBuildResult): string {
     if (result.reason) {
       return result.reason;
     }
@@ -1638,7 +1636,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      const result = RtsEngine.requestBuild(
+      const result = RtsEngine.queueBuildEvent(
         room.state,
         session.id,
         parsedPayload,

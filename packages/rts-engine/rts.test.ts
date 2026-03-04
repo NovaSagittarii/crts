@@ -235,28 +235,28 @@ describe('rts', () => {
     });
     const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
 
-    const unknownPlayer = RtsEngine.requestBuild(room, 'missing', {
+    const unknownPlayer = RtsEngine.queueBuildEvent(room, 'missing', {
       templateId: 'block',
       x: 0,
       y: 0,
     });
     expect(unknownPlayer.accepted).toBe(false);
 
-    const unknownTemplate = RtsEngine.requestBuild(room, 'p1', {
+    const unknownTemplate = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'not-a-template',
       x: 10,
       y: 10,
     });
     expect(unknownTemplate.accepted).toBe(false);
 
-    const nonInteger = RtsEngine.requestBuild(room, 'p1', {
+    const nonInteger = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: 10.5,
       y: 10,
     });
     expect(nonInteger.accepted).toBe(false);
 
-    const outsideBounds = RtsEngine.requestBuild(room, 'p1', {
+    const outsideBounds = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: 79,
       y: 79,
@@ -297,7 +297,7 @@ describe('rts', () => {
 
     expect(outsideTerritoryCoordinate).not.toBeNull();
 
-    const outsideTerritory = RtsEngine.requestBuild(room, 'p1', {
+    const outsideTerritory = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: outsideTerritoryCoordinate?.x ?? 0,
       y: outsideTerritoryCoordinate?.y ?? 0,
@@ -308,7 +308,7 @@ describe('rts', () => {
       'outside-territory',
     );
 
-    const invalidDelay = RtsEngine.requestBuild(room, 'p1', {
+    const invalidDelay = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: team.baseTopLeft.x + 6,
       y: team.baseTopLeft.y + 6,
@@ -320,7 +320,7 @@ describe('rts', () => {
     const invalidDelayEvent = timelineEvents[timelineEvents.length - 1];
     expect(invalidDelayEvent?.metadata?.reason).toBe('invalid-delay');
 
-    const delayLow = RtsEngine.requestBuild(room, 'p1', {
+    const delayLow = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: team.baseTopLeft.x + 6,
       y: team.baseTopLeft.y + 6,
@@ -329,7 +329,7 @@ describe('rts', () => {
     expect(delayLow.accepted).toBe(true);
     expect(delayLow.executeTick).toBe(1);
 
-    const delayHigh = RtsEngine.requestBuild(room, 'p1', {
+    const delayHigh = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: team.baseTopLeft.x + 8,
       y: team.baseTopLeft.y + 8,
@@ -398,7 +398,7 @@ describe('rts', () => {
     }
 
     const y = Math.max(0, Math.min(baseCenter.y, getRoomHeight(room) - 1));
-    const boundary = RtsEngine.requestBuild(room, 'p1', {
+    const boundary = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'probe',
       x: baseCenter.x + direction * insideOffset,
       y,
@@ -406,7 +406,7 @@ describe('rts', () => {
     });
     expect(boundary.accepted).toBe(true);
 
-    const outside = RtsEngine.requestBuild(room, 'p1', {
+    const outside = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'probe',
       x: baseCenter.x + direction * outsideOffset,
       y,
@@ -415,7 +415,7 @@ describe('rts', () => {
     expect(outside.accepted).toBe(false);
     expect(outside.reason).toBe('outside-territory');
 
-    const footprintOverflow = RtsEngine.requestBuild(room, 'p1', {
+    const footprintOverflow = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: baseCenter.x + direction * insideOffset,
       y,
@@ -494,7 +494,11 @@ describe('rts', () => {
     expect(overflowPreview.footprint).toEqual([]);
     expect(overflowPreview.illegalCells).toEqual([]);
 
-    const overflowQueue = RtsEngine.requestBuild(room, 'p1', overflowPayload);
+    const overflowQueue = RtsEngine.queueBuildEvent(
+      room,
+      'p1',
+      overflowPayload,
+    );
     expect(overflowQueue.accepted).toBe(false);
     expect(overflowQueue.reason).toBe('template-exceeds-map-size');
     expect(RtsEngine.getTimelineEvents(room).at(-1)?.metadata?.reason).toBe(
@@ -575,7 +579,7 @@ describe('rts', () => {
     expect(beforeExpansion.accepted).toBe(false);
     expect(beforeExpansion.reason).toBe('outside-territory');
 
-    const contributor = RtsEngine.requestBuild(room, 'p1', {
+    const contributor = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: setup.contributorX,
       y: setup.contributorY,
@@ -636,7 +640,7 @@ describe('rts', () => {
     const teamOne = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
     const teamTwo = RtsEngine.addPlayerToRoom(room, 'p2', 'Bob');
 
-    const queuedBuild = RtsEngine.requestBuild(room, 'p1', {
+    const queuedBuild = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: teamOne.baseTopLeft.x + 8,
       y: teamOne.baseTopLeft.y + 8,
@@ -769,7 +773,7 @@ describe('rts', () => {
       throw new Error('Unable to derive contributor placement coordinates');
     }
 
-    const contributor = RtsEngine.requestBuild(room, 'p1', {
+    const contributor = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: setup.contributorX,
       y: setup.contributorY,
@@ -846,7 +850,7 @@ describe('rts', () => {
       });
       const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
 
-      const queuedBuild = RtsEngine.requestBuild(room, 'p1', {
+      const queuedBuild = RtsEngine.queueBuildEvent(room, 'p1', {
         templateId: 'block',
         x: team.baseTopLeft.x + 8,
         y: team.baseTopLeft.y + 8,
@@ -899,7 +903,7 @@ describe('rts', () => {
     const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
 
     team.resources = 9;
-    const result = RtsEngine.requestBuild(room, 'p1', {
+    const result = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'generator',
       x: team.baseTopLeft.x + 6,
       y: team.baseTopLeft.y + 6,
@@ -937,13 +941,13 @@ describe('rts', () => {
     const teamA = RtsEngine.addPlayerToRoom(roomA, 'p1', 'Alice');
     const teamB = RtsEngine.addPlayerToRoom(roomB, 'p1', 'Alice');
 
-    const queueA = RtsEngine.requestBuild(roomA, 'p1', {
+    const queueA = RtsEngine.queueBuildEvent(roomA, 'p1', {
       templateId: 'block',
       x: teamA.baseTopLeft.x + 4,
       y: teamA.baseTopLeft.y + 4,
       delayTicks: 1,
     });
-    const queueB = RtsEngine.requestBuild(roomB, 'p1', {
+    const queueB = RtsEngine.queueBuildEvent(roomB, 'p1', {
       templateId: 'block',
       x: teamB.baseTopLeft.x + 4,
       y: teamB.baseTopLeft.y + 4,
@@ -979,19 +983,19 @@ describe('rts', () => {
     });
     const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
 
-    const first = RtsEngine.requestBuild(room, 'p1', {
+    const first = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: team.baseTopLeft.x + 4,
       y: team.baseTopLeft.y + 4,
       delayTicks: 5,
     });
-    const second = RtsEngine.requestBuild(room, 'p1', {
+    const second = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'glider',
       x: team.baseTopLeft.x + 7,
       y: team.baseTopLeft.y + 4,
       delayTicks: 3,
     });
-    const third = RtsEngine.requestBuild(room, 'p1', {
+    const third = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'generator',
       x: team.baseTopLeft.x + 10,
       y: team.baseTopLeft.y + 4,
@@ -1068,7 +1072,7 @@ describe('rts', () => {
     const generatorCells = generatorPreview.footprint ?? [];
     expect(generatorCells.length).toBeGreaterThan(0);
 
-    const queued = RtsEngine.requestBuild(room, 'p1', {
+    const queued = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'generator',
       x: position.x,
       y: position.y,
@@ -1125,7 +1129,7 @@ describe('rts', () => {
     });
     const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
 
-    const queued = RtsEngine.requestBuild(room, 'p1', {
+    const queued = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: team.baseTopLeft.x + 6,
       y: team.baseTopLeft.y + 6,
@@ -1161,13 +1165,13 @@ describe('rts', () => {
     const teamOne = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
     const teamTwo = RtsEngine.addPlayerToRoom(room, 'p2', 'Bob');
 
-    const teamTwoQueued = RtsEngine.requestBuild(room, 'p2', {
+    const teamTwoQueued = RtsEngine.queueBuildEvent(room, 'p2', {
       templateId: 'block',
       x: teamTwo.baseTopLeft.x + 6,
       y: teamTwo.baseTopLeft.y + 6,
       delayTicks: 1,
     });
-    const teamOneQueued = RtsEngine.requestBuild(room, 'p1', {
+    const teamOneQueued = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: teamOne.baseTopLeft.x + 6,
       y: teamOne.baseTopLeft.y + 6,
@@ -1275,7 +1279,7 @@ describe('rts', () => {
       x: team.baseTopLeft.x + 6,
       y: team.baseTopLeft.y + 6,
     };
-    const queued = RtsEngine.requestBuild(room, 'p1', {
+    const queued = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: buildPosition.x,
       y: buildPosition.y,
@@ -1330,7 +1334,7 @@ describe('rts', () => {
     const generatorCells = generatorPreview.footprint ?? [];
     expect(generatorCells.length).toBeGreaterThan(0);
 
-    const queued = RtsEngine.requestBuild(room, 'p1', {
+    const queued = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'generator',
       x: position.x,
       y: position.y,
@@ -1396,7 +1400,7 @@ describe('rts', () => {
     const generatorCells = generatorPreview.footprint ?? [];
     expect(generatorCells.length).toBeGreaterThan(0);
 
-    const queued = RtsEngine.requestBuild(room, 'p1', {
+    const queued = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'generator',
       x: position.x,
       y: position.y,
@@ -1462,7 +1466,7 @@ describe('rts', () => {
       x: team.baseTopLeft.x + 8,
       y: team.baseTopLeft.y + 8,
     };
-    const queued = RtsEngine.requestBuild(room, 'p1', {
+    const queued = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'sentinel',
       x: placement.x,
       y: placement.y,
@@ -1547,7 +1551,7 @@ describe('rts', () => {
       x: team.baseTopLeft.x + 6,
       y: team.baseTopLeft.y + 8,
     };
-    const durableQueued = RtsEngine.requestBuild(room, 'p1', {
+    const durableQueued = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'durable',
       x: durablePlacement.x,
       y: durablePlacement.y,
@@ -1566,7 +1570,7 @@ describe('rts', () => {
       x: team.baseTopLeft.x + 8,
       y: team.baseTopLeft.y + 8,
     };
-    const queued = RtsEngine.requestBuild(room, 'p1', {
+    const queued = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: placement.x,
       y: placement.y,
@@ -1683,7 +1687,7 @@ describe('rts', () => {
     const blockTemplate = RtsEngine.getRoomTemplate(room, 'block');
     expect(blockTemplate).toBeDefined();
 
-    let queued: ReturnType<typeof RtsEngine.requestBuild> | null = null;
+    let queued: ReturnType<typeof RtsEngine.queueBuildEvent> | null = null;
     for (
       let y = 0;
       y <= getRoomHeight(room) - (blockTemplate?.height ?? 0) && !queued;
@@ -1694,7 +1698,7 @@ describe('rts', () => {
         x <= getRoomWidth(room) - (blockTemplate?.width ?? 0);
         x += 1
       ) {
-        const result = RtsEngine.requestBuild(room, 'p1', {
+        const result = RtsEngine.queueBuildEvent(room, 'p1', {
           templateId: 'block',
           x,
           y,
@@ -1751,7 +1755,7 @@ describe('rts', () => {
       queued.executeTick as number,
     );
 
-    const afterDefeat = RtsEngine.requestBuild(room, 'p1', {
+    const afterDefeat = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: base.x + 10,
       y: base.y + 10,

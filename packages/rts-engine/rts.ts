@@ -519,7 +519,7 @@ export interface BuildPreviewResult extends BuildResultBase {
   bounds: PlacementBounds;
 }
 
-export interface BuildRequestResult extends BuildResultBase {
+export interface QueueBuildResult extends BuildResultBase {
   eventId?: number;
   executeTick?: number;
 }
@@ -2403,11 +2403,11 @@ export class RtsEngine {
     return result;
   }
 
-  public static requestBuild(
+  public static queueBuildEvent(
     room: RoomState,
     playerId: string,
     payload: BuildQueuePayload,
-  ): BuildRequestResult {
+  ): QueueBuildResult {
     const player = room.players.get(playerId);
     if (!player) {
       return {
