@@ -21,6 +21,7 @@ import {
 } from './core-template-layout.js';
 import {
   DEFAULT_SPAWN_CAPACITY,
+  DEFAULT_QUEUE_DELAY_TICKS,
   DEFAULT_STARTING_RESOURCES,
   DEFAULT_TEAM_TERRITORY_RADIUS,
   INTEGRITY_CHECK_INTERVAL_TICKS,
@@ -2404,7 +2405,7 @@ export class RtsEngine {
       };
     }
 
-    const delay = Number(payload.delayTicks ?? 2);
+    const delay = Number(payload.delayTicks ?? DEFAULT_QUEUE_DELAY_TICKS);
     if (!Number.isInteger(delay)) {
       RtsEngine.rejectBuild(room, team, 'invalid-delay');
       return {
@@ -2561,7 +2562,7 @@ export class RtsEngine {
       };
     }
 
-    const delay = Number(payload.delayTicks ?? 1);
+    const delay = Number(payload.delayTicks ?? DEFAULT_QUEUE_DELAY_TICKS);
     if (!Number.isInteger(delay)) {
       RtsEngine.rejectDestroy(
         room,

@@ -8,7 +8,10 @@ import {
   getCanonicalBaseCells,
   isCanonicalBaseCell,
 } from './geometry.js';
-import { BUILD_ZONE_RADIUS } from './gameplay-rules.js';
+import {
+  BUILD_ZONE_RADIUS,
+  DEFAULT_QUEUE_DELAY_TICKS,
+} from './gameplay-rules.js';
 import { RtsEngine, RtsRoom, StructureTemplate } from './rts.js';
 
 interface Cell {
@@ -354,6 +357,14 @@ describe('rts', () => {
     const invalidDelayEvent = timelineEvents[timelineEvents.length - 1];
     expect(invalidDelayEvent?.metadata?.reason).toBe('invalid-delay');
 
+    const defaultDelay = RtsEngine.queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x: team.baseTopLeft.x + 10,
+      y: team.baseTopLeft.y + 10,
+    });
+    expect(defaultDelay.accepted).toBe(true);
+    expect(defaultDelay.executeTick).toBe(DEFAULT_QUEUE_DELAY_TICKS);
+
     const delayLow = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: team.baseTopLeft.x + 6,
@@ -373,7 +384,11 @@ describe('rts', () => {
     expect(delayHigh.executeTick).toBe(20);
 
     const queuedRows = requireTeamPayload(room, team.id).pendingBuilds;
-    expect(queuedRows.map(({ executeTick }) => executeTick)).toEqual([1, 20]);
+    expect(queuedRows.map(({ executeTick }) => executeTick)).toEqual([
+      1,
+      DEFAULT_QUEUE_DELAY_TICKS,
+      20,
+    ]);
   });
 
   test('[BUILD-02] enforces inclusive radius-15 union-zone checks', () => {
@@ -741,6 +756,42 @@ describe('rts', () => {
       teamOne.id,
     ).pendingDestroys;
     expect(pendingDestroys).toHaveLength(2);
+  });
+
+  test('[QUAL-01] applies default destroy delay when delayTicks is omitted', () => {
+    const room = RtsEngine.createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 90,
+      height: 90,
+    });
+    const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+
+    const queuedBuild = RtsEngine.queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x: team.baseTopLeft.x + 8,
+      y: team.baseTopLeft.y + 8,
+      delayTicks: 1,
+    });
+    expect(queuedBuild.accepted).toBe(true);
+
+    RtsEngine.tickRoom(room);
+    RtsEngine.tickRoom(room);
+
+    const ownStructure = getStructureByTemplateId(room, team.id, 'block');
+    expect(ownStructure).not.toBeNull();
+    if (!ownStructure) {
+      throw new Error('Expected own block structure to exist');
+    }
+
+    const currentTick = room.tick;
+    const queuedDestroy = RtsEngine.queueDestroyEvent(room, 'p1', {
+      structureKey: ownStructure.key,
+    });
+    expect(queuedDestroy.accepted).toBe(true);
+    expect(queuedDestroy.executeTick).toBe(
+      currentTick + DEFAULT_QUEUE_DELAY_TICKS,
+    );
   });
 
   test('[STRUCT-02] applies queued destroy outcomes and removes contributor build zone', () => {
