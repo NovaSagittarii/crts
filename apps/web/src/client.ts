@@ -107,6 +107,10 @@ import {
 } from './tactical-overlay-view-model.js';
 import { chooseGridCellSize } from './canvas-layout.js';
 import {
+  DEFAULT_CHAT_LOG_MAX_MESSAGES,
+  getChatOverflowCount,
+} from './chat-log-view-model.js';
+import {
   computeVisibleGridBounds,
   type VisibleGridBounds,
 } from './render-viewport.js';
@@ -743,6 +747,15 @@ function appendChatMessage(payload: ChatMessagePayload): void {
 
   item.append(sender, body, meta);
   chatLogEl.append(item);
+
+  const overflowCount = getChatOverflowCount(
+    chatLogEl.childElementCount,
+    DEFAULT_CHAT_LOG_MAX_MESSAGES,
+  );
+  for (let index = 0; index < overflowCount; index += 1) {
+    chatLogEl.firstElementChild?.remove();
+  }
+
   chatLogEl.scrollTop = chatLogEl.scrollHeight;
 }
 
