@@ -13,6 +13,13 @@ import {
   type Vector2,
 } from './geometry.js';
 import {
+  CORE_TEMPLATE_ID,
+  CORE_TEMPLATE_PADDING,
+  CORE_TEMPLATE_ROWS,
+  padTemplateGrid,
+  parseTemplateRows,
+} from './core-template-layout.js';
+import {
   DEFAULT_SPAWN_CAPACITY,
   DEFAULT_STARTING_RESOURCES,
   DEFAULT_TEAM_TERRITORY_RADIUS,
@@ -551,7 +558,7 @@ export interface CreateRoomOptions {
 interface StructureTemplateRowsOptions {
   id: string;
   name: string;
-  rows: string[];
+  rows: readonly string[];
   activationCost?: number;
   income?: number;
   buildArea?: number;
@@ -559,14 +566,6 @@ interface StructureTemplateRowsOptions {
   requiresDestroyConfirm?: boolean;
   padding?: number;
   checked?: boolean;
-}
-
-const CORE_TEMPLATE_ID = '__core__';
-
-interface PackedGrid {
-  width: number;
-  height: number;
-  cells: Uint8Array;
 }
 
 interface BuildPlacementProjectionResult {
@@ -615,11 +614,11 @@ export class RtsEngine {
     RtsEngine.createTemplateFromRows({
       id: CORE_TEMPLATE_ID,
       name: 'Core',
-      rows: ['##.##', '##.##', '.....', '##.##', '##.##'],
+      rows: CORE_TEMPLATE_ROWS,
       buildArea: 0,
       startingHp: 500,
       requiresDestroyConfirm: true,
-      padding: 3,
+      padding: CORE_TEMPLATE_PADDING,
     });
 
   private readonly roomId: string;
@@ -743,61 +742,6 @@ export class RtsEngine {
     return hash >>> 0;
   }
 
-  private static parseTemplateRows(rows: string[]): PackedGrid {
-    if (rows.length === 0) {
-      throw new Error('Template rows must not be empty');
-    }
-
-    const width = rows[0].length;
-    if (width === 0) {
-      throw new Error('Template rows must not be empty strings');
-    }
-
-    for (const row of rows) {
-      if (row.length !== width) {
-        throw new Error('Template rows must have a consistent width');
-      }
-    }
-
-    const height = rows.length;
-    const cells = new Uint8Array(width * height);
-
-    for (let y = 0; y < height; y += 1) {
-      for (let x = 0; x < width; x += 1) {
-        const symbol = rows[y][x];
-        if (symbol === '#') {
-          cells[y * width + x] = 1;
-        } else if (symbol === '.') {
-          cells[y * width + x] = 0;
-        } else {
-          throw new Error(`Unsupported template symbol: ${symbol}`);
-        }
-      }
-    }
-
-    return { width, height, cells };
-  }
-
-  private static padTemplate(
-    template: PackedGrid,
-    padding: number,
-  ): PackedGrid {
-    const paddedWidth = template.width + padding * 2;
-    const paddedHeight = template.height + padding * 2;
-    const paddedCells = new Uint8Array(paddedWidth * paddedHeight);
-    for (let i = 0; i < template.height; ++i) {
-      for (let j = 0; j < template.width; ++j) {
-        paddedCells[(i + padding) * paddedWidth + (j + padding)] =
-          template.cells[i * template.width + j];
-      }
-    }
-    return {
-      width: paddedWidth,
-      height: paddedHeight,
-      cells: paddedCells,
-    };
-  }
-
   private static createTemplateFromRows({
     id,
     name,
@@ -809,8 +753,8 @@ export class RtsEngine {
     startingHp,
     padding = 0,
   }: StructureTemplateRowsOptions): StructureTemplate {
-    const parsed = RtsEngine.parseTemplateRows(rows);
-    const padded = RtsEngine.padTemplate(parsed, padding);
+    const parsed = parseTemplateRows(rows);
+    const padded = padTemplateGrid(parsed, padding);
     return new StructureTemplate({
       id: id,
       name: name,

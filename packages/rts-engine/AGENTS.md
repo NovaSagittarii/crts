@@ -38,3 +38,8 @@ These rules apply to `packages/rts-engine/*`.
 
 - Prefer co-located unit tests under `packages/rts-engine` as `*.test.ts`.
 - When lobby API shape changes, update both `packages/rts-engine/lobby.test.ts` and server integration lobby suites in `tests/integration/server`.
+
+## Migration Notes
+
+- Phase 1 completed: core template layout/parsing utilities now live in `packages/rts-engine/core-template-layout.ts`.
+- Keep `geometry.ts` independent from `RtsEngine`; canonical core footprint reads must come from `core-template-layout.ts`.
