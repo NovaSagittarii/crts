@@ -34,6 +34,12 @@ interface ActiveHold {
   timer: TimeoutHandle;
 }
 
+interface AttachSocketDirectoryInput {
+  sessionId: string;
+  fallbackName: string;
+  socketId: string;
+}
+
 interface AttachSocketInput {
   requestedSessionId: unknown;
   fallbackSessionId: string;
@@ -62,43 +68,23 @@ export interface AttachSocketResult {
   replacedSocketId: string | null;
 }
 
-export class LobbySessionCoordinator {
-  private readonly holdMs: number;
+interface HoldRegistryOptions {
+  holdMs: number;
+  setTimeout: SetTimeoutHook;
+  clearTimeout: ClearTimeoutHook;
+}
 
-  private readonly now: () => number;
-
-  private readonly setTimeoutHook: SetTimeoutHook;
-
-  private readonly clearTimeoutHook: ClearTimeoutHook;
-
+class SessionDirectory {
   private readonly sessions = new Map<string, PlayerSession>();
 
   private readonly socketToSession = new Map<string, string>();
 
-  private readonly holdsBySession = new Map<string, ActiveHold>();
-
-  private readonly heldSlots = new Map<string, string>();
-
-  public constructor(options: CoordinatorOptions = {}) {
-    this.holdMs = options.holdMs ?? RECONNECT_HOLD_MS;
-    this.now = options.now ?? (() => Date.now());
-    this.setTimeoutHook =
-      options.setTimeout ??
-      ((callback, delayMs) => setTimeout(callback, delayMs));
-    this.clearTimeoutHook =
-      options.clearTimeout ?? ((timer) => clearTimeout(timer));
-  }
-
-  public attachSocket(input: AttachSocketInput): AttachSocketResult {
-    const sessionId = this.normalizeSessionId(
-      input.requestedSessionId,
-      input.fallbackSessionId,
-    );
-    const existing = this.sessions.get(sessionId);
+  public attachSocket(input: AttachSocketDirectoryInput): AttachSocketResult {
+    const existing = this.sessions.get(input.sessionId);
 
     if (!existing) {
       const session: PlayerSession = {
-        id: sessionId,
+        id: input.sessionId,
         name: input.fallbackName,
         socketId: input.socketId,
         roomId: null,
@@ -108,8 +94,8 @@ export class LobbySessionCoordinator {
         heldSlotId: null,
         disconnectReason: null,
       };
-      this.sessions.set(sessionId, session);
-      this.socketToSession.set(input.socketId, sessionId);
+      this.sessions.set(input.sessionId, session);
+      this.socketToSession.set(input.socketId, input.sessionId);
       return {
         session,
         replacedSocketId: null,
@@ -154,11 +140,10 @@ export class LobbySessionCoordinator {
     if (!session) {
       return;
     }
+
     session.roomId = roomId;
     if (!roomId) {
-      session.heldSlotId = null;
-      session.holdExpiresAt = null;
-      session.disconnectReason = null;
+      this.clearHoldMetadata(sessionId);
     }
   }
 
@@ -167,38 +152,133 @@ export class LobbySessionCoordinator {
     if (!session) {
       return;
     }
+
     session.name = name;
   }
 
-  public holdOnDisconnect(input: HoldDisconnectInput): SessionHold | null {
-    const session = this.sessions.get(input.sessionId);
-    if (!session) {
+  public markDisconnectedForHold(
+    sessionId: string,
+    socketId: string,
+    roomId: string,
+    disconnectedAt: number,
+    disconnectReason: string | null,
+  ): PlayerSession | null {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.socketId !== socketId) {
       return null;
     }
 
-    if (session.socketId !== input.socketId) {
-      return null;
-    }
-
-    this.socketToSession.delete(input.socketId);
+    this.socketToSession.delete(socketId);
     session.socketId = null;
     session.connected = false;
-    session.roomId = input.roomId;
-    session.disconnectedAt = this.now();
-    session.disconnectReason = input.disconnectReason;
+    session.roomId = roomId;
+    session.disconnectedAt = disconnectedAt;
+    session.disconnectReason = disconnectReason;
+    return session;
+  }
 
-    const disconnectedAt = session.disconnectedAt;
-    const expiresAt = disconnectedAt + this.holdMs;
-    const hold: SessionHold = {
-      sessionId: input.sessionId,
-      roomId: input.roomId,
-      slotId: input.slotId,
-      disconnectedAt,
-      expiresAt,
-      disconnectReason: input.disconnectReason,
-    };
+  public markSocketDisconnected(
+    sessionId: string,
+    socketId: string,
+    disconnectedAt: number,
+    disconnectReason: string | null,
+  ): void {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.socketId !== socketId) {
+      return;
+    }
 
-    this.clearHold(input.sessionId);
+    this.socketToSession.delete(socketId);
+    session.socketId = null;
+    session.connected = false;
+    session.disconnectedAt = disconnectedAt;
+    session.disconnectReason = disconnectReason;
+  }
+
+  public isSessionConnected(sessionId: string): boolean {
+    return this.sessions.get(sessionId)?.connected ?? false;
+  }
+
+  public clearHoldMetadata(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+
+    session.heldSlotId = null;
+    session.holdExpiresAt = null;
+    session.disconnectReason = null;
+  }
+
+  public applyHoldMetadata(
+    sessionId: string,
+    slotId: string,
+    expiresAt: number,
+  ): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+
+    session.heldSlotId = slotId;
+    session.holdExpiresAt = expiresAt;
+  }
+
+  public releaseSession(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+
+    if (session.socketId) {
+      this.socketToSession.delete(session.socketId);
+    }
+
+    session.roomId = null;
+    session.connected = false;
+    session.disconnectedAt = null;
+    session.socketId = null;
+    session.heldSlotId = null;
+    session.holdExpiresAt = null;
+    session.disconnectReason = null;
+  }
+
+  public pruneSession(sessionId: string, hasActiveHold: boolean): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+
+    if (session.connected || session.roomId || hasActiveHold) {
+      return;
+    }
+
+    this.sessions.delete(sessionId);
+  }
+}
+
+class ReconnectHoldRegistry {
+  private readonly holdMs: number;
+
+  private readonly setTimeoutHook: SetTimeoutHook;
+
+  private readonly clearTimeoutHook: ClearTimeoutHook;
+
+  private readonly holdsBySession = new Map<string, ActiveHold>();
+
+  private readonly heldSlots = new Map<string, string>();
+
+  public constructor(options: HoldRegistryOptions) {
+    this.holdMs = options.holdMs;
+    this.setTimeoutHook = options.setTimeout;
+    this.clearTimeoutHook = options.clearTimeout;
+  }
+
+  public scheduleHold(
+    hold: SessionHold,
+    onExpire: (hold: SessionHold) => void,
+  ): void {
+    this.clearHold(hold.sessionId);
 
     const slotKey = this.slotKey(hold.roomId, hold.slotId);
     const timer = this.setTimeoutHook(() => {
@@ -209,44 +289,11 @@ export class LobbySessionCoordinator {
 
       this.holdsBySession.delete(hold.sessionId);
       this.heldSlots.delete(slotKey);
-
-      const activeSession = this.sessions.get(hold.sessionId);
-      if (activeSession) {
-        activeSession.heldSlotId = null;
-        activeSession.holdExpiresAt = null;
-        activeSession.disconnectReason = null;
-      }
-
-      input.onExpire(hold);
+      onExpire(hold);
     }, this.holdMs);
 
     this.holdsBySession.set(hold.sessionId, { hold, timer });
     this.heldSlots.set(slotKey, hold.sessionId);
-    session.heldSlotId = hold.slotId;
-    session.holdExpiresAt = hold.expiresAt;
-
-    return hold;
-  }
-
-  public markSocketDisconnected(
-    sessionId: string,
-    socketId: string,
-    disconnectReason: string | null = null,
-  ): void {
-    const session = this.sessions.get(sessionId);
-    if (!session || session.socketId !== socketId) {
-      return;
-    }
-
-    this.socketToSession.delete(socketId);
-    session.socketId = null;
-    session.connected = false;
-    session.disconnectedAt = this.now();
-    session.disconnectReason = disconnectReason;
-  }
-
-  public isSessionConnected(sessionId: string): boolean {
-    return this.sessions.get(sessionId)?.connected ?? false;
   }
 
   public clearHold(sessionId: string): SessionHold | null {
@@ -258,19 +305,15 @@ export class LobbySessionCoordinator {
     this.clearTimeoutHook(active.timer);
     this.holdsBySession.delete(sessionId);
     this.heldSlots.delete(this.slotKey(active.hold.roomId, active.hold.slotId));
-
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      session.heldSlotId = null;
-      session.holdExpiresAt = null;
-      session.disconnectReason = null;
-    }
-
     return active.hold;
   }
 
   public getHold(sessionId: string): SessionHold | null {
     return this.holdsBySession.get(sessionId)?.hold ?? null;
+  }
+
+  public hasHold(sessionId: string): boolean {
+    return this.holdsBySession.has(sessionId);
   }
 
   public getHeldSessionForSlot(roomId: string, slotId: string): string | null {
@@ -287,43 +330,6 @@ export class LobbySessionCoordinator {
     return false;
   }
 
-  public releaseSession(sessionId: string): void {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
-      return;
-    }
-
-    if (session.socketId) {
-      this.socketToSession.delete(session.socketId);
-    }
-
-    this.clearHold(sessionId);
-    session.roomId = null;
-    session.connected = false;
-    session.disconnectedAt = null;
-    session.socketId = null;
-    session.heldSlotId = null;
-    session.holdExpiresAt = null;
-    session.disconnectReason = null;
-  }
-
-  public pruneSession(sessionId: string): void {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
-      return;
-    }
-
-    if (
-      session.connected ||
-      session.roomId ||
-      this.holdsBySession.has(sessionId)
-    ) {
-      return;
-    }
-
-    this.sessions.delete(sessionId);
-  }
-
   public stop(): void {
     for (const active of this.holdsBySession.values()) {
       this.clearTimeoutHook(active.timer);
@@ -331,6 +337,154 @@ export class LobbySessionCoordinator {
 
     this.holdsBySession.clear();
     this.heldSlots.clear();
+  }
+
+  private slotKey(roomId: string, slotId: string): string {
+    return `${roomId}:${slotId}`;
+  }
+}
+
+export class LobbySessionCoordinator {
+  private readonly holdMs: number;
+
+  private readonly now: () => number;
+
+  private readonly sessions: SessionDirectory;
+
+  private readonly holds: ReconnectHoldRegistry;
+
+  public constructor(options: CoordinatorOptions = {}) {
+    this.holdMs = options.holdMs ?? RECONNECT_HOLD_MS;
+    this.now = options.now ?? (() => Date.now());
+    const setTimeoutHook =
+      options.setTimeout ??
+      ((callback, delayMs) => setTimeout(callback, delayMs));
+    const clearTimeoutHook =
+      options.clearTimeout ?? ((timer) => clearTimeout(timer));
+    this.sessions = new SessionDirectory();
+    this.holds = new ReconnectHoldRegistry({
+      holdMs: this.holdMs,
+      setTimeout: setTimeoutHook,
+      clearTimeout: clearTimeoutHook,
+    });
+  }
+
+  public attachSocket(input: AttachSocketInput): AttachSocketResult {
+    const sessionId = this.normalizeSessionId(
+      input.requestedSessionId,
+      input.fallbackSessionId,
+    );
+    return this.sessions.attachSocket({
+      sessionId,
+      fallbackName: input.fallbackName,
+      socketId: input.socketId,
+    });
+  }
+
+  public getSession(sessionId: string): PlayerSession | null {
+    return this.sessions.getSession(sessionId);
+  }
+
+  public isCurrentSocket(sessionId: string, socketId: string): boolean {
+    return this.sessions.isCurrentSocket(sessionId, socketId);
+  }
+
+  public setRoom(sessionId: string, roomId: string | null): void {
+    this.sessions.setRoom(sessionId, roomId);
+  }
+
+  public setDisplayName(sessionId: string, name: string): void {
+    this.sessions.setDisplayName(sessionId, name);
+  }
+
+  public holdOnDisconnect(input: HoldDisconnectInput): SessionHold | null {
+    const disconnectedAt = this.now();
+    const session = this.sessions.markDisconnectedForHold(
+      input.sessionId,
+      input.socketId,
+      input.roomId,
+      disconnectedAt,
+      input.disconnectReason,
+    );
+    if (!session) {
+      return null;
+    }
+
+    const expiresAt = disconnectedAt + this.holdMs;
+    const hold: SessionHold = {
+      sessionId: input.sessionId,
+      roomId: input.roomId,
+      slotId: input.slotId,
+      disconnectedAt,
+      expiresAt,
+      disconnectReason: input.disconnectReason,
+    };
+
+    this.clearHold(input.sessionId);
+
+    this.holds.scheduleHold(hold, (expiredHold) => {
+      this.sessions.clearHoldMetadata(expiredHold.sessionId);
+      input.onExpire(expiredHold);
+    });
+    this.sessions.applyHoldMetadata(
+      input.sessionId,
+      hold.slotId,
+      hold.expiresAt,
+    );
+
+    return hold;
+  }
+
+  public markSocketDisconnected(
+    sessionId: string,
+    socketId: string,
+    disconnectReason: string | null = null,
+  ): void {
+    this.sessions.markSocketDisconnected(
+      sessionId,
+      socketId,
+      this.now(),
+      disconnectReason,
+    );
+  }
+
+  public isSessionConnected(sessionId: string): boolean {
+    return this.sessions.isSessionConnected(sessionId);
+  }
+
+  public clearHold(sessionId: string): SessionHold | null {
+    const hold = this.holds.clearHold(sessionId);
+    if (!hold) {
+      return null;
+    }
+
+    this.sessions.clearHoldMetadata(sessionId);
+    return hold;
+  }
+
+  public getHold(sessionId: string): SessionHold | null {
+    return this.holds.getHold(sessionId);
+  }
+
+  public getHeldSessionForSlot(roomId: string, slotId: string): string | null {
+    return this.holds.getHeldSessionForSlot(roomId, slotId);
+  }
+
+  public hasPendingHoldForRoom(roomId: string): boolean {
+    return this.holds.hasPendingHoldForRoom(roomId);
+  }
+
+  public releaseSession(sessionId: string): void {
+    this.clearHold(sessionId);
+    this.sessions.releaseSession(sessionId);
+  }
+
+  public pruneSession(sessionId: string): void {
+    this.sessions.pruneSession(sessionId, this.holds.hasHold(sessionId));
+  }
+
+  public stop(): void {
+    this.holds.stop();
   }
 
   private normalizeSessionId(value: unknown, fallback: string): string {
@@ -344,9 +498,5 @@ export class LobbySessionCoordinator {
     }
 
     return trimmed.slice(0, MAX_SESSION_ID_LENGTH);
-  }
-
-  private slotKey(roomId: string, slotId: string): string {
-    return `${roomId}:${slotId}`;
   }
 }
