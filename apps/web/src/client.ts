@@ -25,11 +25,6 @@ import type {
   StructureTemplateSummary,
   TeamIncomeBreakdownPayload,
 } from '#rts-engine';
-import {
-  collectBuildZoneContributors,
-  collectCoveredBuildZoneCells,
-  type BuildZoneContributorProjectionInput,
-} from '#rts-engine';
 
 import {
   aggregateIncomeDelta,
@@ -110,6 +105,7 @@ import {
   DEFAULT_CHAT_LOG_MAX_MESSAGES,
   getChatOverflowCount,
 } from './chat-log-view-model.js';
+import { computeLocalBuildZoneOverlay } from './local-build-zone-view-model.js';
 import {
   computeVisibleGridBounds,
   type VisibleGridBounds,
@@ -487,14 +483,13 @@ let structureCellIndex = new Map<string, VisibleStructure>();
 let localBuildZoneCells: Cell[] = [];
 let localBuildZoneCellKeys = new Set<number>();
 let localBuildZoneSignature = '';
-let cachedGridCells: Cell[] = [];
-let cachedGridCellWidth = 0;
-let cachedGridCellHeight = 0;
+const localBuildZoneCoverageCache = new Map<string, readonly number[]>();
 let edgeBannerTimeoutId: number | null = null;
 let reconnectNoticeTimeoutId: number | null = null;
 
 const BUILD_ERROR_TOAST_DEDUPE_MS = 800;
 const CAMERA_KEYBOARD_WORLD_STEP_CELLS = 8;
+const LOCAL_BUILD_ZONE_CACHE_MAX_ENTRIES = 512;
 
 function addToast(message: string, isError = false): void {
   const toast = document.createElement('div');
@@ -1514,41 +1509,7 @@ function clearLocalBuildZoneOverlay(): void {
   localBuildZoneCells = [];
   localBuildZoneCellKeys = new Set<number>();
   localBuildZoneSignature = '';
-}
-
-function getAllGridCells(): Cell[] {
-  if (
-    cachedGridCellWidth === gridWidth &&
-    cachedGridCellHeight === gridHeight &&
-    cachedGridCells.length > 0
-  ) {
-    return cachedGridCells;
-  }
-
-  const cells: Cell[] = [];
-  for (let y = 0; y < gridHeight; y += 1) {
-    for (let x = 0; x < gridWidth; x += 1) {
-      cells.push({ x, y });
-    }
-  }
-
-  cachedGridCellWidth = gridWidth;
-  cachedGridCellHeight = gridHeight;
-  cachedGridCells = cells;
-  return cells;
-}
-
-function buildLocalBuildZoneSignature(team: TeamPayload): string {
-  const orderedStructures = [...team.structures].sort((left, right) =>
-    left.key.localeCompare(right.key),
-  );
-
-  return orderedStructures
-    .map(
-      (structure) =>
-        `${structure.key}:${structure.x},${structure.y},${structure.width},${structure.height},${structure.hp}`,
-    )
-    .join('|');
+  localBuildZoneCoverageCache.clear();
 }
 
 function syncLocalBuildZoneOverlay(payload: StatePayload): void {
@@ -1563,33 +1524,25 @@ function syncLocalBuildZoneOverlay(payload: StatePayload): void {
     return;
   }
 
-  const signature = buildLocalBuildZoneSignature(localTeam);
-  if (signature === localBuildZoneSignature) {
+  const overlayProjection = computeLocalBuildZoneOverlay({
+    structures: localTeam.structures,
+    gridWidth,
+    gridHeight,
+    previousSignature: localBuildZoneSignature,
+    coverageCache: localBuildZoneCoverageCache,
+    maxCoverageCacheEntries: LOCAL_BUILD_ZONE_CACHE_MAX_ENTRIES,
+  });
+
+  if (!overlayProjection.changed) {
     return;
   }
 
-  const contributorInputs: BuildZoneContributorProjectionInput[] = [
-    ...localTeam.structures,
-  ]
-    .sort((left, right) => left.key.localeCompare(right.key))
-    .map((structure) => ({
-      x: structure.x,
-      y: structure.y,
-      width: structure.width,
-      height: structure.height,
-      hp: structure.hp,
-    }));
-
-  const contributors = collectBuildZoneContributors(contributorInputs);
-  const coveredCells = collectCoveredBuildZoneCells(
-    getAllGridCells(),
-    contributors,
-  );
-  localBuildZoneCells = coveredCells;
-  localBuildZoneCellKeys = new Set(
-    coveredCells.map((cell) => cellKey(cell.x, cell.y)),
-  );
-  localBuildZoneSignature = signature;
+  localBuildZoneSignature = overlayProjection.signature;
+  localBuildZoneCellKeys = new Set(overlayProjection.cellKeys);
+  localBuildZoneCells = overlayProjection.cellKeys.map((key) => ({
+    x: key % gridWidth,
+    y: Math.floor(key / gridWidth),
+  }));
 }
 
 function selectDestroyStructureAtCell(cell: Cell): boolean {
