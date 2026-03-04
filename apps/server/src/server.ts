@@ -721,7 +721,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       playerId: session.id,
       playerName: session.name,
       teamId,
-      templates: RtsEngine.createTemplateSummaries(room.state.templates),
+      templates: room.state.templates.map((template) => template.toSummary()),
       state: RtsEngine.createRoomStatePayload(room.state),
     });
 

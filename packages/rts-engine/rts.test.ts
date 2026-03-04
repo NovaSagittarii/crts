@@ -138,30 +138,6 @@ describe('rts', () => {
     expect(generator?.checks).toHaveLength(0);
   });
 
-  test('projects template summaries used by room payloads', () => {
-    const summaries = RtsEngine.createTemplateSummaries(
-      RtsEngine.createDefaultTemplates(),
-    );
-
-    expect(summaries.map(({ id }) => id)).toEqual([
-      'block',
-      'generator',
-      'glider',
-      'eater-1',
-      'gosper',
-    ]);
-
-    const generator = summaries.find(({ id }) => id === 'generator');
-    expect(generator).toMatchObject({
-      id: 'generator',
-      width: 4,
-      height: 4,
-      activationCost: 6,
-      income: 2,
-      buildArea: 2,
-    });
-  });
-
   test('adds players, seeds base cells, and lists room occupancy', () => {
     const room = RtsEngine.createRoomState({
       id: '1',
