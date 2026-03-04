@@ -57,6 +57,7 @@ export class RoomBroadcastService {
   public buildMembershipPayload(
     room: RuntimeBroadcastRoom,
   ): RoomMembershipPayload {
+    const roomId = room.state.id;
     const snapshot = room.lobby.snapshot();
     const slotIds = room.lobby.slotIds();
     const heldSlots: RoomMembershipPayload['heldSlots'] = {};
@@ -69,11 +70,7 @@ export class RoomBroadcastService {
       }
 
       const hold = this.sessionCoordinator.getHold(sessionId);
-      if (
-        hold &&
-        hold.roomId === RtsEngine.getRoomId(room.state) &&
-        hold.slotId === slotId
-      ) {
+      if (hold && hold.roomId === roomId && hold.slotId === slotId) {
         heldSlots[slotId] = {
           sessionId,
           holdExpiresAt: hold.expiresAt,
@@ -86,9 +83,9 @@ export class RoomBroadcastService {
     }
 
     return {
-      roomId: RtsEngine.getRoomId(room.state),
+      roomId,
       roomCode: room.roomCode,
-      roomName: RtsEngine.getRoomName(room.state),
+      roomName: room.state.name,
       revision: room.revision,
       status: room.status,
       hostSessionId: snapshot.hostSessionId,
@@ -130,11 +127,11 @@ export class RoomBroadcastService {
         ).length;
 
         return {
-          roomId: RtsEngine.getRoomId(room.state),
+          roomId: room.state.id,
           roomCode: room.roomCode,
-          name: RtsEngine.getRoomName(room.state),
-          width: RtsEngine.getRoomWidth(room.state),
-          height: RtsEngine.getRoomHeight(room.state),
+          name: room.state.name,
+          width: room.state.width,
+          height: room.state.height,
           players,
           spectators: snapshot.participants.length - players,
           teams: room.state.teams.size,
@@ -154,8 +151,9 @@ export class RoomBroadcastService {
   }
 
   public emitRoomState(room: RuntimeBroadcastRoom): void {
+    const roomId = room.state.id;
     this.io
-      .to(this.roomChannel(RtsEngine.getRoomId(room.state)))
+      .to(this.roomChannel(roomId))
       .emit('state', RtsEngine.createRoomStatePayload(room.state));
   }
 
@@ -163,10 +161,9 @@ export class RoomBroadcastService {
     room: RuntimeBroadcastRoom,
     outcomes: BuildOutcomePayload[],
   ): void {
+    const roomId = room.state.id;
     for (const outcome of outcomes) {
-      this.io
-        .to(this.roomChannel(RtsEngine.getRoomId(room.state)))
-        .emit('build:outcome', outcome);
+      this.io.to(this.roomChannel(roomId)).emit('build:outcome', outcome);
     }
   }
 
@@ -174,10 +171,9 @@ export class RoomBroadcastService {
     room: RuntimeBroadcastRoom,
     outcomes: DestroyOutcomePayload[],
   ): void {
+    const roomId = room.state.id;
     for (const outcome of outcomes) {
-      this.io
-        .to(this.roomChannel(RtsEngine.getRoomId(room.state)))
-        .emit('destroy:outcome', outcome);
+      this.io.to(this.roomChannel(roomId)).emit('destroy:outcome', outcome);
     }
   }
 
@@ -187,7 +183,7 @@ export class RoomBroadcastService {
     }
 
     this.io
-      .to(this.roomChannel(RtsEngine.getRoomId(room.state)))
+      .to(this.roomChannel(room.state.id))
       .emit('room:membership', this.buildMembershipPayload(room));
   }
 
@@ -196,13 +192,12 @@ export class RoomBroadcastService {
       return;
     }
 
-    this.io
-      .to(this.roomChannel(RtsEngine.getRoomId(room.state)))
-      .emit('room:match-finished', {
-        roomId: RtsEngine.getRoomId(room.state),
-        winner: room.matchOutcome.winner,
-        ranked: room.matchOutcome.ranked,
-        comparator: room.matchOutcome.comparator,
-      });
+    const roomId = room.state.id;
+    this.io.to(this.roomChannel(roomId)).emit('room:match-finished', {
+      roomId,
+      winner: room.matchOutcome.winner,
+      ranked: room.matchOutcome.ranked,
+      comparator: room.matchOutcome.comparator,
+    });
   }
 }

@@ -94,15 +94,15 @@ function probeQueueBuild(
 }
 
 function getRoomId(room: RoomState): string {
-  return RtsEngine.getRoomId(room);
+  return room.id;
 }
 
 function getRoomWidth(room: RoomState): number {
-  return RtsEngine.getRoomWidth(room);
+  return room.width;
 }
 
 function getRoomHeight(room: RoomState): number {
-  return RtsEngine.getRoomHeight(room);
+  return room.height;
 }
 
 function getStructureByTemplateId(

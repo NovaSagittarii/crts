@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { io, type Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 
 import {
   createServer,
@@ -14,57 +14,13 @@ import type {
   RoomListEntryPayload,
   RoomMembershipPayload,
 } from '#rts-engine';
+import {
+  createClient,
+  waitForEvent,
+  waitForMembership,
+} from './test-support.js';
 
 type RoomListEntry = RoomListEntryPayload;
-
-function createClient(port: number): Socket {
-  const socket = io(`http://localhost:${port}`, {
-    autoConnect: false,
-    transports: ['websocket'],
-  });
-  socket.connect();
-  return socket;
-}
-
-function waitForEvent<T>(
-  socket: Socket,
-  event: string,
-  timeoutMs = 1500,
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      socket.off(event, handler);
-      reject(new Error(`Timed out waiting for ${event}`));
-    }, timeoutMs);
-
-    function handler(payload: T): void {
-      clearTimeout(timer);
-      resolve(payload);
-    }
-
-    socket.once(event, handler);
-  });
-}
-
-async function waitForMembership(
-  socket: Socket,
-  roomId: string,
-  predicate: (payload: RoomMembershipPayload) => boolean,
-  attempts = 12,
-): Promise<RoomMembershipPayload> {
-  for (let index = 0; index < attempts; index += 1) {
-    const payload = await waitForEvent<RoomMembershipPayload>(
-      socket,
-      'room:membership',
-      2500,
-    );
-    if (payload.roomId === roomId && predicate(payload)) {
-      return payload;
-    }
-  }
-
-  throw new Error('Membership condition not met in allotted attempts');
-}
 
 function countPlayers(payload: RoomMembershipPayload): number {
   return payload.participants.filter(({ role }) => role === 'player').length;
@@ -350,7 +306,7 @@ describe('lobby room/team contract', () => {
       owner,
       created.roomId,
       (payload) => payload.status === 'countdown',
-      20,
+      { attempts: 20 },
     );
 
     guest.emit('room:set-ready', { ready: false });
@@ -373,7 +329,7 @@ describe('lobby room/team contract', () => {
       owner,
       created.roomId,
       (payload) => payload.status === 'active',
-      20,
+      { attempts: 20 },
     );
     expect(activeMembership.status).toBe('active');
   });
@@ -410,7 +366,7 @@ describe('lobby room/team contract', () => {
         payload.participants.filter(
           ({ role, ready }) => role === 'player' && ready,
         ).length === 2,
-      20,
+      { attempts: 20 },
     );
 
     owner.emit('room:start');

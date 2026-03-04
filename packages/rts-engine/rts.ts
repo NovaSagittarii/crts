@@ -670,22 +670,6 @@ export class RtsEngine {
     return engine;
   }
 
-  public static getRoomId(room: RoomState): string {
-    return RtsEngine.getRoomEngine(room).roomId;
-  }
-
-  public static getRoomName(room: RoomState): string {
-    return RtsEngine.getRoomEngine(room).roomName;
-  }
-
-  public static getRoomWidth(room: RoomState): number {
-    return RtsEngine.getRoomEngine(room).roomWidth;
-  }
-
-  public static getRoomHeight(room: RoomState): number {
-    return RtsEngine.getRoomEngine(room).roomHeight;
-  }
-
   public static getRoomTemplate(
     room: RoomState,
     templateId: string,
