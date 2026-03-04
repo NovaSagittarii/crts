@@ -664,9 +664,15 @@ export class RtsEngine {
   private static getRoomEngine(room: RoomState): RtsEngine {
     const engine = RtsEngine.roomEngineByState.get(room);
     if (!engine) {
-      throw new Error('Room state is not bound to an engine instance');
+      throw new Error(
+        'RoomState must come from RtsEngine.createRoomState or RtsEngine.createRoom',
+      );
     }
     return engine;
+  }
+
+  public static hasRoomEngine(room: RoomState): boolean {
+    return RtsEngine.roomEngineByState.has(room);
   }
 
   public static getRoomId(room: RoomState): string {
@@ -2876,6 +2882,12 @@ export class RtsRoom {
   }
 
   public static fromState(state: RoomState): RtsRoom {
+    if (!RtsEngine.hasRoomEngine(state)) {
+      throw new Error(
+        'RoomState must come from RtsEngine.createRoomState or RtsEngine.createRoom',
+      );
+    }
+
     const existing = RtsRoom.roomWrapperByState.get(state);
     if (existing) {
       return existing;

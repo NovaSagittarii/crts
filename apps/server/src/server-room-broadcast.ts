@@ -158,10 +158,9 @@ export class RoomBroadcastService {
     room: RuntimeBroadcastRoom,
     outcomes: BuildOutcomePayload[],
   ): void {
+    const roomIo = this.io.to(this.roomChannel(room.rtsRoom.id));
     for (const outcome of outcomes) {
-      this.io
-        .to(this.roomChannel(room.rtsRoom.id))
-        .emit('build:outcome', outcome);
+      roomIo.emit('build:outcome', outcome);
     }
   }
 
@@ -169,10 +168,9 @@ export class RoomBroadcastService {
     room: RuntimeBroadcastRoom,
     outcomes: DestroyOutcomePayload[],
   ): void {
+    const roomIo = this.io.to(this.roomChannel(room.rtsRoom.id));
     for (const outcome of outcomes) {
-      this.io
-        .to(this.roomChannel(room.rtsRoom.id))
-        .emit('destroy:outcome', outcome);
+      roomIo.emit('destroy:outcome', outcome);
     }
   }
 

@@ -47,3 +47,4 @@ These rules apply to `packages/rts-engine/*`.
 - During migration, static `RtsEngine` room methods are compatibility wrappers; new room-local behavior should be added on `RtsRoom` first.
 - Phase 4 completed: economy/queue/tick orchestration is split into deterministic private helpers (`processDue*`, `applyAcceptedBuildEvents`, `applyLegacyUpdatesAndAdvanceGeneration`, `resolveDefeatAndOutcome`).
 - Preserve helper execution order to keep tick determinism and rejection/outcome semantics stable.
+- Phase 5 hardening: `RtsRoom.fromState` only accepts room states created by `RtsEngine.createRoomState`/`RtsEngine.createRoom`; detached clones are invalid inputs.

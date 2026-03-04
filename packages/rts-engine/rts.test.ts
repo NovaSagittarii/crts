@@ -173,6 +173,29 @@ describe('rts', () => {
     expect(room.tick()).toEqual(RtsEngine.tickRoom(room.state));
   });
 
+  test('rejects detached room states for instance wrappers', () => {
+    const room = RtsEngine.createRoom({
+      id: 'detached-room',
+      name: 'Detached Room',
+      width: 32,
+      height: 32,
+    });
+
+    const detachedState = {
+      ...room.state,
+      teams: new Map(room.state.teams),
+      players: new Map(room.state.players),
+      templates: [...room.state.templates],
+    } as unknown as ReturnType<typeof RtsEngine.createRoomState>;
+
+    expect(() => RtsEngine.fromRoomState(detachedState)).toThrow(
+      'RoomState must come from RtsEngine.createRoomState or RtsEngine.createRoom',
+    );
+    expect(() => RtsRoom.fromState(detachedState)).toThrow(
+      'RoomState must come from RtsEngine.createRoomState or RtsEngine.createRoom',
+    );
+  });
+
   test('adds players, seeds base cells, and lists room occupancy', () => {
     const room = RtsEngine.createRoomState({
       id: '1',
