@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 import type { Socket } from 'socket.io-client';
 
 import { createServer } from '../../../apps/server/src/server.js';
-import { unpackGridBits } from '#conway-core';
+import { Grid } from '#conway-core';
 import {
   BASE_FOOTPRINT_HEIGHT,
   BASE_FOOTPRINT_WIDTH,
@@ -43,7 +43,7 @@ type DestroyOutcome = DestroyOutcomePayload;
 type RoomError = RoomErrorPayload;
 
 function blockAlive(state: StatePayload, coords: Cell[]): boolean {
-  const unpackedGrid = unpackGridBits(state.grid, state.width, state.height);
+  const unpackedGrid = Grid.unpack(state.grid, state.width, state.height);
   return coords.every(({ x, y }) => unpackedGrid[y * state.width + x] === 1);
 }
 

@@ -11,6 +11,7 @@ These rules apply to `packages/rts-engine/*`.
 - Defeat condition is core health resolution reaching zero (core integrity checks can damage/restore HP before defeat).
 - Queue validation must reject invalid player/team/template/payload/bounds/territory cases.
 - Build delay is clamped to the configured range.
+- Room simulation uses `#conway-core` `Grid` as the canonical map state; transport payloads remain packed buffers.
 - Tick order stays deterministic:
   1. process team economy and due queued events
   2. apply accepted templates
@@ -23,6 +24,8 @@ These rules apply to `packages/rts-engine/*`.
 
 - Keep this package free of Socket.IO runtime wiring, Express, and DOM concerns (shared transport contract types are allowed); do not import `socket.io` or `socket.io-client` runtime libraries here.
 - Keep room payload builders stable and explicitly typed.
+- Treat `Grid` internals as opaque: use `Grid` methods rather than direct byte-buffer indexing.
+- Integrity repair must only restore integrity-mask expectations; do not clear unrelated cells in the surrounding template footprint.
 - Prefer deterministic behavior over convenience randomness.
 - Add/adjust unit tests for every rule change in room/team/economy logic.
 

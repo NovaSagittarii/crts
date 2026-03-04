@@ -1,5 +1,5 @@
 import { io, type Socket } from 'socket.io-client';
-import { unpackGridBits } from '#conway-core';
+import { Grid } from '#conway-core';
 
 import type {
   BuildOutcomePayload,
@@ -3359,7 +3359,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
 
   gridWidth = payload.state.width;
   gridHeight = payload.state.height;
-  gridBytes = unpackGridBits(payload.state.grid, gridWidth, gridHeight);
+  gridBytes = Grid.unpack(payload.state.grid, gridWidth, gridHeight);
   lastAuthoritativeStateAtMs = Date.now();
   generationEl.textContent = payload.state.generation.toString();
   updateTeamStats(payload.state);
@@ -3676,7 +3676,7 @@ socket.on('state', (payload: StatePayload) => {
 
   gridWidth = payload.width;
   gridHeight = payload.height;
-  gridBytes = unpackGridBits(payload.grid, gridWidth, gridHeight);
+  gridBytes = Grid.unpack(payload.grid, gridWidth, gridHeight);
   lastAuthoritativeStateAtMs = Date.now();
   generationEl.textContent = payload.generation.toString();
   if (payload.roomId !== currentRoomId) {

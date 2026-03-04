@@ -1,41 +1,14 @@
 import { describe, expect, test } from 'vitest';
 
-import {
-  applyUpdates,
-  createGrid,
-  packGridBits,
-  stepGrid,
-  type CellUpdate,
-  unpackGridBits,
-} from './grid.js';
+import { Grid, type Vector2 } from './grid.js';
 
-interface Cell {
-  x: number;
-  y: number;
-}
-
-function setCells(
-  grid: Uint8Array,
-  width: number,
-  cells: Cell[],
-  alive: number,
-): void {
-  const updates: CellUpdate[] = cells.map(({ x, y }) => ({ x, y, alive }));
-  applyUpdates(grid, updates, width, grid.length / width);
-}
-
-function hasCells(
-  grid: Uint8Array,
-  width: number,
-  aliveCells: Cell[],
-): boolean {
+function hasCells(grid: Grid, aliveCells: readonly Vector2[]): boolean {
   const expected = new Set(aliveCells.map(({ x, y }) => `${x},${y}`));
 
-  for (let y = 0; y < grid.length / width; y += 1) {
-    for (let x = 0; x < width; x += 1) {
+  for (let y = 0; y < grid.height; y += 1) {
+    for (let x = 0; x < grid.width; x += 1) {
       const key = `${x},${y}`;
-      const isAlive = grid[y * width + x] === 1;
-      if (isAlive !== expected.has(key)) {
+      if (grid.isCellAlive(x, y) !== expected.has(key)) {
         return false;
       }
     }
@@ -46,65 +19,69 @@ function hasCells(
 
 describe('grid', () => {
   test('initializes a dead grid by default', () => {
-    const grid = createGrid({ width: 5, height: 5 });
-    expect(grid).toHaveLength(25);
-    expect([...grid].every((cell) => cell === 0)).toBe(true);
+    const grid = new Grid(5, 5);
+
+    expect(grid.width).toBe(5);
+    expect(grid.height).toBe(5);
+    expect(grid.topology).toBe('torus');
+    expect([...grid.cells()].every((cell) => cell.alive === 0)).toBe(true);
   });
 
-  test('supports filled initialization', () => {
-    const grid = createGrid({ width: 3, height: 2, fill: 1 });
-    expect([...grid]).toEqual([1, 1, 1, 1, 1, 1]);
-  });
-
-  test('applies valid updates and ignores invalid updates', () => {
-    const width = 4;
-    const height = 4;
-    const grid = createGrid({ width, height });
-
-    applyUpdates(
-      grid,
+  test('supports alive-cell initialization', () => {
+    const grid = new Grid(
+      4,
+      3,
       [
-        { x: 1, y: 1, alive: 1 },
-        { x: 2, y: 2, alive: 1 },
-        { x: -1, y: 0, alive: 1 },
-        { x: 4, y: 1, alive: 1 },
-        { x: 0.5, y: 3, alive: 1 },
-        { x: 1, y: Number.NaN, alive: 1 },
+        { x: 0, y: 0 },
+        { x: 2, y: 1 },
       ],
-      width,
-      height,
+      'flat',
     );
 
-    expect(grid[1 * width + 1]).toBe(1);
-    expect(grid[2 * width + 2]).toBe(1);
-    expect(grid[0]).toBe(0);
-    expect(grid[3]).toBe(0);
+    expect(
+      hasCells(grid, [
+        { x: 0, y: 0 },
+        { x: 2, y: 1 },
+      ]),
+    ).toBe(true);
+  });
+
+  test('setCell wraps on torus topology', () => {
+    const grid = new Grid(4, 4);
+    grid.setCell(-1, 0, 1);
+    grid.setCell(4, 3, 1);
+
+    expect(grid.isCellAlive(3, 0)).toBe(true);
+    expect(grid.isCellAlive(0, 3)).toBe(true);
+  });
+
+  test('setCell ignores out-of-bounds and invalid coordinates on flat topology', () => {
+    const grid = new Grid(4, 4, [], 'flat');
+    grid.setCell(-1, 0, 1);
+    grid.setCell(4, 1, 1);
+    grid.setCell(0.5, 2, 1);
+    grid.setCell(2, Number.NaN, 1);
+    grid.setCell(1, 1, 1);
+
+    expect(hasCells(grid, [{ x: 1, y: 1 }])).toBe(true);
   });
 
   test('keeps a 2x2 block stable across generations', () => {
-    const width = 8;
-    const height = 8;
     const block = [
       { x: 2, y: 2 },
       { x: 3, y: 2 },
       { x: 2, y: 3 },
       { x: 3, y: 3 },
     ];
-
-    let grid = createGrid({ width, height });
-    setCells(grid, width, block, 1);
+    const grid = new Grid(8, 8, block);
 
     for (let i = 0; i < 5; i += 1) {
-      expect(hasCells(grid, width, block)).toBe(true);
-      grid = stepGrid(grid, width, height);
+      expect(hasCells(grid, block)).toBe(true);
+      grid.step();
     }
   });
 
   test('moves a glider diagonally over four ticks', () => {
-    const width = 10;
-    const height = 10;
-    let grid = createGrid({ width, height });
-
     const gliderStart = [
       { x: 2, y: 1 },
       { x: 3, y: 2 },
@@ -119,35 +96,26 @@ describe('grid', () => {
       { x: 3, y: 4 },
       { x: 4, y: 4 },
     ];
-
-    setCells(grid, width, gliderStart, 1);
+    const grid = new Grid(10, 10, gliderStart);
 
     for (let i = 0; i < 4; i += 1) {
-      grid = stepGrid(grid, width, height);
+      grid.step();
     }
 
-    expect(hasCells(grid, width, gliderAfterFourTicks)).toBe(true);
+    expect(hasCells(grid, gliderAfterFourTicks)).toBe(true);
   });
 
   test('wraps neighbor checks across torus edges', () => {
-    const width = 5;
-    const height = 5;
-    const grid = createGrid({ width, height });
-    setCells(
-      grid,
-      width,
-      [
-        { x: 0, y: 0 },
-        { x: 0, y: 4 },
-        { x: 4, y: 0 },
-      ],
-      1,
-    );
+    const grid = new Grid(5, 5, [
+      { x: 0, y: 0 },
+      { x: 0, y: 4 },
+      { x: 4, y: 0 },
+    ]);
 
-    const next = stepGrid(grid, width, height);
+    grid.step();
 
     expect(
-      hasCells(next, width, [
+      hasCells(grid, [
         { x: 0, y: 0 },
         { x: 0, y: 4 },
         { x: 4, y: 0 },
@@ -156,71 +124,161 @@ describe('grid', () => {
     ).toBe(true);
   });
 
-  test('does not mutate the input grid when stepping generations', () => {
-    const width = 6;
-    const height = 6;
-    const grid = createGrid({ width, height });
-    setCells(
-      grid,
-      width,
+  test('does not wrap neighbor checks on flat topology', () => {
+    const grid = new Grid(
+      5,
+      5,
       [
+        { x: 0, y: 0 },
+        { x: 0, y: 4 },
+        { x: 4, y: 0 },
+      ],
+      'flat',
+    );
+
+    grid.step();
+
+    expect([...grid.cells()].every((cell) => cell.alive === 0)).toBe(true);
+  });
+
+  test('step mutates grid state and clone isolates snapshots', () => {
+    const grid = new Grid(6, 6, [
+      { x: 2, y: 1 },
+      { x: 3, y: 2 },
+      { x: 1, y: 3 },
+      { x: 2, y: 3 },
+      { x: 3, y: 3 },
+    ]);
+    const snapshot = grid.clone();
+
+    grid.step();
+
+    expect(
+      hasCells(snapshot, [
         { x: 2, y: 1 },
         { x: 3, y: 2 },
         { x: 1, y: 3 },
         { x: 2, y: 3 },
         { x: 3, y: 3 },
+      ]),
+    ).toBe(true);
+    expect([...grid.cells()]).not.toEqual([...snapshot.cells()]);
+  });
+
+  test('apply pastes source cells and compare counts mismatches', () => {
+    const base = new Grid(4, 4, [], 'flat');
+    const source = new Grid(
+      2,
+      2,
+      [
+        { x: 0, y: 0 },
+        { x: 1, y: 1 },
       ],
-      1,
+      'flat',
     );
 
-    const before = [...grid];
-    const next = stepGrid(grid, width, height);
+    expect(base.compare(source, { x: 1, y: 1 })).toBe(2);
 
-    expect([...grid]).toEqual(before);
-    expect(next).not.toBe(grid);
+    base.apply(source, { x: 1, y: 1 });
+
+    expect(base.compare(source, { x: 1, y: 1 })).toBe(0);
+    expect(
+      hasCells(base, [
+        { x: 1, y: 1 },
+        { x: 2, y: 2 },
+      ]),
+    ).toBe(true);
+  });
+
+  test('apply respects destination topology behavior', () => {
+    const source = new Grid(2, 2, [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 0, y: 1 },
+      { x: 1, y: 1 },
+    ]);
+
+    const torus = new Grid(4, 4);
+    torus.apply(source, { x: 3, y: 3 });
+    expect(
+      hasCells(torus, [
+        { x: 3, y: 3 },
+        { x: 0, y: 3 },
+        { x: 3, y: 0 },
+        { x: 0, y: 0 },
+      ]),
+    ).toBe(true);
+
+    const flat = new Grid(4, 4, [], 'flat');
+    flat.apply(source, { x: 3, y: 3 });
+    expect(hasCells(flat, [{ x: 3, y: 3 }])).toBe(true);
   });
 
   test('packs byte-per-cell grids into a compact bit array', () => {
-    const width = 5;
-    const height = 2;
-    const grid = new Uint8Array([1, 0, 1, 1, 0, 0, 1, 0, 1, 0]);
+    const grid = new Grid(5, 2, [
+      { x: 0, y: 0 },
+      { x: 2, y: 0 },
+      { x: 3, y: 0 },
+      { x: 1, y: 1 },
+      { x: 3, y: 1 },
+    ]);
 
-    const packed = packGridBits(grid, width, height);
+    const packed = grid.toPacked();
 
     expect([...new Uint8Array(packed)]).toEqual([0b1011_0010, 0b1000_0000]);
   });
 
-  test('unpacks bit arrays back into byte-per-cell grids', () => {
-    const width = 5;
-    const height = 2;
+  test('fromPacked restores bit arrays into byte-per-cell grid values', () => {
     const packed = new Uint8Array([0b1011_0010, 0b1000_0000]);
 
-    const unpacked = unpackGridBits(packed, width, height);
+    const grid = Grid.fromPacked(packed, 5, 2, 'flat');
 
-    expect([...unpacked]).toEqual([1, 0, 1, 1, 0, 0, 1, 0, 1, 0]);
+    expect([...grid.cells()].map((cell) => cell.alive)).toEqual([
+      1, 0, 1, 1, 0, 0, 1, 0, 1, 0,
+    ]);
   });
 
-  test('round-trips between byte and packed representations', () => {
-    const width = 11;
-    const height = 7;
-    const grid = createGrid({ width, height });
+  test('round-trips between unpacked and packed representations', () => {
+    const grid = new Grid(11, 7, [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 4, y: 2 },
+      { x: 6, y: 5 },
+      { x: 10, y: 6 },
+    ]);
 
-    setCells(
-      grid,
-      width,
-      [
-        { x: 0, y: 0 },
-        { x: 10, y: 0 },
-        { x: 4, y: 2 },
-        { x: 6, y: 5 },
-        { x: 10, y: 6 },
-      ],
-      1,
-    );
+    const repacked = grid.toPacked();
+    const unpacked = Grid.fromPacked(repacked, 11, 7);
 
-    const repacked = packGridBits(grid, width, height);
-    const unpacked = unpackGridBits(repacked, width, height);
+    expect([...unpacked.cells()]).toEqual([...grid.cells()]);
+  });
 
-    expect([...unpacked]).toEqual([...grid]);
+  test('returns an unpacked copy of the grid bytes', () => {
+    const grid = new Grid(3, 2, [
+      { x: 1, y: 0 },
+      { x: 0, y: 1 },
+    ]);
+
+    const bytes = grid.toUnpacked();
+    expect([...bytes]).toEqual([0, 1, 0, 1, 0, 0]);
+
+    bytes[0] = 1;
+    expect(grid.isCellAlive(0, 0)).toBe(false);
+  });
+
+  test('iterates cells in row-major order', () => {
+    const grid = new Grid(3, 2, [
+      { x: 1, y: 0 },
+      { x: 2, y: 1 },
+    ]);
+
+    expect([...grid.cells()]).toEqual([
+      { x: 0, y: 0, alive: 0 },
+      { x: 1, y: 0, alive: 1 },
+      { x: 2, y: 0, alive: 0 },
+      { x: 0, y: 1, alive: 0 },
+      { x: 1, y: 1, alive: 0 },
+      { x: 2, y: 1, alive: 1 },
+    ]);
   });
 });

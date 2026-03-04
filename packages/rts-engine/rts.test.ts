@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { unpackGridBits } from '#conway-core';
+import { Grid } from '#conway-core';
 
 import {
   BASE_FOOTPRINT_HEIGHT,
@@ -69,8 +69,8 @@ function getCellAlive(
   height: number,
   cell: Cell,
 ): boolean {
-  const unpackedGrid = unpackGridBits(grid, width, height);
-  return unpackedGrid[cell.y * width + cell.x] === 1;
+  const unpackedGrid = Grid.fromPacked(grid, width, height, 'flat');
+  return unpackedGrid.isCellAlive(cell.x, cell.y);
 }
 
 function getBuildOutcomes(

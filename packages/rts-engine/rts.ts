@@ -1,5 +1,5 @@
 import type { CellUpdate } from '#conway-core';
-import { applyUpdates, createGrid, packGridBits, stepGrid } from '#conway-core';
+import { Grid } from '#conway-core';
 import {
   determineMatchOutcome,
   type MatchOutcome,
@@ -40,7 +40,6 @@ import {
   normalizePlacementTransform,
   projectPlacementToWorld,
   projectTemplateWithTransform,
-  wrapCoordinate,
   type PlacementBounds,
   type TransformTemplateInput,
   type PlacementTransformInput,
@@ -464,7 +463,7 @@ export interface RoomState {
   readonly height: number;
   generation: number;
   tick: number;
-  grid: Uint8Array;
+  grid: Grid;
   readonly templateMap: ReadonlyMap<string, StructureTemplate>;
   templates: StructureTemplate[];
   teams: Map<number, TeamState>;
@@ -571,6 +570,7 @@ interface StructureTemplateRowsOptions {
 interface BuildPlacementProjectionResult {
   transform: PlacementTransformState;
   transformedTemplate: TransformedTemplate;
+  templateGrid: Grid;
   bounds: PlacementBounds;
   areaCells: Vector2[];
   footprint: Vector2[];
@@ -609,6 +609,15 @@ export class RtsEngine {
     RoomState,
     RtsEngine
   >();
+
+  private static readonly aliveIntegrityPatch = new Grid(
+    1,
+    1,
+    [{ x: 0, y: 0 }],
+    'flat',
+  );
+
+  private static readonly deadIntegrityPatch = new Grid(1, 1, [], 'flat');
 
   public static readonly CORE_STRUCTURE_TEMPLATE =
     RtsEngine.createTemplateFromRows({
@@ -732,6 +741,29 @@ export class RtsEngine {
     const updates = engine.pendingLegacyUpdates;
     engine.pendingLegacyUpdates = [];
     return updates;
+  }
+
+  private static applyLegacyUpdates(
+    room: RoomState,
+    updates: readonly CellUpdate[],
+  ): void {
+    for (const update of updates) {
+      if (!update) {
+        continue;
+      }
+
+      const x = Number(update.x);
+      const y = Number(update.y);
+      if (!Number.isInteger(x) || !Number.isInteger(y)) {
+        continue;
+      }
+
+      if (x < 0 || y < 0 || x >= room.width || y >= room.height) {
+        continue;
+      }
+
+      room.grid.setCell(x, y, update.alive);
+    }
   }
 
   private static hashSpawnSeed(
@@ -1105,31 +1137,15 @@ export class RtsEngine {
     return null;
   }
 
-  private static gridCellAt(
-    grid: Uint8Array,
-    width: number,
-    height: number,
-    x: number,
-    y: number,
-  ): number {
-    if (x < 0 || y < 0 || x >= width || y >= height) {
-      return 0;
-    }
-    return grid[y * width + x];
-  }
-
-  private static setGridCell(
-    grid: Uint8Array,
-    width: number,
-    height: number,
-    x: number,
-    y: number,
-    value: number,
-  ): void {
-    if (x < 0 || y < 0 || x >= width || y >= height) {
-      return;
-    }
-    grid[y * width + x] = value ? 1 : 0;
+  private static createTransformedTemplateGrid(
+    transformedTemplate: TransformedTemplate,
+  ): Grid {
+    return new Grid(
+      transformedTemplate.width,
+      transformedTemplate.height,
+      transformedTemplate.occupiedCells,
+      'flat',
+    );
   }
 
   private static transformedTemplateFitsRoom(
@@ -1190,6 +1206,8 @@ export class RtsEngine {
   ): BuildPlacementValidationResult {
     const transform = normalizePlacementTransform(transformInput);
     const transformedTemplate = template.project(transform);
+    const templateGrid =
+      RtsEngine.createTransformedTemplateGrid(transformedTemplate);
     const bounds: PlacementBounds = {
       x,
       y,
@@ -1202,6 +1220,7 @@ export class RtsEngine {
         projection: {
           transform,
           transformedTemplate,
+          templateGrid,
           bounds,
           areaCells: [],
           footprint: [],
@@ -1228,6 +1247,7 @@ export class RtsEngine {
       projection: {
         transform,
         transformedTemplate,
+        templateGrid,
         bounds,
         areaCells: projected.areaCells,
         footprint: projected.occupiedCells,
@@ -1240,46 +1260,18 @@ export class RtsEngine {
 
   private static compareTemplate(
     room: RoomState,
-    transformedTemplate: TransformedTemplate,
+    templateGrid: Grid,
     bounds: PlacementBounds,
   ): number {
-    let diffCount = 0;
-    for (let ty = 0; ty < transformedTemplate.height; ty += 1) {
-      for (let tx = 0; tx < transformedTemplate.width; tx += 1) {
-        const templateCell =
-          transformedTemplate.cells[ty * transformedTemplate.width + tx];
-        const roomCell = RtsEngine.gridCellAt(
-          room.grid,
-          room.width,
-          room.height,
-          wrapCoordinate(bounds.x + tx, room.width),
-          wrapCoordinate(bounds.y + ty, room.height),
-        );
-        if (templateCell !== roomCell) {
-          diffCount += 1;
-        }
-      }
-    }
-    return diffCount;
+    return room.grid.compare(templateGrid, { x: bounds.x, y: bounds.y });
   }
 
   private static applyTemplate(
     room: RoomState,
-    transformedTemplate: TransformedTemplate,
+    templateGrid: Grid,
     bounds: PlacementBounds,
   ): boolean {
-    for (let ty = 0; ty < transformedTemplate.height; ty += 1) {
-      for (let tx = 0; tx < transformedTemplate.width; tx += 1) {
-        RtsEngine.setGridCell(
-          room.grid,
-          room.width,
-          room.height,
-          wrapCoordinate(bounds.x + tx, room.width),
-          wrapCoordinate(bounds.y + ty, room.height),
-          transformedTemplate.cells[ty * transformedTemplate.width + tx],
-        );
-      }
-    }
+    room.grid.apply(templateGrid, { x: bounds.x, y: bounds.y });
 
     return true;
   }
@@ -1293,7 +1285,7 @@ export class RtsEngine {
     if (
       !RtsEngine.applyTemplate(
         room,
-        event.projection.transformedTemplate,
+        event.projection.templateGrid,
         event.projection.bounds,
       )
     ) {
@@ -1319,7 +1311,6 @@ export class RtsEngine {
     structure: Structure,
   ): readonly IntegrityMaskCell[] {
     const transformedTemplate = structure.projectTemplate();
-
     const sourceChecks =
       structure.template.checks.length > 0
         ? transformedTemplate.checks
@@ -1347,15 +1338,9 @@ export class RtsEngine {
     const mismatches: IntegrityMismatchCell[] = [];
 
     for (const check of RtsEngine.getIntegrityMaskCells(structure)) {
-      const x = wrapCoordinate(structure.x + check.x, room.width);
-      const y = wrapCoordinate(structure.y + check.y, room.height);
-      const actual = RtsEngine.gridCellAt(
-        room.grid,
-        room.width,
-        room.height,
-        x,
-        y,
-      );
+      const x = structure.x + check.x;
+      const y = structure.y + check.y;
+      const actual = room.grid.isCellAlive(x, y) ? 1 : 0;
       if (actual !== check.expected) {
         mismatches.push({ x, y, expected: check.expected });
       }
@@ -1369,13 +1354,11 @@ export class RtsEngine {
     mismatches: readonly IntegrityMismatchCell[],
   ): void {
     for (const mismatch of mismatches) {
-      RtsEngine.setGridCell(
-        room.grid,
-        room.width,
-        room.height,
-        mismatch.x,
-        mismatch.y,
-        mismatch.expected,
+      room.grid.apply(
+        mismatch.expected === 1
+          ? RtsEngine.aliveIntegrityPatch
+          : RtsEngine.deadIntegrityPatch,
+        { x: mismatch.x, y: mismatch.y },
       );
     }
   }
@@ -1411,9 +1394,7 @@ export class RtsEngine {
         x <= Math.min(room.width - 1, center.x + radius);
         x += 1
       ) {
-        if (
-          RtsEngine.gridCellAt(room.grid, room.width, room.height, x, y) === 1
-        ) {
+        if (room.grid.isCellAlive(x, y)) {
           count += 1;
         }
       }
@@ -1429,14 +1410,7 @@ export class RtsEngine {
           continue;
         }
 
-        RtsEngine.setGridCell(
-          room.grid,
-          room.width,
-          room.height,
-          baseTopLeft.x + bx,
-          baseTopLeft.y + by,
-          1,
-        );
+        room.grid.setCell(baseTopLeft.x + bx, baseTopLeft.y + by, 1);
       }
     }
   }
@@ -1624,7 +1598,7 @@ export class RtsEngine {
     try {
       diffCells = RtsEngine.compareTemplate(
         room,
-        projectedPlacement.projection.transformedTemplate,
+        projectedPlacement.projection.templateGrid,
         projectedPlacement.projection.bounds,
       );
     } catch {
@@ -1932,12 +1906,13 @@ export class RtsEngine {
           room,
           structure,
         );
-        if (mismatches.length === 0) {
+        const mismatchCount = mismatches.length;
+        if (mismatchCount === 0) {
           structure.setActive(true);
           continue;
         }
 
-        const restoreCost = mismatches.length * INTEGRITY_HP_COST_PER_CELL;
+        const restoreCost = mismatchCount * INTEGRITY_HP_COST_PER_CELL;
         const hpBefore = structure.hp;
 
         if (structure.isCore && !coreHpBeforeResolution.has(team.id)) {
@@ -2106,7 +2081,7 @@ export class RtsEngine {
     const room = {
       generation: 0,
       tick: 0,
-      grid: createGrid({ width: options.width, height: options.height }),
+      grid: new Grid(options.width, options.height),
       templates,
       teams: new Map<number, TeamState>(),
       players: new Map<string, RoomPlayerState>(),
@@ -2667,7 +2642,7 @@ export class RtsEngine {
       height: room.height,
       generation: room.generation,
       tick: room.tick,
-      grid: packGridBits(room.grid, room.width, room.height),
+      grid: room.grid.toPacked(),
       teams,
     };
   }
@@ -2751,10 +2726,10 @@ export class RtsEngine {
   private static applyLegacyUpdatesAndAdvanceGeneration(room: RoomState): void {
     const pendingLegacyUpdates = RtsEngine.drainPendingLegacyUpdates(room);
     if (pendingLegacyUpdates.length > 0) {
-      applyUpdates(room.grid, pendingLegacyUpdates, room.width, room.height);
+      RtsEngine.applyLegacyUpdates(room, pendingLegacyUpdates);
     }
 
-    room.grid = stepGrid(room.grid, room.width, room.height);
+    room.grid.step();
     room.tick += 1;
     room.generation += 1;
   }
