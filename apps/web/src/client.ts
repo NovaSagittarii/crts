@@ -64,6 +64,8 @@ import {
   clearReconnectNotice,
   createMatchScreenViewState,
   getReconnectNoticeCopy,
+  hasVisibleReconnectNotice,
+  isReconnectSyncing,
   markReconnectPending,
   RECONNECT_NOTICE_MS,
   SCREEN_TRANSITION_NOTICE_MS,
@@ -1167,7 +1169,7 @@ function scheduleTacticalOverlayTick(nowMs: number): void {
 
   if (
     lastAuthoritativeStateAtMs !== null &&
-    !matchScreenState.reconnectNotice
+    !hasVisibleReconnectNotice(matchScreenState)
   ) {
     const staleTickAt =
       lastAuthoritativeStateAtMs + DEFAULT_SYNC_STALE_THRESHOLD_MS + 1;
@@ -1336,7 +1338,7 @@ function renderTacticalOverlay(nowMs = Date.now()): void {
     previewReasonCopy: previewReasonEl.textContent,
     latestActionCopy: overlayTeamFeedbackCopy,
     sync: {
-      reconnectPending: Boolean(matchScreenState.reconnectNotice),
+      reconnectPending: isReconnectSyncing(matchScreenState),
       lastAuthoritativeUpdateAtMs: lastAuthoritativeStateAtMs,
       staleThresholdMs: DEFAULT_SYNC_STALE_THRESHOLD_MS,
       hintCopy: 'Syncing tactical data from server updates...',

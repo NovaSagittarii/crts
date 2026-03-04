@@ -5,6 +5,8 @@ import {
   clearReconnectNotice,
   createMatchScreenViewState,
   getReconnectNoticeCopy,
+  hasVisibleReconnectNotice,
+  isReconnectSyncing,
   markReconnectPending,
   RECONNECT_SYNCED_COPY,
   RECONNECT_SYNCING_COPY,
@@ -45,5 +47,23 @@ describe('match-screen-view-model helpers', () => {
 
     const cleared = clearReconnectNotice(resolved.state);
     expect(getReconnectNoticeCopy(cleared)).toBeNull();
+  });
+
+  test('exposes reconnect mode helpers for UI sync hints', () => {
+    const base = createMatchScreenViewState('active');
+    expect(hasVisibleReconnectNotice(base)).toBe(false);
+    expect(isReconnectSyncing(base)).toBe(false);
+
+    const reconnecting = markReconnectPending(base);
+    expect(hasVisibleReconnectNotice(reconnecting)).toBe(true);
+    expect(isReconnectSyncing(reconnecting)).toBe(true);
+
+    const resolved = applyAuthoritativeStatus(reconnecting, 'active').state;
+    expect(hasVisibleReconnectNotice(resolved)).toBe(true);
+    expect(isReconnectSyncing(resolved)).toBe(false);
+
+    const cleared = clearReconnectNotice(resolved);
+    expect(hasVisibleReconnectNotice(cleared)).toBe(false);
+    expect(isReconnectSyncing(cleared)).toBe(false);
   });
 });
