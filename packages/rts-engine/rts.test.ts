@@ -634,7 +634,7 @@ describe('rts', () => {
       height: 90,
     });
     const teamOne = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
-    RtsEngine.addPlayerToRoom(room, 'p2', 'Bob');
+    const teamTwo = RtsEngine.addPlayerToRoom(room, 'p2', 'Bob');
 
     const queuedBuild = RtsEngine.requestBuild(room, 'p1', {
       templateId: 'block',
@@ -659,6 +659,9 @@ describe('rts', () => {
     });
     expect(wrongOwner.accepted).toBe(false);
     expect(wrongOwner.reason).toBe('wrong-owner');
+    expect(requireTeamPayload(room, teamTwo.id).pendingDestroys).toHaveLength(
+      0,
+    );
 
     const invalidTarget = RtsEngine.queueDestroyEvent(room, 'p1', {
       structureKey: 'missing-structure-key',
