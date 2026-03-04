@@ -13,7 +13,13 @@ import {
   type Vector2,
 } from './geometry.js';
 import {
-  CORE_STARTING_HP,
+  CORE_TEMPLATE_ID,
+  CORE_TEMPLATE_PADDING,
+  CORE_TEMPLATE_ROWS,
+  padTemplateGrid,
+  parseTemplateRows,
+} from './core-template-layout.js';
+import {
   DEFAULT_SPAWN_CAPACITY,
   DEFAULT_STARTING_RESOURCES,
   DEFAULT_TEAM_TERRITORY_RADIUS,
@@ -21,7 +27,6 @@ import {
   INTEGRITY_HP_COST_PER_CELL,
   MAX_DELAY_TICKS,
   SPAWN_MIN_WRAPPED_DISTANCE,
-  STRUCTURE_STARTING_HP,
 } from './gameplay-rules.js';
 import {
   collectBuildZoneContributors,
@@ -37,12 +42,13 @@ import {
   projectTemplateWithTransform,
   wrapCoordinate,
   type PlacementBounds,
+  type TransformTemplateInput,
   type PlacementTransformInput,
   type PlacementTransformState,
   type TransformedTemplate,
 } from './placement-transform.js';
 
-export interface StructureTemplate {
+export interface StructureTemplateOptions {
   id: string;
   name: string;
   width: number;
@@ -51,8 +57,114 @@ export interface StructureTemplate {
   activationCost: number;
   income: number;
   buildArea: number;
+  startingHp: number;
   checks: Vector2[];
   requiresDestroyConfirm?: boolean;
+}
+
+export type StructureTemplateInput =
+  | StructureTemplate
+  | StructureTemplateOptions;
+
+export interface StructureInstantiationOptions {
+  key: string;
+  x: number;
+  y: number;
+  transform: PlacementTransformState;
+  active: boolean;
+  isCore: boolean;
+}
+
+interface StructureOptions extends StructureInstantiationOptions {
+  template: StructureTemplate;
+  hp: number;
+}
+
+export class StructureTemplate implements TransformTemplateInput {
+  public readonly id: string;
+
+  public readonly name: string;
+
+  public readonly width: number;
+
+  public readonly height: number;
+
+  public readonly cells: Uint8Array;
+
+  public readonly activationCost: number;
+
+  public readonly income: number;
+
+  public readonly buildArea: number;
+
+  public readonly startingHp: number;
+
+  public readonly checks: Vector2[];
+
+  public readonly requiresDestroyConfirm: boolean;
+
+  public constructor(options: StructureTemplateOptions) {
+    this.id = options.id;
+    this.name = options.name;
+    this.width = options.width;
+    this.height = options.height;
+    this.cells = new Uint8Array(options.cells);
+    this.activationCost = options.activationCost;
+    this.income = options.income;
+    this.buildArea = options.buildArea;
+    if (!Number.isFinite(options.startingHp) || options.startingHp <= 0) {
+      throw new Error('Template starting HP must be greater than zero');
+    }
+    this.startingHp = options.startingHp;
+    this.checks = options.checks.map((check) => ({ x: check.x, y: check.y }));
+    this.requiresDestroyConfirm = Boolean(options.requiresDestroyConfirm);
+  }
+
+  public static from(input: StructureTemplateInput): StructureTemplate {
+    return input instanceof StructureTemplate
+      ? input
+      : new StructureTemplate(input);
+  }
+
+  public instantiate(options: StructureInstantiationOptions): Structure {
+    return new Structure({
+      template: this,
+      ...options,
+      hp: this.startingHp,
+    });
+  }
+
+  public project(transform: PlacementTransformState): TransformedTemplate {
+    return projectTemplateWithTransform(this, transform);
+  }
+
+  public projectPlacement(
+    x: number,
+    y: number,
+    transform: PlacementTransformState,
+    roomWidth: number,
+    roomHeight: number,
+  ): ReturnType<typeof projectPlacementToWorld> {
+    return projectPlacementToWorld(
+      this.project(transform),
+      x,
+      y,
+      roomWidth,
+      roomHeight,
+    );
+  }
+
+  public toSummary(): StructureTemplateSummary {
+    return {
+      id: this.id,
+      name: this.name,
+      width: this.width,
+      height: this.height,
+      activationCost: this.activationCost,
+      income: this.income,
+      buildArea: this.buildArea,
+    };
+  }
 }
 
 export interface StructureTemplateSummary {
@@ -102,16 +214,100 @@ interface AcceptedBuildEvent extends BuildEvent {
   projection: BuildPlacementProjectionResult;
 }
 
-export interface StructureInstance {
-  key: string;
-  templateId: string;
-  x: number;
-  y: number;
-  transform: PlacementTransformState;
-  active: boolean;
-  hp: number;
-  isCore: boolean;
-  buildRadius: number;
+export class Structure {
+  public readonly key: string;
+
+  public readonly template: StructureTemplate;
+
+  public readonly x: number;
+
+  public readonly y: number;
+
+  public readonly transform: PlacementTransformState;
+
+  public active: boolean;
+
+  public hp: number;
+
+  public readonly isCore: boolean;
+
+  public constructor(options: StructureOptions) {
+    this.key = options.key;
+    this.template = options.template;
+    this.x = options.x;
+    this.y = options.y;
+    this.transform = options.transform;
+    this.active = options.active;
+    this.hp = options.hp;
+    this.isCore = options.isCore;
+  }
+
+  public get templateId(): string {
+    return this.template.id;
+  }
+
+  public get buildRadius(): number {
+    return this.active && !this.isCore ? this.template.buildArea : 0;
+  }
+
+  public projectTemplate(): TransformedTemplate {
+    return this.template.project(this.transform);
+  }
+
+  public projectPlacement(
+    roomWidth: number,
+    roomHeight: number,
+  ): ReturnType<typeof projectPlacementToWorld> {
+    return this.template.projectPlacement(
+      this.x,
+      this.y,
+      this.transform,
+      roomWidth,
+      roomHeight,
+    );
+  }
+
+  public destroy(): void {
+    this.hp = 0;
+    this.active = false;
+  }
+
+  public deactivate(): void {
+    this.active = false;
+  }
+
+  public setActive(next: boolean): void {
+    this.active = this.hp > 0 && next;
+  }
+
+  public applyIntegrityDamage(amount: number): void {
+    this.hp -= amount;
+  }
+
+  public toPayload(roomWidth: number, roomHeight: number): StructurePayload {
+    const transformedTemplate = this.projectTemplate();
+    const projection = projectPlacementToWorld(
+      transformedTemplate,
+      this.x,
+      this.y,
+      roomWidth,
+      roomHeight,
+    );
+    return {
+      key: this.key,
+      templateId: this.template.id,
+      templateName: this.template.name,
+      x: this.x,
+      y: this.y,
+      width: transformedTemplate.width,
+      height: transformedTemplate.height,
+      hp: this.hp,
+      active: this.active,
+      isCore: this.isCore,
+      requiresDestroyConfirm: this.template.requiresDestroyConfirm,
+      footprint: projection.occupiedCells,
+    };
+  }
 }
 
 export interface BuildPreviewProjection {
@@ -249,7 +445,7 @@ export interface TeamState {
   territoryRadius: number;
   baseTopLeft: Vector2;
   defeated: boolean;
-  structures: Map<string, StructureInstance>;
+  structures: Map<string, Structure>;
   pendingBuildEvents: BuildEvent[];
   pendingDestroyEvents: DestroyEvent[];
   buildStats: BuildStats;
@@ -311,7 +507,7 @@ export interface RoomStatePayload {
   teams: TeamPayload[];
 }
 
-export interface QueueBuildResult {
+interface BuildResultBase {
   accepted: boolean;
   error?: string;
   reason?: BuildRejectionReason;
@@ -319,12 +515,18 @@ export interface QueueBuildResult {
   needed?: number;
   current?: number;
   deficit?: number;
+}
+
+export interface BuildPreviewResult extends BuildResultBase {
+  transform: PlacementTransformState;
+  footprint: Vector2[];
+  illegalCells: Vector2[];
+  bounds: PlacementBounds;
+}
+
+export interface QueueBuildResult extends BuildResultBase {
   eventId?: number;
   executeTick?: number;
-  transform?: PlacementTransformState;
-  footprint?: Vector2[];
-  illegalCells?: Vector2[];
-  bounds?: PlacementBounds;
 }
 
 export interface QueueDestroyResult {
@@ -350,27 +552,20 @@ export interface CreateRoomOptions {
   name: string;
   width: number;
   height: number;
-  templates?: StructureTemplate[];
+  templates?: StructureTemplateInput[];
 }
 
 interface StructureTemplateRowsOptions {
   id: string;
   name: string;
-  rows: string[];
+  rows: readonly string[];
   activationCost?: number;
   income?: number;
   buildArea?: number;
+  startingHp: number;
   requiresDestroyConfirm?: boolean;
   padding?: number;
   checked?: boolean;
-}
-
-const CORE_TEMPLATE_ID = '__core__';
-
-interface PackedGrid {
-  width: number;
-  height: number;
-  cells: Uint8Array;
 }
 
 interface BuildPlacementProjectionResult {
@@ -419,10 +614,11 @@ export class RtsEngine {
     RtsEngine.createTemplateFromRows({
       id: CORE_TEMPLATE_ID,
       name: 'Core',
-      rows: ['##.##', '##.##', '.....', '##.##', '##.##'],
+      rows: CORE_TEMPLATE_ROWS,
       buildArea: 0,
+      startingHp: 500,
       requiresDestroyConfirm: true,
-      padding: 3,
+      padding: CORE_TEMPLATE_PADDING,
     });
 
   private readonly roomId: string;
@@ -468,9 +664,15 @@ export class RtsEngine {
   private static getRoomEngine(room: RoomState): RtsEngine {
     const engine = RtsEngine.roomEngineByState.get(room);
     if (!engine) {
-      throw new Error('Room state is not bound to an engine instance');
+      throw new Error(
+        'RoomState must come from RtsEngine.createRoomState or RtsEngine.createRoom',
+      );
     }
     return engine;
+  }
+
+  public static hasRoomEngine(room: RoomState): boolean {
+    return RtsEngine.roomEngineByState.has(room);
   }
 
   public static getRoomId(room: RoomState): string {
@@ -511,7 +713,7 @@ export class RtsEngine {
     return teamId;
   }
 
-  private static allocateBuildEventId(room: RoomState): number {
+  private static allocateEventId(room: RoomState): number {
     const engine = RtsEngine.getRoomEngine(room);
     const eventId = engine.nextBuildEventId;
     engine.nextBuildEventId += 1;
@@ -546,61 +748,6 @@ export class RtsEngine {
     return hash >>> 0;
   }
 
-  private static parseTemplateRows(rows: string[]): PackedGrid {
-    if (rows.length === 0) {
-      throw new Error('Template rows must not be empty');
-    }
-
-    const width = rows[0].length;
-    if (width === 0) {
-      throw new Error('Template rows must not be empty strings');
-    }
-
-    for (const row of rows) {
-      if (row.length !== width) {
-        throw new Error('Template rows must have a consistent width');
-      }
-    }
-
-    const height = rows.length;
-    const cells = new Uint8Array(width * height);
-
-    for (let y = 0; y < height; y += 1) {
-      for (let x = 0; x < width; x += 1) {
-        const symbol = rows[y][x];
-        if (symbol === '#') {
-          cells[y * width + x] = 1;
-        } else if (symbol === '.') {
-          cells[y * width + x] = 0;
-        } else {
-          throw new Error(`Unsupported template symbol: ${symbol}`);
-        }
-      }
-    }
-
-    return { width, height, cells };
-  }
-
-  private static padTemplate(
-    template: PackedGrid,
-    padding: number,
-  ): PackedGrid {
-    const paddedWidth = template.width + padding * 2;
-    const paddedHeight = template.height + padding * 2;
-    const paddedCells = new Uint8Array(paddedWidth * paddedHeight);
-    for (let i = 0; i < template.height; ++i) {
-      for (let j = 0; j < template.width; ++j) {
-        paddedCells[(i + padding) * paddedWidth + (j + padding)] =
-          template.cells[i * template.width + j];
-      }
-    }
-    return {
-      width: paddedWidth,
-      height: paddedHeight,
-      cells: paddedCells,
-    };
-  }
-
   private static createTemplateFromRows({
     id,
     name,
@@ -609,11 +756,12 @@ export class RtsEngine {
     income = 0,
     requiresDestroyConfirm = false,
     buildArea = 0,
+    startingHp,
     padding = 0,
   }: StructureTemplateRowsOptions): StructureTemplate {
-    const parsed = RtsEngine.parseTemplateRows(rows);
-    const padded = RtsEngine.padTemplate(parsed, padding);
-    return {
+    const parsed = parseTemplateRows(rows);
+    const padded = padTemplateGrid(parsed, padding);
+    return new StructureTemplate({
       id: id,
       name: name,
       width: padded.width,
@@ -622,10 +770,11 @@ export class RtsEngine {
       activationCost: activationCost,
       income: income,
       buildArea: buildArea,
+      startingHp: startingHp,
       requiresDestroyConfirm: requiresDestroyConfirm,
       checks: [], // TODO: implement checked and checks
       // checked,
-    };
+    });
   }
 
   private static appendTimelineEvent(
@@ -783,16 +932,13 @@ export class RtsEngine {
   }
 
   private static projectPendingDestroys(
-    room: RoomState,
     team: TeamState,
   ): PendingDestroyPayload[] {
     const pending = [...team.pendingDestroyEvents];
     pending.sort(RtsEngine.compareDestroyEvents);
     return pending.map((event) => {
       const structure = team.structures.get(event.structureKey);
-      const template = structure
-        ? RtsEngine.getStructureTemplate(room, structure)
-        : null;
+      const template = structure?.template;
 
       return {
         eventId: event.id,
@@ -802,7 +948,7 @@ export class RtsEngine {
         templateName: template?.name ?? structure?.templateId ?? 'Unknown',
         x: structure?.x ?? 0,
         y: structure?.y ?? 0,
-        requiresDestroyConfirm: Boolean(template?.requiresDestroyConfirm),
+        requiresDestroyConfirm: template?.requiresDestroyConfirm ?? false,
       };
     });
   }
@@ -821,37 +967,7 @@ export class RtsEngine {
         continue;
       }
 
-      const template = RtsEngine.getStructureTemplate(room, structure);
-      if (!template) {
-        continue;
-      }
-
-      const transformedTemplate = projectTemplateWithTransform(
-        template,
-        structure.transform,
-      );
-      const projection = projectPlacementToWorld(
-        transformedTemplate,
-        structure.x,
-        structure.y,
-        room.width,
-        room.height,
-      );
-
-      projected.push({
-        key: structure.key,
-        templateId: structure.templateId,
-        templateName: template.name,
-        x: structure.x,
-        y: structure.y,
-        width: transformedTemplate.width,
-        height: transformedTemplate.height,
-        hp: structure.hp,
-        active: structure.active,
-        isCore: structure.isCore,
-        requiresDestroyConfirm: Boolean(template.requiresDestroyConfirm),
-        footprint: projection.occupiedCells,
-      });
+      projected.push(structure.toPayload(room.width, room.height));
     }
 
     return projected;
@@ -966,18 +1082,7 @@ export class RtsEngine {
     }
   }
 
-  private static getStructureTemplate(
-    room: RoomState,
-    structure: StructureInstance,
-  ): StructureTemplate | null {
-    if (structure.isCore) {
-      return RtsEngine.CORE_STRUCTURE_TEMPLATE;
-    }
-
-    return room.templateMap.get(structure.templateId) ?? null;
-  }
-
-  private static getCoreStructure(team: TeamState): StructureInstance | null {
+  private static getCoreStructure(team: TeamState): Structure | null {
     for (const structure of team.structures.values()) {
       if (structure.isCore) {
         return structure;
@@ -1061,15 +1166,7 @@ export class RtsEngine {
         continue;
       }
 
-      const template = RtsEngine.getStructureTemplate(room, structure);
-      if (!template) {
-        continue;
-      }
-
-      const transformedTemplate = projectTemplateWithTransform(
-        template,
-        structure.transform,
-      );
+      const transformedTemplate = structure.projectTemplate();
 
       contributorProjectionInputs.push({
         x: structure.x,
@@ -1092,10 +1189,7 @@ export class RtsEngine {
     transformInput: PlacementTransformInput | null | undefined,
   ): BuildPlacementValidationResult {
     const transform = normalizePlacementTransform(transformInput);
-    const transformedTemplate = projectTemplateWithTransform(
-      template,
-      transform,
-    );
+    const transformedTemplate = template.project(transform);
     const bounds: PlacementBounds = {
       x,
       y,
@@ -1190,17 +1284,44 @@ export class RtsEngine {
     return true;
   }
 
-  private static getIntegrityMaskCells(
-    structure: StructureInstance,
+  private static createStructure(
+    room: RoomState,
+    team: TeamState,
     template: StructureTemplate,
-  ): readonly IntegrityMaskCell[] {
-    const transformedTemplate = projectTemplateWithTransform(
-      template,
-      structure.transform,
+    event: AcceptedBuildEvent,
+  ): boolean {
+    if (
+      !RtsEngine.applyTemplate(
+        room,
+        event.projection.transformedTemplate,
+        event.projection.bounds,
+      )
+    ) {
+      return false;
+    }
+
+    team.structures.set(
+      event.structureKey,
+      template.instantiate({
+        key: event.structureKey,
+        x: event.x,
+        y: event.y,
+        transform: event.projection.transform,
+        active: false,
+        isCore: false,
+      }),
     );
 
+    return true;
+  }
+
+  private static getIntegrityMaskCells(
+    structure: Structure,
+  ): readonly IntegrityMaskCell[] {
+    const transformedTemplate = structure.projectTemplate();
+
     const sourceChecks =
-      template.checks.length > 0
+      structure.template.checks.length > 0
         ? transformedTemplate.checks
         : transformedTemplate.occupiedCells;
 
@@ -1221,12 +1342,11 @@ export class RtsEngine {
 
   private static collectIntegrityMismatches(
     room: RoomState,
-    structure: StructureInstance,
-    template: StructureTemplate,
+    structure: Structure,
   ): IntegrityMismatchCell[] {
     const mismatches: IntegrityMismatchCell[] = [];
 
-    for (const check of RtsEngine.getIntegrityMaskCells(structure, template)) {
+    for (const check of RtsEngine.getIntegrityMaskCells(structure)) {
       const x = wrapCoordinate(structure.x + check.x, room.width);
       const y = wrapCoordinate(structure.y + check.y, room.height);
       const actual = RtsEngine.gridCellAt(
@@ -1262,13 +1382,9 @@ export class RtsEngine {
 
   private static checkStructureIntegrity(
     room: RoomState,
-    structure: StructureInstance,
-    template: StructureTemplate,
+    structure: Structure,
   ): boolean {
-    return (
-      RtsEngine.collectIntegrityMismatches(room, structure, template).length ===
-      0
-    );
+    return RtsEngine.collectIntegrityMismatches(room, structure).length === 0;
   }
 
   private static isBaseIntact(room: RoomState, team: TeamState): boolean {
@@ -1277,11 +1393,7 @@ export class RtsEngine {
       return false;
     }
 
-    return RtsEngine.checkStructureIntegrity(
-      room,
-      core,
-      RtsEngine.CORE_STRUCTURE_TEMPLATE,
-    );
+    return RtsEngine.checkStructureIntegrity(room, core);
   }
 
   private static countTerritoryCells(room: RoomState, team: TeamState): number {
@@ -1544,44 +1656,29 @@ export class RtsEngine {
     };
   }
 
-  private static applyTeamEconomyAndQueue(
-    room: RoomState,
-    team: TeamState,
-    acceptedEvents: AcceptedBuildEvent[],
-    buildOutcomes: BuildOutcome[],
-    destroyOutcomes: DestroyOutcome[],
-  ): void {
-    if (team.defeated) {
-      team.income = 0;
-      team.incomeBreakdown = {
-        base: 0,
-        structures: 0,
-        total: 0,
-        activeStructureCount: 0,
-      };
-      return;
-    }
+  private static clearDefeatedTeamEconomy(team: TeamState): void {
+    team.income = 0;
+    team.incomeBreakdown = {
+      base: 0,
+      structures: 0,
+      total: 0,
+      activeStructureCount: 0,
+    };
+  }
 
+  private static refreshTeamEconomy(room: RoomState, team: TeamState): void {
     const baseIncome = 0;
     let structureIncome = 0;
     let activeStructureCount = 0;
     let territoryBonus = 0;
 
     for (const structure of team.structures.values()) {
-      const template = RtsEngine.getStructureTemplate(room, structure);
-      if (!template) {
-        structure.active = false;
-        structure.buildRadius = 0;
-        continue;
-      }
-
+      const template = structure.template;
       const active =
-        structure.hp > 0 &&
-        RtsEngine.checkStructureIntegrity(room, structure, template);
-      structure.active = active;
-      structure.buildRadius = active ? template.buildArea : 0;
+        structure.hp > 0 && RtsEngine.checkStructureIntegrity(room, structure);
+      structure.setActive(active);
 
-      if (active && !structure.isCore) {
+      if (structure.active && !structure.isCore) {
         structureIncome += template.income;
         activeStructureCount += 1;
         territoryBonus += structure.buildRadius;
@@ -1602,7 +1699,13 @@ export class RtsEngine {
       team.resources += elapsed * team.income;
       team.lastIncomeTick = room.tick;
     }
+  }
 
+  private static processDueDestroyEvents(
+    room: RoomState,
+    team: TeamState,
+    destroyOutcomes: DestroyOutcome[],
+  ): void {
     const deferredDestroys: DestroyEvent[] = [];
     for (const event of team.pendingDestroyEvents) {
       if (event.executeTick > room.tick) {
@@ -1646,10 +1749,7 @@ export class RtsEngine {
         continue;
       }
 
-      structure.hp = 0;
-      structure.active = false;
-      structure.buildRadius = 0;
-
+      structure.destroy();
       RtsEngine.appendTimelineEvent(room, {
         teamId: team.id,
         type: 'destroy-applied',
@@ -1660,7 +1760,6 @@ export class RtsEngine {
           isCore: structure.isCore,
         },
       });
-
       destroyOutcomes.push({
         eventId: event.id,
         teamId: team.id,
@@ -1673,11 +1772,18 @@ export class RtsEngine {
     }
 
     team.pendingDestroyEvents = deferredDestroys;
+  }
 
-    const deferred: BuildEvent[] = [];
+  private static processDueBuildEvents(
+    room: RoomState,
+    team: TeamState,
+    acceptedEvents: AcceptedBuildEvent[],
+    buildOutcomes: BuildOutcome[],
+  ): void {
+    const deferredBuilds: BuildEvent[] = [];
     for (const event of team.pendingBuildEvents) {
       if (event.executeTick > room.tick) {
-        deferred.push(event);
+        deferredBuilds.push(event);
         continue;
       }
 
@@ -1759,13 +1865,30 @@ export class RtsEngine {
       });
     }
 
-    team.pendingBuildEvents = deferred;
+    team.pendingBuildEvents = deferredBuilds;
+  }
+
+  private static applyTeamEconomyAndQueue(
+    room: RoomState,
+    team: TeamState,
+    acceptedEvents: AcceptedBuildEvent[],
+    buildOutcomes: BuildOutcome[],
+    destroyOutcomes: DestroyOutcome[],
+  ): void {
+    if (team.defeated) {
+      RtsEngine.clearDefeatedTeamEconomy(team);
+      return;
+    }
+
+    RtsEngine.refreshTeamEconomy(room, team);
+    RtsEngine.processDueDestroyEvents(room, team, destroyOutcomes);
+    RtsEngine.processDueBuildEvents(room, team, acceptedEvents, buildOutcomes);
   }
 
   private static compareStructuresByKey(
     this: void,
-    left: StructureInstance,
-    right: StructureInstance,
+    left: Structure,
+    right: Structure,
   ): number {
     if (left.key < right.key) {
       return -1;
@@ -1801,26 +1924,16 @@ export class RtsEngine {
 
       for (const structure of orderedStructures) {
         if (structure.hp <= 0) {
-          structure.active = false;
-          structure.buildRadius = 0;
-          continue;
-        }
-
-        const template = RtsEngine.getStructureTemplate(room, structure);
-        if (!template) {
-          structure.active = false;
-          structure.buildRadius = 0;
+          structure.deactivate();
           continue;
         }
 
         const mismatches = RtsEngine.collectIntegrityMismatches(
           room,
           structure,
-          template,
         );
         if (mismatches.length === 0) {
-          structure.active = true;
-          structure.buildRadius = structure.isCore ? 0 : template.buildArea;
+          structure.setActive(true);
           continue;
         }
 
@@ -1831,7 +1944,7 @@ export class RtsEngine {
           coreHpBeforeResolution.set(team.id, hpBefore);
         }
 
-        structure.hp -= restoreCost;
+        structure.applyIntegrityDamage(restoreCost);
         if (structure.isCore) {
           RtsEngine.appendTimelineEvent(room, {
             teamId: team.id,
@@ -1846,8 +1959,7 @@ export class RtsEngine {
 
         if (structure.hp > 0) {
           RtsEngine.restoreIntegrityMismatches(room, mismatches);
-          structure.active = true;
-          structure.buildRadius = structure.isCore ? 0 : template.buildArea;
+          structure.setActive(true);
 
           RtsEngine.appendTimelineEvent(room, {
             teamId: team.id,
@@ -1864,8 +1976,7 @@ export class RtsEngine {
           continue;
         }
 
-        structure.active = false;
-        structure.buildRadius = 0;
+        structure.deactivate();
 
         const category: IntegrityOutcomeCategory = structure.isCore
           ? 'core-defeat'
@@ -1910,6 +2021,7 @@ export class RtsEngine {
         activationCost: 0,
         income: 0,
         buildArea: 0,
+        startingHp: 2,
       }),
       RtsEngine.createTemplateFromRows({
         id: 'generator',
@@ -1918,6 +2030,7 @@ export class RtsEngine {
         activationCost: 6,
         income: 2,
         buildArea: 2,
+        startingHp: 2,
         padding: 1,
         checked: true,
       }),
@@ -1928,6 +2041,7 @@ export class RtsEngine {
         activationCost: 2,
         income: 0,
         buildArea: 0,
+        startingHp: 2,
       }),
       RtsEngine.createTemplateFromRows({
         id: 'eater-1',
@@ -1936,6 +2050,7 @@ export class RtsEngine {
         activationCost: 4,
         income: 0,
         buildArea: 1,
+        startingHp: 2,
       }),
       RtsEngine.createTemplateFromRows({
         id: 'gosper',
@@ -1951,26 +2066,25 @@ export class RtsEngine {
           '...........#...#....................',
           '............##......................',
         ],
+        startingHp: 2,
       }),
     ];
   }
 
-  public static createTemplateSummaries(
-    templates: StructureTemplate[],
-  ): StructureTemplateSummary[] {
-    return templates.map((template) => ({
-      id: template.id,
-      name: template.name,
-      width: template.width,
-      height: template.height,
-      activationCost: template.activationCost,
-      income: template.income,
-      buildArea: template.buildArea,
-    }));
+  public static createRoom(options: CreateRoomOptions): RtsRoom {
+    return RtsRoom.fromState(RtsEngine.createRoomState(options));
+  }
+
+  public static fromRoomState(room: RoomState): RtsRoom {
+    return RtsRoom.fromState(room);
   }
 
   public static createRoomState(options: CreateRoomOptions): RoomState {
-    const templates = options.templates ?? RtsEngine.createDefaultTemplates();
+    const templateInputs =
+      options.templates ?? RtsEngine.createDefaultTemplates();
+    const templates = templateInputs.map((template) =>
+      StructureTemplate.from(template),
+    );
     const templateMap = new Map<string, StructureTemplate>();
     for (const template of templates) {
       templateMap.set(template.id, template);
@@ -2068,18 +2182,18 @@ export class RtsEngine {
       RtsEngine.CORE_STRUCTURE_TEMPLATE.height,
     );
 
-    const structures = new Map<string, StructureInstance>();
-    structures.set(coreKey, {
-      key: coreKey,
-      templateId: CORE_TEMPLATE_ID,
-      x: baseTopLeft.x,
-      y: baseTopLeft.y,
-      transform: createIdentityPlacementTransform(),
-      active: true,
-      hp: CORE_STARTING_HP,
-      isCore: true,
-      buildRadius: 0,
-    });
+    const structures = new Map<string, Structure>();
+    structures.set(
+      coreKey,
+      RtsEngine.CORE_STRUCTURE_TEMPLATE.instantiate({
+        key: coreKey,
+        x: baseTopLeft.x,
+        y: baseTopLeft.y,
+        transform: createIdentityPlacementTransform(),
+        active: true,
+        isCore: true,
+      }),
+    );
 
     const team: TeamState = {
       id: teamId,
@@ -2162,7 +2276,7 @@ export class RtsEngine {
     room: RoomState,
     playerId: string,
     payload: BuildQueuePayload,
-  ): QueueBuildResult {
+  ): BuildPreviewResult {
     const x = Number(payload.x);
     const y = Number(payload.y);
 
@@ -2233,7 +2347,7 @@ export class RtsEngine {
       payload.transform,
     );
 
-    const result: QueueBuildResult = {
+    const result: BuildPreviewResult = {
       accepted: evaluation.reason === undefined,
       reason: evaluation.reason,
       transform: evaluation.projection.transform,
@@ -2304,24 +2418,35 @@ export class RtsEngine {
           affordability,
         );
       }
-      return preview;
+      return {
+        accepted: false,
+        error: preview.error,
+        reason: preview.reason,
+        affordable: preview.affordable,
+        needed: preview.needed,
+        current: preview.current,
+        deficit: preview.deficit,
+      };
     }
 
     const delay = Number(payload.delayTicks ?? 2);
     if (!Number.isInteger(delay)) {
       RtsEngine.rejectBuild(room, team, 'invalid-delay');
       return {
-        ...preview,
         accepted: false,
         error: 'delayTicks must be an integer',
         reason: 'invalid-delay',
+        affordable: preview.affordable,
+        needed: preview.needed,
+        current: preview.current,
+        deficit: preview.deficit,
       };
     }
 
     const clampedDelay = Math.max(1, Math.min(MAX_DELAY_TICKS, delay));
     const x = Number(payload.x);
     const y = Number(payload.y);
-    const eventId = RtsEngine.allocateBuildEventId(room);
+    const eventId = RtsEngine.allocateEventId(room);
     const event: BuildEvent = {
       id: eventId,
       teamId: team.id,
@@ -2329,7 +2454,7 @@ export class RtsEngine {
       templateId: payload.templateId,
       x,
       y,
-      transform: preview.transform ?? createIdentityPlacementTransform(),
+      transform: preview.transform,
       executeTick: room.tick + clampedDelay,
     };
 
@@ -2345,8 +2470,11 @@ export class RtsEngine {
     });
 
     return {
-      ...preview,
       accepted: true,
+      affordable: preview.affordable,
+      needed: preview.needed,
+      current: preview.current,
+      deficit: preview.deficit,
       eventId: event.id,
       executeTick: event.executeTick,
     };
@@ -2476,7 +2604,7 @@ export class RtsEngine {
     }
 
     const clampedDelay = Math.max(1, Math.min(MAX_DELAY_TICKS, delay));
-    const eventId = RtsEngine.allocateBuildEventId(room);
+    const eventId = RtsEngine.allocateEventId(room);
     const event: DestroyEvent = {
       id: eventId,
       teamId: team.id,
@@ -2521,7 +2649,7 @@ export class RtsEngine {
           activeStructureCount: team.incomeBreakdown.activeStructureCount,
         },
         pendingBuilds: RtsEngine.projectPendingBuilds(room, team),
-        pendingDestroys: RtsEngine.projectPendingDestroys(room, team),
+        pendingDestroys: RtsEngine.projectPendingDestroys(team),
         structures: RtsEngine.projectStructures(room, team),
         defeated: team.defeated,
         baseTopLeft: {
@@ -2577,23 +2705,11 @@ export class RtsEngine {
     );
   }
 
-  public static tickRoom(room: RoomState): RoomTickResult {
-    const acceptedEvents: AcceptedBuildEvent[] = [];
-    const buildOutcomes: BuildOutcome[] = [];
-    const destroyOutcomes: DestroyOutcome[] = [];
-
-    for (const team of room.teams.values()) {
-      RtsEngine.applyTeamEconomyAndQueue(
-        room,
-        team,
-        acceptedEvents,
-        buildOutcomes,
-        destroyOutcomes,
-      );
-    }
-
-    acceptedEvents.sort(RtsEngine.compareBuildEvents);
-
+  private static applyAcceptedBuildEvents(
+    room: RoomState,
+    acceptedEvents: AcceptedBuildEvent[],
+    buildOutcomes: BuildOutcome[],
+  ): number {
     let appliedBuilds = 0;
     for (const event of acceptedEvents) {
       const template = room.templateMap.get(event.templateId);
@@ -2602,25 +2718,7 @@ export class RtsEngine {
         continue;
       }
 
-      if (
-        RtsEngine.applyTemplate(
-          room,
-          event.projection.transformedTemplate,
-          event.projection.bounds,
-        )
-      ) {
-        team.structures.set(event.structureKey, {
-          key: event.structureKey,
-          templateId: template.id,
-          x: event.x,
-          y: event.y,
-          transform: event.projection.transform,
-          active: false,
-          hp: STRUCTURE_STARTING_HP,
-          isCore: false,
-          buildRadius: 0,
-        });
-
+      if (RtsEngine.createStructure(room, team, template, event)) {
         appliedBuilds += 1;
         team.buildStats.applied += 1;
         RtsEngine.appendTimelineEvent(room, {
@@ -2647,6 +2745,10 @@ export class RtsEngine {
       );
     }
 
+    return appliedBuilds;
+  }
+
+  private static applyLegacyUpdatesAndAdvanceGeneration(room: RoomState): void {
     const pendingLegacyUpdates = RtsEngine.drainPendingLegacyUpdates(room);
     if (pendingLegacyUpdates.length > 0) {
       applyUpdates(room.grid, pendingLegacyUpdates, room.width, room.height);
@@ -2655,9 +2757,16 @@ export class RtsEngine {
     room.grid = stepGrid(room.grid, room.width, room.height);
     room.tick += 1;
     room.generation += 1;
+  }
 
+  private static resolveDefeatAndOutcome(
+    room: RoomState,
+    buildOutcomes: BuildOutcome[],
+    destroyOutcomes: DestroyOutcome[],
+  ): { defeatedTeams: number[]; outcome: MatchOutcome | null } {
     const coreHpBeforeResolution = RtsEngine.resolveIntegrityChecks(room);
     const defeatedTeams: number[] = [];
+
     for (const team of room.teams.values()) {
       const core = RtsEngine.getCoreStructure(team);
       const defeated = !core || core.hp <= 0;
@@ -2711,6 +2820,38 @@ export class RtsEngine {
       );
     }
 
+    return { defeatedTeams, outcome };
+  }
+
+  public static tickRoom(room: RoomState): RoomTickResult {
+    const acceptedEvents: AcceptedBuildEvent[] = [];
+    const buildOutcomes: BuildOutcome[] = [];
+    const destroyOutcomes: DestroyOutcome[] = [];
+
+    for (const team of room.teams.values()) {
+      RtsEngine.applyTeamEconomyAndQueue(
+        room,
+        team,
+        acceptedEvents,
+        buildOutcomes,
+        destroyOutcomes,
+      );
+    }
+
+    acceptedEvents.sort(RtsEngine.compareBuildEvents);
+
+    const appliedBuilds = RtsEngine.applyAcceptedBuildEvents(
+      room,
+      acceptedEvents,
+      buildOutcomes,
+    );
+    RtsEngine.applyLegacyUpdatesAndAdvanceGeneration(room);
+    const { defeatedTeams, outcome } = RtsEngine.resolveDefeatAndOutcome(
+      room,
+      buildOutcomes,
+      destroyOutcomes,
+    );
+
     buildOutcomes.sort(RtsEngine.compareBuildOutcomes);
     destroyOutcomes.sort(RtsEngine.compareDestroyOutcomes);
 
@@ -2721,5 +2862,126 @@ export class RtsEngine {
       buildOutcomes,
       destroyOutcomes,
     };
+  }
+}
+
+export class RtsRoom {
+  private static readonly roomWrapperByState = new WeakMap<
+    RoomState,
+    RtsRoom
+  >();
+
+  public readonly state: RoomState;
+
+  private constructor(state: RoomState) {
+    this.state = state;
+  }
+
+  public static create(options: CreateRoomOptions): RtsRoom {
+    return RtsEngine.createRoom(options);
+  }
+
+  public static fromState(state: RoomState): RtsRoom {
+    if (!RtsEngine.hasRoomEngine(state)) {
+      throw new Error(
+        'RoomState must come from RtsEngine.createRoomState or RtsEngine.createRoom',
+      );
+    }
+
+    const existing = RtsRoom.roomWrapperByState.get(state);
+    if (existing) {
+      return existing;
+    }
+
+    const wrapper = new RtsRoom(state);
+    RtsRoom.roomWrapperByState.set(state, wrapper);
+    return wrapper;
+  }
+
+  public get id(): string {
+    return RtsEngine.getRoomId(this.state);
+  }
+
+  public get name(): string {
+    return RtsEngine.getRoomName(this.state);
+  }
+
+  public get width(): number {
+    return RtsEngine.getRoomWidth(this.state);
+  }
+
+  public get height(): number {
+    return RtsEngine.getRoomHeight(this.state);
+  }
+
+  public getTemplate(templateId: string): StructureTemplate | null {
+    return RtsEngine.getRoomTemplate(this.state, templateId);
+  }
+
+  public getTimelineEvents(): ReadonlyArray<TimelineEvent> {
+    return RtsEngine.getTimelineEvents(this.state);
+  }
+
+  public addPlayer(playerId: string, playerName: string): TeamState {
+    return RtsEngine.addPlayerToRoom(this.state, playerId, playerName);
+  }
+
+  public renamePlayer(playerId: string, name: string): void {
+    RtsEngine.renamePlayerInRoom(this.state, playerId, name);
+  }
+
+  public removePlayer(playerId: string): void {
+    RtsEngine.removePlayerFromRoom(this.state, playerId);
+  }
+
+  public queueLegacyCellUpdate(update: CellUpdate): void {
+    RtsEngine.queueLegacyCellUpdate(this.state, update);
+  }
+
+  public previewBuildPlacement(
+    playerId: string,
+    payload: BuildQueuePayload,
+  ): BuildPreviewResult {
+    return RtsEngine.previewBuildPlacement(this.state, playerId, payload);
+  }
+
+  public queueBuildEvent(
+    playerId: string,
+    payload: BuildQueuePayload,
+  ): QueueBuildResult {
+    return RtsEngine.queueBuildEvent(this.state, playerId, payload);
+  }
+
+  public queueDestroyEvent(
+    playerId: string,
+    payload: DestroyQueuePayload,
+  ): QueueDestroyResult {
+    return RtsEngine.queueDestroyEvent(this.state, playerId, payload);
+  }
+
+  public createStatePayload(): RoomStatePayload {
+    return RtsEngine.createRoomStatePayload(this.state);
+  }
+
+  public createTeamOutcomeSnapshots(
+    coreHpBeforeResolution: ReadonlyMap<number, number> = new Map(),
+  ): TeamOutcomeSnapshot[] {
+    return RtsEngine.createTeamOutcomeSnapshots(
+      this.state,
+      coreHpBeforeResolution,
+    );
+  }
+
+  public createCanonicalMatchOutcome(
+    coreHpBeforeResolution: ReadonlyMap<number, number> = new Map(),
+  ): MatchOutcome | null {
+    return RtsEngine.createCanonicalMatchOutcome(
+      this.state,
+      coreHpBeforeResolution,
+    );
+  }
+
+  public tick(): RoomTickResult {
+    return RtsEngine.tickRoom(this.state);
   }
 }

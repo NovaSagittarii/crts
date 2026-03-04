@@ -9,14 +9,11 @@ These rules apply to `packages/conway-core/*`.
 ## Invariants
 
 - Grid state is `Uint8Array` with `0` for dead and `1` for alive.
-- `stepGrid` is a pure transition: it returns a new grid and does not mutate input.
-- `applyUpdates` ignores invalid payload entries and out-of-bounds coordinates.
 - Bit packing and unpacking helpers must preserve bit-level fidelity.
 
 ## Rules
 
 - Keep this package independent from RTS/team/socket concepts.
-- Keep this package function-first; do not introduce mutable class aggregates.
 - Avoid runtime side effects and non-deterministic behavior.
 - Maintain unit coverage for stable patterns (`block`) and moving patterns (`glider`).
 

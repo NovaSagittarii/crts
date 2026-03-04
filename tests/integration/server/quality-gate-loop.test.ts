@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { io, type Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 
 import {
   createServer,
@@ -15,8 +15,7 @@ import {
 import type {
   BuildOutcomePayload,
   BuildQueuedPayload,
-  DestroyOutcomePayload,
-  DestroyQueuedPayload,
+  MatchFinishedPayload,
   PlacementTransformInput,
   RoomErrorPayload,
   RoomJoinedPayload,
@@ -25,75 +24,26 @@ import type {
   RoomStatePayload,
   TeamPayload,
 } from '#rts-engine';
-
-interface Cell {
-  x: number;
-  y: number;
-}
-
-interface MatchFinishedRankedTeam {
-  rank: number;
-  teamId: number;
-  outcome: 'winner' | 'defeated' | 'eliminated';
-  finalCoreHp: number;
-  coreState: 'intact' | 'destroyed';
-  territoryCellCount: number;
-  queuedBuildCount: number;
-  appliedBuildCount: number;
-  rejectedBuildCount: number;
-}
-
-interface MatchFinishedPayload {
-  roomId: string;
-  winner: MatchFinishedRankedTeam;
-  ranked: MatchFinishedRankedTeam[];
-  comparator: string;
-}
-
-interface ActiveMatchSetup {
-  host: Socket;
-  guest: Socket;
-  roomId: string;
-  hostJoined: RoomJoinedPayload;
-  guestJoined: RoomJoinedPayload;
-  hostTeam: TeamPayload;
-  guestTeam: TeamPayload;
-}
-
-interface ClientOptions {
-  sessionId?: string;
-}
-
-function createClient(port: number, options: ClientOptions = {}): Socket {
-  const socket = io(`http://localhost:${port}`, {
-    autoConnect: false,
-    transports: ['websocket'],
-    auth: {
-      sessionId: options.sessionId,
-    },
-  });
-  socket.connect();
-  return socket;
-}
+import {
+  createClient,
+  type ActiveMatchSetup,
+  type Cell,
+  type TestClientOptions,
+  waitForBuildOutcome,
+  waitForBuildQueueResponse,
+  waitForDestroyOutcome,
+  waitForDestroyQueueResponse,
+  waitForEvent as waitForEventBase,
+  waitForMembership as waitForMembershipBase,
+  waitForState as waitForStateBase,
+} from './test-support.js';
 
 function waitForEvent<T>(
   socket: Socket,
   event: string,
   timeoutMs = 3000,
 ): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      socket.off(event, onEvent);
-      reject(new Error(`Timed out waiting for ${event}`));
-    }, timeoutMs);
-
-    function onEvent(payload: T): void {
-      clearTimeout(timer);
-      resolve(payload);
-    }
-
-    socket.once(event, onEvent);
-  });
+  return waitForEventBase(socket, event, timeoutMs);
 }
 
 async function waitForMembership(
@@ -103,18 +53,10 @@ async function waitForMembership(
   attempts = 30,
   timeoutMs = 3000,
 ): Promise<RoomMembershipPayload> {
-  for (let index = 0; index < attempts; index += 1) {
-    const payload = await waitForEvent<RoomMembershipPayload>(
-      socket,
-      'room:membership',
-      timeoutMs,
-    );
-    if (payload.roomId === roomId && predicate(payload)) {
-      return payload;
-    }
-  }
-
-  throw new Error('Membership condition not met in allotted attempts');
+  return waitForMembershipBase(socket, roomId, predicate, {
+    attempts,
+    timeoutMs,
+  });
 }
 
 async function waitForState(
@@ -124,18 +66,11 @@ async function waitForState(
   attempts = 40,
   timeoutMs = 3000,
 ): Promise<RoomStatePayload> {
-  for (let index = 0; index < attempts; index += 1) {
-    const payload = await waitForEvent<RoomStatePayload>(
-      socket,
-      'state',
-      timeoutMs,
-    );
-    if (payload.roomId === roomId && predicate(payload)) {
-      return payload;
-    }
-  }
-
-  throw new Error('State condition not met in allotted attempts');
+  return waitForStateBase(socket, predicate, {
+    roomId,
+    attempts,
+    timeoutMs,
+  });
 }
 
 async function claimSlot(socket: Socket, slotId: string): Promise<void> {
@@ -254,122 +189,6 @@ function estimateTransformedTemplateSize(
 
 interface QueueBuildAttempt {
   transform?: PlacementTransformInput;
-}
-
-function waitForBuildQueueResponse(
-  socket: Socket,
-  timeoutMs = 4000,
-): Promise<{ queued: BuildQueuedPayload } | { error: RoomErrorPayload }> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('Timed out waiting for build queue response'));
-    }, timeoutMs);
-
-    function cleanup(): void {
-      clearTimeout(timer);
-      socket.off('build:queued', onQueued);
-      socket.off('room:error', onError);
-    }
-
-    function onQueued(payload: BuildQueuedPayload): void {
-      cleanup();
-      resolve({ queued: payload });
-    }
-
-    function onError(payload: RoomErrorPayload): void {
-      cleanup();
-      resolve({ error: payload });
-    }
-
-    socket.once('build:queued', onQueued);
-    socket.once('room:error', onError);
-  });
-}
-
-function waitForDestroyQueueResponse(
-  socket: Socket,
-  timeoutMs = 4000,
-): Promise<{ queued: DestroyQueuedPayload } | { error: RoomErrorPayload }> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('Timed out waiting for destroy queue response'));
-    }, timeoutMs);
-
-    function cleanup(): void {
-      clearTimeout(timer);
-      socket.off('destroy:queued', onQueued);
-      socket.off('room:error', onError);
-    }
-
-    function onQueued(payload: DestroyQueuedPayload): void {
-      cleanup();
-      resolve({ queued: payload });
-    }
-
-    function onError(payload: RoomErrorPayload): void {
-      cleanup();
-      resolve({ error: payload });
-    }
-
-    socket.once('destroy:queued', onQueued);
-    socket.once('room:error', onError);
-  });
-}
-
-function waitForBuildOutcome(
-  socket: Socket,
-  eventId: number,
-  timeoutMs = 12_000,
-): Promise<BuildOutcomePayload> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      socket.off('build:outcome', onOutcome);
-      reject(
-        new Error(`Timed out waiting for build:outcome for event ${eventId}`),
-      );
-    }, timeoutMs);
-
-    function onOutcome(payload: BuildOutcomePayload): void {
-      if (payload.eventId !== eventId) {
-        return;
-      }
-
-      clearTimeout(timer);
-      socket.off('build:outcome', onOutcome);
-      resolve(payload);
-    }
-
-    socket.on('build:outcome', onOutcome);
-  });
-}
-
-function waitForDestroyOutcome(
-  socket: Socket,
-  eventId: number,
-  timeoutMs = 12_000,
-): Promise<DestroyOutcomePayload> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      socket.off('destroy:outcome', onOutcome);
-      reject(
-        new Error(`Timed out waiting for destroy:outcome for event ${eventId}`),
-      );
-    }, timeoutMs);
-
-    function onOutcome(payload: DestroyOutcomePayload): void {
-      if (payload.eventId !== eventId) {
-        return;
-      }
-
-      clearTimeout(timer);
-      socket.off('destroy:outcome', onOutcome);
-      resolve(payload);
-    }
-
-    socket.on('destroy:outcome', onOutcome);
-  });
 }
 
 async function setupActiveMatch(
@@ -607,7 +426,7 @@ describe('QUAL-02 quality gate integration loop', () => {
     await server.stop();
   });
 
-  function connectClientForTest(options: ClientOptions = {}): Socket {
+  function connectClientForTest(options: TestClientOptions = {}): Socket {
     const socket = createClient(port, options);
     sockets.push(socket);
     return socket;

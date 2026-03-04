@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
-import { io, type Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 
 import { createServer } from '../../../apps/server/src/server.js';
 import { unpackGridBits } from '#conway-core';
@@ -14,7 +14,6 @@ import type {
   BuildOutcomePayload,
   BuildQueuedPayload,
   DestroyOutcomePayload,
-  DestroyQueuedPayload,
   RoomJoinedPayload,
   RoomMembershipPayload,
   RoomErrorPayload,
@@ -24,6 +23,15 @@ import type {
   RoomStatePayload,
   TeamPayload,
 } from '#rts-engine';
+import {
+  createClient,
+  type ActiveMatchSetup,
+  type Cell,
+  waitForBuildQueueResponse,
+  waitForDestroyQueueResponse,
+  waitForEvent,
+  waitForEventWithPredicate,
+} from './test-support.js';
 
 type StatePayload = RoomStatePayload;
 type SlotClaimedPayload = RoomSlotClaimedPayload;
@@ -31,94 +39,8 @@ type RoomListEntry = RoomListEntryPayload;
 type BuildPreview = BuildPreviewPayload;
 type BuildQueued = BuildQueuedPayload;
 type BuildOutcome = BuildOutcomePayload;
-type DestroyQueued = DestroyQueuedPayload;
 type DestroyOutcome = DestroyOutcomePayload;
 type RoomError = RoomErrorPayload;
-
-interface Cell {
-  x: number;
-  y: number;
-}
-
-interface ActiveMatchSetup {
-  host: Socket;
-  guest: Socket;
-  roomId: string;
-  hostJoined: RoomJoinedPayload;
-  guestJoined: RoomJoinedPayload;
-  hostTeam: TeamPayload;
-  guestTeam: TeamPayload;
-}
-
-function waitForEvent(
-  emitter: Socket,
-  event: string,
-  timeoutMs = 2500,
-): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      emitter.off(event, handler);
-      reject(new Error(`Timed out waiting for ${event}`));
-    }, timeoutMs);
-
-    function handler(payload: unknown) {
-      clearTimeout(timer);
-      resolve(payload);
-    }
-
-    emitter.once(event, handler);
-  });
-}
-
-function waitForPredicateEvent<T>(
-  socket: Socket,
-  event: string,
-  predicate: (payload: T) => boolean,
-  timeoutMs: number,
-  timeoutMessage: string,
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error(timeoutMessage));
-    }, timeoutMs);
-
-    function cleanup(): void {
-      clearTimeout(timer);
-      socket.off(event, onEvent);
-    }
-
-    function onEvent(payload: T): void {
-      let matches = false;
-
-      try {
-        matches = predicate(payload);
-      } catch (error) {
-        cleanup();
-        reject(error instanceof Error ? error : new Error(String(error)));
-        return;
-      }
-
-      if (!matches) {
-        return;
-      }
-
-      cleanup();
-      resolve(payload);
-    }
-
-    socket.on(event, onEvent);
-  });
-}
-
-function createClient(port: number): Socket {
-  const socket = io(`http://localhost:${port}`, {
-    autoConnect: false,
-    transports: ['websocket'],
-  });
-  socket.connect();
-  return socket;
-}
 
 function blockAlive(state: StatePayload, coords: Cell[]): boolean {
   const unpackedGrid = unpackGridBits(state.grid, state.width, state.height);
@@ -138,13 +60,11 @@ async function waitForCondition(
   predicate: (state: StatePayload) => boolean,
   attempts = 6,
 ): Promise<StatePayload> {
-  return waitForPredicateEvent<StatePayload>(
-    socket,
-    'state',
-    predicate,
-    attempts * 2500,
-    'Condition not met in allotted attempts',
-  );
+  return waitForEventWithPredicate<StatePayload>(socket, 'state', predicate, {
+    attempts,
+    timeoutMs: 2500,
+    timeoutMessage: 'Condition not met in allotted attempts',
+  });
 }
 
 async function claimSlot(
@@ -152,10 +72,10 @@ async function claimSlot(
   slotId: string,
 ): Promise<SlotClaimedPayload> {
   socket.emit('room:claim-slot', { slotId });
-  const claimed = (await waitForEvent(
+  const claimed = await waitForEvent<SlotClaimedPayload>(
     socket,
     'room:slot-claimed',
-  )) as SlotClaimedPayload;
+  );
   if (claimed.teamId === null) {
     throw new Error(`Expected slot claim for ${slotId} to assign a team`);
   }
@@ -167,12 +87,15 @@ async function waitForRoomList(
   predicate: (rooms: RoomListEntry[]) => boolean,
   attempts = 6,
 ): Promise<RoomListEntry[]> {
-  return waitForPredicateEvent<RoomListEntry[]>(
+  return waitForEventWithPredicate<RoomListEntry[]>(
     socket,
     'room:list',
     predicate,
-    attempts * 2500,
-    'Room list condition not met in allotted attempts',
+    {
+      attempts,
+      timeoutMs: 2500,
+      timeoutMessage: 'Room list condition not met in allotted attempts',
+    },
   );
 }
 
@@ -181,44 +104,16 @@ async function waitForMembership(
   predicate: (membership: RoomMembershipPayload) => boolean,
   attempts = 20,
 ): Promise<RoomMembershipPayload> {
-  return waitForPredicateEvent<RoomMembershipPayload>(
+  return waitForEventWithPredicate<RoomMembershipPayload>(
     socket,
     'room:membership',
     predicate,
-    attempts * 2500,
-    'Membership condition not met in allotted attempts',
+    {
+      attempts,
+      timeoutMs: 2500,
+      timeoutMessage: 'Membership condition not met in allotted attempts',
+    },
   );
-}
-
-function waitForBuildQueueResponse(
-  socket: Socket,
-  timeoutMs = 2000,
-): Promise<{ queued: BuildQueued } | { error: RoomError }> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('Timed out waiting for build queue response'));
-    }, timeoutMs);
-
-    function cleanup(): void {
-      clearTimeout(timer);
-      socket.off('build:queued', onQueued);
-      socket.off('room:error', onError);
-    }
-
-    function onQueued(payload: BuildQueued): void {
-      cleanup();
-      resolve({ queued: payload });
-    }
-
-    function onError(payload: RoomError): void {
-      cleanup();
-      resolve({ error: payload });
-    }
-
-    socket.once('build:queued', onQueued);
-    socket.once('room:error', onError);
-  });
 }
 
 function collectBuildOutcomes(
@@ -277,37 +172,6 @@ function collectBuildOutcomes(
 
     socket.on('build:outcome', onOutcome);
     maybeScheduleResolve();
-  });
-}
-
-function waitForDestroyQueueResponse(
-  socket: Socket,
-  timeoutMs = 2000,
-): Promise<{ queued: DestroyQueued } | { error: RoomError }> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('Timed out waiting for destroy queue response'));
-    }, timeoutMs);
-
-    function cleanup(): void {
-      clearTimeout(timer);
-      socket.off('destroy:queued', onQueued);
-      socket.off('room:error', onError);
-    }
-
-    function onQueued(payload: DestroyQueued): void {
-      cleanup();
-      resolve({ queued: payload });
-    }
-
-    function onError(payload: RoomError): void {
-      cleanup();
-      resolve({ error: payload });
-    }
-
-    socket.once('destroy:queued', onQueued);
-    socket.once('room:error', onError);
   });
 }
 
@@ -452,18 +316,15 @@ async function setupActiveMatch(port: number): Promise<ActiveMatchSetup> {
     height: 52,
   });
 
-  const hostJoined = (await waitForEvent(
-    host,
-    'room:joined',
-  )) as RoomJoinedPayload;
+  const hostJoined = await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
 
   const guest = createClient(port);
   await waitForEvent(guest, 'room:joined');
   guest.emit('room:join', { roomId: hostJoined.roomId });
-  const guestJoined = (await waitForEvent(
+  const guestJoined = await waitForEvent<RoomJoinedPayload>(
     guest,
     'room:joined',
-  )) as RoomJoinedPayload;
+  );
 
   await claimSlot(host, 'team-1');
   await claimSlot(guest, 'team-2');
@@ -524,8 +385,8 @@ describe('GameServer', () => {
 
     const setup = await setupActiveMatch(port);
 
-    const first = (await waitForEvent(setup.host, 'state')) as StatePayload;
-    const second = (await waitForEvent(setup.host, 'state')) as StatePayload;
+    const first = await waitForEvent<StatePayload>(setup.host, 'state');
+    const second = await waitForEvent<StatePayload>(setup.host, 'state');
 
     expect(second.generation).toBeGreaterThan(first.generation);
     expect(second.tick).toBeGreaterThan(first.tick);
@@ -751,10 +612,7 @@ describe('GameServer', () => {
       y: 0,
       delayTicks: 1,
     });
-    const outOfBounds = (await waitForEvent(
-      setup.host,
-      'room:error',
-    )) as RoomError;
+    const outOfBounds = await waitForEvent<RoomError>(setup.host, 'room:error');
     expect(outOfBounds.reason).toBe('outside-territory');
 
     setup.host.emit('build:queue', {
@@ -763,10 +621,10 @@ describe('GameServer', () => {
       y: setup.guestTeam.baseTopLeft.y,
       delayTicks: 1,
     });
-    const outsideTerritory = (await waitForEvent(
+    const outsideTerritory = await waitForEvent<RoomError>(
       setup.host,
       'room:error',
-    )) as RoomError;
+    );
     expect(outsideTerritory.reason).toBe('outside-territory');
 
     setup.host.close();
@@ -797,10 +655,7 @@ describe('GameServer', () => {
       delayTicks: 1,
     });
 
-    const rejection = (await waitForEvent(
-      setup.host,
-      'room:error',
-    )) as RoomError;
+    const rejection = await waitForEvent<RoomError>(setup.host, 'room:error');
     expect(rejection.reason).toBe('outside-territory');
 
     const refreshedPreview = (await refreshedPreviewPromise) as BuildPreview;
@@ -849,10 +704,10 @@ describe('GameServer', () => {
       y: previewTarget.y,
     });
 
-    const preview = (await waitForEvent(
+    const preview = await waitForEvent<BuildPreview>(
       setup.host,
       'build:preview',
-    )) as BuildPreview;
+    );
 
     expect(preview.roomId).toBe(setup.roomId);
     expect(preview.teamId).toBe(setup.hostTeam.id);
@@ -1295,10 +1150,7 @@ describe('GameServer', () => {
       delayTicks: 1,
     });
 
-    const queued = (await waitForEvent(
-      setup.host,
-      'build:queued',
-    )) as BuildQueued;
+    const queued = await waitForEvent<BuildQueued>(setup.host, 'build:queued');
     expect(queued.eventId).toBeGreaterThan(0);
     expect(queued.executeTick).toBeGreaterThan(0);
 
@@ -1334,10 +1186,7 @@ describe('GameServer', () => {
         alive: false,
       });
 
-      const rejection = (await waitForEvent(
-        setup.host,
-        'room:error',
-      )) as RoomError;
+      const rejection = await waitForEvent<RoomError>(setup.host, 'room:error');
       expect(rejection.reason).toBe('queue-only-mutation-path');
     }
 
@@ -1369,10 +1218,7 @@ describe('GameServer', () => {
       height: 48,
     });
 
-    const joined = (await waitForEvent(
-      socket,
-      'room:joined',
-    )) as RoomJoinedPayload;
+    const joined = await waitForEvent<RoomJoinedPayload>(socket, 'room:joined');
     expect(joined.roomName).toBe('Skirmish');
     expect(joined.state.width).toBe(48);
     expect(joined.state.height).toBe(48);
@@ -1401,20 +1247,20 @@ describe('GameServer', () => {
       width: 40,
       height: 40,
     });
-    const ownerRoom = (await waitForEvent(
+    const ownerRoom = await waitForEvent<RoomJoinedPayload>(
       owner,
       'room:joined',
-    )) as RoomJoinedPayload;
+    );
     await claimSlot(owner, 'team-1');
 
     const guest = createClient(port);
     await waitForEvent(guest, 'room:joined');
     guest.emit('room:join', { roomId: ownerRoom.roomId });
 
-    const guestRoom = (await waitForEvent(
+    const guestRoom = await waitForEvent<RoomJoinedPayload>(
       guest,
       'room:joined',
-    )) as RoomJoinedPayload;
+    );
     expect(guestRoom.roomId).toBe(ownerRoom.roomId);
     await claimSlot(guest, 'team-2');
 
@@ -1426,10 +1272,7 @@ describe('GameServer', () => {
     expect(withTwoTeams.teams.length).toBeGreaterThanOrEqual(2);
 
     guest.emit('room:leave');
-    const leftPayload = (await waitForEvent(
-      guest,
-      'room:left',
-    )) as RoomLeftPayload;
+    const leftPayload = await waitForEvent<RoomLeftPayload>(guest, 'room:left');
     expect(leftPayload.roomId).toBe(ownerRoom.roomId);
 
     const backToOneTeam = await waitForCondition(

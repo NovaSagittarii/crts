@@ -10,11 +10,17 @@ import {
   RECONNECT_HOLD_MS,
   type PlayerSession,
 } from './lobby-session.js';
+import {
+  RoomBroadcastService,
+  type RuntimeBroadcastRoom,
+} from './server-room-broadcast.js';
 
 import { LobbyRoom, type LobbyRejectionReason } from '#rts-engine';
 import {
   type BuildPreviewPayload,
   type BuildPreviewRequestPayload,
+  type BuildPreviewResult,
+  type QueueBuildResult,
   type BuildQueuePayload,
   type DestroyQueuePayload,
   type CellUpdatePayload as SocketCellUpdatePayload,
@@ -23,10 +29,8 @@ import {
   type DestroyOutcomePayload,
   type DestroyQueuedPayload,
   type LifecyclePreconditions,
-  type MatchFinishedPayload,
   type PlacementTransformInput,
   type PlacementTransformOperation,
-  type QueueBuildResult,
   type QueueDestroyResult,
   transitionMatchLifecycle,
   type PlayerProfilePayload,
@@ -37,19 +41,18 @@ import {
   type BuildOutcomePayload,
   type RoomErrorPayload,
   type RoomJoinPayload,
-  type RoomListEntryPayload,
-  type RoomMembershipPayload,
   type RoomSetReadyPayload,
   type RoomStartPayload,
-  type RoomState,
+  type RtsRoom,
   type RoomStatePayload,
-  type RoomStatus,
   type ServerToClientEvents,
   type TeamState,
 } from '#rts-engine';
 
-const DIST_CLIENT_DIR = path.join(process.cwd(), 'dist', 'client');
-const DIST_CLIENT_INDEX_HTML = path.join(DIST_CLIENT_DIR, 'index.html');
+const DEFAULT_DIST_CLIENT_DIR = path.resolve(
+  import.meta.dirname,
+  '../../../dist/client',
+);
 const PLAYER_SLOT_IDS = ['team-1', 'team-2'] as const;
 const COUNTDOWN_SECONDS = 3;
 const MEMBERSHIP_RESYNC_INTERVAL_MS = 300;
@@ -74,6 +77,7 @@ export interface ServerOptions {
   height?: number;
   tickMs?: number;
   clientAssetsMode?: ClientAssetsMode;
+  clientAssetsDir?: string;
   countdownSeconds?: number;
   reconnectHoldMs?: number;
   now?: () => number;
@@ -86,31 +90,29 @@ export interface ServerOptions {
 export type StatePayload = RoomStatePayload;
 
 type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
-type RoomListPayloadEntry = RoomListEntryPayload;
 export type CellUpdatePayload = SocketCellUpdatePayload;
 
-function configureStaticAssets(app: Express, mode: ClientAssetsMode): void {
-  if (!fs.existsSync(DIST_CLIENT_INDEX_HTML)) {
+function configureStaticAssets(
+  app: Express,
+  mode: ClientAssetsMode,
+  clientAssetsDir: string,
+): void {
+  const clientIndexHtmlPath = path.join(clientAssetsDir, 'index.html');
+
+  if (!fs.existsSync(clientIndexHtmlPath)) {
     if (mode === 'strict') {
       throw new Error(
-        `Missing built client assets at ${DIST_CLIENT_INDEX_HTML}. Run \`npm run build\` before starting the server.`,
+        `Missing built client assets at ${clientIndexHtmlPath}. Run \`npm run build\` before starting the server.`,
       );
     }
     return;
   }
 
-  app.use(express.static(DIST_CLIENT_DIR));
+  app.use(express.static(clientAssetsDir));
 }
 
-interface RuntimeRoom {
-  state: RoomState;
-  lobby: LobbyRoom;
-  roomCode: string;
-  revision: number;
-  status: RoomStatus;
-  countdownSecondsRemaining: number | null;
+interface RuntimeRoom extends RuntimeBroadcastRoom {
   countdownTimer: IntervalHandle | null;
-  matchOutcome: MatchFinishedPayload | null;
 }
 
 export interface GameServer {
@@ -124,21 +126,8 @@ function roomChannel(roomId: string): string {
 }
 
 function getRuntimeRoomId(room: RuntimeRoom): string {
-  return RtsEngine.getRoomId(room.state);
+  return room.rtsRoom.id;
 }
-
-function getRuntimeRoomName(room: RuntimeRoom): string {
-  return RtsEngine.getRoomName(room.state);
-}
-
-function getRuntimeRoomWidth(room: RuntimeRoom): number {
-  return RtsEngine.getRoomWidth(room.state);
-}
-
-function getRuntimeRoomHeight(room: RuntimeRoom): number {
-  return RtsEngine.getRoomHeight(room.state);
-}
-
 function sanitizePlayerName(value: unknown, fallback: string): string {
   if (typeof value !== 'string') {
     return fallback;
@@ -341,6 +330,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     Math.ceil(FINISHED_ROOM_RESYNC_INTERVAL_MS / tickMs),
   );
   const clientAssetsMode = options.clientAssetsMode ?? 'optional';
+  const clientAssetsDir = options.clientAssetsDir ?? DEFAULT_DIST_CLIENT_DIR;
   const countdownSeconds =
     typeof options.countdownSeconds === 'number' &&
     Number.isFinite(options.countdownSeconds)
@@ -360,7 +350,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     options.clearTimeout ?? ((timer) => clearTimeout(timer));
 
   const app: Express = express();
-  configureStaticAssets(app, clientAssetsMode);
+  configureStaticAssets(app, clientAssetsMode, clientAssetsDir);
 
   const httpServer = http.createServer(app);
   const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(
@@ -374,10 +364,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
   const roomTemplates = RtsEngine.createDefaultTemplates();
   const rooms = new Map<string, RuntimeRoom>();
 
-  function buildRuntimeRoom(roomState: RoomState): RuntimeRoom {
-    const roomId = RtsEngine.getRoomId(roomState);
+  function buildRuntimeRoom(rtsRoom: RtsRoom): RuntimeRoom {
+    const roomId = rtsRoom.id;
     return {
-      state: roomState,
+      rtsRoom,
       lobby: LobbyRoom.create({
         roomId,
         slotIds: [...PLAYER_SLOT_IDS],
@@ -394,7 +384,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   rooms.set(
     defaultRoomId,
     buildRuntimeRoom(
-      RtsEngine.createRoomState({
+      RtsEngine.createRoom({
         id: defaultRoomId,
         name: 'Main Arena',
         width,
@@ -445,139 +435,79 @@ export function createServer(options: ServerOptions = {}): GameServer {
     return null;
   }
 
-  function buildMembershipPayload(room: RuntimeRoom): RoomMembershipPayload {
-    const snapshot = room.lobby.snapshot();
-    const slotIds = room.lobby.slotIds();
-    const heldSlots: RoomMembershipPayload['heldSlots'] = {};
-
-    for (const slotId of slotIds) {
-      const sessionId = snapshot.slots[slotId];
-      if (!sessionId) {
-        heldSlots[slotId] = null;
-        continue;
-      }
-
-      const hold = sessionCoordinator.getHold(sessionId);
-      if (
-        hold &&
-        hold.roomId === getRuntimeRoomId(room) &&
-        hold.slotId === slotId
-      ) {
-        heldSlots[slotId] = {
-          sessionId,
-          holdExpiresAt: hold.expiresAt,
-          disconnectReason: hold.disconnectReason,
-        };
-        continue;
-      }
-
-      heldSlots[slotId] = null;
-    }
-
-    return {
-      roomId: getRuntimeRoomId(room),
-      roomCode: room.roomCode,
-      roomName: getRuntimeRoomName(room),
-      revision: room.revision,
-      status: room.status,
-      hostSessionId: snapshot.hostSessionId,
-      slots: snapshot.slots,
-      participants: snapshot.participants.map((participant) => {
-        const participantSession = sessionCoordinator.getSession(
-          participant.sessionId,
-        );
-        const hold = sessionCoordinator.getHold(participant.sessionId);
-        const disconnected =
-          participantSession !== null && !participantSession.connected;
-
-        return {
-          sessionId: participant.sessionId,
-          displayName: participant.displayName,
-          role: participant.role,
-          slotId: participant.slotId,
-          ready: participant.ready,
-          connectionStatus: disconnected ? 'held' : 'connected',
-          holdExpiresAt: disconnected ? (hold?.expiresAt ?? null) : null,
-          disconnectReason: disconnected
-            ? (participantSession?.disconnectReason ??
-              hold?.disconnectReason ??
-              null)
-            : null,
-        };
-      }),
-      heldSlots,
-      countdownSecondsRemaining: room.countdownSecondsRemaining,
-    };
-  }
+  const roomBroadcast = new RoomBroadcastService({
+    io,
+    sessionCoordinator,
+    roomChannel,
+    listRooms: () => rooms.values(),
+  });
+  const activeDisconnectTimers = new Map<string, TimeoutHandle>();
 
   function emitRoomList(target?: GameSocket): void {
-    const payload = [...rooms.values()]
-      .map((room): RoomListPayloadEntry => {
-        const snapshot = room.lobby.snapshot();
-        const players = snapshot.participants.filter(
-          ({ role }) => role === 'player',
-        ).length;
-
-        return {
-          roomId: getRuntimeRoomId(room),
-          roomCode: room.roomCode,
-          name: getRuntimeRoomName(room),
-          width: getRuntimeRoomWidth(room),
-          height: getRuntimeRoomHeight(room),
-          players,
-          spectators: snapshot.participants.length - players,
-          teams: room.state.teams.size,
-          status: room.status,
-        };
-      })
-      .sort((a, b) =>
-        a.roomId.localeCompare(b.roomId, undefined, { numeric: true }),
-      );
-
-    if (target) {
-      target.emit('room:list', payload);
-      return;
-    }
-    io.emit('room:list', payload);
+    roomBroadcast.emitRoomList(target);
   }
 
   function emitRoomState(room: RuntimeRoom): void {
-    io.to(roomChannel(getRuntimeRoomId(room))).emit(
-      'state',
-      RtsEngine.createRoomStatePayload(room.state),
-    );
+    roomBroadcast.emitRoomState(room);
   }
 
   function emitBuildOutcomes(
     room: RuntimeRoom,
     outcomes: BuildOutcomePayload[],
   ): void {
-    for (const outcome of outcomes) {
-      io.to(roomChannel(getRuntimeRoomId(room))).emit('build:outcome', outcome);
-    }
+    roomBroadcast.emitBuildOutcomes(room, outcomes);
   }
 
   function emitDestroyOutcomes(
     room: RuntimeRoom,
     outcomes: DestroyOutcomePayload[],
   ): void {
-    for (const outcome of outcomes) {
-      io.to(roomChannel(getRuntimeRoomId(room))).emit(
-        'destroy:outcome',
-        outcome,
-      );
-    }
+    roomBroadcast.emitDestroyOutcomes(room, outcomes);
   }
 
   function emitMembership(room: RuntimeRoom, bumpRevision = true): void {
-    if (bumpRevision) {
-      room.revision += 1;
+    roomBroadcast.emitMembership(room, bumpRevision);
+  }
+
+  function clearActiveDisconnectExpiry(sessionId: string): void {
+    const timer = activeDisconnectTimers.get(sessionId);
+    if (!timer) {
+      return;
     }
 
-    io.to(roomChannel(getRuntimeRoomId(room))).emit(
-      'room:membership',
-      buildMembershipPayload(room),
-    );
+    clearTimeoutHook(timer);
+    activeDisconnectTimers.delete(sessionId);
+  }
+
+  function scheduleActiveDisconnectExpiry(
+    sessionId: string,
+    roomId: string,
+  ): void {
+    clearActiveDisconnectExpiry(sessionId);
+
+    const timer = setTimeoutHook(() => {
+      activeDisconnectTimers.delete(sessionId);
+
+      const session = sessionCoordinator.getSession(sessionId);
+      if (!session || session.connected || session.roomId !== roomId) {
+        return;
+      }
+
+      const room = getRoomOrNull(roomId);
+      if (!room) {
+        sessionCoordinator.setRoom(sessionId, null);
+        sessionCoordinator.pruneSession(sessionId);
+        return;
+      }
+
+      const wasPlayer = removeSessionFromRoom(room, sessionId);
+      sessionCoordinator.clearHold(sessionId);
+      sessionCoordinator.setRoom(sessionId, null);
+      finalizeDeparture(room, wasPlayer);
+      sessionCoordinator.pruneSession(sessionId);
+    }, reconnectHoldMs);
+
+    activeDisconnectTimers.set(sessionId, timer);
   }
 
   function stopCountdown(room: RuntimeRoom): void {
@@ -589,7 +519,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   }
 
   function deleteRoomIfEmpty(room: RuntimeRoom): boolean {
-    if (getRuntimeRoomId(room) === defaultRoomId) {
+    if (room.rtsRoom.id === defaultRoomId) {
       return false;
     }
 
@@ -598,7 +528,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     }
 
     stopCountdown(room);
-    rooms.delete(getRuntimeRoomId(room));
+    rooms.delete(room.rtsRoom.id);
     return true;
   }
 
@@ -645,7 +575,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
     room.lobby.leave(sessionId);
     if (wasPlayer) {
-      RtsEngine.removePlayerFromRoom(room.state, sessionId);
+      room.rtsRoom.removePlayer(sessionId);
     }
 
     return wasPlayer;
@@ -664,16 +594,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
   }
 
   function expireHeldSession(holdSessionId: string, roomId: string): void {
+    clearActiveDisconnectExpiry(holdSessionId);
+
     const room = rooms.get(roomId);
     if (!room) {
       sessionCoordinator.setRoom(holdSessionId, null);
       sessionCoordinator.pruneSession(holdSessionId);
-      return;
-    }
-
-    if (room.status === 'active') {
-      emitMembership(room);
-      emitRoomList();
       return;
     }
 
@@ -694,6 +620,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
     session: PlayerSession,
     options: LeaveCurrentRoomOptions,
   ): void {
+    clearActiveDisconnectExpiry(session.id);
+
     const room = getRoomOrNull(session.roomId);
     if (!room) {
       sessionCoordinator.setRoom(session.id, null);
@@ -706,7 +634,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       return;
     }
 
-    const previousRoomId = getRuntimeRoomId(room);
+    const previousRoomId = room.rtsRoom.id;
 
     const existingParticipant = room.lobby.getParticipant(session.id);
     const heldSlotId =
@@ -721,6 +649,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           socket.id,
           options.disconnectReason ?? null,
         );
+        scheduleActiveDisconnectExpiry(session.id, room.rtsRoom.id);
         emitMembership(room);
         emitRoomList();
         return;
@@ -729,7 +658,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       sessionCoordinator.holdOnDisconnect({
         sessionId: session.id,
         socketId: socket.id,
-        roomId: getRuntimeRoomId(room),
+        roomId: room.rtsRoom.id,
         slotId: heldSlotId,
         disconnectReason: options.disconnectReason ?? null,
         onExpire: (hold) => {
@@ -749,7 +678,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         options.disconnectReason ?? null,
       );
     } else {
-      void socket.leave(roomChannel(getRuntimeRoomId(room)));
+      void socket.leave(roomChannel(room.rtsRoom.id));
     }
 
     const wasPlayer = removeSessionFromRoom(room, session.id);
@@ -771,32 +700,36 @@ export function createServer(options: ServerOptions = {}): GameServer {
     session: PlayerSession,
     room: RuntimeRoom,
   ): void {
-    if (session.roomId && session.roomId !== getRuntimeRoomId(room)) {
+    clearActiveDisconnectExpiry(session.id);
+
+    if (session.roomId && session.roomId !== room.rtsRoom.id) {
       leaveCurrentRoom(socket, session, {
         emitLeft: true,
         preserveHold: false,
       });
     }
 
-    void socket.join(roomChannel(getRuntimeRoomId(room)));
+    void socket.join(roomChannel(room.rtsRoom.id));
     sessionCoordinator.clearHold(session.id);
     room.lobby.join({
       sessionId: session.id,
       displayName: session.name,
     });
 
-    sessionCoordinator.setRoom(session.id, getRuntimeRoomId(room));
+    sessionCoordinator.setRoom(session.id, room.rtsRoom.id);
 
-    const teamId = room.state.players.get(session.id)?.teamId ?? null;
+    const teamId = room.rtsRoom.state.players.get(session.id)?.teamId ?? null;
     socket.emit('room:joined', {
-      roomId: getRuntimeRoomId(room),
+      roomId: room.rtsRoom.id,
       roomCode: room.roomCode,
-      roomName: getRuntimeRoomName(room),
+      roomName: room.rtsRoom.name,
       playerId: session.id,
       playerName: session.name,
       teamId,
-      templates: RtsEngine.createTemplateSummaries(room.state.templates),
-      state: RtsEngine.createRoomStatePayload(room.state),
+      templates: room.rtsRoom.state.templates.map((template) =>
+        template.toSummary(),
+      ),
+      state: room.rtsRoom.createStatePayload(),
     });
 
     emitMembership(room);
@@ -836,7 +769,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
     const trimmedSlotId = slotId.trim();
     const heldBySessionId = sessionCoordinator.getHeldSessionForSlot(
-      getRuntimeRoomId(room),
+      room.rtsRoom.id,
       trimmedSlotId,
     );
     if (heldBySessionId && heldBySessionId !== session.id) {
@@ -857,14 +790,14 @@ export function createServer(options: ServerOptions = {}): GameServer {
       return;
     }
 
-    if (!room.state.players.has(session.id)) {
-      RtsEngine.addPlayerToRoom(room.state, session.id, session.name);
+    if (!room.rtsRoom.state.players.has(session.id)) {
+      room.rtsRoom.addPlayer(session.id, session.name);
     }
 
     socket.emit('room:slot-claimed', {
-      roomId: getRuntimeRoomId(room),
+      roomId: room.rtsRoom.id,
       slotId: trimmedSlotId,
-      teamId: room.state.players.get(session.id)?.teamId ?? null,
+      teamId: room.rtsRoom.state.players.get(session.id)?.teamId ?? null,
     });
 
     emitMembership(room);
@@ -929,13 +862,13 @@ export function createServer(options: ServerOptions = {}): GameServer {
       hasRequiredPlayers,
       allPlayersConnected,
       reconnectHoldPending: sessionCoordinator.hasPendingHoldForRoom(
-        getRuntimeRoomId(room),
+        room.rtsRoom.id,
       ),
     };
   }
 
   function resetRoomStateForRestart(room: RuntimeRoom): void {
-    const previousState = room.state;
+    const previousRoom = room.rtsRoom;
     const snapshot = room.lobby.snapshot();
     const slotIds = room.lobby.slotIds();
     const participantBySession = new Map(
@@ -945,12 +878,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
       ]),
     );
 
-    const nextState = RtsEngine.createRoomState({
-      id: RtsEngine.getRoomId(previousState),
-      name: RtsEngine.getRoomName(previousState),
-      width: RtsEngine.getRoomWidth(previousState),
-      height: RtsEngine.getRoomHeight(previousState),
-      templates: previousState.templates,
+    const nextRoom = RtsEngine.createRoom({
+      id: previousRoom.id,
+      name: previousRoom.name,
+      width: previousRoom.width,
+      height: previousRoom.height,
+      templates: previousRoom.state.templates,
     });
 
     for (const slotId of slotIds) {
@@ -963,24 +896,15 @@ export function createServer(options: ServerOptions = {}): GameServer {
         sessionCoordinator.getSession(sessionId)?.name ??
         participantBySession.get(sessionId)?.displayName ??
         sessionId;
-      RtsEngine.addPlayerToRoom(nextState, sessionId, displayName);
+      nextRoom.addPlayer(sessionId, displayName);
     }
 
-    room.state = nextState;
+    room.rtsRoom = nextRoom;
     room.matchOutcome = null;
   }
 
   function emitMatchFinished(room: RuntimeRoom): void {
-    if (!room.matchOutcome) {
-      return;
-    }
-
-    io.to(roomChannel(getRuntimeRoomId(room))).emit('room:match-finished', {
-      roomId: getRuntimeRoomId(room),
-      winner: room.matchOutcome.winner,
-      ranked: room.matchOutcome.ranked,
-      comparator: room.matchOutcome.comparator,
-    });
+    roomBroadcast.emitMatchFinished(room);
   }
 
   function startCountdown(room: RuntimeRoom): void {
@@ -993,8 +917,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
     room.countdownSecondsRemaining = countdownSeconds;
     emitMembership(room);
     emitRoomList();
-    io.to(roomChannel(getRuntimeRoomId(room))).emit('room:countdown', {
-      roomId: getRuntimeRoomId(room),
+    io.to(roomChannel(room.rtsRoom.id)).emit('room:countdown', {
+      roomId: room.rtsRoom.id,
       secondsRemaining: room.countdownSecondsRemaining,
     });
 
@@ -1011,8 +935,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
       room.status = transition.nextStatus;
       emitMembership(room);
       emitRoomList();
-      io.to(roomChannel(getRuntimeRoomId(room))).emit('room:match-started', {
-        roomId: getRuntimeRoomId(room),
+      io.to(roomChannel(room.rtsRoom.id)).emit('room:match-started', {
+        roomId: room.rtsRoom.id,
       });
       return;
     }
@@ -1032,16 +956,16 @@ export function createServer(options: ServerOptions = {}): GameServer {
         room.status = transition.nextStatus;
         emitMembership(room);
         emitRoomList();
-        io.to(roomChannel(getRuntimeRoomId(room))).emit('room:match-started', {
-          roomId: getRuntimeRoomId(room),
+        io.to(roomChannel(room.rtsRoom.id)).emit('room:match-started', {
+          roomId: room.rtsRoom.id,
         });
         return;
       }
 
       room.countdownSecondsRemaining = next;
       emitMembership(room);
-      io.to(roomChannel(getRuntimeRoomId(room))).emit('room:countdown', {
-        roomId: getRuntimeRoomId(room),
+      io.to(roomChannel(room.rtsRoom.id)).emit('room:countdown', {
+        roomId: room.rtsRoom.id,
         secondsRemaining: next,
       });
     }, 1000);
@@ -1051,12 +975,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
     room: RuntimeRoom,
     sessionId: string,
   ): TeamState | null {
-    const player = room.state.players.get(sessionId);
+    const player = room.rtsRoom.state.players.get(sessionId);
     if (!player) {
       return null;
     }
 
-    return room.state.teams.get(player.teamId) ?? null;
+    return room.rtsRoom.state.teams.get(player.teamId) ?? null;
   }
 
   interface GameplayMutationGateResult {
@@ -1214,16 +1138,16 @@ export function createServer(options: ServerOptions = {}): GameServer {
   }
 
   function runQueueBuildProbe(
-    roomState: RoomState,
+    rtsRoom: RtsRoom,
     playerId: string,
     payload: BuildQueuePayload,
-  ): QueueBuildResult {
-    return RtsEngine.previewBuildPlacement(roomState, playerId, payload);
+  ): BuildPreviewResult {
+    return rtsRoom.previewBuildPlacement(playerId, payload);
   }
 
   function derivePreviewAffordability(
     currentResources: number,
-    previewResult: QueueBuildResult,
+    previewResult: BuildPreviewResult,
   ): Pick<
     BuildPreviewPayload,
     'affordable' | 'needed' | 'current' | 'deficit'
@@ -1254,7 +1178,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     roomId: string,
     teamId: number,
     request: BuildPreviewRequestPayload,
-    previewResult: QueueBuildResult,
+    previewResult: BuildPreviewResult,
     affordability: Pick<
       BuildPreviewPayload,
       'affordable' | 'needed' | 'current' | 'deficit'
@@ -1293,7 +1217,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     const roomId = roomCounter.toString();
     roomCounter += 1;
 
-    const roomState = RtsEngine.createRoomState({
+    const rtsRoom = RtsEngine.createRoom({
       id: roomId,
       name:
         typeof roomPayload.name === 'string' && roomPayload.name.trim()
@@ -1304,7 +1228,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       templates: roomTemplates,
     });
 
-    const room = buildRuntimeRoom(roomState);
+    const room = buildRuntimeRoom(rtsRoom);
     rooms.set(getRuntimeRoomId(room), room);
     return room;
   }
@@ -1334,6 +1258,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           'This session was replaced by a newer connection',
           'session-replaced',
         );
+        previousSocket.disconnect(true);
       }
     }
 
@@ -1374,8 +1299,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
           sessionId: session.id,
           displayName: nextName,
         });
-        if (room.state.players.has(session.id)) {
-          RtsEngine.renamePlayerInRoom(room.state, session.id, nextName);
+        if (room.rtsRoom.state.players.has(session.id)) {
+          room.rtsRoom.renamePlayer(session.id, nextName);
           emitRoomState(room);
         }
         emitMembership(room);
@@ -1609,8 +1534,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      io.to(roomChannel(getRuntimeRoomId(room))).emit('chat:message', {
-        roomId: getRuntimeRoomId(room),
+      io.to(roomChannel(room.rtsRoom.id)).emit('chat:message', {
+        roomId: room.rtsRoom.id,
         senderSessionId: session.id,
         senderName: session.name,
         message,
@@ -1662,7 +1587,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       };
 
       const previewResult = runQueueBuildProbe(
-        room.state,
+        room.rtsRoom,
         session.id,
         previewRequest,
       );
@@ -1672,7 +1597,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       );
 
       const previewPayload = createBuildPreviewPayload(
-        getRuntimeRoomId(room),
+        room.rtsRoom.id,
         gate.team.id,
         previewRequest,
         previewResult,
@@ -1718,11 +1643,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      const result = RtsEngine.queueBuildEvent(
-        room.state,
-        session.id,
-        parsedPayload,
-      );
+      const result = room.rtsRoom.queueBuildEvent(session.id, parsedPayload);
 
       if (!result.accepted) {
         const reason = resolveQueueBuildRejectionReason(result);
@@ -1742,7 +1663,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           transform: parsedPayload.transform,
         };
         const refreshedPreview = runQueueBuildProbe(
-          room.state,
+          room.rtsRoom,
           session.id,
           previewRequest,
         );
@@ -1753,7 +1674,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         socket.emit(
           'build:preview',
           createBuildPreviewPayload(
-            getRuntimeRoomId(room),
+            room.rtsRoom.id,
             gate.team.id,
             previewRequest,
             refreshedPreview,
@@ -1766,7 +1687,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
       const queued: BuildQueuedPayload = {
         eventId: result.eventId ?? -1,
-        executeTick: result.executeTick ?? room.state.tick,
+        executeTick: result.executeTick ?? room.rtsRoom.state.tick,
       };
       socket.emit('build:queued', queued);
     });
@@ -1798,11 +1719,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      const result = RtsEngine.queueDestroyEvent(
-        room.state,
-        session.id,
-        parsedPayload,
-      );
+      const result = room.rtsRoom.queueDestroyEvent(session.id, parsedPayload);
       if (!result.accepted) {
         const reason = resolveQueueDestroyRejectionReason(result);
         roomError(socket, result.error ?? 'Destroy rejected', reason);
@@ -1811,7 +1728,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
       const queued: DestroyQueuedPayload = {
         eventId: result.eventId ?? -1,
-        executeTick: result.executeTick ?? room.state.tick,
+        executeTick: result.executeTick ?? room.rtsRoom.state.tick,
         structureKey: result.structureKey ?? parsedPayload.structureKey,
         idempotent: Boolean(result.idempotent),
       };
@@ -1844,7 +1761,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   function getStatePayload(): StatePayload {
     const room = rooms.get(defaultRoomId);
     if (room) {
-      return RtsEngine.createRoomStatePayload(room.state);
+      return room.rtsRoom.createStatePayload();
     }
 
     return {
@@ -1868,16 +1785,36 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
     for (const room of rooms.values()) {
       if (room.status === 'active') {
-        const tickResult = RtsEngine.tickRoom(room.state);
+        if (room.rtsRoom.state.players.size === 0) {
+          const transition = transitionMatchLifecycle(room.status, 'finish');
+          if (transition.allowed) {
+            room.status = transition.nextStatus;
+            const outcome = room.rtsRoom.createCanonicalMatchOutcome();
+            room.matchOutcome = outcome
+              ? {
+                  roomId: room.rtsRoom.id,
+                  winner: outcome.winner,
+                  ranked: outcome.ranked,
+                  comparator: outcome.comparator,
+                }
+              : null;
+            emitMembership(room);
+            emitRoomList();
+            emitMatchFinished(room);
+          }
+          continue;
+        }
+
+        const tickResult = room.rtsRoom.tick();
         const buildOutcomes: BuildOutcomePayload[] =
           tickResult.buildOutcomes.map((outcome) => ({
             ...outcome,
-            roomId: getRuntimeRoomId(room),
+            roomId: room.rtsRoom.id,
           }));
         const destroyOutcomes: DestroyOutcomePayload[] =
           tickResult.destroyOutcomes.map((outcome) => ({
             ...outcome,
-            roomId: getRuntimeRoomId(room),
+            roomId: room.rtsRoom.id,
           }));
         emitBuildOutcomes(room, buildOutcomes);
         emitDestroyOutcomes(room, destroyOutcomes);
@@ -1887,7 +1824,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           if (transition.allowed) {
             room.status = transition.nextStatus;
             room.matchOutcome = {
-              roomId: getRuntimeRoomId(room),
+              roomId: room.rtsRoom.id,
               winner: tickResult.outcome.winner,
               ranked: tickResult.outcome.ranked,
               comparator: tickResult.outcome.comparator,
@@ -1906,7 +1843,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           emitRoomState(room);
         }
 
-        // Re-emit authoritative snapshots on a heartbeat for late listeners.
+        // Re-emit shared snapshots on a heartbeat for late listeners.
         if (emitMembershipResync) {
           emitMembership(room, false);
         }
@@ -1935,6 +1872,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
       clearIntervalHook(interval);
       interval = null;
     }
+
+    for (const timer of activeDisconnectTimers.values()) {
+      clearTimeoutHook(timer);
+    }
+    activeDisconnectTimers.clear();
 
     sessionCoordinator.stop();
 

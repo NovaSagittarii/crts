@@ -36,7 +36,8 @@
     "test:integration:split": "npm run test:integration:heavy && npm run test:integration:light",
     "test:integration:serial": "vitest run --config vitest.config.ts --dir tests/integration --no-file-parallelism",
     "test:quality": "npm run test:fast && npm run test:integration",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage"
   },
   "dependencies": {
     "express": "^4.19.2",
@@ -54,8 +55,8 @@
     "tsx": "^4.15.0",
     "typescript-eslint": "^8.26.0",
     "typescript": "^5.4.5",
-    "vite": "^5.2.0",
-    "vitest": "^1.6.0"
+    "vite": "^7.3.1",
+    "vitest": "^4.0.18"
   },
   "author": "",
   "license": "ISC"

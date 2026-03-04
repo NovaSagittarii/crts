@@ -64,6 +64,8 @@ import {
   clearReconnectNotice,
   createMatchScreenViewState,
   getReconnectNoticeCopy,
+  hasVisibleReconnectNotice,
+  isReconnectSyncing,
   markReconnectPending,
   RECONNECT_NOTICE_MS,
   SCREEN_TRANSITION_NOTICE_MS,
@@ -103,6 +105,7 @@ import {
   type TacticalOverlayTeamSnapshot,
   type TacticalOverlayState,
 } from './tactical-overlay-view-model.js';
+import { chooseGridCellSize } from './canvas-layout.js';
 
 type RoomListEntry = RoomListEntryPayload;
 type StatePayload = RoomStatePayload;
@@ -1167,7 +1170,7 @@ function scheduleTacticalOverlayTick(nowMs: number): void {
 
   if (
     lastAuthoritativeStateAtMs !== null &&
-    !matchScreenState.reconnectNotice
+    !hasVisibleReconnectNotice(matchScreenState)
   ) {
     const staleTickAt =
       lastAuthoritativeStateAtMs + DEFAULT_SYNC_STALE_THRESHOLD_MS + 1;
@@ -1336,7 +1339,7 @@ function renderTacticalOverlay(nowMs = Date.now()): void {
     previewReasonCopy: previewReasonEl.textContent,
     latestActionCopy: overlayTeamFeedbackCopy,
     sync: {
-      reconnectPending: Boolean(matchScreenState.reconnectNotice),
+      reconnectPending: isReconnectSyncing(matchScreenState),
       lastAuthoritativeUpdateAtMs: lastAuthoritativeStateAtMs,
       staleThresholdMs: DEFAULT_SYNC_STALE_THRESHOLD_MS,
       hintCopy: 'Syncing tactical data from server updates...',
@@ -1405,6 +1408,24 @@ function resetTacticalOverlayState(): void {
   overlayTeamFeedbackPending = false;
   overlayTeamFeedbackIsError = false;
   renderTacticalOverlay();
+}
+
+function resetRoomTransitionFlags(): void {
+  countdownSecondsRemaining = null;
+  currentMatchFinished = null;
+  isFinishedPanelMinimized = false;
+  currentTeamDefeated = false;
+  persistentDefeatReason = null;
+  latestOutcomeTimelineMetadata = null;
+  currentMembership = null;
+  lastBuildErrorToast = null;
+}
+
+function resetRoomTransitionViewModels(): void {
+  clearSelectedTemplatePlacement();
+  resetEconomyTracking();
+  resetDestroyInteractionState();
+  resetTacticalOverlayState();
 }
 
 function syncVisibleStructures(payload: StatePayload): void {
@@ -1684,7 +1705,7 @@ function updateDestroyUi(): void {
       ? 'Confirm Destroy Now'
       : 'Arm Confirm Destroy';
     feedback = destroyViewState.confirmArmed
-      ? 'Confirm destroy to submit the authoritative request.'
+      ? 'Confirm destroy to submit the coordinated request.'
       : 'Core destroy requires confirmation before queue submission.';
     actionHint = destroyViewState.confirmArmed
       ? 'Confirm armed. Submit destroy to queue the request.'
@@ -1754,8 +1775,7 @@ function updateQueueAffordabilityUi(): void {
 
   queueCostEl.classList.remove('queue-cost--affordable', 'queue-cost--blocked');
   if (!latestBuildPreview) {
-    previewReasonEl.textContent =
-      'Preview reason: awaiting authoritative preview.';
+    previewReasonEl.textContent = 'Preview reason: awaiting lockstep preview.';
     previewReasonEl.classList.remove('queue-feedback--error');
     queueCostEl.textContent = 'Cost: --';
   } else {
@@ -1873,7 +1893,7 @@ function applyTransformControl(
     operation,
   );
   updateTransformIndicator();
-  setMessage(`${label} applied. Preview updated with authoritative legality.`);
+  setMessage(`${label} applied. Preview updated with lockstep legality.`);
   emitBuildPreviewForSelectedPlacement();
   render();
   updateQueueAffordabilityUi();
@@ -2462,9 +2482,11 @@ function getCell(x: number, y: number): number {
 }
 
 function chooseCellSize(width: number): number {
-  const maxWidth = Math.max(240, window.innerWidth - 32);
-  const proposed = Math.floor(maxWidth / width);
-  return Math.max(3, Math.min(8, proposed));
+  const viewportWidth =
+    gridViewportEl.clientWidth > 0
+      ? gridViewportEl.clientWidth
+      : window.innerWidth;
+  return chooseGridCellSize(width, viewportWidth);
 }
 
 function resizeCanvas(): void {
@@ -3320,18 +3342,8 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   currentRoomCode = payload.roomCode;
   currentRoomName = payload.roomName;
   currentTeamId = payload.teamId;
-  countdownSecondsRemaining = null;
-  currentMatchFinished = null;
-  isFinishedPanelMinimized = false;
-  currentTeamDefeated = false;
-  persistentDefeatReason = null;
-  latestOutcomeTimelineMetadata = null;
-  currentMembership = null;
-  lastBuildErrorToast = null;
-  clearSelectedTemplatePlacement();
-  resetEconomyTracking();
-  resetDestroyInteractionState();
-  resetTacticalOverlayState();
+  resetRoomTransitionFlags();
+  resetRoomTransitionViewModels();
   availableTemplates = payload.templates;
   selectedTemplateId = payload.templates[0]?.id ?? '';
   updateTemplateOptions();
@@ -3368,22 +3380,12 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   currentRoomCode = '-';
   currentRoomName = '-';
   currentTeamId = null;
-  countdownSecondsRemaining = null;
-  currentMatchFinished = null;
-  isFinishedPanelMinimized = false;
-  currentTeamDefeated = false;
-  persistentDefeatReason = null;
-  latestOutcomeTimelineMetadata = null;
-  currentMembership = null;
-  lastBuildErrorToast = null;
+  resetRoomTransitionFlags();
   clearEdgeBannerTimeout();
   edgeBannerEl.classList.add('is-hidden');
   matchScreenState = createMatchScreenViewState('lobby');
   updateReconnectIndicator();
-  clearSelectedTemplatePlacement();
-  resetEconomyTracking();
-  resetDestroyInteractionState();
-  resetTacticalOverlayState();
+  resetRoomTransitionViewModels();
   cameraState = createCameraViewState();
   updateCameraStatus();
   applyRoomStatus('lobby');
