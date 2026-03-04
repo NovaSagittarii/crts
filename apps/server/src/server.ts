@@ -19,6 +19,8 @@ import { LobbyRoom, type LobbyRejectionReason } from '#rts-engine';
 import {
   type BuildPreviewPayload,
   type BuildPreviewRequestPayload,
+  type BuildPreviewResult,
+  type BuildRequestResult,
   type BuildQueuePayload,
   type DestroyQueuePayload,
   type CellUpdatePayload as SocketCellUpdatePayload,
@@ -29,7 +31,6 @@ import {
   type LifecyclePreconditions,
   type PlacementTransformInput,
   type PlacementTransformOperation,
-  type QueueBuildResult,
   type QueueDestroyResult,
   transitionMatchLifecycle,
   type PlayerProfilePayload,
@@ -1094,7 +1095,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   }
 
   function getAffordabilityMetadata(
-    result: Pick<QueueBuildResult, 'needed' | 'current' | 'deficit'>,
+    result: Pick<BuildRequestResult, 'needed' | 'current' | 'deficit'>,
   ): AffordabilityMetadata | undefined {
     if (
       typeof result.needed !== 'number' ||
@@ -1111,7 +1112,9 @@ export function createServer(options: ServerOptions = {}): GameServer {
     };
   }
 
-  function resolveQueueBuildRejectionReason(result: QueueBuildResult): string {
+  function resolveQueueBuildRejectionReason(
+    result: BuildRequestResult,
+  ): string {
     if (result.reason) {
       return result.reason;
     }
@@ -1133,13 +1136,13 @@ export function createServer(options: ServerOptions = {}): GameServer {
     roomState: RoomState,
     playerId: string,
     payload: BuildQueuePayload,
-  ): QueueBuildResult {
+  ): BuildPreviewResult {
     return RtsEngine.previewBuildPlacement(roomState, playerId, payload);
   }
 
   function derivePreviewAffordability(
     currentResources: number,
-    previewResult: QueueBuildResult,
+    previewResult: BuildPreviewResult,
   ): Pick<
     BuildPreviewPayload,
     'affordable' | 'needed' | 'current' | 'deficit'
@@ -1170,7 +1173,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     roomId: string,
     teamId: number,
     request: BuildPreviewRequestPayload,
-    previewResult: QueueBuildResult,
+    previewResult: BuildPreviewResult,
     affordability: Pick<
       BuildPreviewPayload,
       'affordable' | 'needed' | 'current' | 'deficit'
@@ -1635,7 +1638,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      const result = RtsEngine.queueBuildEvent(
+      const result = RtsEngine.requestBuild(
         room.state,
         session.id,
         parsedPayload,
