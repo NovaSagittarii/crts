@@ -11,46 +11,15 @@ These rules apply to `apps/web/*`.
 
 - Treat the server as authoritative for game state.
 - Do not implement simulation rules in the client; consume server `state` payloads.
-- Keep socket event names/payloads aligned with `apps/server/AGENTS.md`.
+- Keep socket event names/payloads aligned with `packages/rts-engine/socket-contract.ts`.
 - Validate and sanitize user-entered values before emitting events.
 - Treat gameplay mutation as queue-driven: `build:queue` is the accepted path, while `cell:update` is legacy/debug and should expect `queue-only-mutation-path` rejection.
 - Keep UI responsive for desktop and mobile viewport sizes.
 
 ## Event Usage
 
-Client emits:
-
-- `player:set-name`
-- `room:list`
-- `room:create`
-- `room:join`
-- `room:leave`
-- `room:claim-slot`
-- `room:set-ready`
-- `room:start`
-- `room:cancel-countdown`
-- `chat:send`
-- `build:preview`
-- `build:queue`
-- `cell:update` (legacy/debug; production gameplay path is `build:queue`)
-
-Client listens for:
-
-- `state`
-- `room:list`
-- `room:joined`
-- `room:left` (payload room id may be `null`)
-- `room:membership`
-- `room:slot-claimed`
-- `room:countdown`
-- `room:match-started`
-- `room:match-finished`
-- `room:error`
-- `chat:message`
-- `build:preview`
-- `build:queued`
-- `build:outcome`
-- `player:profile`
+- Canonical client emit/listen event names and payload shapes live in `packages/rts-engine/socket-contract.ts`.
+- Keep web-layer guidance here focused on UX/state behavior, not duplicated wire-contract tables.
 
 Phase 4 economy/queue contract expectations:
 

@@ -9,39 +9,9 @@ These rules apply to `apps/server/*`.
 
 ## Event Contract
 
-Server receives:
-
-- `player:set-name` `{ name }`
-- `room:list` `{}` (or no payload)
-- `room:create` `{ name?, width?, height? }`
-- `room:join` `{ roomId?, roomCode?, slotId? }`
-- `room:leave` `{}`
-- `room:claim-slot` `{ slotId }`
-- `room:set-ready` `{ ready }`
-- `room:start` `{ force? }`
-- `room:cancel-countdown` `{}` (or no payload)
-- `chat:send` `{ message }`
-- `build:preview` `{ templateId, x, y }`
-- `build:queue` `{ templateId, x, y, delayTicks? }`
-- `cell:update` `{ x, y, alive }`
-
-Server emits:
-
-- `state` room-scoped `RoomStatePayload`
-- `room:list` `RoomListEntry[]` with room code/status/spectator counts
-- `room:joined` `{ roomId, roomCode, roomName, playerId, playerName, teamId|null, templates, state }`
-- `room:left` `{ roomId|null }` (`null` when the session had no active room)
-- `room:membership` `{ revision, status, hostSessionId, slots, participants, heldSlots, countdownSecondsRemaining, ... }`
-- `room:slot-claimed` `{ roomId, slotId, teamId }`
-- `room:countdown` `{ roomId, secondsRemaining }`
-- `room:match-started` `{ roomId }`
-- `room:match-finished` `{ roomId, winner, ranked, comparator }` (winner-first standings; non-winners are `defeated`/`eliminated`)
-- `room:error` `{ message, reason?, needed?, current?, deficit? }` (`needed/current/deficit` are included for `insufficient-resources` rejections)
-- `chat:message` `{ roomId, senderSessionId, senderName, message, timestamp }`
-- `build:preview` `{ roomId, teamId, templateId, x, y, affordable, needed, current, deficit, reason? }`
-- `build:queued` `{ eventId, executeTick }`
-- `build:outcome` `{ roomId, eventId, teamId, outcome, reason?, affordable?, needed?, current?, deficit?, executeTick, resolvedTick }`
-- `player:profile` `{ playerId, name }`
+- Canonical event names and payload shapes live in `packages/rts-engine/socket-contract.ts`.
+- Keep this file focused on runtime lifecycle/validation constraints and rejection taxonomy.
+- Do not re-declare socket event payload interfaces in `apps/server/*`.
 
 State payload expectations:
 
