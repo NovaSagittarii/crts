@@ -497,7 +497,6 @@ describe('rts', () => {
     const overflowQueue = RtsEngine.requestBuild(room, 'p1', overflowPayload);
     expect(overflowQueue.accepted).toBe(false);
     expect(overflowQueue.reason).toBe('template-exceeds-map-size');
-    expect(overflowQueue.transform?.operations).toEqual(['rotate']);
     expect(RtsEngine.getTimelineEvents(room).at(-1)?.metadata?.reason).toBe(
       'template-exceeds-map-size',
     );
@@ -635,7 +634,7 @@ describe('rts', () => {
       height: 90,
     });
     const teamOne = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
-    const teamTwo = RtsEngine.addPlayerToRoom(room, 'p2', 'Bob');
+    RtsEngine.addPlayerToRoom(room, 'p2', 'Bob');
 
     const queuedBuild = RtsEngine.requestBuild(room, 'p1', {
       templateId: 'block',

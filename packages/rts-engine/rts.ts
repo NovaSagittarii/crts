@@ -502,7 +502,7 @@ export interface RoomStatePayload {
   teams: TeamPayload[];
 }
 
-export interface QueueBuildResult {
+interface BuildResultBase {
   accepted: boolean;
   error?: string;
   reason?: BuildRejectionReason;
@@ -510,12 +510,18 @@ export interface QueueBuildResult {
   needed?: number;
   current?: number;
   deficit?: number;
+}
+
+export interface BuildPreviewResult extends BuildResultBase {
+  transform: PlacementTransformState;
+  footprint: Vector2[];
+  illegalCells: Vector2[];
+  bounds: PlacementBounds;
+}
+
+export interface BuildRequestResult extends BuildResultBase {
   eventId?: number;
   executeTick?: number;
-  transform?: PlacementTransformState;
-  footprint?: Vector2[];
-  illegalCells?: Vector2[];
-  bounds?: PlacementBounds;
 }
 
 export interface QueueDestroyResult {
@@ -2300,7 +2306,7 @@ export class RtsEngine {
     room: RoomState,
     playerId: string,
     payload: BuildQueuePayload,
-  ): QueueBuildResult {
+  ): BuildPreviewResult {
     const x = Number(payload.x);
     const y = Number(payload.y);
 
@@ -2371,7 +2377,7 @@ export class RtsEngine {
       payload.transform,
     );
 
-    const result: QueueBuildResult = {
+    const result: BuildPreviewResult = {
       accepted: evaluation.reason === undefined,
       reason: evaluation.reason,
       transform: evaluation.projection.transform,
@@ -2401,7 +2407,7 @@ export class RtsEngine {
     room: RoomState,
     playerId: string,
     payload: BuildQueuePayload,
-  ): QueueBuildResult {
+  ): BuildRequestResult {
     const player = room.players.get(playerId);
     if (!player) {
       return {
@@ -2442,17 +2448,28 @@ export class RtsEngine {
           affordability,
         );
       }
-      return preview;
+      return {
+        accepted: false,
+        error: preview.error,
+        reason: preview.reason,
+        affordable: preview.affordable,
+        needed: preview.needed,
+        current: preview.current,
+        deficit: preview.deficit,
+      };
     }
 
     const delay = Number(payload.delayTicks ?? 2);
     if (!Number.isInteger(delay)) {
       RtsEngine.rejectBuild(room, team, 'invalid-delay');
       return {
-        ...preview,
         accepted: false,
         error: 'delayTicks must be an integer',
         reason: 'invalid-delay',
+        affordable: preview.affordable,
+        needed: preview.needed,
+        current: preview.current,
+        deficit: preview.deficit,
       };
     }
 
@@ -2467,7 +2484,7 @@ export class RtsEngine {
       templateId: payload.templateId,
       x,
       y,
-      transform: preview.transform ?? createIdentityPlacementTransform(),
+      transform: preview.transform,
       executeTick: room.tick + clampedDelay,
     };
 
@@ -2483,8 +2500,11 @@ export class RtsEngine {
     });
 
     return {
-      ...preview,
       accepted: true,
+      affordable: preview.affordable,
+      needed: preview.needed,
+      current: preview.current,
+      deficit: preview.deficit,
       eventId: event.id,
       executeTick: event.executeTick,
     };
