@@ -50,7 +50,7 @@ describe('server bootstrap smoke', () => {
       const moduleSource = await moduleResponse.text();
       expect(moduleSource.length).toBeGreaterThan(0);
 
-      socket = createClient(port);
+      socket = createClient(port, { connect: false });
 
       const joinedPromise = waitForEvent<RoomJoinedPayload>(
         socket,
@@ -62,6 +62,7 @@ describe('server bootstrap smoke', () => {
         'room:membership',
         4000,
       );
+      socket.connect();
 
       const joined = await joinedPromise;
       const membership = await membershipPromise;

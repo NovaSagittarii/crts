@@ -14,6 +14,7 @@ import type {
 
 export interface TestClientOptions {
   sessionId?: string;
+  connect?: boolean;
 }
 
 export interface WaitForPredicateOptions {
@@ -50,12 +51,15 @@ export function createClient(
   port: number,
   options: TestClientOptions = {},
 ): Socket {
+  const shouldConnect = options.connect ?? true;
   const socket = io(`http://localhost:${port}`, {
     autoConnect: false,
     transports: ['websocket'],
     auth: options.sessionId ? { sessionId: options.sessionId } : undefined,
   });
-  socket.connect();
+  if (shouldConnect) {
+    socket.connect();
+  }
   return socket;
 }
 
@@ -92,11 +96,13 @@ export function waitForEventWithPredicate<T>(
     options.timeoutMessage ??
     `Condition for ${event} not met in allotted attempts`;
 
-  if (overallTimeoutMs <= 0) {
+  if (attempts <= 0 || overallTimeoutMs <= 0) {
     return Promise.reject(new Error(timeoutMessage));
   }
 
   return new Promise((resolve, reject) => {
+    let remainingAttempts = attempts;
+
     const timer = setTimeout(() => {
       cleanup();
       reject(new Error(timeoutMessage));
@@ -118,6 +124,11 @@ export function waitForEventWithPredicate<T>(
       }
 
       if (!matches) {
+        remainingAttempts -= 1;
+        if (remainingAttempts <= 0) {
+          cleanup();
+          reject(new Error(timeoutMessage));
+        }
         return;
       }
 
