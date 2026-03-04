@@ -56,6 +56,7 @@ export class RoomBroadcastService {
   public buildMembershipPayload(
     room: RuntimeBroadcastRoom,
   ): RoomMembershipPayload {
+    const roomId = room.rtsRoom.id;
     const snapshot = room.lobby.snapshot();
     const slotIds = room.lobby.slotIds();
     const heldSlots: RoomMembershipPayload['heldSlots'] = {};
@@ -68,7 +69,7 @@ export class RoomBroadcastService {
       }
 
       const hold = this.sessionCoordinator.getHold(sessionId);
-      if (hold && hold.roomId === room.rtsRoom.id && hold.slotId === slotId) {
+      if (hold && hold.roomId === roomId && hold.slotId === slotId) {
         heldSlots[slotId] = {
           sessionId,
           holdExpiresAt: hold.expiresAt,
@@ -81,7 +82,7 @@ export class RoomBroadcastService {
     }
 
     return {
-      roomId: room.rtsRoom.id,
+      roomId,
       roomCode: room.roomCode,
       roomName: room.rtsRoom.name,
       revision: room.revision,

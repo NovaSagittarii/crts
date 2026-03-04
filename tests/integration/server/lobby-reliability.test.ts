@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { io, type Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 
 import {
   createServer,
@@ -14,92 +14,16 @@ import type {
   RoomListEntryPayload,
   RoomMembershipPayload,
 } from '#rts-engine';
-
-interface ClientOptions {
-  sessionId?: string;
-}
+import {
+  createClient,
+  type TestClientOptions,
+  waitForEvent,
+  waitForMembership,
+} from './test-support.js';
 
 const HOLD_EXPIRY_ADVANCE_MS = 31_000;
 
 type RoomListEntry = RoomListEntryPayload;
-
-function createClient(port: number, options: ClientOptions = {}): Socket {
-  const socket = io(`http://localhost:${port}`, {
-    autoConnect: false,
-    transports: ['websocket'],
-    auth: {
-      sessionId: options.sessionId,
-    },
-  });
-  socket.connect();
-  return socket;
-}
-
-function waitForEvent<T>(
-  socket: Socket,
-  event: string,
-  timeoutMs = 2000,
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      socket.off(event, handler);
-      reject(new Error(`Timed out waiting for ${event}`));
-    }, timeoutMs);
-
-    function handler(payload: T): void {
-      clearTimeout(timer);
-      resolve(payload);
-    }
-
-    socket.once(event, handler);
-  });
-}
-
-async function waitForMembership(
-  socket: Socket,
-  roomId: string,
-  predicate: (payload: RoomMembershipPayload) => boolean,
-  attempts = 24,
-  timeoutMs = 2000,
-): Promise<RoomMembershipPayload> {
-  const overallTimeoutMs = attempts * timeoutMs;
-  if (overallTimeoutMs <= 0) {
-    throw new Error('Membership condition not met in allotted attempts');
-  }
-
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('Membership condition not met in allotted attempts'));
-    }, overallTimeoutMs);
-
-    function cleanup(): void {
-      clearTimeout(timer);
-      socket.off('room:membership', onMembership);
-    }
-
-    function onMembership(payload: RoomMembershipPayload): void {
-      if (payload.roomId !== roomId) {
-        return;
-      }
-
-      try {
-        if (!predicate(payload)) {
-          return;
-        }
-      } catch (error) {
-        cleanup();
-        reject(error instanceof Error ? error : new Error(String(error)));
-        return;
-      }
-
-      cleanup();
-      resolve(payload);
-    }
-
-    socket.on('room:membership', onMembership);
-  });
-}
 
 function normalizeMembership(payload: RoomMembershipPayload): object {
   const sortedSlots: Record<string, string | null> = {};
@@ -185,7 +109,7 @@ describe('lobby reliability regression', () => {
     await server.stop();
   });
 
-  function connectClient(options: ClientOptions = {}): Socket {
+  function connectClient(options: TestClientOptions = {}): Socket {
     const socket = createClient(port, options);
     sockets.push(socket);
     return socket;
@@ -294,8 +218,7 @@ describe('lobby reliability regression', () => {
             ({ sessionId, connectionStatus }) =>
               sessionId === 'observer' && connectionStatus === 'held',
           ),
-        1000,
-        1000,
+        { attempts: 1000, timeoutMs: 1000 },
       );
       expect(observerHeld.heldSlots['team-1']?.sessionId).toBe('observer');
 
@@ -307,8 +230,7 @@ describe('lobby reliability regression', () => {
           !payload.participants.some(
             ({ sessionId }) => sessionId === 'observer',
           ),
-        2000,
-        1000,
+        { attempts: 2000, timeoutMs: 1000 },
       );
 
       await vi.advanceTimersByTimeAsync(HOLD_EXPIRY_ADVANCE_MS);
@@ -373,8 +295,7 @@ describe('lobby reliability regression', () => {
       (payload) =>
         payload.status === 'countdown' &&
         payload.countdownSecondsRemaining !== null,
-      30,
-      1500,
+      { attempts: 30, timeoutMs: 1500 },
     );
 
     const countdownLockedPromise = waitForEvent<RoomErrorPayload>(
@@ -396,8 +317,7 @@ describe('lobby reliability regression', () => {
       playerTwo,
       created.roomId,
       (payload) => payload.status === 'active',
-      20,
-      1500,
+      { attempts: 20, timeoutMs: 1500 },
     );
 
     observerLate.emit('chat:send', { message: 'spectator visibility check' });
@@ -423,8 +343,7 @@ describe('lobby reliability regression', () => {
           ({ sessionId, connectionStatus }) =>
             sessionId === 'player-two' && connectionStatus === 'held',
         ),
-      20,
-      1500,
+      { attempts: 20, timeoutMs: 1500 },
     );
     expect(playerTwoHeld.heldSlots['team-2']?.sessionId ?? null).toBeNull();
 
@@ -443,8 +362,7 @@ describe('lobby reliability regression', () => {
           ({ sessionId, connectionStatus }) =>
             sessionId === 'player-two' && connectionStatus === 'connected',
         ),
-      24,
-      1500,
+      { attempts: 24, timeoutMs: 1500 },
     );
     expect(reclaimed.heldSlots['team-2']).toBeNull();
 

@@ -3,4 +3,5 @@ opencode.jsonc
 
 .vscode/
 node_modules/
+coverage/
 dist/
