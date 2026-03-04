@@ -55,6 +55,6 @@ Common (not exhaustive) `room:error.reason` values:
 
 - Validate payloads at socket boundaries before passing into engine functions.
 - Keep a coordinator model: clients request changes; the runtime validates ordering and broadcasts shared outcomes.
-- Use `process.cwd()`-anchored paths for runtime static assets in this repo layout.
+- Resolve runtime static asset paths from module location (or explicit config), not `process.cwd()`.
 - Keep room broadcasts scoped via room channels; avoid global `state` emissions.
 - Do not import from `apps/web/*`.
