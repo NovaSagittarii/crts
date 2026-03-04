@@ -1029,7 +1029,7 @@ function scheduleStructureHoverTick(nowMs: number): void {
     );
     syncDestroySelectionFromInteraction(tickNow);
     renderStructureInspector(tickNow);
-    updateDestroyUi();
+    refreshActionUi(tickNow);
   }, delayMs);
 }
 
@@ -1109,7 +1109,7 @@ function applyStructureInteraction(
   syncDestroySelectionFromInteraction(nowMs);
   scheduleStructureHoverTick(nowMs);
   renderStructureInspector(nowMs);
-  updateDestroyUi();
+  refreshActionUi(nowMs);
 }
 
 function updateStructureHoverStateForPointer(event: PointerEvent): void {
@@ -1490,7 +1490,7 @@ function syncVisibleStructures(payload: StatePayload): void {
   syncDestroySelectionFromInteraction(nowMs);
   scheduleStructureHoverTick(nowMs);
   renderStructureInspector(nowMs);
-  updateDestroyUi();
+  refreshActionUi(nowMs);
 }
 
 function cellKey(x: number, y: number): number {
@@ -1614,8 +1614,7 @@ function selectDestroyStructureAtCell(cell: Cell): boolean {
   return true;
 }
 
-function updateDestroyUi(): void {
-  const nowMs = Date.now();
+function updateDestroyUi(nowMs = Date.now()): void {
   const canUsePinnedActions = canShowStructureActions(
     structureInteractionState,
     nowMs,
@@ -1676,8 +1675,6 @@ function updateDestroyUi(): void {
     destroyFeedbackEl.classList.toggle('queue-feedback--error', isError);
     overlayTeamFeedbackCopy = feedback;
     overlayTeamFeedbackIsError = isError;
-    renderOverlayFeedbackRows();
-    renderTacticalOverlay(nowMs);
     return;
   }
 
@@ -1737,8 +1734,6 @@ function updateDestroyUi(): void {
   destroyFeedbackEl.classList.toggle('queue-feedback--error', isError);
   overlayTeamFeedbackCopy = feedback;
   overlayTeamFeedbackIsError = isError;
-  renderOverlayFeedbackRows();
-  renderTacticalOverlay(nowMs);
 }
 
 function updateTransformIndicator(): void {
@@ -1840,8 +1835,13 @@ function updateQueueAffordabilityUi(): void {
   queueFeedbackEl.classList.toggle('queue-feedback--error', isError);
   overlayBuildFeedbackCopy = feedback;
   overlayBuildFeedbackIsError = isError;
+}
+
+function refreshActionUi(nowMs = Date.now()): void {
+  updateQueueAffordabilityUi();
+  updateDestroyUi(nowMs);
   renderOverlayFeedbackRows();
-  updateDestroyUi();
+  renderTacticalOverlay(nowMs);
 }
 
 function emitBuildPreviewForSelectedPlacement(): void {
@@ -1858,7 +1858,7 @@ function emitBuildPreviewForSelectedPlacement(): void {
   previewPending = true;
   latestBuildPreview = null;
   socket.emit('build:preview', previewRequest);
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 }
 
 function emitDestroyQueueForSelection(): void {
@@ -1869,7 +1869,7 @@ function emitDestroyQueueForSelection(): void {
 
   const structureKey = destroyViewState.selectedKey;
   if (!structureKey || !canQueueDestroy(destroyViewState)) {
-    updateDestroyUi();
+    refreshActionUi();
     return;
   }
 
@@ -1881,7 +1881,7 @@ function emitDestroyQueueForSelection(): void {
   socket.emit('destroy:queue', {
     structureKey,
   });
-  updateDestroyUi();
+  refreshActionUi();
 }
 
 function applyTransformControl(
@@ -1901,7 +1901,7 @@ function applyTransformControl(
   setMessage(`${label} applied. Preview updated with lockstep legality.`);
   emitBuildPreviewForSelectedPlacement();
   requestRender();
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 }
 
 function cancelTemplateBuildMode(): void {
@@ -1915,7 +1915,7 @@ function cancelTemplateBuildMode(): void {
   clearSelectedTemplatePlacement();
   setMessage('Build mode canceled. Returned to Paint Cells mode.');
   requestRender();
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 }
 
 function renderIncomeBreakdown(team: TeamPayload | null): void {
@@ -2131,7 +2131,7 @@ function selectTemplatePlacementAt(cell: Cell): void {
   resetQueueFeedbackOverride();
   setMessage(`Template placement selected at (${x}, ${y}).`);
   emitBuildPreviewForSelectedPlacement();
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 }
 
 function updateTemplateOptions(): void {
@@ -2144,7 +2144,7 @@ function updateTemplateOptions(): void {
     option.textContent = 'No templates';
     templateSelectEl.append(option);
     selectedTemplateId = '';
-    updateQueueAffordabilityUi();
+    refreshActionUi();
     return;
   }
 
@@ -2160,7 +2160,7 @@ function updateTemplateOptions(): void {
     clearSelectedTemplatePlacement();
   }
   templateSelectEl.value = selectedTemplateId;
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 }
 
 function getSelfParticipant(): MembershipParticipant | null {
@@ -2279,8 +2279,7 @@ function updateReadOnlyExperience(): void {
   spectatorBannerEl.classList.toggle('is-hidden', bannerCopy === null);
 
   if (!bannerCopy) {
-    updateQueueAffordabilityUi();
-    updateDestroyUi();
+    refreshActionUi();
     return;
   }
 
@@ -2290,8 +2289,7 @@ function updateReadOnlyExperience(): void {
   );
   spectatorBannerTitleEl.textContent = bannerCopy.title;
   spectatorBannerTextEl.textContent = bannerCopy.text;
-  updateQueueAffordabilityUi();
-  updateDestroyUi();
+  refreshActionUi();
 }
 
 function syncCurrentTeamIdFromState(payload: StatePayload): void {
@@ -2842,7 +2840,7 @@ function updateTeamStats(payload: StatePayload): void {
     incomeEl.textContent = '-';
     baseEl.textContent = 'Unknown';
     syncEconomyHud(null, payload.tick);
-    updateQueueAffordabilityUi();
+    refreshActionUi();
     return;
   }
 
@@ -2856,7 +2854,7 @@ function updateTeamStats(payload: StatePayload): void {
     incomeEl.textContent = '-';
     baseEl.textContent = 'Unknown';
     syncEconomyHud(null, payload.tick);
-    updateQueueAffordabilityUi();
+    refreshActionUi();
     return;
   }
 
@@ -2883,7 +2881,7 @@ function updateTeamStats(payload: StatePayload): void {
   }
 
   syncEconomyHud(team, payload.tick);
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 }
 
 function renderLobbyStatus(payload: RoomMembershipPayload): void {
@@ -3486,7 +3484,7 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   setMessage('You left the room.');
   updateLobbyControls();
   updateLifecycleUi();
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 });
 
 socket.on('room:error', (payload: RoomErrorPayload) => {
@@ -3551,8 +3549,7 @@ socket.on('room:error', (payload: RoomErrorPayload) => {
   if (!suppressToast) {
     addToast(message, true);
   }
-  updateQueueAffordabilityUi();
-  updateDestroyUi();
+  refreshActionUi();
 });
 
 socket.on('room:membership', (payload: RoomMembershipPayload) => {
@@ -3642,7 +3639,7 @@ socket.on('build:preview', (payload: BuildPreview) => {
   previewPending = false;
   latestBuildPreview = payload;
   resetQueueFeedbackOverride();
-  updateQueueAffordabilityUi();
+  refreshActionUi();
   requestRender();
 });
 
@@ -3677,7 +3674,7 @@ socket.on('build:outcome', (payload: BuildOutcome) => {
     setQueueFeedbackOverride(overlayBuildFeedbackCopy, false);
   }
 
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 });
 
 socket.on('build:queued', (payload: BuildQueuedPayload) => {
@@ -3689,7 +3686,7 @@ socket.on('build:queued', (payload: BuildQueuedPayload) => {
   setMessage(
     `Build queued (#${payload.eventId}) for tick ${payload.executeTick}.`,
   );
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 });
 
 socket.on('destroy:outcome', (payload: DestroyOutcome) => {
@@ -3724,7 +3721,7 @@ socket.on('destroy:outcome', (payload: DestroyOutcome) => {
     addToast('Structure destroyed.');
   }
 
-  updateDestroyUi();
+  refreshActionUi();
 });
 
 socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
@@ -3745,7 +3742,7 @@ socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
   if (!payload.idempotent) {
     addToast(feedback);
   }
-  updateDestroyUi();
+  refreshActionUi();
 });
 
 socket.on('state', (payload: StatePayload) => {
@@ -3805,14 +3802,14 @@ buildModeEl.addEventListener('change', () => {
       : 'Paint mode: click and drag to toggle cells.',
   );
   requestRender();
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 });
 
 templateSelectEl.addEventListener('change', () => {
   selectedTemplateId = templateSelectEl.value;
   clearSelectedTemplatePlacement();
   requestRender();
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 });
 
 buildDelayEl.addEventListener('change', () => {
@@ -3892,7 +3889,7 @@ startMatchButton.addEventListener('click', () => {
 queueBuildButton.addEventListener('click', () => {
   const queueRequest = buildPreviewRequestFromSelection();
   if (!queueRequest || !latestBuildPreview || !latestBuildPreview.affordable) {
-    updateQueueAffordabilityUi();
+    refreshActionUi();
     return;
   }
 
@@ -3908,7 +3905,7 @@ queueBuildButton.addEventListener('click', () => {
     transform: queueRequest.transform,
     delayTicks: readDelayTicks(),
   });
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 });
 
 destroyQueueButton.addEventListener('click', () => {
@@ -3918,7 +3915,7 @@ destroyQueueButton.addEventListener('click', () => {
 destroyConfirmButton.addEventListener('click', () => {
   if (!destroyViewState.confirmArmed) {
     destroyViewState = armDestroyConfirm(destroyViewState);
-    updateDestroyUi();
+    refreshActionUi();
     return;
   }
 
@@ -3928,7 +3925,7 @@ destroyConfirmButton.addEventListener('click', () => {
 destroyCancelButton.addEventListener('click', () => {
   destroyViewState = cancelDestroyConfirm(destroyViewState);
   resetDestroyFeedbackOverride();
-  updateDestroyUi();
+  refreshActionUi();
 });
 
 finishedMinimizeButton.addEventListener('click', () => {
@@ -3990,4 +3987,4 @@ updateReconnectIndicator();
 updateLobbyControls();
 renderFinishedResults();
 updateLifecycleUi();
-updateQueueAffordabilityUi();
+refreshActionUi();
