@@ -303,8 +303,6 @@ export class Structure {
   }
 }
 
-export type StructureInstance = Structure;
-
 export interface BuildPreviewProjection {
   transform: PlacementTransformState;
   footprint: Vector2[];
@@ -440,7 +438,7 @@ export interface TeamState {
   territoryRadius: number;
   baseTopLeft: Vector2;
   defeated: boolean;
-  structures: Map<string, StructureInstance>;
+  structures: Map<string, Structure>;
   pendingBuildEvents: BuildEvent[];
   pendingDestroyEvents: DestroyEvent[];
   buildStats: BuildStats;
@@ -1134,7 +1132,7 @@ export class RtsEngine {
     }
   }
 
-  private static getCoreStructure(team: TeamState): StructureInstance | null {
+  private static getCoreStructure(team: TeamState): Structure | null {
     for (const structure of team.structures.values()) {
       if (structure.isCore) {
         return structure;
@@ -1368,7 +1366,7 @@ export class RtsEngine {
   }
 
   private static getIntegrityMaskCells(
-    structure: StructureInstance,
+    structure: Structure,
   ): readonly IntegrityMaskCell[] {
     const transformedTemplate = structure.projectTemplate();
 
@@ -1394,7 +1392,7 @@ export class RtsEngine {
 
   private static collectIntegrityMismatches(
     room: RoomState,
-    structure: StructureInstance,
+    structure: Structure,
   ): IntegrityMismatchCell[] {
     const mismatches: IntegrityMismatchCell[] = [];
 
@@ -1434,7 +1432,7 @@ export class RtsEngine {
 
   private static checkStructureIntegrity(
     room: RoomState,
-    structure: StructureInstance,
+    structure: Structure,
   ): boolean {
     return RtsEngine.collectIntegrityMismatches(room, structure).length === 0;
   }
@@ -1919,8 +1917,8 @@ export class RtsEngine {
 
   private static compareStructuresByKey(
     this: void,
-    left: StructureInstance,
-    right: StructureInstance,
+    left: Structure,
+    right: Structure,
   ): number {
     if (left.key < right.key) {
       return -1;
@@ -2206,7 +2204,7 @@ export class RtsEngine {
       RtsEngine.CORE_STRUCTURE_TEMPLATE.height,
     );
 
-    const structures = new Map<string, StructureInstance>();
+    const structures = new Map<string, Structure>();
     structures.set(
       coreKey,
       RtsEngine.CORE_STRUCTURE_TEMPLATE.instantiate({
