@@ -2045,6 +2045,14 @@ export class RtsEngine {
     ];
   }
 
+  public static createRoom(options: CreateRoomOptions): RtsRoom {
+    return RtsRoom.fromState(RtsEngine.createRoomState(options));
+  }
+
+  public static fromRoomState(room: RoomState): RtsRoom {
+    return RtsRoom.fromState(room);
+  }
+
   public static createRoomState(options: CreateRoomOptions): RoomState {
     const templateInputs =
       options.templates ?? RtsEngine.createDefaultTemplates();
@@ -2797,5 +2805,120 @@ export class RtsEngine {
       buildOutcomes,
       destroyOutcomes,
     };
+  }
+}
+
+export class RtsRoom {
+  private static readonly roomWrapperByState = new WeakMap<
+    RoomState,
+    RtsRoom
+  >();
+
+  public readonly state: RoomState;
+
+  private constructor(state: RoomState) {
+    this.state = state;
+  }
+
+  public static create(options: CreateRoomOptions): RtsRoom {
+    return RtsEngine.createRoom(options);
+  }
+
+  public static fromState(state: RoomState): RtsRoom {
+    const existing = RtsRoom.roomWrapperByState.get(state);
+    if (existing) {
+      return existing;
+    }
+
+    const wrapper = new RtsRoom(state);
+    RtsRoom.roomWrapperByState.set(state, wrapper);
+    return wrapper;
+  }
+
+  public get id(): string {
+    return RtsEngine.getRoomId(this.state);
+  }
+
+  public get name(): string {
+    return RtsEngine.getRoomName(this.state);
+  }
+
+  public get width(): number {
+    return RtsEngine.getRoomWidth(this.state);
+  }
+
+  public get height(): number {
+    return RtsEngine.getRoomHeight(this.state);
+  }
+
+  public getTemplate(templateId: string): StructureTemplate | null {
+    return RtsEngine.getRoomTemplate(this.state, templateId);
+  }
+
+  public getTimelineEvents(): TimelineEvent[] {
+    return RtsEngine.getTimelineEvents(this.state);
+  }
+
+  public addPlayer(playerId: string, playerName: string): TeamState {
+    return RtsEngine.addPlayerToRoom(this.state, playerId, playerName);
+  }
+
+  public renamePlayer(playerId: string, name: string): void {
+    RtsEngine.renamePlayerInRoom(this.state, playerId, name);
+  }
+
+  public removePlayer(playerId: string): void {
+    RtsEngine.removePlayerFromRoom(this.state, playerId);
+  }
+
+  public queueLegacyCellUpdate(update: CellUpdate): void {
+    RtsEngine.queueLegacyCellUpdate(this.state, update);
+  }
+
+  public previewBuildPlacement(
+    playerId: string,
+    payload: BuildQueuePayload,
+  ): BuildPreviewResult {
+    return RtsEngine.previewBuildPlacement(this.state, playerId, payload);
+  }
+
+  public queueBuildEvent(
+    playerId: string,
+    payload: BuildQueuePayload,
+  ): QueueBuildResult {
+    return RtsEngine.queueBuildEvent(this.state, playerId, payload);
+  }
+
+  public queueDestroyEvent(
+    playerId: string,
+    payload: DestroyQueuePayload,
+  ): QueueDestroyResult {
+    return RtsEngine.queueDestroyEvent(this.state, playerId, payload);
+  }
+
+  public createStatePayload(): RoomStatePayload {
+    return RtsEngine.createRoomStatePayload(this.state);
+  }
+
+  public createTeamOutcomeSnapshots(
+    coreHpBeforeResolution: ReadonlyMap<number, number> = new Map(),
+  ): TeamOutcomeSnapshot[] {
+    return RtsEngine.createTeamOutcomeSnapshots(
+      this.state,
+      coreHpBeforeResolution,
+    );
+  }
+
+  public createCanonicalMatchOutcome(
+    coreHpBeforeResolution: ReadonlyMap<number, number> = new Map(),
+  ): MatchOutcome | null {
+    return RtsEngine.createCanonicalMatchOutcome(
+      this.state,
+      coreHpBeforeResolution,
+    );
+  }
+
+  public tick(): RoomTickResult {
+    return RtsEngine.tickRoom(this.state);
   }
 }

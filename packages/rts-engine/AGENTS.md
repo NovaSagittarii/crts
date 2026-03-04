@@ -43,3 +43,5 @@ These rules apply to `packages/rts-engine/*`.
 
 - Phase 1 completed: core template layout/parsing utilities now live in `packages/rts-engine/core-template-layout.ts`.
 - Keep `geometry.ts` independent from `RtsEngine`; canonical core footprint reads must come from `core-template-layout.ts`.
+- Phase 2 completed: use `RtsRoom` as the preferred room-scoped API for callsites that own a single room instance.
+- During migration, static `RtsEngine` room methods are compatibility wrappers; new room-local behavior should be added on `RtsRoom` first.
