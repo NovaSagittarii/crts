@@ -9,48 +9,18 @@ These rules apply to `apps/server/*`.
 
 ## Event Contract
 
-Server receives:
-
-- `player:set-name` `{ name }`
-- `room:list` `{}` (or no payload)
-- `room:create` `{ name?, width?, height? }`
-- `room:join` `{ roomId?, roomCode?, slotId? }`
-- `room:leave` `{}`
-- `room:claim-slot` `{ slotId }`
-- `room:set-ready` `{ ready }`
-- `room:start` `{ force? }`
-- `room:cancel-countdown` `{}` (or no payload)
-- `chat:send` `{ message }`
-- `build:preview` `{ templateId, x, y }`
-- `build:queue` `{ templateId, x, y, delayTicks? }`
-- `cell:update` `{ x, y, alive }`
-
-Server emits:
-
-- `state` room-scoped `RoomStatePayload`
-- `room:list` `RoomListEntry[]` with room code/status/spectator counts
-- `room:joined` `{ roomId, roomCode, roomName, playerId, playerName, teamId|null, templates, state }`
-- `room:left` `{ roomId|null }` (`null` when the session had no active room)
-- `room:membership` `{ revision, status, hostSessionId, slots, participants, heldSlots, countdownSecondsRemaining, ... }`
-- `room:slot-claimed` `{ roomId, slotId, teamId }`
-- `room:countdown` `{ roomId, secondsRemaining }`
-- `room:match-started` `{ roomId }`
-- `room:match-finished` `{ roomId, winner, ranked, comparator }` (winner-first standings; non-winners are `defeated`/`eliminated`)
-- `room:error` `{ message, reason?, needed?, current?, deficit? }` (`needed/current/deficit` are included for `insufficient-resources` rejections)
-- `chat:message` `{ roomId, senderSessionId, senderName, message, timestamp }`
-- `build:preview` `{ roomId, teamId, templateId, x, y, affordable, needed, current, deficit, reason? }`
-- `build:queued` `{ eventId, executeTick }`
-- `build:outcome` `{ roomId, eventId, teamId, outcome, reason?, affordable?, needed?, current?, deficit?, executeTick, resolvedTick }`
-- `player:profile` `{ playerId, name }`
+- Canonical event names and payload shapes live in `packages/rts-engine/socket-contract.ts`.
+- Keep this file focused on runtime lifecycle/validation constraints and rejection taxonomy.
+- Do not re-declare socket event payload interfaces in `apps/server/*`.
 
 State payload expectations:
 
-- `state` remains room-scoped and carries authoritative `RoomStatePayload` team rows with `pendingBuilds[]` sorted by `executeTick` then `eventId`.
+- `state` remains room-scoped and carries deterministic `RoomStatePayload` team rows with `pendingBuilds[]` sorted by `executeTick` then `eventId`.
 - Team rows include `incomeBreakdown` fields and pending queue metadata (`eventId`, `executeTick`, `templateId`, `templateName`, `x`, `y`) for reconnect-safe HUD/timeline rendering.
 
 Lifecycle/status contract:
 
-- Room status is authoritative and only transitions `lobby -> countdown -> active -> finished`.
+- Room status is coordinator-driven and only transitions `lobby -> countdown -> active -> finished`.
 - `room:start` is host-only and serves both initial start and restart from `finished`.
 - `room:cancel-countdown` is host-only and only legal while status is `countdown`.
 - Gameplay mutations are queue-only: accepted mutations must enter through `build:queue`, and `cell:update` is an explicit rejected bypass path.
@@ -84,7 +54,7 @@ Common (not exhaustive) `room:error.reason` values:
 ## Rules
 
 - Validate payloads at socket boundaries before passing into engine functions.
-- Keep server authority model: clients request changes; server decides and broadcasts.
-- Use `process.cwd()`-anchored paths for runtime static assets in this repo layout.
+- Keep a coordinator model: clients request changes; the runtime validates ordering and broadcasts shared outcomes.
+- Resolve runtime static asset paths from module location (or explicit config), not `process.cwd()`.
 - Keep room broadcasts scoped via room channels; avoid global `state` emissions.
 - Do not import from `apps/web/*`.

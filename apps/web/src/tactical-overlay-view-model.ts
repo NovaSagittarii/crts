@@ -305,7 +305,7 @@ export function deriveTacticalOverlayState(
           {
             key: 'economy-placeholder',
             label: 'Status',
-            value: 'Awaiting authoritative team economy payload.',
+            value: 'Awaiting coordinated team economy payload.',
           },
         ],
     pendingBadgeCount: 0,
@@ -334,7 +334,7 @@ export function deriveTacticalOverlayState(
       //   label: 'Preview',
       //   value:
       //     normalizeOptionalCopy(input.previewReasonCopy) ??
-      //     'Awaiting latest authoritative preview.',
+      //     'Awaiting latest coordinated preview.',
       // },
     ],
     pendingBadgeCount: pendingBuildCount,

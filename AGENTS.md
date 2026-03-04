@@ -36,7 +36,7 @@ tests/
 This repository uses nested AGENTS files for local rules.
 
 - `apps/AGENTS.md`: runtime-layer rules shared by server/web
-- `apps/server/AGENTS.md`: Socket.IO server runtime + event contract
+- `apps/server/AGENTS.md`: Socket.IO server runtime guardrails (contract source: `packages/rts-engine/socket-contract.ts`)
 - `apps/web/AGENTS.md`: browser client behavior + UI/state rules
 - `packages/AGENTS.md`: shared package boundaries
 - `packages/conway-core/AGENTS.md`: Conway grid logic constraints
@@ -53,9 +53,7 @@ When editing a file, follow the nearest AGENTS.md plus this root file.
   - `packages/*` must not import from `apps/*`
 - Keep reusable deterministic logic in `packages/*`
 - Keep runtime bootstrapping and socket lifecycle in `apps/*`
-- Prefer co-located unit tests in `packages/*` as `*.test.ts` (legacy: `packages/*/test`)
-- Keep cross-runtime behavior tests in `tests/integration`
-- Keep app-level helper/view-model checks in `tests/web` when package co-location is not a fit
+- For test placement and test-layer policy, follow `tests/AGENTS.md` (plus nested test AGENTS files).
 
 ## Module Entry Points / Aliases
 

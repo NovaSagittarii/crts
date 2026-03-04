@@ -49,8 +49,7 @@ import {
   type TeamState,
 } from '#rts-engine';
 
-const DIST_CLIENT_DIR = path.join(process.cwd(), 'dist', 'client');
-const DIST_CLIENT_INDEX_HTML = path.join(DIST_CLIENT_DIR, 'index.html');
+const DEFAULT_DIST_CLIENT_DIR = path.resolve(__dirname, '../../../dist/client');
 const PLAYER_SLOT_IDS = ['team-1', 'team-2'] as const;
 const COUNTDOWN_SECONDS = 3;
 const MEMBERSHIP_RESYNC_INTERVAL_MS = 300;
@@ -75,6 +74,7 @@ export interface ServerOptions {
   height?: number;
   tickMs?: number;
   clientAssetsMode?: ClientAssetsMode;
+  clientAssetsDir?: string;
   countdownSeconds?: number;
   reconnectHoldMs?: number;
   now?: () => number;
@@ -89,17 +89,23 @@ export type StatePayload = RoomStatePayload;
 type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 export type CellUpdatePayload = SocketCellUpdatePayload;
 
-function configureStaticAssets(app: Express, mode: ClientAssetsMode): void {
-  if (!fs.existsSync(DIST_CLIENT_INDEX_HTML)) {
+function configureStaticAssets(
+  app: Express,
+  mode: ClientAssetsMode,
+  clientAssetsDir: string,
+): void {
+  const clientIndexHtmlPath = path.join(clientAssetsDir, 'index.html');
+
+  if (!fs.existsSync(clientIndexHtmlPath)) {
     if (mode === 'strict') {
       throw new Error(
-        `Missing built client assets at ${DIST_CLIENT_INDEX_HTML}. Run \`npm run build\` before starting the server.`,
+        `Missing built client assets at ${clientIndexHtmlPath}. Run \`npm run build\` before starting the server.`,
       );
     }
     return;
   }
 
-  app.use(express.static(DIST_CLIENT_DIR));
+  app.use(express.static(clientAssetsDir));
 }
 
 interface RuntimeRoom extends RuntimeBroadcastRoom {
@@ -318,6 +324,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     Math.ceil(FINISHED_ROOM_RESYNC_INTERVAL_MS / tickMs),
   );
   const clientAssetsMode = options.clientAssetsMode ?? 'optional';
+  const clientAssetsDir = options.clientAssetsDir ?? DEFAULT_DIST_CLIENT_DIR;
   const countdownSeconds =
     typeof options.countdownSeconds === 'number' &&
     Number.isFinite(options.countdownSeconds)
@@ -337,7 +344,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     options.clearTimeout ?? ((timer) => clearTimeout(timer));
 
   const app: Express = express();
-  configureStaticAssets(app, clientAssetsMode);
+  configureStaticAssets(app, clientAssetsMode, clientAssetsDir);
 
   const httpServer = http.createServer(app);
   const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(
@@ -1836,7 +1843,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           emitRoomState(room);
         }
 
-        // Re-emit authoritative snapshots on a heartbeat for late listeners.
+        // Re-emit shared snapshots on a heartbeat for late listeners.
         if (emitMembershipResync) {
           emitMembership(room, false);
         }

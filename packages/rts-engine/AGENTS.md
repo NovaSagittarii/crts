@@ -21,7 +21,7 @@ These rules apply to `packages/rts-engine/*`.
 
 ## Rules
 
-- Keep this package free of Socket.IO runtime wiring, Express, and DOM concerns (shared transport contract types are allowed).
+- Keep this package free of Socket.IO runtime wiring, Express, and DOM concerns (shared transport contract types are allowed); do not import `socket.io` or `socket.io-client` runtime libraries here.
 - Keep room payload builders stable and explicitly typed.
 - Prefer deterministic behavior over convenience randomness.
 - Add/adjust unit tests for every rule change in room/team/economy logic.
@@ -31,7 +31,7 @@ These rules apply to `packages/rts-engine/*`.
 - `LobbyRoom` is the canonical lobby aggregate API.
 - Perform lobby mutations through instance methods (`join`, `claimSlot`, `setReady`, `leave`).
 - Access lobby read models through `snapshot` and explicit accessors; do not mutate internal participant or slot containers from consumers.
-- Do not maintain parallel functional wrapper APIs for lobby behavior once class migration is complete.
+- Follow `packages/AGENTS.md` migration policy for lobby APIs: allow at most one migration commit with temporary wrappers, then ship a dedicated sunset/retire commit that removes them.
 - Preserve deterministic lobby semantics: host transfer by join order, slot contention and idempotent same-slot claims, readiness gating for assigned players, and stable rejection reasons/messages.
 
 ## Testing

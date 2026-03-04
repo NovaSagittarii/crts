@@ -1684,7 +1684,7 @@ function updateDestroyUi(): void {
       ? 'Confirm Destroy Now'
       : 'Arm Confirm Destroy';
     feedback = destroyViewState.confirmArmed
-      ? 'Confirm destroy to submit the authoritative request.'
+      ? 'Confirm destroy to submit the coordinated request.'
       : 'Core destroy requires confirmation before queue submission.';
     actionHint = destroyViewState.confirmArmed
       ? 'Confirm armed. Submit destroy to queue the request.'
@@ -1754,8 +1754,7 @@ function updateQueueAffordabilityUi(): void {
 
   queueCostEl.classList.remove('queue-cost--affordable', 'queue-cost--blocked');
   if (!latestBuildPreview) {
-    previewReasonEl.textContent =
-      'Preview reason: awaiting authoritative preview.';
+    previewReasonEl.textContent = 'Preview reason: awaiting lockstep preview.';
     previewReasonEl.classList.remove('queue-feedback--error');
     queueCostEl.textContent = 'Cost: --';
   } else {
@@ -1873,7 +1872,7 @@ function applyTransformControl(
     operation,
   );
   updateTransformIndicator();
-  setMessage(`${label} applied. Preview updated with authoritative legality.`);
+  setMessage(`${label} applied. Preview updated with lockstep legality.`);
   emitBuildPreviewForSelectedPlacement();
   render();
   updateQueueAffordabilityUi();
