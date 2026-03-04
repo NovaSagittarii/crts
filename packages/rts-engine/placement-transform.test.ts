@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { Grid } from '#conway-core';
 
 import {
   createIdentityPlacementTransform,
@@ -63,6 +64,47 @@ describe('placement-transform', () => {
           createIdentityPlacementTransform(),
         ).occupiedCells,
       ),
+    );
+  });
+
+  test('accepts grid-backed templates for transform projections', () => {
+    const template = {
+      width: 3,
+      height: 2,
+      grid: new Grid(
+        3,
+        2,
+        [
+          { x: 0, y: 0 },
+          { x: 2, y: 0 },
+          { x: 0, y: 1 },
+          { x: 1, y: 1 },
+        ],
+        'flat',
+      ),
+      checks: [
+        { x: 0, y: 0 },
+        { x: 2, y: 0 },
+        { x: 1, y: 1 },
+      ],
+    };
+
+    const rotated = projectTemplateWithTransform(
+      template,
+      normalizePlacementTransform({ operations: ['rotate'] }),
+    );
+
+    expect(rotated.width).toBe(2);
+    expect(rotated.height).toBe(3);
+    expect(asKeySet(rotated.occupiedCells)).toEqual(
+      new Set(['0,0', '1,1', '0,2', '1,2']),
+    );
+    expect(rotated.grid.isCellAlive(0, 0)).toBe(true);
+    expect(rotated.grid.isCellAlive(1, 1)).toBe(true);
+    expect(rotated.grid.isCellAlive(0, 2)).toBe(true);
+    expect(rotated.grid.isCellAlive(1, 2)).toBe(true);
+    expect(Array.from(rotated.grid.toUnpacked())).toEqual(
+      Array.from(rotated.cells),
     );
   });
 

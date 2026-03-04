@@ -1,3 +1,4 @@
+import { Grid } from '#conway-core';
 import type { Vector2 } from './geometry.js';
 
 export type PlacementTransformOperation =
@@ -28,16 +29,28 @@ export interface PlacementBounds {
   height: number;
 }
 
-export interface TransformTemplateInput {
+interface TransformTemplateBaseInput {
   width: number;
   height: number;
-  cells: Uint8Array;
   checks: readonly Vector2[];
 }
+
+interface TransformTemplateGridInput extends TransformTemplateBaseInput {
+  grid: Grid;
+}
+
+interface TransformTemplateLegacyInput extends TransformTemplateBaseInput {
+  cells: Uint8Array;
+}
+
+export type TransformTemplateInput =
+  | TransformTemplateGridInput
+  | TransformTemplateLegacyInput;
 
 export interface TransformedTemplate {
   width: number;
   height: number;
+  grid: Grid;
   cells: Uint8Array;
   occupiedCells: Vector2[];
   checks: Vector2[];
@@ -138,6 +151,18 @@ function uniqueSortedCells(cells: Vector2[]): Vector2[] {
   return [...unique.values()].sort(compareCells);
 }
 
+function getSourceCell(
+  template: TransformTemplateInput,
+  x: number,
+  y: number,
+): number {
+  if ('grid' in template) {
+    return template.grid.isCellAlive(x, y) ? 1 : 0;
+  }
+
+  return template.cells[y * template.width + x] === 1 ? 1 : 0;
+}
+
 function normalizeOperations(
   input: PlacementTransformInput | null | undefined,
 ): PlacementTransformOperation[] {
@@ -214,8 +239,18 @@ export function projectTemplateWithTransform(
   if (template.width <= 0 || template.height <= 0) {
     throw new Error('Template dimensions must be positive');
   }
-  if (template.cells.length !== template.width * template.height) {
+  if (
+    'cells' in template &&
+    template.cells.length !== template.width * template.height
+  ) {
     throw new Error('Template cell dimensions do not match width/height');
+  }
+  if (
+    'grid' in template &&
+    (template.grid.width !== template.width ||
+      template.grid.height !== template.height)
+  ) {
+    throw new Error('Template grid dimensions do not match width/height');
   }
 
   const extents = deriveMatrixExtents(
@@ -230,7 +265,7 @@ export function projectTemplateWithTransform(
   const occupiedCells: Vector2[] = [];
   for (let y = 0; y < template.height; y += 1) {
     for (let x = 0; x < template.width; x += 1) {
-      const sourceValue = template.cells[y * template.width + x];
+      const sourceValue = getSourceCell(template, x, y);
       const transformed = applyMatrix(transform.matrix, x, y);
       const normalizedX = transformed.x - extents.minX;
       const normalizedY = transformed.y - extents.minY;
@@ -246,6 +281,8 @@ export function projectTemplateWithTransform(
     }
   }
 
+  const normalizedOccupiedCells = uniqueSortedCells(occupiedCells);
+
   const transformedChecks = uniqueSortedCells(
     template.checks.map((check) => {
       const transformed = applyMatrix(transform.matrix, check.x, check.y);
@@ -259,8 +296,14 @@ export function projectTemplateWithTransform(
   return {
     width: transformedWidth,
     height: transformedHeight,
+    grid: new Grid(
+      transformedWidth,
+      transformedHeight,
+      normalizedOccupiedCells,
+      'flat',
+    ),
     cells: transformedCells,
-    occupiedCells: uniqueSortedCells(occupiedCells),
+    occupiedCells: normalizedOccupiedCells,
     checks: transformedChecks,
   };
 }

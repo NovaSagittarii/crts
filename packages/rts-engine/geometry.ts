@@ -10,9 +10,7 @@ export const BASE_FOOTPRINT_HEIGHT = RtsEngine.CORE_STRUCTURE_TEMPLATE.height;
 export const BASE_CENTER_OFFSET = Math.floor(BASE_FOOTPRINT_WIDTH / 2);
 
 export function isCanonicalBaseCell(localX: number, localY: number): boolean {
-  return !!RtsEngine.CORE_STRUCTURE_TEMPLATE.cells[
-    localY * BASE_FOOTPRINT_WIDTH + localX
-  ];
+  return RtsEngine.CORE_STRUCTURE_TEMPLATE.isCellAlive(localX, localY);
 }
 
 export function getBaseCenter(baseTopLeft: Vector2): Vector2 {

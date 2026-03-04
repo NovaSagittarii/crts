@@ -34,18 +34,14 @@ import {
   projectPlacementToWorld,
   projectTemplateWithTransform,
   type PlacementBounds,
-  type TransformTemplateInput,
   type PlacementTransformInput,
   type PlacementTransformState,
   type TransformedTemplate,
 } from './placement-transform.js';
 
-export interface StructureTemplateOptions {
+interface StructureTemplateSharedOptions {
   id: string;
   name: string;
-  width: number;
-  height: number;
-  cells: Uint8Array;
   activationCost: number;
   income: number;
   buildArea: number;
@@ -53,6 +49,20 @@ export interface StructureTemplateOptions {
   checks: Vector2[];
   requiresDestroyConfirm?: boolean;
 }
+
+export interface StructureTemplateGridOptions extends StructureTemplateSharedOptions {
+  grid: Grid;
+}
+
+export interface StructureTemplateLegacyOptions extends StructureTemplateSharedOptions {
+  width: number;
+  height: number;
+  cells: Uint8Array;
+}
+
+export type StructureTemplateOptions =
+  | StructureTemplateGridOptions
+  | StructureTemplateLegacyOptions;
 
 export type StructureTemplateInput =
   | StructureTemplate
@@ -72,7 +82,7 @@ interface StructureOptions extends StructureInstantiationOptions {
   hp: number;
 }
 
-export class StructureTemplate implements TransformTemplateInput {
+export class StructureTemplate {
   public readonly id: string;
 
   public readonly name: string;
@@ -95,12 +105,15 @@ export class StructureTemplate implements TransformTemplateInput {
 
   public readonly requiresDestroyConfirm: boolean;
 
+  private readonly templateGrid: Grid;
+
   public constructor(options: StructureTemplateOptions) {
     this.id = options.id;
     this.name = options.name;
-    this.width = options.width;
-    this.height = options.height;
-    this.cells = new Uint8Array(options.cells);
+    this.templateGrid = StructureTemplate.normalizeTemplateGrid(options);
+    this.width = this.templateGrid.width;
+    this.height = this.templateGrid.height;
+    this.cells = this.templateGrid.toUnpacked();
     this.activationCost = options.activationCost;
     this.income = options.income;
     this.buildArea = options.buildArea;
@@ -110,6 +123,67 @@ export class StructureTemplate implements TransformTemplateInput {
     this.startingHp = options.startingHp;
     this.checks = options.checks.map((check) => ({ x: check.x, y: check.y }));
     this.requiresDestroyConfirm = Boolean(options.requiresDestroyConfirm);
+  }
+
+  private static normalizeTemplateGrid(
+    options: StructureTemplateOptions,
+  ): Grid {
+    if ('grid' in options) {
+      return new Grid(
+        options.grid.width,
+        options.grid.height,
+        StructureTemplate.collectAliveCells(options.grid),
+        'flat',
+      );
+    }
+
+    return StructureTemplate.createGridFromCells(
+      options.width,
+      options.height,
+      options.cells,
+    );
+  }
+
+  private static collectAliveCells(grid: Grid): Vector2[] {
+    const aliveCells: Vector2[] = [];
+    for (const cell of grid.cells()) {
+      if (!cell.alive) {
+        continue;
+      }
+
+      aliveCells.push({ x: cell.x, y: cell.y });
+    }
+
+    return aliveCells;
+  }
+
+  private static createGridFromCells(
+    width: number,
+    height: number,
+    cells: Uint8Array,
+  ): Grid {
+    if (!Number.isInteger(width) || width <= 0) {
+      throw new Error('Template width must be a positive integer');
+    }
+    if (!Number.isInteger(height) || height <= 0) {
+      throw new Error('Template height must be a positive integer');
+    }
+    if (cells.length !== width * height) {
+      throw new Error('Template cell dimensions do not match width/height');
+    }
+
+    const aliveCells: Vector2[] = [];
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        if (cells[y * width + x] !== 1) {
+          continue;
+        }
+
+        aliveCells.push({ x, y });
+      }
+    }
+
+    return new Grid(width, height, aliveCells, 'flat');
   }
 
   public static from(input: StructureTemplateInput): StructureTemplate {
@@ -127,7 +201,19 @@ export class StructureTemplate implements TransformTemplateInput {
   }
 
   public project(transform: PlacementTransformState): TransformedTemplate {
-    return projectTemplateWithTransform(this, transform);
+    return projectTemplateWithTransform(
+      {
+        width: this.width,
+        height: this.height,
+        grid: this.templateGrid,
+        checks: this.checks,
+      },
+      transform,
+    );
+  }
+
+  public isCellAlive(x: number, y: number): boolean {
+    return this.templateGrid.isCellAlive(x, y);
   }
 
   public projectPlacement(
@@ -1171,17 +1257,6 @@ export class RtsEngine {
     return null;
   }
 
-  private static createTransformedTemplateGrid(
-    transformedTemplate: TransformedTemplate,
-  ): Grid {
-    return new Grid(
-      transformedTemplate.width,
-      transformedTemplate.height,
-      transformedTemplate.occupiedCells,
-      'flat',
-    );
-  }
-
   private static transformedTemplateFitsRoom(
     room: RoomState,
     transformedTemplate: Pick<TransformedTemplate, 'width' | 'height'>,
@@ -1240,8 +1315,7 @@ export class RtsEngine {
   ): BuildPlacementValidationResult {
     const transform = normalizePlacementTransform(transformInput);
     const transformedTemplate = template.project(transform);
-    const templateGrid =
-      RtsEngine.createTransformedTemplateGrid(transformedTemplate);
+    const templateGrid = transformedTemplate.grid;
     const bounds: PlacementBounds = {
       x,
       y,
@@ -1355,10 +1429,9 @@ export class RtsEngine {
       mask.push({
         x: check.x,
         y: check.y,
-        expected:
-          transformedTemplate.cells[
-            check.y * transformedTemplate.width + check.x
-          ],
+        expected: transformedTemplate.grid.isCellAlive(check.x, check.y)
+          ? 1
+          : 0,
       });
     }
 

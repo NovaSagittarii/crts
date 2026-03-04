@@ -138,6 +138,29 @@ describe('rts', () => {
     expect(generator?.checks).toHaveLength(0);
   });
 
+  test('clones grid-backed template input during construction', () => {
+    const sourceGrid = new Grid(2, 2, [{ x: 0, y: 0 }], 'flat');
+
+    const template = new StructureTemplate({
+      id: 'grid-probe',
+      name: 'Grid Probe',
+      grid: sourceGrid,
+      activationCost: 0,
+      income: 0,
+      buildArea: 0,
+      startingHp: 2,
+      checks: [],
+    });
+
+    sourceGrid.setCell(1, 1, true);
+
+    expect(template.width).toBe(2);
+    expect(template.height).toBe(2);
+    expect(template.isCellAlive(0, 0)).toBe(true);
+    expect(template.isCellAlive(1, 1)).toBe(false);
+    expect(Array.from(template.cells)).toEqual([1, 0, 0, 0]);
+  });
+
   test('adds players, seeds base cells, and lists room occupancy', () => {
     const room = RtsEngine.createRoomState({
       id: '1',
