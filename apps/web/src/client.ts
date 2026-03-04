@@ -106,6 +106,7 @@ import {
   getChatOverflowCount,
 } from './chat-log-view-model.js';
 import { computeLocalBuildZoneOverlay } from './local-build-zone-view-model.js';
+import { getWrappedBoundsSegments } from './wrapped-grid-view-model.js';
 import {
   computeVisibleGridBounds,
   type VisibleGridBounds,
@@ -2502,56 +2503,6 @@ function previewMatchesCurrentSelection(preview: BuildPreview): boolean {
   return true;
 }
 
-function wrapCoordinate(value: number, size: number): number {
-  return ((value % size) + size) % size;
-}
-
-function splitWrappedSpan(
-  start: number,
-  length: number,
-  size: number,
-): Array<{ start: number; length: number }> {
-  if (length <= 0) {
-    return [];
-  }
-
-  const normalizedStart = wrapCoordinate(start, size);
-  if (normalizedStart + length <= size) {
-    return [{ start: normalizedStart, length }];
-  }
-
-  return [
-    { start: normalizedStart, length: size - normalizedStart },
-    { start: 0, length: normalizedStart + length - size },
-  ];
-}
-
-function getWrappedBoundsSegments(
-  bounds: BuildPreview['bounds'],
-): Array<{ x: number; y: number; width: number; height: number }> {
-  const xSpans = splitWrappedSpan(bounds.x, bounds.width, gridWidth);
-  const ySpans = splitWrappedSpan(bounds.y, bounds.height, gridHeight);
-
-  const segments: Array<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  }> = [];
-  for (const xSpan of xSpans) {
-    for (const ySpan of ySpans) {
-      segments.push({
-        x: xSpan.start,
-        y: ySpan.start,
-        width: xSpan.length,
-        height: ySpan.length,
-      });
-    }
-  }
-
-  return segments;
-}
-
 function renderLocalBuildZoneOverlay(
   visibleBounds: VisibleGridBounds | null,
 ): void {
@@ -2683,7 +2634,11 @@ function renderBuildPreviewOverlay(
 
   ctx.strokeStyle = 'rgba(248, 192, 108, 0.85)';
   ctx.lineWidth = 1 / cameraState.zoom;
-  for (const segment of getWrappedBoundsSegments(latestBuildPreview.bounds)) {
+  for (const segment of getWrappedBoundsSegments(
+    latestBuildPreview.bounds,
+    gridWidth,
+    gridHeight,
+  )) {
     const segmentMaxX = segment.x + segment.width - 1;
     const segmentMaxY = segment.y + segment.height - 1;
     if (
