@@ -10,6 +10,10 @@ import {
   RECONNECT_HOLD_MS,
   type PlayerSession,
 } from './lobby-session.js';
+import {
+  RoomBroadcastService,
+  type RuntimeBroadcastRoom,
+} from './server-room-broadcast.js';
 
 import { LobbyRoom, type LobbyRejectionReason } from '#rts-engine';
 import {
@@ -37,8 +41,6 @@ import {
   type BuildOutcomePayload,
   type RoomErrorPayload,
   type RoomJoinPayload,
-  type RoomListEntryPayload,
-  type RoomMembershipPayload,
   type RoomSetReadyPayload,
   type RoomStartPayload,
   type RoomState,
@@ -86,7 +88,6 @@ export interface ServerOptions {
 export type StatePayload = RoomStatePayload;
 
 type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
-type RoomListPayloadEntry = RoomListEntryPayload;
 export type CellUpdatePayload = SocketCellUpdatePayload;
 
 function configureStaticAssets(app: Express, mode: ClientAssetsMode): void {
@@ -102,15 +103,8 @@ function configureStaticAssets(app: Express, mode: ClientAssetsMode): void {
   app.use(express.static(DIST_CLIENT_DIR));
 }
 
-interface RuntimeRoom {
-  state: RoomState;
-  lobby: LobbyRoom;
-  roomCode: string;
-  revision: number;
-  status: RoomStatus;
-  countdownSecondsRemaining: number | null;
+interface RuntimeRoom extends RuntimeBroadcastRoom {
   countdownTimer: IntervalHandle | null;
-  matchOutcome: MatchFinishedPayload | null;
 }
 
 export interface GameServer {
@@ -445,139 +439,37 @@ export function createServer(options: ServerOptions = {}): GameServer {
     return null;
   }
 
-  function buildMembershipPayload(room: RuntimeRoom): RoomMembershipPayload {
-    const snapshot = room.lobby.snapshot();
-    const slotIds = room.lobby.slotIds();
-    const heldSlots: RoomMembershipPayload['heldSlots'] = {};
-
-    for (const slotId of slotIds) {
-      const sessionId = snapshot.slots[slotId];
-      if (!sessionId) {
-        heldSlots[slotId] = null;
-        continue;
-      }
-
-      const hold = sessionCoordinator.getHold(sessionId);
-      if (
-        hold &&
-        hold.roomId === getRuntimeRoomId(room) &&
-        hold.slotId === slotId
-      ) {
-        heldSlots[slotId] = {
-          sessionId,
-          holdExpiresAt: hold.expiresAt,
-          disconnectReason: hold.disconnectReason,
-        };
-        continue;
-      }
-
-      heldSlots[slotId] = null;
-    }
-
-    return {
-      roomId: getRuntimeRoomId(room),
-      roomCode: room.roomCode,
-      roomName: getRuntimeRoomName(room),
-      revision: room.revision,
-      status: room.status,
-      hostSessionId: snapshot.hostSessionId,
-      slots: snapshot.slots,
-      participants: snapshot.participants.map((participant) => {
-        const participantSession = sessionCoordinator.getSession(
-          participant.sessionId,
-        );
-        const hold = sessionCoordinator.getHold(participant.sessionId);
-        const disconnected =
-          participantSession !== null && !participantSession.connected;
-
-        return {
-          sessionId: participant.sessionId,
-          displayName: participant.displayName,
-          role: participant.role,
-          slotId: participant.slotId,
-          ready: participant.ready,
-          connectionStatus: disconnected ? 'held' : 'connected',
-          holdExpiresAt: disconnected ? (hold?.expiresAt ?? null) : null,
-          disconnectReason: disconnected
-            ? (participantSession?.disconnectReason ??
-              hold?.disconnectReason ??
-              null)
-            : null,
-        };
-      }),
-      heldSlots,
-      countdownSecondsRemaining: room.countdownSecondsRemaining,
-    };
-  }
+  const roomBroadcast = new RoomBroadcastService({
+    io,
+    sessionCoordinator,
+    roomChannel,
+    listRooms: () => rooms.values(),
+  });
 
   function emitRoomList(target?: GameSocket): void {
-    const payload = [...rooms.values()]
-      .map((room): RoomListPayloadEntry => {
-        const snapshot = room.lobby.snapshot();
-        const players = snapshot.participants.filter(
-          ({ role }) => role === 'player',
-        ).length;
-
-        return {
-          roomId: getRuntimeRoomId(room),
-          roomCode: room.roomCode,
-          name: getRuntimeRoomName(room),
-          width: getRuntimeRoomWidth(room),
-          height: getRuntimeRoomHeight(room),
-          players,
-          spectators: snapshot.participants.length - players,
-          teams: room.state.teams.size,
-          status: room.status,
-        };
-      })
-      .sort((a, b) =>
-        a.roomId.localeCompare(b.roomId, undefined, { numeric: true }),
-      );
-
-    if (target) {
-      target.emit('room:list', payload);
-      return;
-    }
-    io.emit('room:list', payload);
+    roomBroadcast.emitRoomList(target);
   }
 
   function emitRoomState(room: RuntimeRoom): void {
-    io.to(roomChannel(getRuntimeRoomId(room))).emit(
-      'state',
-      RtsEngine.createRoomStatePayload(room.state),
-    );
+    roomBroadcast.emitRoomState(room);
   }
 
   function emitBuildOutcomes(
     room: RuntimeRoom,
     outcomes: BuildOutcomePayload[],
   ): void {
-    for (const outcome of outcomes) {
-      io.to(roomChannel(getRuntimeRoomId(room))).emit('build:outcome', outcome);
-    }
+    roomBroadcast.emitBuildOutcomes(room, outcomes);
   }
 
   function emitDestroyOutcomes(
     room: RuntimeRoom,
     outcomes: DestroyOutcomePayload[],
   ): void {
-    for (const outcome of outcomes) {
-      io.to(roomChannel(getRuntimeRoomId(room))).emit(
-        'destroy:outcome',
-        outcome,
-      );
-    }
+    roomBroadcast.emitDestroyOutcomes(room, outcomes);
   }
 
   function emitMembership(room: RuntimeRoom, bumpRevision = true): void {
-    if (bumpRevision) {
-      room.revision += 1;
-    }
-
-    io.to(roomChannel(getRuntimeRoomId(room))).emit(
-      'room:membership',
-      buildMembershipPayload(room),
-    );
+    roomBroadcast.emitMembership(room, bumpRevision);
   }
 
   function stopCountdown(room: RuntimeRoom): void {
@@ -971,16 +863,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   }
 
   function emitMatchFinished(room: RuntimeRoom): void {
-    if (!room.matchOutcome) {
-      return;
-    }
-
-    io.to(roomChannel(getRuntimeRoomId(room))).emit('room:match-finished', {
-      roomId: getRuntimeRoomId(room),
-      winner: room.matchOutcome.winner,
-      ranked: room.matchOutcome.ranked,
-      comparator: room.matchOutcome.comparator,
-    });
+    roomBroadcast.emitMatchFinished(room);
   }
 
   function startCountdown(room: RuntimeRoom): void {
