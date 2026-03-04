@@ -15,12 +15,12 @@ These rules apply to `apps/server/*`.
 
 State payload expectations:
 
-- `state` remains room-scoped and carries authoritative `RoomStatePayload` team rows with `pendingBuilds[]` sorted by `executeTick` then `eventId`.
+- `state` remains room-scoped and carries deterministic `RoomStatePayload` team rows with `pendingBuilds[]` sorted by `executeTick` then `eventId`.
 - Team rows include `incomeBreakdown` fields and pending queue metadata (`eventId`, `executeTick`, `templateId`, `templateName`, `x`, `y`) for reconnect-safe HUD/timeline rendering.
 
 Lifecycle/status contract:
 
-- Room status is authoritative and only transitions `lobby -> countdown -> active -> finished`.
+- Room status is coordinator-driven and only transitions `lobby -> countdown -> active -> finished`.
 - `room:start` is host-only and serves both initial start and restart from `finished`.
 - `room:cancel-countdown` is host-only and only legal while status is `countdown`.
 - Gameplay mutations are queue-only: accepted mutations must enter through `build:queue`, and `cell:update` is an explicit rejected bypass path.
@@ -54,7 +54,7 @@ Common (not exhaustive) `room:error.reason` values:
 ## Rules
 
 - Validate payloads at socket boundaries before passing into engine functions.
-- Keep server authority model: clients request changes; server decides and broadcasts.
+- Keep a coordinator model: clients request changes; the runtime validates ordering and broadcasts shared outcomes.
 - Use `process.cwd()`-anchored paths for runtime static assets in this repo layout.
 - Keep room broadcasts scoped via room channels; avoid global `state` emissions.
 - Do not import from `apps/web/*`.

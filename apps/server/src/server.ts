@@ -1836,7 +1836,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           emitRoomState(room);
         }
 
-        // Re-emit authoritative snapshots on a heartbeat for late listeners.
+        // Re-emit shared snapshots on a heartbeat for late listeners.
         if (emitMembershipResync) {
           emitMembership(room, false);
         }
