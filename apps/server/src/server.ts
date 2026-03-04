@@ -49,7 +49,10 @@ import {
   type TeamState,
 } from '#rts-engine';
 
-const DEFAULT_DIST_CLIENT_DIR = path.resolve(__dirname, '../../../dist/client');
+const DEFAULT_DIST_CLIENT_DIR = path.resolve(
+  import.meta.dirname,
+  '../../../dist/client',
+);
 const PLAYER_SLOT_IDS = ['team-1', 'team-2'] as const;
 const COUNTDOWN_SECONDS = 3;
 const MEMBERSHIP_RESYNC_INTERVAL_MS = 300;
