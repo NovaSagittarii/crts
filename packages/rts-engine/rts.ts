@@ -590,6 +590,12 @@ interface IntegrityMaskCell {
   expected: number;
 }
 
+interface IntegrityMismatchCell {
+  x: number;
+  y: number;
+  expected: number;
+}
+
 interface EvaluatedBuildPlacement {
   projection: BuildPlacementProjectionResult;
   affordability?: AffordabilityResult;
@@ -604,6 +610,15 @@ export class RtsEngine {
     RoomState,
     RtsEngine
   >();
+
+  private static readonly aliveIntegrityPatch = new Grid(
+    1,
+    1,
+    [{ x: 0, y: 0 }],
+    'flat',
+  );
+
+  private static readonly deadIntegrityPatch = new Grid(1, 1, [], 'flat');
 
   public static readonly CORE_STRUCTURE_TEMPLATE =
     RtsEngine.createTemplateFromRows({
@@ -1328,8 +1343,8 @@ export class RtsEngine {
 
   private static getIntegrityMaskCells(
     structure: Structure,
-    transformedTemplate: TransformedTemplate = structure.projectTemplate(),
   ): readonly IntegrityMaskCell[] {
+    const transformedTemplate = structure.projectTemplate();
     const sourceChecks =
       structure.template.checks.length > 0
         ? transformedTemplate.checks
@@ -1350,64 +1365,43 @@ export class RtsEngine {
     return mask;
   }
 
-  private static countIntegrityMismatches(
+  private static collectIntegrityMismatches(
     room: RoomState,
     structure: Structure,
-  ): number {
-    let mismatchCount = 0;
+  ): IntegrityMismatchCell[] {
+    const mismatches: IntegrityMismatchCell[] = [];
 
     for (const check of RtsEngine.getIntegrityMaskCells(structure)) {
-      const actual = room.grid.isCellAlive(
-        structure.x + check.x,
-        structure.y + check.y,
-      )
-        ? 1
-        : 0;
+      const x = structure.x + check.x;
+      const y = structure.y + check.y;
+      const actual = room.grid.isCellAlive(x, y) ? 1 : 0;
       if (actual !== check.expected) {
-        mismatchCount += 1;
+        mismatches.push({ x, y, expected: check.expected });
       }
     }
 
-    return mismatchCount;
+    return mismatches;
   }
 
-  private static restoreStructureIntegrity(
+  private static restoreIntegrityMismatches(
     room: RoomState,
-    structure: Structure,
+    mismatches: readonly IntegrityMismatchCell[],
   ): void {
-    const transformedTemplate = structure.projectTemplate();
-    const repairGrid = new Grid(
-      transformedTemplate.width,
-      transformedTemplate.height,
-      [],
-      'flat',
-    );
-
-    for (let y = 0; y < transformedTemplate.height; y += 1) {
-      for (let x = 0; x < transformedTemplate.width; x += 1) {
-        repairGrid.setCell(
-          x,
-          y,
-          room.grid.isCellAlive(structure.x + x, structure.y + y) ? 1 : 0,
-        );
-      }
+    for (const mismatch of mismatches) {
+      room.grid.apply(
+        mismatch.expected === 1
+          ? RtsEngine.aliveIntegrityPatch
+          : RtsEngine.deadIntegrityPatch,
+        { x: mismatch.x, y: mismatch.y },
+      );
     }
-
-    for (const check of RtsEngine.getIntegrityMaskCells(
-      structure,
-      transformedTemplate,
-    )) {
-      repairGrid.setCell(check.x, check.y, check.expected);
-    }
-
-    room.grid.apply(repairGrid, { x: structure.x, y: structure.y });
   }
 
   private static checkStructureIntegrity(
     room: RoomState,
     structure: Structure,
   ): boolean {
-    return RtsEngine.countIntegrityMismatches(room, structure) === 0;
+    return RtsEngine.collectIntegrityMismatches(room, structure).length === 0;
   }
 
   private static isBaseIntact(room: RoomState, team: TeamState): boolean {
@@ -1922,10 +1916,11 @@ export class RtsEngine {
           continue;
         }
 
-        const mismatchCount = RtsEngine.countIntegrityMismatches(
+        const mismatches = RtsEngine.collectIntegrityMismatches(
           room,
           structure,
         );
+        const mismatchCount = mismatches.length;
         if (mismatchCount === 0) {
           structure.setActive(true);
           continue;
@@ -1952,7 +1947,7 @@ export class RtsEngine {
         }
 
         if (structure.hp > 0) {
-          RtsEngine.restoreStructureIntegrity(room, structure);
+          RtsEngine.restoreIntegrityMismatches(room, mismatches);
           structure.setActive(true);
 
           RtsEngine.appendTimelineEvent(room, {

@@ -3346,12 +3346,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
 
   gridWidth = payload.state.width;
   gridHeight = payload.state.height;
-  gridBytes = Grid.fromPacked(
-    payload.state.grid,
-    gridWidth,
-    gridHeight,
-    'flat',
-  ).toUnpacked();
+  gridBytes = Grid.unpack(payload.state.grid, gridWidth, gridHeight);
   lastAuthoritativeStateAtMs = Date.now();
   generationEl.textContent = payload.state.generation.toString();
   updateTeamStats(payload.state);
@@ -3678,12 +3673,7 @@ socket.on('state', (payload: StatePayload) => {
 
   gridWidth = payload.width;
   gridHeight = payload.height;
-  gridBytes = Grid.fromPacked(
-    payload.grid,
-    gridWidth,
-    gridHeight,
-    'flat',
-  ).toUnpacked();
+  gridBytes = Grid.unpack(payload.grid, gridWidth, gridHeight);
   lastAuthoritativeStateAtMs = Date.now();
   generationEl.textContent = payload.generation.toString();
   if (payload.roomId !== currentRoomId) {

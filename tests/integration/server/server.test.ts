@@ -43,12 +43,7 @@ type DestroyOutcome = DestroyOutcomePayload;
 type RoomError = RoomErrorPayload;
 
 function blockAlive(state: StatePayload, coords: Cell[]): boolean {
-  const unpackedGrid = Grid.fromPacked(
-    state.grid,
-    state.width,
-    state.height,
-    'flat',
-  ).toUnpacked();
+  const unpackedGrid = Grid.unpack(state.grid, state.width, state.height);
   return coords.every(({ x, y }) => unpackedGrid[y * state.width + x] === 1);
 }
 

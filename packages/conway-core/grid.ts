@@ -67,7 +67,6 @@ export class Grid {
 
   public step(): void {
     const next = this.scratch;
-    next.fill(0);
 
     if (this.topology === 'torus') {
       this.stepTorus(next);
@@ -112,16 +111,38 @@ export class Grid {
     topology: GridTopology = 'torus',
   ): Grid {
     const instance = new Grid(width, height, [], topology);
-    const view = packed instanceof Uint8Array ? packed : new Uint8Array(packed);
+    instance.grid.set(Grid.unpack(packed, width, height));
 
-    for (let index = 0; index < instance.grid.length; index += 1) {
+    return instance;
+  }
+
+  public static unpack(
+    packed: PackedGridInput,
+    width: number,
+    height: number,
+  ): Uint8Array {
+    assertValidDimension(width, 'width');
+    assertValidDimension(height, 'height');
+
+    const cellCount = width * height;
+    const expectedByteLength = Math.ceil(cellCount / 8);
+    const view = packed instanceof Uint8Array ? packed : new Uint8Array(packed);
+    if (view.length < expectedByteLength) {
+      throw new Error(
+        `Packed grid payload is too short: expected ${expectedByteLength} bytes, received ${view.length}.`,
+      );
+    }
+
+    const unpacked = new Uint8Array(cellCount);
+
+    for (let index = 0; index < unpacked.length; index += 1) {
       const byteIndex = index >> 3;
       const bitIndex = index & 7;
       const mask = 1 << (7 - bitIndex);
-      instance.grid[index] = view[byteIndex] & mask ? 1 : 0;
+      unpacked[index] = view[byteIndex] & mask ? 1 : 0;
     }
 
-    return instance;
+    return unpacked;
   }
 
   public apply(source: Grid, offset: Vector2): void {
