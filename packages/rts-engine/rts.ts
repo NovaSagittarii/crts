@@ -2103,12 +2103,6 @@ export class RtsEngine {
     ];
   }
 
-  public static createTemplateSummaries(
-    templates: StructureTemplate[],
-  ): StructureTemplateSummary[] {
-    return templates.map((template) => template.toSummary());
-  }
-
   public static createRoomState(options: CreateRoomOptions): RoomState {
     const templateInputs =
       options.templates ?? RtsEngine.createDefaultTemplates();
