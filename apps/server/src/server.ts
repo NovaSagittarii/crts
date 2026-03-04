@@ -27,7 +27,6 @@ import {
   type DestroyOutcomePayload,
   type DestroyQueuedPayload,
   type LifecyclePreconditions,
-  type MatchFinishedPayload,
   type PlacementTransformInput,
   type PlacementTransformOperation,
   type QueueBuildResult,
@@ -45,7 +44,6 @@ import {
   type RoomStartPayload,
   type RoomState,
   type RoomStatePayload,
-  type RoomStatus,
   type ServerToClientEvents,
   type TeamState,
 } from '#rts-engine';
@@ -123,14 +121,6 @@ function getRuntimeRoomId(room: RuntimeRoom): string {
 
 function getRuntimeRoomName(room: RuntimeRoom): string {
   return RtsEngine.getRoomName(room.state);
-}
-
-function getRuntimeRoomWidth(room: RuntimeRoom): number {
-  return RtsEngine.getRoomWidth(room.state);
-}
-
-function getRuntimeRoomHeight(room: RuntimeRoom): number {
-  return RtsEngine.getRoomHeight(room.state);
 }
 
 function sanitizePlayerName(value: unknown, fallback: string): string {
@@ -445,6 +435,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     roomChannel,
     listRooms: () => rooms.values(),
   });
+  const activeDisconnectTimers = new Map<string, TimeoutHandle>();
 
   function emitRoomList(target?: GameSocket): void {
     roomBroadcast.emitRoomList(target);
@@ -470,6 +461,47 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   function emitMembership(room: RuntimeRoom, bumpRevision = true): void {
     roomBroadcast.emitMembership(room, bumpRevision);
+  }
+
+  function clearActiveDisconnectExpiry(sessionId: string): void {
+    const timer = activeDisconnectTimers.get(sessionId);
+    if (!timer) {
+      return;
+    }
+
+    clearTimeoutHook(timer);
+    activeDisconnectTimers.delete(sessionId);
+  }
+
+  function scheduleActiveDisconnectExpiry(
+    sessionId: string,
+    roomId: string,
+  ): void {
+    clearActiveDisconnectExpiry(sessionId);
+
+    const timer = setTimeoutHook(() => {
+      activeDisconnectTimers.delete(sessionId);
+
+      const session = sessionCoordinator.getSession(sessionId);
+      if (!session || session.connected || session.roomId !== roomId) {
+        return;
+      }
+
+      const room = getRoomOrNull(roomId);
+      if (!room) {
+        sessionCoordinator.setRoom(sessionId, null);
+        sessionCoordinator.pruneSession(sessionId);
+        return;
+      }
+
+      const wasPlayer = removeSessionFromRoom(room, sessionId);
+      sessionCoordinator.clearHold(sessionId);
+      sessionCoordinator.setRoom(sessionId, null);
+      finalizeDeparture(room, wasPlayer);
+      sessionCoordinator.pruneSession(sessionId);
+    }, reconnectHoldMs);
+
+    activeDisconnectTimers.set(sessionId, timer);
   }
 
   function stopCountdown(room: RuntimeRoom): void {
@@ -556,16 +588,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
   }
 
   function expireHeldSession(holdSessionId: string, roomId: string): void {
+    clearActiveDisconnectExpiry(holdSessionId);
+
     const room = rooms.get(roomId);
     if (!room) {
       sessionCoordinator.setRoom(holdSessionId, null);
       sessionCoordinator.pruneSession(holdSessionId);
-      return;
-    }
-
-    if (room.status === 'active') {
-      emitMembership(room);
-      emitRoomList();
       return;
     }
 
@@ -586,6 +614,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
     session: PlayerSession,
     options: LeaveCurrentRoomOptions,
   ): void {
+    clearActiveDisconnectExpiry(session.id);
+
     const room = getRoomOrNull(session.roomId);
     if (!room) {
       sessionCoordinator.setRoom(session.id, null);
@@ -613,6 +643,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           socket.id,
           options.disconnectReason ?? null,
         );
+        scheduleActiveDisconnectExpiry(session.id, getRuntimeRoomId(room));
         emitMembership(room);
         emitRoomList();
         return;
@@ -663,6 +694,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
     session: PlayerSession,
     room: RuntimeRoom,
   ): void {
+    clearActiveDisconnectExpiry(session.id);
+
     if (session.roomId && session.roomId !== getRuntimeRoomId(room)) {
       leaveCurrentRoom(socket, session, {
         emitLeft: true,
@@ -1217,6 +1250,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           'This session was replaced by a newer connection',
           'session-replaced',
         );
+        previousSocket.disconnect(true);
       }
     }
 
@@ -1751,6 +1785,26 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
     for (const room of rooms.values()) {
       if (room.status === 'active') {
+        if (room.state.players.size === 0) {
+          const transition = transitionMatchLifecycle(room.status, 'finish');
+          if (transition.allowed) {
+            room.status = transition.nextStatus;
+            const outcome = RtsEngine.createCanonicalMatchOutcome(room.state);
+            room.matchOutcome = outcome
+              ? {
+                  roomId: getRuntimeRoomId(room),
+                  winner: outcome.winner,
+                  ranked: outcome.ranked,
+                  comparator: outcome.comparator,
+                }
+              : null;
+            emitMembership(room);
+            emitRoomList();
+            emitMatchFinished(room);
+          }
+          continue;
+        }
+
         const tickResult = RtsEngine.tickRoom(room.state);
         const buildOutcomes: BuildOutcomePayload[] =
           tickResult.buildOutcomes.map((outcome) => ({
@@ -1818,6 +1872,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
       clearIntervalHook(interval);
       interval = null;
     }
+
+    for (const timer of activeDisconnectTimers.values()) {
+      clearTimeoutHook(timer);
+    }
+    activeDisconnectTimers.clear();
 
     sessionCoordinator.stop();
 
