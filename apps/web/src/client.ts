@@ -105,6 +105,7 @@ import {
   type TacticalOverlayTeamSnapshot,
   type TacticalOverlayState,
 } from './tactical-overlay-view-model.js';
+import { chooseGridCellSize } from './canvas-layout.js';
 
 type RoomListEntry = RoomListEntryPayload;
 type StatePayload = RoomStatePayload;
@@ -1409,6 +1410,24 @@ function resetTacticalOverlayState(): void {
   renderTacticalOverlay();
 }
 
+function resetRoomTransitionFlags(): void {
+  countdownSecondsRemaining = null;
+  currentMatchFinished = null;
+  isFinishedPanelMinimized = false;
+  currentTeamDefeated = false;
+  persistentDefeatReason = null;
+  latestOutcomeTimelineMetadata = null;
+  currentMembership = null;
+  lastBuildErrorToast = null;
+}
+
+function resetRoomTransitionViewModels(): void {
+  clearSelectedTemplatePlacement();
+  resetEconomyTracking();
+  resetDestroyInteractionState();
+  resetTacticalOverlayState();
+}
+
 function syncVisibleStructures(payload: StatePayload): void {
   const nextStructures: VisibleStructure[] = [];
   const nextIndex = new Map<string, VisibleStructure>();
@@ -2463,9 +2482,11 @@ function getCell(x: number, y: number): number {
 }
 
 function chooseCellSize(width: number): number {
-  const maxWidth = Math.max(240, window.innerWidth - 32);
-  const proposed = Math.floor(maxWidth / width);
-  return Math.max(3, Math.min(8, proposed));
+  const viewportWidth =
+    gridViewportEl.clientWidth > 0
+      ? gridViewportEl.clientWidth
+      : window.innerWidth;
+  return chooseGridCellSize(width, viewportWidth);
 }
 
 function resizeCanvas(): void {
@@ -3321,18 +3342,8 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   currentRoomCode = payload.roomCode;
   currentRoomName = payload.roomName;
   currentTeamId = payload.teamId;
-  countdownSecondsRemaining = null;
-  currentMatchFinished = null;
-  isFinishedPanelMinimized = false;
-  currentTeamDefeated = false;
-  persistentDefeatReason = null;
-  latestOutcomeTimelineMetadata = null;
-  currentMembership = null;
-  lastBuildErrorToast = null;
-  clearSelectedTemplatePlacement();
-  resetEconomyTracking();
-  resetDestroyInteractionState();
-  resetTacticalOverlayState();
+  resetRoomTransitionFlags();
+  resetRoomTransitionViewModels();
   availableTemplates = payload.templates;
   selectedTemplateId = payload.templates[0]?.id ?? '';
   updateTemplateOptions();
@@ -3369,22 +3380,12 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   currentRoomCode = '-';
   currentRoomName = '-';
   currentTeamId = null;
-  countdownSecondsRemaining = null;
-  currentMatchFinished = null;
-  isFinishedPanelMinimized = false;
-  currentTeamDefeated = false;
-  persistentDefeatReason = null;
-  latestOutcomeTimelineMetadata = null;
-  currentMembership = null;
-  lastBuildErrorToast = null;
+  resetRoomTransitionFlags();
   clearEdgeBannerTimeout();
   edgeBannerEl.classList.add('is-hidden');
   matchScreenState = createMatchScreenViewState('lobby');
   updateReconnectIndicator();
-  clearSelectedTemplatePlacement();
-  resetEconomyTracking();
-  resetDestroyInteractionState();
-  resetTacticalOverlayState();
+  resetRoomTransitionViewModels();
   cameraState = createCameraViewState();
   updateCameraStatus();
   applyRoomStatus('lobby');
