@@ -1330,6 +1330,37 @@ export class RtsEngine {
     return true;
   }
 
+  private static createStructure(
+    room: RoomState,
+    team: TeamState,
+    template: StructureTemplate,
+    event: AcceptedBuildEvent,
+  ): boolean {
+    if (
+      !RtsEngine.applyTemplate(
+        room,
+        event.projection.transformedTemplate,
+        event.projection.bounds,
+      )
+    ) {
+      return false;
+    }
+
+    team.structures.set(
+      event.structureKey,
+      template.instantiate({
+        key: event.structureKey,
+        x: event.x,
+        y: event.y,
+        transform: event.projection.transform,
+        active: false,
+        isCore: false,
+      }),
+    );
+
+    return true;
+  }
+
   private static getIntegrityMaskCells(
     structure: StructureInstance,
   ): readonly IntegrityMaskCell[] {
@@ -2366,7 +2397,7 @@ export class RtsEngine {
     return result;
   }
 
-  public static queueBuildEvent(
+  public static requestBuild(
     room: RoomState,
     playerId: string,
     payload: BuildQueuePayload,
@@ -2457,6 +2488,14 @@ export class RtsEngine {
       eventId: event.id,
       executeTick: event.executeTick,
     };
+  }
+
+  public static queueBuildEvent(
+    room: RoomState,
+    playerId: string,
+    payload: BuildQueuePayload,
+  ): QueueBuildResult {
+    return RtsEngine.requestBuild(room, playerId, payload);
   }
 
   public static queueDestroyEvent(
@@ -2709,25 +2748,7 @@ export class RtsEngine {
         continue;
       }
 
-      if (
-        RtsEngine.applyTemplate(
-          room,
-          event.projection.transformedTemplate,
-          event.projection.bounds,
-        )
-      ) {
-        team.structures.set(
-          event.structureKey,
-          template.instantiate({
-            key: event.structureKey,
-            x: event.x,
-            y: event.y,
-            transform: event.projection.transform,
-            active: false,
-            isCore: false,
-          }),
-        );
-
+      if (RtsEngine.createStructure(room, team, template, event)) {
         appliedBuilds += 1;
         team.buildStats.applied += 1;
         RtsEngine.appendTimelineEvent(room, {

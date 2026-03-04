@@ -1718,7 +1718,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      const result = RtsEngine.queueBuildEvent(
+      const result = RtsEngine.requestBuild(
         room.state,
         session.id,
         parsedPayload,
