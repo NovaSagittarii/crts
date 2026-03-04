@@ -38,3 +38,13 @@ These rules apply to `packages/rts-engine/*`.
 
 - Prefer co-located unit tests under `packages/rts-engine` as `*.test.ts`.
 - When lobby API shape changes, update both `packages/rts-engine/lobby.test.ts` and server integration lobby suites in `tests/integration/server`.
+
+## Migration Notes
+
+- Phase 1 completed: core template layout/parsing utilities now live in `packages/rts-engine/core-template-layout.ts`.
+- Keep `geometry.ts` independent from `RtsEngine`; canonical core footprint reads must come from `core-template-layout.ts`.
+- Phase 2 completed: use `RtsRoom` as the preferred room-scoped API for callsites that own a single room instance.
+- During migration, static `RtsEngine` room methods are compatibility wrappers; new room-local behavior should be added on `RtsRoom` first.
+- Phase 4 completed: economy/queue/tick orchestration is split into deterministic private helpers (`processDue*`, `applyAcceptedBuildEvents`, `applyLegacyUpdatesAndAdvanceGeneration`, `resolveDefeatAndOutcome`).
+- Preserve helper execution order to keep tick determinism and rejection/outcome semantics stable.
+- Phase 5 hardening: `RtsRoom.fromState` only accepts room states created by `RtsEngine.createRoomState`/`RtsEngine.createRoom`; detached clones are invalid inputs.

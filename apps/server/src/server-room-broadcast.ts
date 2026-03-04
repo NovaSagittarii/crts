@@ -10,16 +10,15 @@ import {
   type MatchFinishedPayload,
   type RoomListEntryPayload,
   type RoomMembershipPayload,
-  type RoomState,
+  type RtsRoom,
   type RoomStatus,
   type ServerToClientEvents,
-  RtsEngine,
 } from '#rts-engine';
 
 type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
 export interface RuntimeBroadcastRoom {
-  state: RoomState;
+  rtsRoom: RtsRoom;
   lobby: LobbyRoom;
   roomCode: string;
   revision: number;
@@ -57,7 +56,7 @@ export class RoomBroadcastService {
   public buildMembershipPayload(
     room: RuntimeBroadcastRoom,
   ): RoomMembershipPayload {
-    const roomId = room.state.id;
+    const roomId = room.rtsRoom.id;
     const snapshot = room.lobby.snapshot();
     const slotIds = room.lobby.slotIds();
     const heldSlots: RoomMembershipPayload['heldSlots'] = {};
@@ -85,7 +84,7 @@ export class RoomBroadcastService {
     return {
       roomId,
       roomCode: room.roomCode,
-      roomName: room.state.name,
+      roomName: room.rtsRoom.name,
       revision: room.revision,
       status: room.status,
       hostSessionId: snapshot.hostSessionId,
@@ -127,14 +126,14 @@ export class RoomBroadcastService {
         ).length;
 
         return {
-          roomId: room.state.id,
+          roomId: room.rtsRoom.id,
           roomCode: room.roomCode,
-          name: room.state.name,
-          width: room.state.width,
-          height: room.state.height,
+          name: room.rtsRoom.name,
+          width: room.rtsRoom.width,
+          height: room.rtsRoom.height,
           players,
           spectators: snapshot.participants.length - players,
-          teams: room.state.teams.size,
+          teams: room.rtsRoom.state.teams.size,
           status: room.status,
         };
       })
@@ -151,19 +150,18 @@ export class RoomBroadcastService {
   }
 
   public emitRoomState(room: RuntimeBroadcastRoom): void {
-    const roomId = room.state.id;
     this.io
-      .to(this.roomChannel(roomId))
-      .emit('state', RtsEngine.createRoomStatePayload(room.state));
+      .to(this.roomChannel(room.rtsRoom.id))
+      .emit('state', room.rtsRoom.createStatePayload());
   }
 
   public emitBuildOutcomes(
     room: RuntimeBroadcastRoom,
     outcomes: BuildOutcomePayload[],
   ): void {
-    const roomId = room.state.id;
+    const roomIo = this.io.to(this.roomChannel(room.rtsRoom.id));
     for (const outcome of outcomes) {
-      this.io.to(this.roomChannel(roomId)).emit('build:outcome', outcome);
+      roomIo.emit('build:outcome', outcome);
     }
   }
 
@@ -171,9 +169,9 @@ export class RoomBroadcastService {
     room: RuntimeBroadcastRoom,
     outcomes: DestroyOutcomePayload[],
   ): void {
-    const roomId = room.state.id;
+    const roomIo = this.io.to(this.roomChannel(room.rtsRoom.id));
     for (const outcome of outcomes) {
-      this.io.to(this.roomChannel(roomId)).emit('destroy:outcome', outcome);
+      roomIo.emit('destroy:outcome', outcome);
     }
   }
 
@@ -183,7 +181,7 @@ export class RoomBroadcastService {
     }
 
     this.io
-      .to(this.roomChannel(room.state.id))
+      .to(this.roomChannel(room.rtsRoom.id))
       .emit('room:membership', this.buildMembershipPayload(room));
   }
 
@@ -192,9 +190,8 @@ export class RoomBroadcastService {
       return;
     }
 
-    const roomId = room.state.id;
-    this.io.to(this.roomChannel(roomId)).emit('room:match-finished', {
-      roomId,
+    this.io.to(this.roomChannel(room.rtsRoom.id)).emit('room:match-finished', {
+      roomId: room.rtsRoom.id,
       winner: room.matchOutcome.winner,
       ranked: room.matchOutcome.ranked,
       comparator: room.matchOutcome.comparator,

@@ -9,6 +9,7 @@ import {
 import {
   type ClientToServerEvents,
   LobbyRoom,
+  OUTCOME_COMPARATOR_DESCRIPTION,
   RtsEngine,
   type RoomStatus,
   type ServerToClientEvents,
@@ -60,7 +61,7 @@ function createRoom(
   status: RoomStatus = 'lobby',
 ): RuntimeBroadcastRoom {
   return {
-    state: RtsEngine.createRoomState({
+    rtsRoom: RtsEngine.createRoom({
       id: roomId,
       name: `Room ${roomId}`,
       width: 24,
@@ -202,5 +203,117 @@ describe('RoomBroadcastService', () => {
 
     service.emitMembership(room, false);
     expect(room.revision).toBe(8);
+  });
+
+  test('emits room state and queued outcomes on room channel', () => {
+    const { io, events } = createFakeIo();
+    const sessionCoordinator = new LobbySessionCoordinator();
+    const room = createRoom('4');
+
+    const service = new RoomBroadcastService({
+      io,
+      sessionCoordinator,
+      roomChannel: (id) => `room:${id}`,
+      listRooms: () => [room],
+    });
+
+    service.emitRoomState(room);
+    service.emitBuildOutcomes(room, [
+      {
+        roomId: '4',
+        eventId: 101,
+        teamId: 1,
+        outcome: 'applied',
+        executeTick: 5,
+        resolvedTick: 5,
+      },
+    ]);
+    service.emitDestroyOutcomes(room, [
+      {
+        roomId: '4',
+        eventId: 202,
+        teamId: 1,
+        structureKey: '10:10:3:3',
+        templateId: 'block',
+        outcome: 'rejected',
+        reason: 'invalid-target',
+        executeTick: 6,
+        resolvedTick: 6,
+      },
+    ]);
+
+    expect(events[0]).toMatchObject({
+      channel: 'room',
+      roomId: 'room:4',
+      event: 'state',
+    });
+    expect(events[1]).toMatchObject({
+      channel: 'room',
+      roomId: 'room:4',
+      event: 'build:outcome',
+      payload: { roomId: '4', eventId: 101 },
+    });
+    expect(events[2]).toMatchObject({
+      channel: 'room',
+      roomId: 'room:4',
+      event: 'destroy:outcome',
+      payload: { roomId: '4', eventId: 202 },
+    });
+  });
+
+  test('emitMatchFinished only emits when match outcome is present', () => {
+    const { io, events } = createFakeIo();
+    const sessionCoordinator = new LobbySessionCoordinator();
+    const room = createRoom('5', 'active');
+
+    const service = new RoomBroadcastService({
+      io,
+      sessionCoordinator,
+      roomChannel: (id) => `room:${id}`,
+      listRooms: () => [room],
+    });
+
+    service.emitMatchFinished(room);
+    expect(events).toHaveLength(0);
+
+    room.matchOutcome = {
+      roomId: '5',
+      winner: {
+        rank: 1,
+        teamId: 1,
+        outcome: 'winner',
+        finalCoreHp: 300,
+        coreState: 'intact',
+        territoryCellCount: 18,
+        queuedBuildCount: 0,
+        appliedBuildCount: 2,
+        rejectedBuildCount: 0,
+      },
+      ranked: [
+        {
+          rank: 1,
+          teamId: 1,
+          outcome: 'winner',
+          finalCoreHp: 300,
+          coreState: 'intact',
+          territoryCellCount: 18,
+          queuedBuildCount: 0,
+          appliedBuildCount: 2,
+          rejectedBuildCount: 0,
+        },
+      ],
+      comparator: OUTCOME_COMPARATOR_DESCRIPTION,
+    };
+
+    service.emitMatchFinished(room);
+    expect(events[0]).toMatchObject({
+      channel: 'room',
+      roomId: 'room:5',
+      event: 'room:match-finished',
+      payload: {
+        roomId: '5',
+        comparator: OUTCOME_COMPARATOR_DESCRIPTION,
+      },
+    });
   });
 });
