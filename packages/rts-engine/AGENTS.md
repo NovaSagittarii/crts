@@ -21,7 +21,7 @@ These rules apply to `packages/rts-engine/*`.
 
 ## Rules
 
-- Keep this package free of Socket.IO runtime wiring, Express, and DOM concerns (shared transport contract types are allowed).
+- Keep this package free of Socket.IO runtime wiring, Express, and DOM concerns (shared transport contract types are allowed); do not import `socket.io` or `socket.io-client` runtime libraries here.
 - Keep room payload builders stable and explicitly typed.
 - Prefer deterministic behavior over convenience randomness.
 - Add/adjust unit tests for every rule change in room/team/economy logic.
