@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
-import { io, type Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 
 import { createServer } from '../../../apps/server/src/server.js';
 import { unpackGridBits } from '#conway-core';
@@ -24,6 +24,15 @@ import type {
   RoomStatePayload,
   TeamPayload,
 } from '#rts-engine';
+import {
+  createClient,
+  type ActiveMatchSetup,
+  type Cell,
+  waitForBuildQueueResponse,
+  waitForDestroyQueueResponse,
+  waitForEvent,
+  waitForEventWithPredicate,
+} from './test-support.js';
 
 type StatePayload = RoomStatePayload;
 type SlotClaimedPayload = RoomSlotClaimedPayload;
@@ -34,91 +43,6 @@ type BuildOutcome = BuildOutcomePayload;
 type DestroyQueued = DestroyQueuedPayload;
 type DestroyOutcome = DestroyOutcomePayload;
 type RoomError = RoomErrorPayload;
-
-interface Cell {
-  x: number;
-  y: number;
-}
-
-interface ActiveMatchSetup {
-  host: Socket;
-  guest: Socket;
-  roomId: string;
-  hostJoined: RoomJoinedPayload;
-  guestJoined: RoomJoinedPayload;
-  hostTeam: TeamPayload;
-  guestTeam: TeamPayload;
-}
-
-function waitForEvent(
-  emitter: Socket,
-  event: string,
-  timeoutMs = 2500,
-): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      emitter.off(event, handler);
-      reject(new Error(`Timed out waiting for ${event}`));
-    }, timeoutMs);
-
-    function handler(payload: unknown) {
-      clearTimeout(timer);
-      resolve(payload);
-    }
-
-    emitter.once(event, handler);
-  });
-}
-
-function waitForPredicateEvent<T>(
-  socket: Socket,
-  event: string,
-  predicate: (payload: T) => boolean,
-  timeoutMs: number,
-  timeoutMessage: string,
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error(timeoutMessage));
-    }, timeoutMs);
-
-    function cleanup(): void {
-      clearTimeout(timer);
-      socket.off(event, onEvent);
-    }
-
-    function onEvent(payload: T): void {
-      let matches = false;
-
-      try {
-        matches = predicate(payload);
-      } catch (error) {
-        cleanup();
-        reject(error instanceof Error ? error : new Error(String(error)));
-        return;
-      }
-
-      if (!matches) {
-        return;
-      }
-
-      cleanup();
-      resolve(payload);
-    }
-
-    socket.on(event, onEvent);
-  });
-}
-
-function createClient(port: number): Socket {
-  const socket = io(`http://localhost:${port}`, {
-    autoConnect: false,
-    transports: ['websocket'],
-  });
-  socket.connect();
-  return socket;
-}
 
 function blockAlive(state: StatePayload, coords: Cell[]): boolean {
   const unpackedGrid = unpackGridBits(state.grid, state.width, state.height);
@@ -138,13 +62,11 @@ async function waitForCondition(
   predicate: (state: StatePayload) => boolean,
   attempts = 6,
 ): Promise<StatePayload> {
-  return waitForPredicateEvent<StatePayload>(
-    socket,
-    'state',
-    predicate,
-    attempts * 2500,
-    'Condition not met in allotted attempts',
-  );
+  return waitForEventWithPredicate<StatePayload>(socket, 'state', predicate, {
+    attempts,
+    timeoutMs: 2500,
+    timeoutMessage: 'Condition not met in allotted attempts',
+  });
 }
 
 async function claimSlot(
@@ -167,12 +89,15 @@ async function waitForRoomList(
   predicate: (rooms: RoomListEntry[]) => boolean,
   attempts = 6,
 ): Promise<RoomListEntry[]> {
-  return waitForPredicateEvent<RoomListEntry[]>(
+  return waitForEventWithPredicate<RoomListEntry[]>(
     socket,
     'room:list',
     predicate,
-    attempts * 2500,
-    'Room list condition not met in allotted attempts',
+    {
+      attempts,
+      timeoutMs: 2500,
+      timeoutMessage: 'Room list condition not met in allotted attempts',
+    },
   );
 }
 
@@ -181,44 +106,16 @@ async function waitForMembership(
   predicate: (membership: RoomMembershipPayload) => boolean,
   attempts = 20,
 ): Promise<RoomMembershipPayload> {
-  return waitForPredicateEvent<RoomMembershipPayload>(
+  return waitForEventWithPredicate<RoomMembershipPayload>(
     socket,
     'room:membership',
     predicate,
-    attempts * 2500,
-    'Membership condition not met in allotted attempts',
+    {
+      attempts,
+      timeoutMs: 2500,
+      timeoutMessage: 'Membership condition not met in allotted attempts',
+    },
   );
-}
-
-function waitForBuildQueueResponse(
-  socket: Socket,
-  timeoutMs = 2000,
-): Promise<{ queued: BuildQueued } | { error: RoomError }> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('Timed out waiting for build queue response'));
-    }, timeoutMs);
-
-    function cleanup(): void {
-      clearTimeout(timer);
-      socket.off('build:queued', onQueued);
-      socket.off('room:error', onError);
-    }
-
-    function onQueued(payload: BuildQueued): void {
-      cleanup();
-      resolve({ queued: payload });
-    }
-
-    function onError(payload: RoomError): void {
-      cleanup();
-      resolve({ error: payload });
-    }
-
-    socket.once('build:queued', onQueued);
-    socket.once('room:error', onError);
-  });
 }
 
 function collectBuildOutcomes(
@@ -277,37 +174,6 @@ function collectBuildOutcomes(
 
     socket.on('build:outcome', onOutcome);
     maybeScheduleResolve();
-  });
-}
-
-function waitForDestroyQueueResponse(
-  socket: Socket,
-  timeoutMs = 2000,
-): Promise<{ queued: DestroyQueued } | { error: RoomError }> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('Timed out waiting for destroy queue response'));
-    }, timeoutMs);
-
-    function cleanup(): void {
-      clearTimeout(timer);
-      socket.off('destroy:queued', onQueued);
-      socket.off('room:error', onError);
-    }
-
-    function onQueued(payload: DestroyQueued): void {
-      cleanup();
-      resolve({ queued: payload });
-    }
-
-    function onError(payload: RoomError): void {
-      cleanup();
-      resolve({ error: payload });
-    }
-
-    socket.once('destroy:queued', onQueued);
-    socket.once('room:error', onError);
   });
 }
 

@@ -1,28 +1,9 @@
 import { describe, expect, test } from 'vitest';
-import { io, type Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 
 import { createServer } from '../../../apps/server/src/server.js';
 import type { RoomJoinedPayload, RoomMembershipPayload } from '#rts-engine';
-
-function waitForSocketEvent<T>(
-  socket: Socket,
-  event: string,
-  timeoutMs = 4000,
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      socket.off(event, handler);
-      reject(new Error(`Timed out waiting for ${event}`));
-    }, timeoutMs);
-
-    function handler(payload: T): void {
-      clearTimeout(timer);
-      resolve(payload);
-    }
-
-    socket.once(event, handler);
-  });
-}
+import { createClient, waitForEvent } from './test-support.js';
 
 function extractModuleEntryPath(html: string): string {
   const moduleScriptMatch =
@@ -69,20 +50,18 @@ describe('server bootstrap smoke', () => {
       const moduleSource = await moduleResponse.text();
       expect(moduleSource.length).toBeGreaterThan(0);
 
-      socket = io(origin, {
-        autoConnect: false,
-        transports: ['websocket'],
-      });
+      socket = createClient(port);
 
-      const joinedPromise = waitForSocketEvent<RoomJoinedPayload>(
+      const joinedPromise = waitForEvent<RoomJoinedPayload>(
         socket,
         'room:joined',
+        4000,
       );
-      const membershipPromise = waitForSocketEvent<RoomMembershipPayload>(
+      const membershipPromise = waitForEvent<RoomMembershipPayload>(
         socket,
         'room:membership',
+        4000,
       );
-      socket.connect();
 
       const joined = await joinedPromise;
       const membership = await membershipPromise;
