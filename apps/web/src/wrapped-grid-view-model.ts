@@ -5,7 +5,7 @@ export interface WrappedGridBounds {
   height: number;
 }
 
-export interface WrappedGridSegment extends WrappedGridBounds {}
+export type WrappedGridSegment = WrappedGridBounds;
 
 interface SpanSegment {
   start: number;
