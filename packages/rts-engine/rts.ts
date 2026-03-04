@@ -54,15 +54,7 @@ export interface StructureTemplateGridOptions extends StructureTemplateSharedOpt
   grid: Grid;
 }
 
-export interface StructureTemplateLegacyOptions extends StructureTemplateSharedOptions {
-  width: number;
-  height: number;
-  cells: Uint8Array;
-}
-
-export type StructureTemplateOptions =
-  | StructureTemplateGridOptions
-  | StructureTemplateLegacyOptions;
+export type StructureTemplateOptions = StructureTemplateGridOptions;
 
 export type StructureTemplateInput =
   | StructureTemplate
@@ -91,8 +83,6 @@ export class StructureTemplate {
 
   public readonly height: number;
 
-  public readonly cells: Uint8Array;
-
   public readonly activationCost: number;
 
   public readonly income: number;
@@ -110,10 +100,9 @@ export class StructureTemplate {
   public constructor(options: StructureTemplateOptions) {
     this.id = options.id;
     this.name = options.name;
-    this.templateGrid = StructureTemplate.normalizeTemplateGrid(options);
+    this.templateGrid = StructureTemplate.cloneAsTemplateGrid(options.grid);
     this.width = this.templateGrid.width;
     this.height = this.templateGrid.height;
-    this.cells = this.templateGrid.toUnpacked();
     this.activationCost = options.activationCost;
     this.income = options.income;
     this.buildArea = options.buildArea;
@@ -125,22 +114,12 @@ export class StructureTemplate {
     this.requiresDestroyConfirm = Boolean(options.requiresDestroyConfirm);
   }
 
-  private static normalizeTemplateGrid(
-    options: StructureTemplateOptions,
-  ): Grid {
-    if ('grid' in options) {
-      return new Grid(
-        options.grid.width,
-        options.grid.height,
-        StructureTemplate.collectAliveCells(options.grid),
-        'flat',
-      );
-    }
-
-    return StructureTemplate.createGridFromCells(
-      options.width,
-      options.height,
-      options.cells,
+  private static cloneAsTemplateGrid(grid: Grid): Grid {
+    return new Grid(
+      grid.width,
+      grid.height,
+      StructureTemplate.collectAliveCells(grid),
+      'flat',
     );
   }
 
@@ -155,35 +134,6 @@ export class StructureTemplate {
     }
 
     return aliveCells;
-  }
-
-  private static createGridFromCells(
-    width: number,
-    height: number,
-    cells: Uint8Array,
-  ): Grid {
-    if (!Number.isInteger(width) || width <= 0) {
-      throw new Error('Template width must be a positive integer');
-    }
-    if (!Number.isInteger(height) || height <= 0) {
-      throw new Error('Template height must be a positive integer');
-    }
-    if (cells.length !== width * height) {
-      throw new Error('Template cell dimensions do not match width/height');
-    }
-
-    const aliveCells: Vector2[] = [];
-    for (let y = 0; y < height; y += 1) {
-      for (let x = 0; x < width; x += 1) {
-        if (cells[y * width + x] !== 1) {
-          continue;
-        }
-
-        aliveCells.push({ x, y });
-      }
-    }
-
-    return new Grid(width, height, aliveCells, 'flat');
   }
 
   public static from(input: StructureTemplateInput): StructureTemplate {
@@ -648,12 +598,6 @@ interface StructureTemplateRowsOptions {
 
 const CORE_TEMPLATE_ID = '__core__';
 
-interface PackedGrid {
-  width: number;
-  height: number;
-  cells: Uint8Array;
-}
-
 interface BuildPlacementProjectionResult {
   transform: PlacementTransformState;
   transformedTemplate: TransformedTemplate;
@@ -845,7 +789,7 @@ export class RtsEngine {
     return hash >>> 0;
   }
 
-  private static parseTemplateRows(rows: string[]): PackedGrid {
+  private static parseTemplateRows(rows: string[]): Grid {
     if (rows.length === 0) {
       throw new Error('Template rows must not be empty');
     }
@@ -862,42 +806,40 @@ export class RtsEngine {
     }
 
     const height = rows.length;
-    const cells = new Uint8Array(width * height);
+    const aliveCells: Vector2[] = [];
 
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
         const symbol = rows[y][x];
         if (symbol === '#') {
-          cells[y * width + x] = 1;
+          aliveCells.push({ x, y });
         } else if (symbol === '.') {
-          cells[y * width + x] = 0;
+          // Keep dead cells implicit in the grid's default state.
         } else {
           throw new Error(`Unsupported template symbol: ${symbol}`);
         }
       }
     }
 
-    return { width, height, cells };
+    return new Grid(width, height, aliveCells, 'flat');
   }
 
-  private static padTemplate(
-    template: PackedGrid,
-    padding: number,
-  ): PackedGrid {
+  private static padTemplate(template: Grid, padding: number): Grid {
     const paddedWidth = template.width + padding * 2;
     const paddedHeight = template.height + padding * 2;
-    const paddedCells = new Uint8Array(paddedWidth * paddedHeight);
-    for (let i = 0; i < template.height; ++i) {
-      for (let j = 0; j < template.width; ++j) {
-        paddedCells[(i + padding) * paddedWidth + (j + padding)] =
-          template.cells[i * template.width + j];
+    const paddedAliveCells: Vector2[] = [];
+    for (const cell of template.cells()) {
+      if (!cell.alive) {
+        continue;
       }
+
+      paddedAliveCells.push({
+        x: cell.x + padding,
+        y: cell.y + padding,
+      });
     }
-    return {
-      width: paddedWidth,
-      height: paddedHeight,
-      cells: paddedCells,
-    };
+
+    return new Grid(paddedWidth, paddedHeight, paddedAliveCells, 'flat');
   }
 
   private static createTemplateFromRows({
@@ -916,9 +858,7 @@ export class RtsEngine {
     return new StructureTemplate({
       id: id,
       name: name,
-      width: padded.width,
-      height: padded.height,
-      cells: padded.cells,
+      grid: padded,
       activationCost: activationCost,
       income: income,
       buildArea: buildArea,

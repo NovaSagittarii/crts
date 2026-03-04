@@ -117,6 +117,29 @@ function getStructureByTemplateId(
   );
 }
 
+function createTemplateGrid(
+  width: number,
+  height: number,
+  cells: readonly number[],
+): Grid {
+  if (cells.length !== width * height) {
+    throw new Error('Template test cells must match width and height');
+  }
+
+  const aliveCells: Cell[] = [];
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (cells[y * width + x] !== 1) {
+        continue;
+      }
+
+      aliveCells.push({ x, y });
+    }
+  }
+
+  return new Grid(width, height, aliveCells, 'flat');
+}
+
 describe('rts', () => {
   test('provides default structure templates with expected metadata', () => {
     const templates = RtsEngine.createDefaultTemplates();
@@ -158,7 +181,7 @@ describe('rts', () => {
     expect(template.height).toBe(2);
     expect(template.isCellAlive(0, 0)).toBe(true);
     expect(template.isCellAlive(1, 1)).toBe(false);
-    expect(Array.from(template.cells)).toEqual([1, 0, 0, 0]);
+    expect(template.isCellAlive(1, 0)).toBe(false);
   });
 
   test('adds players, seeds base cells, and lists room occupancy', () => {
@@ -345,9 +368,7 @@ describe('rts', () => {
     const probeTemplate = new StructureTemplate({
       id: 'probe',
       name: 'Probe',
-      width: 1,
-      height: 1,
-      cells: new Uint8Array([1]),
+      grid: createTemplateGrid(1, 1, [1]),
       activationCost: 0,
       income: 0,
       buildArea: 0,
@@ -428,9 +449,7 @@ describe('rts', () => {
     const wideTemplate = new StructureTemplate({
       id: 'wide-13',
       name: 'Wide 13',
-      width: 13,
-      height: 1,
-      cells: new Uint8Array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]),
+      grid: createTemplateGrid(13, 1, [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]),
       activationCost: 0,
       income: 0,
       buildArea: 0,
@@ -509,9 +528,7 @@ describe('rts', () => {
     const probeTemplate = new StructureTemplate({
       id: 'probe',
       name: 'Probe',
-      width: 1,
-      height: 1,
-      cells: new Uint8Array([1]),
+      grid: createTemplateGrid(1, 1, [1]),
       activationCost: 0,
       income: 0,
       buildArea: 0,
@@ -712,9 +729,7 @@ describe('rts', () => {
     const probeTemplate = new StructureTemplate({
       id: 'probe',
       name: 'Probe',
-      width: 1,
-      height: 1,
-      cells: new Uint8Array([1]),
+      grid: createTemplateGrid(1, 1, [1]),
       activationCost: 0,
       income: 0,
       buildArea: 0,
@@ -1443,9 +1458,7 @@ describe('rts', () => {
     const sentinelTemplate = new StructureTemplate({
       id: 'sentinel',
       name: 'Sentinel',
-      width: 1,
-      height: 1,
-      cells: new Uint8Array([1]),
+      grid: createTemplateGrid(1, 1, [1]),
       activationCost: 0,
       income: 0,
       buildArea: 0,
@@ -1525,9 +1538,7 @@ describe('rts', () => {
     const durableTemplate = new StructureTemplate({
       id: 'durable',
       name: 'Durable',
-      width: 1,
-      height: 1,
-      cells: new Uint8Array([1]),
+      grid: createTemplateGrid(1, 1, [1]),
       activationCost: 0,
       income: 0,
       buildArea: 0,

@@ -28,7 +28,17 @@ describe('placement-transform', () => {
     const template = {
       width: 3,
       height: 2,
-      cells: new Uint8Array([1, 0, 1, 1, 1, 0]),
+      grid: new Grid(
+        3,
+        2,
+        [
+          { x: 0, y: 0 },
+          { x: 2, y: 0 },
+          { x: 0, y: 1 },
+          { x: 1, y: 1 },
+        ],
+        'flat',
+      ),
       checks: [
         { x: 0, y: 0 },
         { x: 2, y: 0 },
@@ -56,7 +66,9 @@ describe('placement-transform', () => {
 
     expect(cycled.width).toBe(template.width);
     expect(cycled.height).toBe(template.height);
-    expect(Array.from(cycled.cells)).toEqual(Array.from(template.cells));
+    expect(Array.from(cycled.grid.toUnpacked())).toEqual(
+      Array.from(template.grid.toUnpacked()),
+    );
     expect(asKeySet(cycled.occupiedCells)).toEqual(
       asKeySet(
         projectTemplateWithTransform(
@@ -103,9 +115,7 @@ describe('placement-transform', () => {
     expect(rotated.grid.isCellAlive(1, 1)).toBe(true);
     expect(rotated.grid.isCellAlive(0, 2)).toBe(true);
     expect(rotated.grid.isCellAlive(1, 2)).toBe(true);
-    expect(Array.from(rotated.grid.toUnpacked())).toEqual(
-      Array.from(rotated.cells),
-    );
+    expect(Array.from(rotated.grid.toUnpacked())).toEqual([1, 0, 0, 1, 1, 1]);
   });
 
   test('projects wrapped world placement for area, footprint, and checks', () => {

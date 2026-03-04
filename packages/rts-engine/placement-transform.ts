@@ -29,29 +29,17 @@ export interface PlacementBounds {
   height: number;
 }
 
-interface TransformTemplateBaseInput {
+export interface TransformTemplateInput {
   width: number;
   height: number;
+  grid: Grid;
   checks: readonly Vector2[];
 }
-
-interface TransformTemplateGridInput extends TransformTemplateBaseInput {
-  grid: Grid;
-}
-
-interface TransformTemplateLegacyInput extends TransformTemplateBaseInput {
-  cells: Uint8Array;
-}
-
-export type TransformTemplateInput =
-  | TransformTemplateGridInput
-  | TransformTemplateLegacyInput;
 
 export interface TransformedTemplate {
   width: number;
   height: number;
   grid: Grid;
-  cells: Uint8Array;
   occupiedCells: Vector2[];
   checks: Vector2[];
 }
@@ -151,18 +139,6 @@ function uniqueSortedCells(cells: Vector2[]): Vector2[] {
   return [...unique.values()].sort(compareCells);
 }
 
-function getSourceCell(
-  template: TransformTemplateInput,
-  x: number,
-  y: number,
-): number {
-  if ('grid' in template) {
-    return template.grid.isCellAlive(x, y) ? 1 : 0;
-  }
-
-  return template.cells[y * template.width + x] === 1 ? 1 : 0;
-}
-
 function normalizeOperations(
   input: PlacementTransformInput | null | undefined,
 ): PlacementTransformOperation[] {
@@ -240,15 +216,8 @@ export function projectTemplateWithTransform(
     throw new Error('Template dimensions must be positive');
   }
   if (
-    'cells' in template &&
-    template.cells.length !== template.width * template.height
-  ) {
-    throw new Error('Template cell dimensions do not match width/height');
-  }
-  if (
-    'grid' in template &&
-    (template.grid.width !== template.width ||
-      template.grid.height !== template.height)
+    template.grid.width !== template.width ||
+    template.grid.height !== template.height
   ) {
     throw new Error('Template grid dimensions do not match width/height');
   }
@@ -260,24 +229,21 @@ export function projectTemplateWithTransform(
   );
   const transformedWidth = extents.maxX - extents.minX + 1;
   const transformedHeight = extents.maxY - extents.minY + 1;
-  const transformedCells = new Uint8Array(transformedWidth * transformedHeight);
 
   const occupiedCells: Vector2[] = [];
   for (let y = 0; y < template.height; y += 1) {
     for (let x = 0; x < template.width; x += 1) {
-      const sourceValue = getSourceCell(template, x, y);
+      if (!template.grid.isCellAlive(x, y)) {
+        continue;
+      }
+
       const transformed = applyMatrix(transform.matrix, x, y);
       const normalizedX = transformed.x - extents.minX;
       const normalizedY = transformed.y - extents.minY;
-      transformedCells[normalizedY * transformedWidth + normalizedX] =
-        sourceValue;
-
-      if (sourceValue === 1) {
-        occupiedCells.push({
-          x: normalizedX,
-          y: normalizedY,
-        });
-      }
+      occupiedCells.push({
+        x: normalizedX,
+        y: normalizedY,
+      });
     }
   }
 
@@ -302,7 +268,6 @@ export function projectTemplateWithTransform(
       normalizedOccupiedCells,
       'flat',
     ),
-    cells: transformedCells,
     occupiedCells: normalizedOccupiedCells,
     checks: transformedChecks,
   };
