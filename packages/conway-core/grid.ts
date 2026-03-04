@@ -9,6 +9,10 @@ export interface GridCell extends Vector2 {
   alive: number;
 }
 
+export interface CellUpdate extends Vector2 {
+  alive: number;
+}
+
 type PackedGridInput = ArrayBuffer | Uint8Array;
 
 function assertValidDimension(value: number, name: 'width' | 'height'): void {
@@ -79,6 +83,10 @@ export class Grid {
     const cloned = new Grid(this.width, this.height, [], this.topology);
     cloned.grid.set(this.grid);
     return cloned;
+  }
+
+  public toUnpacked(): Uint8Array {
+    return this.grid.slice();
   }
 
   public toPacked(): ArrayBuffer {

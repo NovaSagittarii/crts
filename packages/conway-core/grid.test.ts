@@ -253,6 +253,19 @@ describe('grid', () => {
     expect([...unpacked.cells()]).toEqual([...grid.cells()]);
   });
 
+  test('returns an unpacked copy of the grid bytes', () => {
+    const grid = new Grid(3, 2, [
+      { x: 1, y: 0 },
+      { x: 0, y: 1 },
+    ]);
+
+    const bytes = grid.toUnpacked();
+    expect([...bytes]).toEqual([0, 1, 0, 1, 0, 0]);
+
+    bytes[0] = 1;
+    expect(grid.isCellAlive(0, 0)).toBe(false);
+  });
+
   test('iterates cells in row-major order', () => {
     const grid = new Grid(3, 2, [
       { x: 1, y: 0 },
