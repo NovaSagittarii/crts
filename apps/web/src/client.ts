@@ -106,6 +106,11 @@ import {
   type TacticalOverlayState,
 } from './tactical-overlay-view-model.js';
 import { chooseGridCellSize } from './canvas-layout.js';
+import {
+  computeVisibleGridBounds,
+  type VisibleGridBounds,
+} from './render-viewport.js';
+import { createRenderScheduler } from './render-scheduler.js';
 
 type RoomListEntry = RoomListEntryPayload;
 type StatePayload = RoomStatePayload;
@@ -1895,7 +1900,7 @@ function applyTransformControl(
   updateTransformIndicator();
   setMessage(`${label} applied. Preview updated with lockstep legality.`);
   emitBuildPreviewForSelectedPlacement();
-  render();
+  requestRender();
   updateQueueAffordabilityUi();
 }
 
@@ -1909,7 +1914,7 @@ function cancelTemplateBuildMode(): void {
   buildModeEl.value = 'paint';
   clearSelectedTemplatePlacement();
   setMessage('Build mode canceled. Returned to Paint Cells mode.');
-  render();
+  requestRender();
   updateQueueAffordabilityUi();
 }
 
@@ -2583,8 +2588,10 @@ function getWrappedBoundsSegments(
   return segments;
 }
 
-function renderLocalBuildZoneOverlay(): void {
-  if (localBuildZoneCells.length === 0) {
+function renderLocalBuildZoneOverlay(
+  visibleBounds: VisibleGridBounds | null,
+): void {
+  if (!visibleBounds || localBuildZoneCells.length === 0) {
     return;
   }
 
@@ -2596,6 +2603,15 @@ function renderLocalBuildZoneOverlay(): void {
   const fillInset = 0.6;
   const fillSize = Math.max(1, cellSize - fillInset * 2);
   for (const cell of localBuildZoneCells) {
+    if (
+      cell.x < visibleBounds.minX ||
+      cell.x > visibleBounds.maxX ||
+      cell.y < visibleBounds.minY ||
+      cell.y > visibleBounds.maxY
+    ) {
+      continue;
+    }
+
     ctx.fillRect(
       cell.x * cellSize + fillInset,
       cell.y * cellSize + fillInset,
@@ -2611,6 +2627,15 @@ function renderLocalBuildZoneOverlay(): void {
   ctx.beginPath();
 
   for (const cell of localBuildZoneCells) {
+    if (
+      cell.x < visibleBounds.minX ||
+      cell.x > visibleBounds.maxX ||
+      cell.y < visibleBounds.minY ||
+      cell.y > visibleBounds.maxY
+    ) {
+      continue;
+    }
+
     const left = cell.x * cellSize;
     const top = cell.y * cellSize;
     const right = left + cellSize;
@@ -2637,8 +2662,10 @@ function renderLocalBuildZoneOverlay(): void {
   ctx.stroke();
 }
 
-function renderBuildPreviewOverlay(): void {
-  if (!templateMode || !latestBuildPreview) {
+function renderBuildPreviewOverlay(
+  visibleBounds: VisibleGridBounds | null,
+): void {
+  if (!visibleBounds || !templateMode || !latestBuildPreview) {
     return;
   }
   if (!previewMatchesCurrentSelection(latestBuildPreview)) {
@@ -2650,6 +2677,15 @@ function renderBuildPreviewOverlay(): void {
   );
 
   for (const cell of latestBuildPreview.illegalCells) {
+    if (
+      cell.x < visibleBounds.minX ||
+      cell.x > visibleBounds.maxX ||
+      cell.y < visibleBounds.minY ||
+      cell.y > visibleBounds.maxY
+    ) {
+      continue;
+    }
+
     ctx.fillStyle = 'rgba(224, 122, 122, 0.36)';
     ctx.fillRect(
       cell.x * cellSize + 1,
@@ -2660,6 +2696,15 @@ function renderBuildPreviewOverlay(): void {
   }
 
   for (const cell of latestBuildPreview.footprint) {
+    if (
+      cell.x < visibleBounds.minX ||
+      cell.x > visibleBounds.maxX ||
+      cell.y < visibleBounds.minY ||
+      cell.y > visibleBounds.maxY
+    ) {
+      continue;
+    }
+
     const isIllegal = illegalCellKeys.has(`${cell.x},${cell.y}`);
     ctx.fillStyle = isIllegal
       ? 'rgba(224, 122, 122, 0.72)'
@@ -2675,6 +2720,17 @@ function renderBuildPreviewOverlay(): void {
   ctx.strokeStyle = 'rgba(248, 192, 108, 0.85)';
   ctx.lineWidth = 1 / cameraState.zoom;
   for (const segment of getWrappedBoundsSegments(latestBuildPreview.bounds)) {
+    const segmentMaxX = segment.x + segment.width - 1;
+    const segmentMaxY = segment.y + segment.height - 1;
+    if (
+      segmentMaxX < visibleBounds.minX ||
+      segment.x > visibleBounds.maxX ||
+      segmentMaxY < visibleBounds.minY ||
+      segment.y > visibleBounds.maxY
+    ) {
+      continue;
+    }
+
     ctx.strokeRect(
       segment.x * cellSize + 0.5,
       segment.y * cellSize + 0.5,
@@ -2684,8 +2740,27 @@ function renderBuildPreviewOverlay(): void {
   }
 }
 
+const renderScheduler = createRenderScheduler({
+  render,
+  requestAnimationFrame: (callback) => window.requestAnimationFrame(callback),
+  cancelAnimationFrame: (frameId) => window.cancelAnimationFrame(frameId),
+});
+
+function requestRender(): void {
+  renderScheduler.requestRender();
+}
+
 function render(): void {
   if (!gridBytes) return;
+
+  const visibleBounds = computeVisibleGridBounds({
+    camera: cameraState,
+    canvasWidth: canvasCssWidth,
+    canvasHeight: canvasCssHeight,
+    cellSize,
+    gridWidth,
+    gridHeight,
+  });
 
   ctx.setTransform(canvasRatio, 0, 0, canvasRatio, 0, 0);
   ctx.clearRect(0, 0, canvasCssWidth, canvasCssHeight);
@@ -2699,18 +2774,21 @@ function render(): void {
   ctx.fillStyle = '#0b101b';
   ctx.fillRect(0, 0, gridWidth * cellSize, gridHeight * cellSize);
 
-  renderLocalBuildZoneOverlay();
+  renderLocalBuildZoneOverlay(visibleBounds);
 
-  ctx.fillStyle = '#46d5b6';
-  for (let y = 0; y < gridHeight; y += 1) {
-    for (let x = 0; x < gridWidth; x += 1) {
-      const idx = y * gridWidth + x;
-      if (gridBytes[idx] !== 1) continue;
-      ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+  if (visibleBounds) {
+    ctx.fillStyle = '#46d5b6';
+    for (let y = visibleBounds.minY; y <= visibleBounds.maxY; y += 1) {
+      const rowOffset = y * gridWidth;
+      for (let x = visibleBounds.minX; x <= visibleBounds.maxX; x += 1) {
+        const idx = rowOffset + x;
+        if (gridBytes[idx] !== 1) continue;
+        ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+      }
     }
   }
 
-  renderBuildPreviewOverlay();
+  renderBuildPreviewOverlay(visibleBounds);
   ctx.restore();
 }
 
@@ -3041,7 +3119,7 @@ function applyKeyboardZoom(zoomFactor: number): void {
     zoomFactor,
   );
   updateCameraStatus();
-  render();
+  requestRender();
 }
 
 canvas.addEventListener('contextmenu', (event) => {
@@ -3067,7 +3145,7 @@ canvas.addEventListener(
       zoomFactor,
     );
     updateCameraStatus();
-    render();
+    requestRender();
   },
   { passive: false },
 );
@@ -3151,7 +3229,7 @@ canvas.addEventListener('pointermove', (event) => {
     };
     cameraState = applyPanDelta(cameraState, deltaX, deltaY);
     updateCameraStatus();
-    render();
+    requestRender();
     return;
   }
 
@@ -3217,7 +3295,7 @@ window.addEventListener('keydown', (event) => {
   if (event.key === 'f' || event.key === 'F') {
     event.preventDefault();
     resetCameraForCurrentTeam();
-    render();
+    requestRender();
     return;
   }
 
@@ -3251,7 +3329,7 @@ window.addEventListener('keydown', (event) => {
     CAMERA_KEYBOARD_WORLD_STEP_CELLS * cellSize * cameraState.zoom;
   cameraState = applyKeyboardPan(cameraState, panDirection, panStep);
   updateCameraStatus();
-  render();
+  requestRender();
 });
 
 window.addEventListener('resize', () => {
@@ -3261,7 +3339,7 @@ window.addEventListener('resize', () => {
     resetCameraForCurrentTeam();
   }
   if (gridBytes) {
-    render();
+    requestRender();
   }
 });
 
@@ -3368,7 +3446,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   renderSpawnMarkers(payload.state);
   resizeCanvas();
   resetCameraForCurrentTeam();
-  render();
+  requestRender();
   updateVisibleMatchScreen();
   updateReconnectIndicator();
   updateLobbyControls();
@@ -3565,7 +3643,7 @@ socket.on('build:preview', (payload: BuildPreview) => {
   latestBuildPreview = payload;
   resetQueueFeedbackOverride();
   updateQueueAffordabilityUi();
-  render();
+  requestRender();
 });
 
 socket.on('build:outcome', (payload: BuildOutcome) => {
@@ -3694,7 +3772,7 @@ socket.on('state', (payload: StatePayload) => {
   if (gridWidth !== previousGridWidth || gridHeight !== previousGridHeight) {
     resetCameraForCurrentTeam();
   }
-  render();
+  requestRender();
   updateLifecycleUi();
 
   if (
@@ -3726,14 +3804,14 @@ buildModeEl.addEventListener('change', () => {
       ? 'Template mode: click on the board to select placement, then use Queue Selected Placement.'
       : 'Paint mode: click and drag to toggle cells.',
   );
-  render();
+  requestRender();
   updateQueueAffordabilityUi();
 });
 
 templateSelectEl.addEventListener('change', () => {
   selectedTemplateId = templateSelectEl.value;
   clearSelectedTemplatePlacement();
-  render();
+  requestRender();
   updateQueueAffordabilityUi();
 });
 
