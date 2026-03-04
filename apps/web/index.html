@@ -635,18 +635,31 @@
 
       .ingame-layout {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
-        gap: 16px;
+        grid-template-columns: minmax(0, 1fr);
         align-items: start;
       }
 
       .tactical-rail {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        width: min(360px, calc(100% - 24px));
+        max-height: calc(100% - 24px);
+        overflow: auto;
         border: 1px solid var(--panel-border);
         border-radius: 16px;
         background: rgba(12, 18, 33, 0.9);
         padding: 12px;
         display: grid;
         gap: 10px;
+        z-index: 3;
+        pointer-events: none;
+        touch-action: pan-y;
+        overscroll-behavior: contain;
+      }
+
+      .tactical-rail > * {
+        pointer-events: auto;
       }
 
       .tactical-mobile-tabs {
@@ -1175,6 +1188,13 @@
           grid-template-columns: 1fr;
         }
 
+        .tactical-rail {
+          width: min(330px, calc(100% - 20px));
+          top: 10px;
+          right: 10px;
+          max-height: calc(100% - 20px);
+        }
+
         .chat-shell {
           position: static;
         }
@@ -1231,17 +1251,28 @@
           display: grid;
         }
 
-        .tactical-rail[data-mobile-tab='economy'] .tactical-section,
-        .tactical-rail[data-mobile-tab='build'] .tactical-section,
-        .tactical-rail[data-mobile-tab='team'] .tactical-section {
+        .tactical-rail {
+          top: auto;
+          right: 8px;
+          bottom: 8px;
+          left: 8px;
+          width: auto;
+          max-height: min(72%, 460px);
+          padding: 10px;
+          background: rgba(8, 12, 22, 0.95);
+        }
+
+        #tactical-rail[data-mobile-tab='economy'] .tactical-section,
+        #tactical-rail[data-mobile-tab='build'] .tactical-section,
+        #tactical-rail[data-mobile-tab='team'] .tactical-section {
           display: none;
         }
 
-        .tactical-rail[data-mobile-tab='economy']
+        #tactical-rail[data-mobile-tab='economy']
           .tactical-section[data-overlay-section='economy'],
-        .tactical-rail[data-mobile-tab='build']
+        #tactical-rail[data-mobile-tab='build']
           .tactical-section[data-overlay-section='build'],
-        .tactical-rail[data-mobile-tab='team']
+        #tactical-rail[data-mobile-tab='team']
           .tactical-section[data-overlay-section='team'] {
           display: block;
         }
@@ -1450,311 +1481,350 @@
                       aria-label="In-match grid viewport"
                     >
                       <canvas id="grid"></canvas>
-                    </div>
-                  </div>
-                </div>
 
-                <aside
-                  id="tactical-rail"
-                  class="tactical-rail"
-                  data-mobile-tab="economy"
-                >
-                  <section id="structure-inspector" class="structure-inspector">
-                    <h2>Structure Inspector</h2>
-                    <p id="structure-inspector-status" class="inspector-status">
-                      Hover a structure to inspect details. Click or tap to pin
-                      and unlock actions.
-                    </p>
-                    <div class="inspector-grid">
-                      <div class="inspector-metric">
-                        <span>Template</span>
-                        <strong id="structure-inspector-template">-</strong>
-                      </div>
-                      <div class="inspector-metric">
-                        <span>Owner</span>
-                        <strong id="structure-inspector-owner">-</strong>
-                      </div>
-                      <div class="inspector-metric">
-                        <span>Integrity</span>
-                        <strong id="structure-inspector-health">-</strong>
-                      </div>
-                      <div class="inspector-metric">
-                        <span>State</span>
-                        <strong id="structure-inspector-state">-</strong>
-                      </div>
-                    </div>
-                    <p
-                      id="structure-inspector-action-hint"
-                      class="inspector-action-hint"
-                    >
-                      Pin an owned structure to queue destroy actions.
-                    </p>
-                    <p id="destroy-selection" class="queue-placement">
-                      Select a structure on the board to enable destroy actions.
-                    </p>
-                    <button id="destroy-queue" type="button" disabled>
-                      Destroy Selected Structure
-                    </button>
-                    <div
-                      id="destroy-confirm-panel"
-                      class="destroy-confirm-panel"
-                      hidden
-                    >
-                      <p class="queue-feedback queue-feedback--error">
-                        Core destroy requires confirmation before queue
-                        submission.
-                      </p>
-                      <div class="button-row">
-                        <button id="destroy-confirm" type="button">
-                          Arm Confirm Destroy
-                        </button>
-                        <button id="destroy-cancel" type="button" disabled>
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                    <p id="destroy-feedback" class="queue-feedback">
-                      Destroy action is disabled until an owned structure is
-                      selected.
-                    </p>
-                  </section>
-
-                  <div
-                    class="tactical-mobile-tabs"
-                    role="tablist"
-                    aria-label="Tactical overlay sections"
-                  >
-                    <button
-                      id="overlay-tab-economy"
-                      class="tactical-mobile-tab is-active"
-                      type="button"
-                      data-overlay-tab="economy"
-                      role="tab"
-                      aria-selected="true"
-                    >
-                      Economy
-                    </button>
-                    <button
-                      id="overlay-tab-build"
-                      class="tactical-mobile-tab"
-                      type="button"
-                      data-overlay-tab="build"
-                      role="tab"
-                      aria-selected="false"
-                    >
-                      Build
-                    </button>
-                    <button
-                      id="overlay-tab-team"
-                      class="tactical-mobile-tab"
-                      type="button"
-                      data-overlay-tab="team"
-                      role="tab"
-                      aria-selected="false"
-                    >
-                      Team
-                    </button>
-                  </div>
-
-                  <details
-                    class="tactical-section"
-                    data-overlay-section="economy"
-                    open
-                  >
-                    <summary>
-                      <div class="tactical-section-head">
-                        <span class="tactical-section-title">Economy</span>
-                        <span
-                          id="overlay-pending-economy"
-                          class="tactical-pending-badge is-hidden"
-                          >Pending</span
+                      <aside
+                        id="tactical-rail"
+                        class="tactical-rail"
+                        data-mobile-tab="economy"
+                      >
+                        <section
+                          id="structure-inspector"
+                          class="structure-inspector"
                         >
-                      </div>
-                    </summary>
-                    <div class="tactical-section__body">
-                      <div
-                        id="overlay-summary-economy"
-                        class="tactical-summary-grid"
-                      ></div>
-                      <div
-                        id="overlay-details-economy"
-                        class="tactical-detail-list"
-                      ></div>
-
-                      <div class="economy-hud">
-                        <div class="economy-hud__row">
-                          <div class="economy-hud__metric">
-                            <span>Resources</span>
-                            <strong id="hud-resources" class="economy-value"
-                              >-</strong
-                            >
-                          </div>
-                          <div class="economy-hud__metric">
-                            <span>Net Income</span>
-                            <strong id="hud-income" class="economy-value"
-                              >-</strong
-                            >
-                          </div>
-                        </div>
-                        <p
-                          id="hud-delta-chip"
-                          class="economy-delta-chip is-hidden"
-                        ></p>
-                        <details id="income-breakdown" class="income-breakdown">
-                          <summary>Income Breakdown</summary>
-                          <div class="income-breakdown__grid">
-                            <div class="income-breakdown__row">
-                              <span>Base</span>
-                              <strong id="income-breakdown-base">-</strong>
-                            </div>
-                            <div class="income-breakdown__row">
-                              <span>Structures</span>
-                              <strong id="income-breakdown-structures"
+                          <h2>Structure Inspector</h2>
+                          <p
+                            id="structure-inspector-status"
+                            class="inspector-status"
+                          >
+                            Hover a structure to inspect details. Click or tap
+                            to pin and unlock actions.
+                          </p>
+                          <div class="inspector-grid">
+                            <div class="inspector-metric">
+                              <span>Template</span>
+                              <strong id="structure-inspector-template"
                                 >-</strong
                               >
                             </div>
-                            <div class="income-breakdown__row">
-                              <span>Active Structures</span>
-                              <strong id="income-breakdown-active">-</strong>
+                            <div class="inspector-metric">
+                              <span>Owner</span>
+                              <strong id="structure-inspector-owner">-</strong>
+                            </div>
+                            <div class="inspector-metric">
+                              <span>Integrity</span>
+                              <strong id="structure-inspector-health">-</strong>
+                            </div>
+                            <div class="inspector-metric">
+                              <span>State</span>
+                              <strong id="structure-inspector-state">-</strong>
+                            </div>
+                          </div>
+                          <p
+                            id="structure-inspector-action-hint"
+                            class="inspector-action-hint"
+                          >
+                            Pin an owned structure to queue destroy actions.
+                          </p>
+                          <p id="destroy-selection" class="queue-placement">
+                            Select a structure on the board to enable destroy
+                            actions.
+                          </p>
+                          <button id="destroy-queue" type="button" disabled>
+                            Destroy Selected Structure
+                          </button>
+                          <div
+                            id="destroy-confirm-panel"
+                            class="destroy-confirm-panel"
+                            hidden
+                          >
+                            <p class="queue-feedback queue-feedback--error">
+                              Core destroy requires confirmation before queue
+                              submission.
+                            </p>
+                            <div class="button-row">
+                              <button id="destroy-confirm" type="button">
+                                Arm Confirm Destroy
+                              </button>
+                              <button
+                                id="destroy-cancel"
+                                type="button"
+                                disabled
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                          <p id="destroy-feedback" class="queue-feedback">
+                            Destroy action is disabled until an owned structure
+                            is selected.
+                          </p>
+                        </section>
+
+                        <div
+                          class="tactical-mobile-tabs"
+                          role="tablist"
+                          aria-label="Tactical overlay sections"
+                        >
+                          <button
+                            id="overlay-tab-economy"
+                            class="tactical-mobile-tab is-active"
+                            type="button"
+                            data-overlay-tab="economy"
+                            role="tab"
+                            aria-selected="true"
+                          >
+                            Economy
+                          </button>
+                          <button
+                            id="overlay-tab-build"
+                            class="tactical-mobile-tab"
+                            type="button"
+                            data-overlay-tab="build"
+                            role="tab"
+                            aria-selected="false"
+                          >
+                            Build
+                          </button>
+                          <button
+                            id="overlay-tab-team"
+                            class="tactical-mobile-tab"
+                            type="button"
+                            data-overlay-tab="team"
+                            role="tab"
+                            aria-selected="false"
+                          >
+                            Team
+                          </button>
+                        </div>
+
+                        <details
+                          class="tactical-section"
+                          data-overlay-section="economy"
+                          open
+                        >
+                          <summary>
+                            <div class="tactical-section-head">
+                              <span class="tactical-section-title"
+                                >Economy</span
+                              >
+                              <span
+                                id="overlay-pending-economy"
+                                class="tactical-pending-badge is-hidden"
+                                >Pending</span
+                              >
+                            </div>
+                          </summary>
+                          <div class="tactical-section__body">
+                            <div
+                              id="overlay-summary-economy"
+                              class="tactical-summary-grid"
+                            ></div>
+                            <div
+                              id="overlay-details-economy"
+                              class="tactical-detail-list"
+                            ></div>
+
+                            <div class="economy-hud">
+                              <div class="economy-hud__row">
+                                <div class="economy-hud__metric">
+                                  <span>Resources</span>
+                                  <strong
+                                    id="hud-resources"
+                                    class="economy-value"
+                                    >-</strong
+                                  >
+                                </div>
+                                <div class="economy-hud__metric">
+                                  <span>Net Income</span>
+                                  <strong id="hud-income" class="economy-value"
+                                    >-</strong
+                                  >
+                                </div>
+                              </div>
+                              <p
+                                id="hud-delta-chip"
+                                class="economy-delta-chip is-hidden"
+                              ></p>
+                              <details
+                                id="income-breakdown"
+                                class="income-breakdown"
+                              >
+                                <summary>Income Breakdown</summary>
+                                <div class="income-breakdown__grid">
+                                  <div class="income-breakdown__row">
+                                    <span>Base</span>
+                                    <strong id="income-breakdown-base"
+                                      >-</strong
+                                    >
+                                  </div>
+                                  <div class="income-breakdown__row">
+                                    <span>Structures</span>
+                                    <strong id="income-breakdown-structures"
+                                      >-</strong
+                                    >
+                                  </div>
+                                  <div class="income-breakdown__row">
+                                    <span>Active Structures</span>
+                                    <strong id="income-breakdown-active"
+                                      >-</strong
+                                    >
+                                  </div>
+                                </div>
+                              </details>
                             </div>
                           </div>
                         </details>
-                      </div>
-                    </div>
-                  </details>
 
-                  <details
-                    class="tactical-section"
-                    data-overlay-section="build"
-                    open
-                  >
-                    <summary>
-                      <div class="tactical-section-head">
-                        <span class="tactical-section-title">Build</span>
-                        <span
-                          id="overlay-pending-build"
-                          class="tactical-pending-badge is-hidden"
-                          >Pending</span
+                        <details
+                          class="tactical-section"
+                          data-overlay-section="build"
+                          open
                         >
-                      </div>
-                    </summary>
-                    <div class="tactical-section__body">
-                      <div
-                        id="overlay-summary-build"
-                        class="tactical-summary-grid"
-                      ></div>
-                      <div
-                        id="overlay-details-build"
-                        class="tactical-detail-list"
-                      ></div>
+                          <summary>
+                            <div class="tactical-section-head">
+                              <span class="tactical-section-title">Build</span>
+                              <span
+                                id="overlay-pending-build"
+                                class="tactical-pending-badge is-hidden"
+                                >Pending</span
+                              >
+                            </div>
+                          </summary>
+                          <div class="tactical-section__body">
+                            <div
+                              id="overlay-summary-build"
+                              class="tactical-summary-grid"
+                            ></div>
+                            <div
+                              id="overlay-details-build"
+                              class="tactical-detail-list"
+                            ></div>
 
-                      <label>
-                        Mode
-                        <select id="build-mode">
-                          <option value="paint">Paint Cells</option>
-                          <option value="template">Template Queue</option>
-                        </select>
-                      </label>
-                      <label>
-                        Template
-                        <select id="template-select"></select>
-                      </label>
-                      <label>
-                        Delay (ticks)
-                        <input
-                          id="build-delay"
-                          type="number"
-                          min="1"
-                          max="20"
-                          value="2"
-                        />
-                      </label>
+                            <label>
+                              Mode
+                              <select id="build-mode">
+                                <option value="paint">Paint Cells</option>
+                                <option value="template">Template Queue</option>
+                              </select>
+                            </label>
+                            <label>
+                              Template
+                              <select id="template-select"></select>
+                            </label>
+                            <label>
+                              Delay (ticks)
+                              <input
+                                id="build-delay"
+                                type="number"
+                                min="1"
+                                max="20"
+                                value="2"
+                              />
+                            </label>
 
-                      <div class="transform-controls">
-                        <div class="transform-controls__row">
-                          <button id="transform-rotate" type="button">
-                            Rotate 90deg
-                          </button>
-                          <button
-                            id="transform-mirror-horizontal"
-                            type="button"
-                          >
-                            Mirror Horizontal
-                          </button>
-                        </div>
-                        <div class="transform-controls__row">
-                          <button id="transform-mirror-vertical" type="button">
-                            Mirror Vertical
-                          </button>
-                          <button id="cancel-build-mode" type="button">
-                            Cancel Build Mode
-                          </button>
-                        </div>
+                            <div class="transform-controls">
+                              <div class="transform-controls__row">
+                                <button id="transform-rotate" type="button">
+                                  Rotate 90deg
+                                </button>
+                                <button
+                                  id="transform-mirror-horizontal"
+                                  type="button"
+                                >
+                                  Mirror Horizontal
+                                </button>
+                              </div>
+                              <div class="transform-controls__row">
+                                <button
+                                  id="transform-mirror-vertical"
+                                  type="button"
+                                >
+                                  Mirror Vertical
+                                </button>
+                                <button id="cancel-build-mode" type="button">
+                                  Cancel Build Mode
+                                </button>
+                              </div>
+                              <p
+                                id="transform-indicator"
+                                class="queue-feedback transform-indicator"
+                              >
+                                Transform: default orientation.
+                              </p>
+                            </div>
+
+                            <p id="queue-placement" class="queue-placement">
+                              Select a board placement while in Template Queue
+                              mode.
+                            </p>
+                            <p id="preview-reason" class="queue-feedback">
+                              Preview reason: --
+                            </p>
+                            <p id="queue-cost" class="queue-cost">Cost: --</p>
+                            <button id="queue-build" type="button" disabled>
+                              Queue Selected Placement
+                            </button>
+                            <p id="queue-feedback" class="queue-feedback">
+                              Queue action is disabled until placement preview
+                              returns.
+                            </p>
+                            <p
+                              id="overlay-feedback-build"
+                              class="section-feedback"
+                            >
+                              No recent build action.
+                            </p>
+                          </div>
+                        </details>
+
+                        <details
+                          class="tactical-section"
+                          data-overlay-section="team"
+                          open
+                        >
+                          <summary>
+                            <div class="tactical-section-head">
+                              <span class="tactical-section-title">Team</span>
+                              <span
+                                id="overlay-pending-team"
+                                class="tactical-pending-badge is-hidden"
+                                >Pending</span
+                              >
+                            </div>
+                          </summary>
+                          <div class="tactical-section__body">
+                            <div
+                              id="overlay-summary-team"
+                              class="tactical-summary-grid"
+                            ></div>
+                            <div
+                              id="overlay-details-team"
+                              class="tactical-detail-list"
+                            ></div>
+                            <p
+                              id="overlay-feedback-team"
+                              class="section-feedback"
+                            >
+                              No recent team action.
+                            </p>
+                            <p class="tactical-section-title">
+                              Pending Timeline
+                            </p>
+                            <div
+                              id="pending-timeline"
+                              class="pending-timeline"
+                            ></div>
+                          </div>
+                        </details>
+
                         <p
-                          id="transform-indicator"
-                          class="queue-feedback transform-indicator"
-                        >
-                          Transform: default orientation.
-                        </p>
-                      </div>
-
-                      <p id="queue-placement" class="queue-placement">
-                        Select a board placement while in Template Queue mode.
-                      </p>
-                      <p id="preview-reason" class="queue-feedback">
-                        Preview reason: --
-                      </p>
-                      <p id="queue-cost" class="queue-cost">Cost: --</p>
-                      <button id="queue-build" type="button" disabled>
-                        Queue Selected Placement
-                      </button>
-                      <p id="queue-feedback" class="queue-feedback">
-                        Queue action is disabled until placement preview
-                        returns.
-                      </p>
-                      <p id="overlay-feedback-build" class="section-feedback">
-                        No recent build action.
-                      </p>
+                          id="tactical-sync-hint"
+                          class="tactical-sync-hint is-hidden"
+                        ></p>
+                      </aside>
                     </div>
-                  </details>
-
-                  <details
-                    class="tactical-section"
-                    data-overlay-section="team"
-                    open
-                  >
-                    <summary>
-                      <div class="tactical-section-head">
-                        <span class="tactical-section-title">Team</span>
-                        <span
-                          id="overlay-pending-team"
-                          class="tactical-pending-badge is-hidden"
-                          >Pending</span
-                        >
-                      </div>
-                    </summary>
-                    <div class="tactical-section__body">
-                      <div
-                        id="overlay-summary-team"
-                        class="tactical-summary-grid"
-                      ></div>
-                      <div
-                        id="overlay-details-team"
-                        class="tactical-detail-list"
-                      ></div>
-                      <p id="overlay-feedback-team" class="section-feedback">
-                        No recent team action.
-                      </p>
-                      <p class="tactical-section-title">Pending Timeline</p>
-                      <div id="pending-timeline" class="pending-timeline"></div>
-                    </div>
-                  </details>
-
-                  <p
-                    id="tactical-sync-hint"
-                    class="tactical-sync-hint is-hidden"
-                  ></p>
-                </aside>
+                  </div>
+                </div>
               </div>
             </section>
           </div>
