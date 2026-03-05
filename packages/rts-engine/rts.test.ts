@@ -927,6 +927,7 @@ describe('rts', () => {
     function runDestroySequence(): {
       destroyOutcomes: ReturnType<typeof RtsEngine.tickRoom>['destroyOutcomes'];
       payload: ReturnType<typeof RtsEngine.createRoomStatePayload>;
+      checkpoint: ReturnType<typeof RtsEngine.createDeterminismCheckpoint>;
     } {
       const room = RtsEngine.createRoomState({
         id: 'deterministic-room',
@@ -960,10 +961,15 @@ describe('rts', () => {
 
       RtsEngine.tickRoom(room);
       const resolved = RtsEngine.tickRoom(room);
+      const checkpoint = RtsEngine.createDeterminismCheckpoint(room);
+      expect(RtsRoom.fromState(room).createDeterminismCheckpoint()).toEqual(
+        checkpoint,
+      );
 
       return {
         destroyOutcomes: resolved.destroyOutcomes,
         payload: RtsEngine.createRoomStatePayload(room),
+        checkpoint,
       };
     }
 
@@ -977,6 +983,9 @@ describe('rts', () => {
     expect(firstTeam?.pendingDestroys).toEqual([]);
     expect(secondTeam?.pendingDestroys).toEqual([]);
     expect(firstTeam?.structures).toEqual(secondTeam?.structures);
+    expect(firstRun.checkpoint).toEqual(secondRun.checkpoint);
+    expect(firstRun.checkpoint.hashAlgorithm).toBe('fnv1a-32');
+    expect(firstRun.checkpoint.hashHex).toMatch(/^[0-9a-f]{8}$/);
   });
 
   test('[QUAL-01] rejects insufficient resources with numeric deficit fields', () => {
