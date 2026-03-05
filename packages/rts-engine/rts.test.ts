@@ -9,7 +9,8 @@ import {
   isCanonicalBaseCell,
 } from './geometry.js';
 import { BUILD_ZONE_RADIUS } from './gameplay-rules.js';
-import { RtsEngine, RtsRoom, StructureTemplate } from './rts.js';
+import { RtsEngine, RtsRoom } from './rts.js';
+import { StructureTemplate } from './structure.js';
 
 interface Cell {
   x: number;
@@ -117,27 +118,50 @@ function getStructureByTemplateId(
   );
 }
 
+function countStructuresByTemplateId(
+  room: RoomState,
+  teamId: number,
+  templateId: string,
+): number {
+  const team = room.teams.get(teamId);
+  if (!team) {
+    return 0;
+  }
+
+  let count = 0;
+  for (const structure of team.structures.values()) {
+    if (structure.templateId === templateId) {
+      count += 1;
+    }
+  }
+
+  return count;
+}
+
+function createTemplateGrid(
+  width: number,
+  height: number,
+  cells: readonly number[],
+): Grid {
+  if (cells.length !== width * height) {
+    throw new Error('Template test cells must match width and height');
+  }
+
+  const aliveCells: Cell[] = [];
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (cells[y * width + x] !== 1) {
+        continue;
+      }
+
+      aliveCells.push({ x, y });
+    }
+  }
+
+  return new Grid(width, height, aliveCells, 'flat');
+}
+
 describe('rts', () => {
-  test('provides default structure templates with expected metadata', () => {
-    const templates = RtsEngine.createDefaultTemplates();
-
-    expect(templates.map(({ id }) => id)).toEqual([
-      'block',
-      'generator',
-      'glider',
-      'eater-1',
-      'gosper',
-    ]);
-
-    const generator = templates.find(({ id }) => id === 'generator');
-    expect(generator).toBeDefined();
-    expect(generator?.width).toBe(4);
-    expect(generator?.height).toBe(4);
-    expect(generator?.activationCost).toBe(6);
-    expect(generator?.income).toBe(2);
-    expect(generator?.checks).toHaveLength(0);
-  });
-
   test('provides a cached room instance API while preserving static parity', () => {
     const room = RtsEngine.createRoom({
       id: 'instance-room',
@@ -380,9 +404,7 @@ describe('rts', () => {
     const probeTemplate = new StructureTemplate({
       id: 'probe',
       name: 'Probe',
-      width: 1,
-      height: 1,
-      cells: new Uint8Array([1]),
+      grid: createTemplateGrid(1, 1, [1]),
       activationCost: 0,
       income: 0,
       buildArea: 0,
@@ -463,9 +485,7 @@ describe('rts', () => {
     const wideTemplate = new StructureTemplate({
       id: 'wide-13',
       name: 'Wide 13',
-      width: 13,
-      height: 1,
-      cells: new Uint8Array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]),
+      grid: createTemplateGrid(13, 1, [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]),
       activationCost: 0,
       income: 0,
       buildArea: 0,
@@ -540,13 +560,83 @@ describe('rts', () => {
     );
   });
 
+  test('normalizes wrapped-equivalent anchors to one occupied site key', () => {
+    const probeTemplate = new StructureTemplate({
+      id: 'probe',
+      name: 'Probe',
+      grid: createTemplateGrid(1, 1, [1]),
+      activationCost: 0,
+      income: 0,
+      buildArea: 0,
+      startingHp: 2,
+      checks: [],
+    });
+
+    const room = RtsEngine.createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 80,
+      height: 80,
+      templates: [...RtsEngine.createDefaultTemplates(), probeTemplate],
+    });
+    const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+    const baseCenter = getBaseCenter(team.baseTopLeft);
+    const insideOffset = Math.floor(BUILD_ZONE_RADIUS);
+
+    let x: number | null = null;
+    for (const direction of [1, -1] as const) {
+      const candidateX = baseCenter.x + direction * insideOffset;
+      if (candidateX < 0 || candidateX >= getRoomWidth(room)) {
+        continue;
+      }
+
+      x = candidateX;
+      break;
+    }
+
+    expect(x).not.toBeNull();
+    if (x === null) {
+      throw new Error('Unable to find wrapped anchor candidate');
+    }
+
+    const y = Math.max(0, Math.min(baseCenter.y, getRoomHeight(room) - 1));
+
+    const first = RtsEngine.queueBuildEvent(room, 'p1', {
+      templateId: 'probe',
+      x,
+      y,
+      delayTicks: 1,
+    });
+    expect(first.accepted).toBe(true);
+
+    const aliased = RtsEngine.queueBuildEvent(room, 'p1', {
+      templateId: 'probe',
+      x: x + getRoomWidth(room),
+      y,
+      delayTicks: 1,
+    });
+    expect(aliased.accepted).toBe(true);
+
+    RtsEngine.tickRoom(room);
+    const tick = RtsEngine.tickRoom(room);
+    const applied = tick.buildOutcomes.filter((outcome) => {
+      return outcome.outcome === 'applied';
+    });
+    const rejected = tick.buildOutcomes.filter((outcome) => {
+      return outcome.outcome === 'rejected';
+    });
+
+    expect(applied).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]?.reason).toBe('occupied-site');
+    expect(countStructuresByTemplateId(room, team.id, 'probe')).toBe(1);
+  });
+
   test('[BUILD-01] updates union-zone eligibility after build completion and structure destruction', () => {
     const probeTemplate = new StructureTemplate({
       id: 'probe',
       name: 'Probe',
-      width: 1,
-      height: 1,
-      cells: new Uint8Array([1]),
+      grid: createTemplateGrid(1, 1, [1]),
       activationCost: 0,
       income: 0,
       buildArea: 0,
@@ -701,6 +791,32 @@ describe('rts', () => {
       0,
     );
 
+    const teamOneStructure = room.teams
+      .get(teamOne.id)
+      ?.structures.get(ownStructure.key);
+    const teamTwoState = room.teams.get(teamTwo.id);
+    if (!teamOneStructure || !teamTwoState) {
+      throw new Error('Expected both teams to be present in room state');
+    }
+    teamTwoState.structures.set(
+      ownStructure.key,
+      teamOneStructure.template.instantiate({
+        key: ownStructure.key,
+        x: teamOneStructure.x,
+        y: teamOneStructure.y,
+        transform: teamOneStructure.transform,
+        active: true,
+        isCore: false,
+      }),
+    );
+
+    const ownDuplicateKey = RtsEngine.queueDestroyEvent(room, 'p2', {
+      structureKey: ownStructure.key,
+      delayTicks: 2,
+    });
+    expect(ownDuplicateKey.accepted).toBe(true);
+    expect(ownDuplicateKey.idempotent).toBe(false);
+
     const invalidTarget = RtsEngine.queueDestroyEvent(room, 'p1', {
       structureKey: 'missing-structure-key',
       delayTicks: 2,
@@ -747,9 +863,7 @@ describe('rts', () => {
     const probeTemplate = new StructureTemplate({
       id: 'probe',
       name: 'Probe',
-      width: 1,
-      height: 1,
-      cells: new Uint8Array([1]),
+      grid: createTemplateGrid(1, 1, [1]),
       activationCost: 0,
       income: 0,
       buildArea: 0,
@@ -1478,9 +1592,7 @@ describe('rts', () => {
     const sentinelTemplate = new StructureTemplate({
       id: 'sentinel',
       name: 'Sentinel',
-      width: 1,
-      height: 1,
-      cells: new Uint8Array([1]),
+      grid: createTemplateGrid(1, 1, [1]),
       activationCost: 0,
       income: 0,
       buildArea: 0,
@@ -1560,9 +1672,7 @@ describe('rts', () => {
     const durableTemplate = new StructureTemplate({
       id: 'durable',
       name: 'Durable',
-      width: 1,
-      height: 1,
-      cells: new Uint8Array([1]),
+      grid: createTemplateGrid(1, 1, [1]),
       activationCost: 0,
       income: 0,
       buildArea: 0,

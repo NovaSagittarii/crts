@@ -13,13 +13,6 @@ import {
   type Vector2,
 } from './geometry.js';
 import {
-  CORE_TEMPLATE_ID,
-  CORE_TEMPLATE_PADDING,
-  CORE_TEMPLATE_ROWS,
-  padTemplateGrid,
-  parseTemplateRows,
-} from './core-template-layout.js';
-import {
   DEFAULT_SPAWN_CAPACITY,
   DEFAULT_STARTING_RESOURCES,
   DEFAULT_TEAM_TERRITORY_RADIUS,
@@ -39,142 +32,19 @@ import {
   createIdentityPlacementTransform,
   normalizePlacementTransform,
   projectPlacementToWorld,
-  projectTemplateWithTransform,
   type PlacementBounds,
-  type TransformTemplateInput,
   type PlacementTransformInput,
   type PlacementTransformState,
   type TransformedTemplate,
 } from './placement-transform.js';
-
-export interface StructureTemplateOptions {
-  id: string;
-  name: string;
-  width: number;
-  height: number;
-  cells: Uint8Array;
-  activationCost: number;
-  income: number;
-  buildArea: number;
-  startingHp: number;
-  checks: Vector2[];
-  requiresDestroyConfirm?: boolean;
-}
-
-export type StructureTemplateInput =
-  | StructureTemplate
-  | StructureTemplateOptions;
-
-export interface StructureInstantiationOptions {
-  key: string;
-  x: number;
-  y: number;
-  transform: PlacementTransformState;
-  active: boolean;
-  isCore: boolean;
-}
-
-interface StructureOptions extends StructureInstantiationOptions {
-  template: StructureTemplate;
-  hp: number;
-}
-
-export class StructureTemplate implements TransformTemplateInput {
-  public readonly id: string;
-
-  public readonly name: string;
-
-  public readonly width: number;
-
-  public readonly height: number;
-
-  public readonly cells: Uint8Array;
-
-  public readonly activationCost: number;
-
-  public readonly income: number;
-
-  public readonly buildArea: number;
-
-  public readonly startingHp: number;
-
-  public readonly checks: Vector2[];
-
-  public readonly requiresDestroyConfirm: boolean;
-
-  public constructor(options: StructureTemplateOptions) {
-    this.id = options.id;
-    this.name = options.name;
-    this.width = options.width;
-    this.height = options.height;
-    this.cells = new Uint8Array(options.cells);
-    this.activationCost = options.activationCost;
-    this.income = options.income;
-    this.buildArea = options.buildArea;
-    if (!Number.isFinite(options.startingHp) || options.startingHp <= 0) {
-      throw new Error('Template starting HP must be greater than zero');
-    }
-    this.startingHp = options.startingHp;
-    this.checks = options.checks.map((check) => ({ x: check.x, y: check.y }));
-    this.requiresDestroyConfirm = Boolean(options.requiresDestroyConfirm);
-  }
-
-  public static from(input: StructureTemplateInput): StructureTemplate {
-    return input instanceof StructureTemplate
-      ? input
-      : new StructureTemplate(input);
-  }
-
-  public instantiate(options: StructureInstantiationOptions): Structure {
-    return new Structure({
-      template: this,
-      ...options,
-      hp: this.startingHp,
-    });
-  }
-
-  public project(transform: PlacementTransformState): TransformedTemplate {
-    return projectTemplateWithTransform(this, transform);
-  }
-
-  public projectPlacement(
-    x: number,
-    y: number,
-    transform: PlacementTransformState,
-    roomWidth: number,
-    roomHeight: number,
-  ): ReturnType<typeof projectPlacementToWorld> {
-    return projectPlacementToWorld(
-      this.project(transform),
-      x,
-      y,
-      roomWidth,
-      roomHeight,
-    );
-  }
-
-  public toSummary(): StructureTemplateSummary {
-    return {
-      id: this.id,
-      name: this.name,
-      width: this.width,
-      height: this.height,
-      activationCost: this.activationCost,
-      income: this.income,
-      buildArea: this.buildArea,
-    };
-  }
-}
-
-export interface StructureTemplateSummary {
-  id: string;
-  name: string;
-  width: number;
-  height: number;
-  activationCost: number;
-  income: number;
-  buildArea: number;
-}
+import {
+  CORE_STRUCTURE_TEMPLATE as DEFAULT_CORE_STRUCTURE_TEMPLATE,
+  createDefaultStructureTemplates,
+  Structure,
+  StructureTemplate,
+  type StructurePayload,
+  type StructureTemplateInput,
+} from './structure.js';
 
 export interface BuildQueuePayload {
   templateId: string;
@@ -213,122 +83,11 @@ interface AcceptedBuildEvent extends BuildEvent {
   projection: BuildPlacementProjectionResult;
 }
 
-export class Structure {
-  public readonly key: string;
-
-  public readonly template: StructureTemplate;
-
-  public readonly x: number;
-
-  public readonly y: number;
-
-  public readonly transform: PlacementTransformState;
-
-  public active: boolean;
-
-  public hp: number;
-
-  public readonly isCore: boolean;
-
-  public constructor(options: StructureOptions) {
-    this.key = options.key;
-    this.template = options.template;
-    this.x = options.x;
-    this.y = options.y;
-    this.transform = options.transform;
-    this.active = options.active;
-    this.hp = options.hp;
-    this.isCore = options.isCore;
-  }
-
-  public get templateId(): string {
-    return this.template.id;
-  }
-
-  public get buildRadius(): number {
-    return this.active && !this.isCore ? this.template.buildArea : 0;
-  }
-
-  public projectTemplate(): TransformedTemplate {
-    return this.template.project(this.transform);
-  }
-
-  public projectPlacement(
-    roomWidth: number,
-    roomHeight: number,
-  ): ReturnType<typeof projectPlacementToWorld> {
-    return this.template.projectPlacement(
-      this.x,
-      this.y,
-      this.transform,
-      roomWidth,
-      roomHeight,
-    );
-  }
-
-  public destroy(): void {
-    this.hp = 0;
-    this.active = false;
-  }
-
-  public deactivate(): void {
-    this.active = false;
-  }
-
-  public setActive(next: boolean): void {
-    this.active = this.hp > 0 && next;
-  }
-
-  public applyIntegrityDamage(amount: number): void {
-    this.hp -= amount;
-  }
-
-  public toPayload(roomWidth: number, roomHeight: number): StructurePayload {
-    const transformedTemplate = this.projectTemplate();
-    const projection = projectPlacementToWorld(
-      transformedTemplate,
-      this.x,
-      this.y,
-      roomWidth,
-      roomHeight,
-    );
-    return {
-      key: this.key,
-      templateId: this.template.id,
-      templateName: this.template.name,
-      x: this.x,
-      y: this.y,
-      width: transformedTemplate.width,
-      height: transformedTemplate.height,
-      hp: this.hp,
-      active: this.active,
-      isCore: this.isCore,
-      requiresDestroyConfirm: this.template.requiresDestroyConfirm,
-      footprint: projection.occupiedCells,
-    };
-  }
-}
-
 export interface BuildPreviewProjection {
   transform: PlacementTransformState;
   footprint: Vector2[];
   illegalCells: Vector2[];
   bounds: PlacementBounds;
-}
-
-export interface StructurePayload {
-  key: string;
-  templateId: string;
-  templateName: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  hp: number;
-  active: boolean;
-  isCore: boolean;
-  requiresDestroyConfirm: boolean;
-  footprint: Vector2[];
 }
 
 export interface BuildStats {
@@ -554,19 +313,6 @@ export interface CreateRoomOptions {
   templates?: StructureTemplateInput[];
 }
 
-interface StructureTemplateRowsOptions {
-  id: string;
-  name: string;
-  rows: readonly string[];
-  activationCost?: number;
-  income?: number;
-  buildArea?: number;
-  startingHp: number;
-  requiresDestroyConfirm?: boolean;
-  padding?: number;
-  checked?: boolean;
-}
-
 interface BuildPlacementProjectionResult {
   transform: PlacementTransformState;
   transformedTemplate: TransformedTemplate;
@@ -620,15 +366,7 @@ export class RtsEngine {
   private static readonly deadIntegrityPatch = new Grid(1, 1, [], 'flat');
 
   public static readonly CORE_STRUCTURE_TEMPLATE =
-    RtsEngine.createTemplateFromRows({
-      id: CORE_TEMPLATE_ID,
-      name: 'Core',
-      rows: CORE_TEMPLATE_ROWS,
-      buildArea: 0,
-      startingHp: 500,
-      requiresDestroyConfirm: true,
-      padding: CORE_TEMPLATE_PADDING,
-    });
+    DEFAULT_CORE_STRUCTURE_TEMPLATE;
 
   private readonly roomId: string;
 
@@ -778,35 +516,6 @@ export class RtsEngine {
       hash = Math.imul(hash, 16777619);
     }
     return hash >>> 0;
-  }
-
-  private static createTemplateFromRows({
-    id,
-    name,
-    rows,
-    activationCost = 0,
-    income = 0,
-    requiresDestroyConfirm = false,
-    buildArea = 0,
-    startingHp,
-    padding = 0,
-  }: StructureTemplateRowsOptions): StructureTemplate {
-    const parsed = parseTemplateRows(rows);
-    const padded = padTemplateGrid(parsed, padding);
-    return new StructureTemplate({
-      id: id,
-      name: name,
-      width: padded.width,
-      height: padded.height,
-      cells: padded.cells,
-      activationCost: activationCost,
-      income: income,
-      buildArea: buildArea,
-      startingHp: startingHp,
-      requiresDestroyConfirm: requiresDestroyConfirm,
-      checks: [], // TODO: implement checked and checks
-      // checked,
-    });
   }
 
   private static appendTimelineEvent(
@@ -1137,17 +846,6 @@ export class RtsEngine {
     return null;
   }
 
-  private static createTransformedTemplateGrid(
-    transformedTemplate: TransformedTemplate,
-  ): Grid {
-    return new Grid(
-      transformedTemplate.width,
-      transformedTemplate.height,
-      transformedTemplate.occupiedCells,
-      'flat',
-    );
-  }
-
   private static transformedTemplateFitsRoom(
     room: RoomState,
     transformedTemplate: Pick<TransformedTemplate, 'width' | 'height'>,
@@ -1165,6 +863,22 @@ export class RtsEngine {
     height: number,
   ): string {
     return `${x},${y},${width},${height}`;
+  }
+
+  private static wrapAnchorCoordinate(value: number, size: number): number {
+    const remainder = value % size;
+    return remainder >= 0 ? remainder : remainder + size;
+  }
+
+  private static canonicalizePlacementAnchor(
+    room: RoomState,
+    x: number,
+    y: number,
+  ): Vector2 {
+    return {
+      x: RtsEngine.wrapAnchorCoordinate(x, room.width),
+      y: RtsEngine.wrapAnchorCoordinate(y, room.height),
+    };
   }
 
   private static collectTeamBuildZoneContributors(
@@ -1205,12 +919,12 @@ export class RtsEngine {
     transformInput: PlacementTransformInput | null | undefined,
   ): BuildPlacementValidationResult {
     const transform = normalizePlacementTransform(transformInput);
+    const anchor = RtsEngine.canonicalizePlacementAnchor(room, x, y);
     const transformedTemplate = template.project(transform);
-    const templateGrid =
-      RtsEngine.createTransformedTemplateGrid(transformedTemplate);
+    const templateGrid = transformedTemplate.grid;
     const bounds: PlacementBounds = {
-      x,
-      y,
+      x: anchor.x,
+      y: anchor.y,
       width: transformedTemplate.width,
       height: transformedTemplate.height,
     };
@@ -1233,8 +947,8 @@ export class RtsEngine {
 
     const projected = projectPlacementToWorld(
       transformedTemplate,
-      x,
-      y,
+      anchor.x,
+      anchor.y,
       room.width,
       room.height,
     );
@@ -1321,10 +1035,9 @@ export class RtsEngine {
       mask.push({
         x: check.x,
         y: check.y,
-        expected:
-          transformedTemplate.cells[
-            check.y * transformedTemplate.width + check.x
-          ],
+        expected: transformedTemplate.grid.isCellAlive(check.x, check.y)
+          ? 1
+          : 0,
       });
     }
 
@@ -1793,15 +1506,15 @@ export class RtsEngine {
       }
 
       const key = RtsEngine.createStructureKey(
-        event.x,
-        event.y,
+        evaluation.projection.bounds.x,
+        evaluation.projection.bounds.y,
         evaluation.projection.bounds.width,
         evaluation.projection.bounds.height,
       );
       const isReservedInTick = acceptedEvents.some((candidate) => {
-        return candidate.teamId === team.id && candidate.structureKey === key;
+        return candidate.structureKey === key;
       });
-      if (team.structures.has(key) || isReservedInTick) {
+      if (RtsEngine.findStructureOwnerTeam(room, key) || isReservedInTick) {
         RtsEngine.rejectBuild(room, team, 'occupied-site', event.id);
         RtsEngine.recordRejectedBuildOutcome(
           buildOutcomes,
@@ -1834,6 +1547,8 @@ export class RtsEngine {
       team.resources -= affordability.needed;
       acceptedEvents.push({
         ...event,
+        x: evaluation.projection.bounds.x,
+        y: evaluation.projection.bounds.y,
         structureKey: key,
         projection: evaluation.projection,
       });
@@ -1988,62 +1703,7 @@ export class RtsEngine {
   }
 
   public static createDefaultTemplates(): StructureTemplate[] {
-    return [
-      RtsEngine.createTemplateFromRows({
-        id: 'block',
-        name: 'Block 2x2',
-        rows: ['##', '##'],
-        activationCost: 0,
-        income: 0,
-        buildArea: 0,
-        startingHp: 2,
-      }),
-      RtsEngine.createTemplateFromRows({
-        id: 'generator',
-        name: 'Generator Block',
-        rows: ['##', '##'],
-        activationCost: 6,
-        income: 2,
-        buildArea: 2,
-        startingHp: 2,
-        padding: 1,
-        checked: true,
-      }),
-      RtsEngine.createTemplateFromRows({
-        id: 'glider',
-        name: 'Glider',
-        rows: ['.#.', '..#', '###'],
-        activationCost: 2,
-        income: 0,
-        buildArea: 0,
-        startingHp: 2,
-      }),
-      RtsEngine.createTemplateFromRows({
-        id: 'eater-1',
-        name: 'Eater 1',
-        rows: ['##..', '#.##', '.###', '..#.'],
-        activationCost: 4,
-        income: 0,
-        buildArea: 1,
-        startingHp: 2,
-      }),
-      RtsEngine.createTemplateFromRows({
-        id: 'gosper',
-        name: 'Gosper glider gun',
-        rows: [
-          '........................#...........',
-          '......................#.#...........',
-          '............##......##............##',
-          '...........#...#....##............##',
-          '##........#.....#...##..............',
-          '##........#...#.##....#.#...........',
-          '..........#.....#.......#...........',
-          '...........#...#....................',
-          '............##......................',
-        ],
-        startingHp: 2,
-      }),
-    ];
+    return createDefaultStructureTemplates();
   }
 
   public static createRoom(options: CreateRoomOptions): RtsRoom {
@@ -2419,8 +2079,8 @@ export class RtsEngine {
     }
 
     const clampedDelay = Math.max(1, Math.min(MAX_DELAY_TICKS, delay));
-    const x = Number(payload.x);
-    const y = Number(payload.y);
+    const x = preview.bounds?.x ?? Number(payload.x);
+    const y = preview.bounds?.y ?? Number(payload.y);
     const eventId = RtsEngine.allocateEventId(room);
     const event: BuildEvent = {
       id: eventId,
@@ -2511,7 +2171,9 @@ export class RtsEngine {
       };
     }
 
-    const ownerTeam = RtsEngine.findStructureOwnerTeam(room, structureKey);
+    const ownerTeam = team.structures.has(structureKey)
+      ? team
+      : RtsEngine.findStructureOwnerTeam(room, structureKey);
     if (!ownerTeam) {
       RtsEngine.rejectDestroy(
         room,

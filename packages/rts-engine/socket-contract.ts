@@ -10,11 +10,13 @@ import type {
   PendingBuildPayload,
   PendingDestroyPayload,
   RoomStatePayload,
-  StructurePayload,
-  StructureTemplateSummary,
   TeamIncomeBreakdown,
 } from './rts.js';
 import type { RankedTeamOutcome } from './match-lifecycle.js';
+import type {
+  StructurePayload,
+  StructureTemplateSummary,
+} from './structure.js';
 
 // Shared Socket.IO payload contracts.
 //
