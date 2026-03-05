@@ -125,6 +125,7 @@ interface BufferedLockstepCommand {
   turn: number;
   kind: 'build' | 'destroy';
   sessionId: string;
+  socketId: string;
   payload: BuildQueuePayload | DestroyQueuePayload;
   expectedAccepted: boolean;
   expectedExecuteTick: number | null;
@@ -755,6 +756,120 @@ export function createServer(options: ServerOptions = {}): GameServer {
     }
 
     return true;
+  }
+
+  function flushPrimaryTurnCommands(room: RuntimeRoom): void {
+    const lockstepRuntime = room.lockstepRuntime;
+    if (
+      lockstepRuntime.mode !== 'primary' ||
+      lockstepRuntime.status !== 'running'
+    ) {
+      return;
+    }
+
+    const turn = room.rtsRoom.state.tick;
+    const bufferedCommands = [
+      ...(lockstepRuntime.turnBuffer.get(turn) ?? []),
+    ].sort((left, right) => left.sequence - right.sequence);
+    lockstepRuntime.turnBuffer.delete(turn);
+    lockstepRuntime.nextTurn = turn;
+
+    for (const command of bufferedCommands) {
+      const commandSocket = io.sockets.sockets.get(command.socketId);
+
+      if (command.kind === 'build') {
+        const queueResult = room.rtsRoom.queueBuildEvent(
+          command.sessionId,
+          command.payload as BuildQueuePayload,
+        );
+
+        if (!commandSocket) {
+          continue;
+        }
+
+        if (!queueResult.accepted) {
+          const rejectionReason = resolveQueueBuildRejectionReason(queueResult);
+          roomError(
+            commandSocket,
+            queueResult.error ?? 'Build rejected',
+            rejectionReason,
+            rejectionReason === 'insufficient-resources'
+              ? getAffordabilityMetadata(queueResult)
+              : undefined,
+          );
+
+          const player = room.rtsRoom.state.players.get(command.sessionId);
+          if (player) {
+            const previewRequest: BuildPreviewRequestPayload = {
+              templateId: (command.payload as BuildQueuePayload).templateId,
+              x: (command.payload as BuildQueuePayload).x,
+              y: (command.payload as BuildQueuePayload).y,
+              transform: (command.payload as BuildQueuePayload).transform,
+            };
+            const refreshedPreview = runQueueBuildProbe(
+              room.rtsRoom,
+              command.sessionId,
+              previewRequest,
+            );
+            const team = room.rtsRoom.state.teams.get(player.teamId);
+            if (team) {
+              const affordability = derivePreviewAffordability(
+                team.resources,
+                refreshedPreview,
+              );
+              commandSocket.emit(
+                'build:preview',
+                createBuildPreviewPayload(
+                  room.rtsRoom.id,
+                  team.id,
+                  previewRequest,
+                  refreshedPreview,
+                  affordability,
+                ),
+              );
+            }
+          }
+
+          continue;
+        }
+
+        const queued: BuildQueuedPayload = {
+          eventId: queueResult.eventId ?? -1,
+          executeTick: queueResult.executeTick ?? room.rtsRoom.state.tick,
+        };
+        commandSocket.emit('build:queued', queued);
+        continue;
+      }
+
+      const queueResult = room.rtsRoom.queueDestroyEvent(
+        command.sessionId,
+        command.payload as DestroyQueuePayload,
+      );
+
+      if (!commandSocket) {
+        continue;
+      }
+
+      if (!queueResult.accepted) {
+        const rejectionReason = resolveQueueDestroyRejectionReason(queueResult);
+        roomError(
+          commandSocket,
+          queueResult.error ?? 'Destroy rejected',
+          rejectionReason,
+        );
+        continue;
+      }
+
+      const queued: DestroyQueuedPayload = {
+        eventId: queueResult.eventId ?? -1,
+        executeTick: queueResult.executeTick ?? room.rtsRoom.state.tick,
+        structureKey: queueResult.structureKey ?? '',
+        idempotent: Boolean(queueResult.idempotent),
+      };
+      commandSocket.emit('destroy:queued', queued);
+    }
+
+    syncLockstepStatus(room);
   }
 
   function runShadowTick(room: RuntimeRoom): void {
@@ -2006,10 +2121,28 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
+      const lockstepRuntime = room.lockstepRuntime;
+      if (
+        lockstepRuntime.mode === 'primary' &&
+        lockstepRuntime.status === 'running'
+      ) {
+        bufferLockstepCommand(room, {
+          kind: 'build',
+          sessionId: session.id,
+          socketId: socket.id,
+          payload: cloneBuildQueuePayload(parsedPayload),
+          expectedAccepted: false,
+          expectedExecuteTick: null,
+          expectedReason: null,
+        });
+        return;
+      }
+
       const result = room.rtsRoom.queueBuildEvent(session.id, parsedPayload);
       bufferLockstepCommand(room, {
         kind: 'build',
         sessionId: session.id,
+        socketId: socket.id,
         payload: cloneBuildQueuePayload(parsedPayload),
         expectedAccepted: result.accepted,
         expectedExecuteTick: result.executeTick ?? null,
@@ -2090,10 +2223,28 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
+      const lockstepRuntime = room.lockstepRuntime;
+      if (
+        lockstepRuntime.mode === 'primary' &&
+        lockstepRuntime.status === 'running'
+      ) {
+        bufferLockstepCommand(room, {
+          kind: 'destroy',
+          sessionId: session.id,
+          socketId: socket.id,
+          payload: cloneDestroyQueuePayload(parsedPayload),
+          expectedAccepted: false,
+          expectedExecuteTick: null,
+          expectedReason: null,
+        });
+        return;
+      }
+
       const result = room.rtsRoom.queueDestroyEvent(session.id, parsedPayload);
       bufferLockstepCommand(room, {
         kind: 'destroy',
         sessionId: session.id,
+        socketId: socket.id,
         payload: cloneDestroyQueuePayload(parsedPayload),
         expectedAccepted: result.accepted,
         expectedExecuteTick: result.executeTick ?? null,
@@ -2184,6 +2335,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           continue;
         }
 
+        flushPrimaryTurnCommands(room);
         const tickResult = room.rtsRoom.tick();
         const buildOutcomes: BuildOutcomePayload[] =
           tickResult.buildOutcomes.map((outcome) => ({
