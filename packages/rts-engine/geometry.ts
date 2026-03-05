@@ -1,4 +1,4 @@
-import { CORE_TEMPLATE_GRID } from './core-template-layout.js';
+import { CORE_TEMPLATE_GRID } from './structure.js';
 
 export interface Vector2 {
   x: number;
