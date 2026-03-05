@@ -11,6 +11,7 @@ import {
 import {
   BUILD_ZONE_RADIUS,
   DEFAULT_QUEUE_DELAY_TICKS,
+  MAX_DELAY_TICKS,
 } from './gameplay-rules.js';
 import { RtsEngine, RtsRoom, StructureTemplate } from './rts.js';
 
@@ -359,16 +360,16 @@ describe('rts', () => {
 
     const defaultDelay = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
-      x: team.baseTopLeft.x + 10,
-      y: team.baseTopLeft.y + 10,
+      x: team.baseTopLeft.x + 6,
+      y: team.baseTopLeft.y + 6,
     });
     expect(defaultDelay.accepted).toBe(true);
     expect(defaultDelay.executeTick).toBe(DEFAULT_QUEUE_DELAY_TICKS);
 
     const delayLow = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
-      x: team.baseTopLeft.x + 6,
-      y: team.baseTopLeft.y + 6,
+      x: team.baseTopLeft.x + 10,
+      y: team.baseTopLeft.y + 10,
       delayTicks: 0,
     });
     expect(delayLow.accepted).toBe(true);
@@ -376,18 +377,18 @@ describe('rts', () => {
 
     const delayHigh = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
-      x: team.baseTopLeft.x + 8,
-      y: team.baseTopLeft.y + 8,
+      x: team.baseTopLeft.x + 14,
+      y: team.baseTopLeft.y + 14,
       delayTicks: 999,
     });
     expect(delayHigh.accepted).toBe(true);
-    expect(delayHigh.executeTick).toBe(20);
+    expect(delayHigh.executeTick).toBe(MAX_DELAY_TICKS);
 
     const queuedRows = requireTeamPayload(room, team.id).pendingBuilds;
     expect(queuedRows.map(({ executeTick }) => executeTick)).toEqual([
       1,
       DEFAULT_QUEUE_DELAY_TICKS,
-      20,
+      MAX_DELAY_TICKS,
     ]);
   });
 
@@ -725,10 +726,10 @@ describe('rts', () => {
 
     const first = RtsEngine.queueDestroyEvent(room, 'p1', {
       structureKey: ownStructure.key,
-      delayTicks: 3,
     });
     expect(first.accepted).toBe(true);
     expect(first.idempotent).toBe(false);
+    expect(first.executeTick).toBe(room.tick + DEFAULT_QUEUE_DELAY_TICKS);
 
     const duplicate = RtsEngine.queueDestroyEvent(room, 'p1', {
       structureKey: ownStructure.key,
