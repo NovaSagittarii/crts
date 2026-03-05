@@ -122,9 +122,13 @@ function configureStaticAssets(
 
 interface BufferedLockstepCommand {
   sequence: number;
+  turn: number;
   kind: 'build' | 'destroy';
   sessionId: string;
   payload: BuildQueuePayload | DestroyQueuePayload;
+  expectedAccepted: boolean;
+  expectedExecuteTick: number | null;
+  expectedReason: string | null;
 }
 
 type LockstepRuntimeStatus = 'running' | 'fallback';
@@ -138,6 +142,8 @@ interface LockstepRuntimeState {
   nextTurn: number;
   nextSequence: number;
   turnBuffer: Map<number, BufferedLockstepCommand[]>;
+  shadowRoom: RtsRoom | null;
+  mismatchCount: number;
 }
 
 interface RuntimeRoom extends RuntimeBroadcastRoom {
@@ -445,6 +451,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
       nextTurn: 0,
       nextSequence: 0,
       turnBuffer: new Map(),
+      shadowRoom: null,
+      mismatchCount: 0,
     };
   }
 
@@ -463,6 +471,54 @@ export function createServer(options: ServerOptions = {}): GameServer {
   function resetLockstepRuntime(room: RuntimeRoom): void {
     room.lockstepRuntime = createLockstepRuntimeState();
     room.lockstep = toLockstepStatusPayload(room.lockstepRuntime);
+  }
+
+  function cloneBuildQueuePayload(
+    payload: BuildQueuePayload,
+  ): BuildQueuePayload {
+    return {
+      ...payload,
+      transform: payload.transform
+        ? { operations: [...(payload.transform.operations ?? [])] }
+        : undefined,
+    };
+  }
+
+  function cloneDestroyQueuePayload(
+    payload: DestroyQueuePayload,
+  ): DestroyQueuePayload {
+    return { ...payload };
+  }
+
+  function createShadowRoom(room: RuntimeRoom): RtsRoom {
+    const lobbySnapshot = room.lobby.snapshot();
+
+    const shadowRoom = RtsEngine.createRoom({
+      id: room.rtsRoom.id,
+      name: room.rtsRoom.name,
+      width: room.rtsRoom.width,
+      height: room.rtsRoom.height,
+      templates: room.rtsRoom.state.templates,
+    });
+
+    for (const slotId of PLAYER_SLOT_IDS) {
+      const sessionId = lobbySnapshot.slots[slotId];
+      if (!sessionId) {
+        continue;
+      }
+
+      const participant = lobbySnapshot.participants.find(
+        ({ sessionId: participantSessionId }) =>
+          participantSessionId === sessionId,
+      );
+      if (!participant || participant.role !== 'player') {
+        continue;
+      }
+
+      shadowRoom.addPlayer(sessionId, participant.displayName);
+    }
+
+    return shadowRoom;
   }
 
   function buildRuntimeRoom(rtsRoom: RtsRoom): RuntimeRoom {
@@ -571,6 +627,205 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   function emitMembership(room: RuntimeRoom, bumpRevision = true): void {
     roomBroadcast.emitMembership(room, bumpRevision);
+  }
+
+  function syncLockstepStatus(room: RuntimeRoom): void {
+    room.lockstep = toLockstepStatusPayload(room.lockstepRuntime);
+  }
+
+  function fallbackToLegacyLockstep(
+    room: RuntimeRoom,
+    reason: 'hash-mismatch' | 'shadow-unavailable' | 'turn-buffer-overflow',
+    checkpoint?: ReturnType<RtsRoom['createDeterminismCheckpoint']>,
+  ): void {
+    const lockstepRuntime = room.lockstepRuntime;
+    if (lockstepRuntime.mode === 'off') {
+      return;
+    }
+
+    const fromMode = lockstepRuntime.mode;
+    lockstepRuntime.mode = 'off';
+    lockstepRuntime.status = 'fallback';
+    lockstepRuntime.turnBuffer.clear();
+    lockstepRuntime.shadowRoom = null;
+    lockstepRuntime.nextTurn = room.rtsRoom.state.tick;
+    syncLockstepStatus(room);
+
+    roomBroadcast.emitLockstepFallback(room, {
+      fromMode,
+      reason,
+      checkpoint,
+    });
+  }
+
+  function initializeLockstepForMatch(room: RuntimeRoom): void {
+    const lockstepRuntime = room.lockstepRuntime;
+    lockstepRuntime.nextTurn = room.rtsRoom.state.tick;
+    lockstepRuntime.nextSequence = 0;
+    lockstepRuntime.turnBuffer.clear();
+    lockstepRuntime.shadowRoom = null;
+    lockstepRuntime.mismatchCount = 0;
+
+    if (lockstepRuntime.mode === 'shadow') {
+      try {
+        lockstepRuntime.shadowRoom = createShadowRoom(room);
+      } catch {
+        fallbackToLegacyLockstep(room, 'shadow-unavailable');
+        return;
+      }
+    }
+
+    syncLockstepStatus(room);
+  }
+
+  function bufferLockstepCommand(
+    room: RuntimeRoom,
+    command: Omit<BufferedLockstepCommand, 'sequence' | 'turn'>,
+  ): void {
+    const lockstepRuntime = room.lockstepRuntime;
+    if (
+      lockstepRuntime.mode === 'off' ||
+      lockstepRuntime.status !== 'running'
+    ) {
+      return;
+    }
+
+    const turn = room.rtsRoom.state.tick;
+    const bufferedCommands = lockstepRuntime.turnBuffer.get(turn) ?? [];
+    bufferedCommands.push({
+      ...command,
+      sequence: lockstepRuntime.nextSequence,
+      turn,
+    });
+    lockstepRuntime.nextSequence += 1;
+    lockstepRuntime.turnBuffer.set(turn, bufferedCommands);
+    lockstepRuntime.nextTurn = turn;
+
+    if (lockstepRuntime.turnBuffer.size > lockstepRuntime.maxBufferedTurns) {
+      fallbackToLegacyLockstep(room, 'turn-buffer-overflow');
+      return;
+    }
+
+    syncLockstepStatus(room);
+  }
+
+  function replayBufferedCommandInShadow(
+    room: RuntimeRoom,
+    command: BufferedLockstepCommand,
+  ): boolean {
+    const shadowRoom = room.lockstepRuntime.shadowRoom;
+    if (!shadowRoom) {
+      return false;
+    }
+
+    if (command.kind === 'build') {
+      const shadowResult = shadowRoom.queueBuildEvent(
+        command.sessionId,
+        command.payload as BuildQueuePayload,
+      );
+      if (shadowResult.accepted !== command.expectedAccepted) {
+        return false;
+      }
+
+      if (shadowResult.accepted && command.expectedExecuteTick !== null) {
+        return shadowResult.executeTick === command.expectedExecuteTick;
+      }
+
+      if (!shadowResult.accepted && command.expectedReason) {
+        return shadowResult.reason === command.expectedReason;
+      }
+
+      return true;
+    }
+
+    const shadowResult = shadowRoom.queueDestroyEvent(
+      command.sessionId,
+      command.payload as DestroyQueuePayload,
+    );
+    if (shadowResult.accepted !== command.expectedAccepted) {
+      return false;
+    }
+
+    if (shadowResult.accepted && command.expectedExecuteTick !== null) {
+      return shadowResult.executeTick === command.expectedExecuteTick;
+    }
+
+    if (!shadowResult.accepted && command.expectedReason) {
+      return shadowResult.reason === command.expectedReason;
+    }
+
+    return true;
+  }
+
+  function runShadowTick(room: RuntimeRoom): void {
+    const lockstepRuntime = room.lockstepRuntime;
+    if (
+      lockstepRuntime.mode !== 'shadow' ||
+      lockstepRuntime.status !== 'running'
+    ) {
+      return;
+    }
+
+    const shadowRoom = lockstepRuntime.shadowRoom;
+    if (!shadowRoom) {
+      fallbackToLegacyLockstep(room, 'shadow-unavailable');
+      return;
+    }
+
+    const processedTurn = Math.max(0, room.rtsRoom.state.tick - 1);
+    const bufferedCommands = [
+      ...(lockstepRuntime.turnBuffer.get(processedTurn) ?? []),
+    ].sort((left, right) => left.sequence - right.sequence);
+    for (const command of bufferedCommands) {
+      if (!replayBufferedCommandInShadow(room, command)) {
+        fallbackToLegacyLockstep(room, 'hash-mismatch');
+        return;
+      }
+    }
+    lockstepRuntime.turnBuffer.delete(processedTurn);
+
+    shadowRoom.tick();
+    lockstepRuntime.nextTurn = room.rtsRoom.state.tick;
+    syncLockstepStatus(room);
+  }
+
+  function emitLockstepCheckpointIfDue(room: RuntimeRoom): void {
+    const lockstepRuntime = room.lockstepRuntime;
+    if (
+      lockstepRuntime.mode === 'off' ||
+      lockstepRuntime.status !== 'running'
+    ) {
+      return;
+    }
+
+    if (
+      room.rtsRoom.state.tick % lockstepRuntime.checkpointIntervalTicks !==
+      0
+    ) {
+      return;
+    }
+
+    const checkpoint = room.rtsRoom.createDeterminismCheckpoint();
+    if (lockstepRuntime.mode === 'shadow') {
+      const shadowRoom = lockstepRuntime.shadowRoom;
+      if (!shadowRoom) {
+        fallbackToLegacyLockstep(room, 'shadow-unavailable', checkpoint);
+        return;
+      }
+
+      const shadowCheckpoint = shadowRoom.createDeterminismCheckpoint();
+      if (shadowCheckpoint.hashHex !== checkpoint.hashHex) {
+        lockstepRuntime.mismatchCount += 1;
+        fallbackToLegacyLockstep(room, 'hash-mismatch', checkpoint);
+        return;
+      }
+    }
+
+    roomBroadcast.emitLockstepCheckpoint(room, {
+      ...checkpoint,
+      mode: lockstepRuntime.mode,
+      turn: lockstepRuntime.nextTurn,
+    });
   }
 
   function clearActiveDisconnectExpiry(sessionId: string): void {
@@ -1021,6 +1276,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     room.status = 'countdown';
     room.matchOutcome = null;
     resetLockstepRuntime(room);
+    initializeLockstepForMatch(room);
     room.countdownSecondsRemaining = countdownSeconds;
     emitMembership(room);
     emitRoomList();
@@ -1751,6 +2007,14 @@ export function createServer(options: ServerOptions = {}): GameServer {
       }
 
       const result = room.rtsRoom.queueBuildEvent(session.id, parsedPayload);
+      bufferLockstepCommand(room, {
+        kind: 'build',
+        sessionId: session.id,
+        payload: cloneBuildQueuePayload(parsedPayload),
+        expectedAccepted: result.accepted,
+        expectedExecuteTick: result.executeTick ?? null,
+        expectedReason: result.accepted ? null : (result.reason ?? null),
+      });
 
       if (!result.accepted) {
         const reason = resolveQueueBuildRejectionReason(result);
@@ -1827,6 +2091,14 @@ export function createServer(options: ServerOptions = {}): GameServer {
       }
 
       const result = room.rtsRoom.queueDestroyEvent(session.id, parsedPayload);
+      bufferLockstepCommand(room, {
+        kind: 'destroy',
+        sessionId: session.id,
+        payload: cloneDestroyQueuePayload(parsedPayload),
+        expectedAccepted: result.accepted,
+        expectedExecuteTick: result.executeTick ?? null,
+        expectedReason: result.accepted ? null : (result.reason ?? null),
+      });
       if (!result.accepted) {
         const reason = resolveQueueDestroyRejectionReason(result);
         roomError(socket, result.error ?? 'Destroy rejected', reason);
@@ -1925,6 +2197,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
           }));
         emitBuildOutcomes(room, buildOutcomes);
         emitDestroyOutcomes(room, destroyOutcomes);
+        runShadowTick(room);
+        emitLockstepCheckpointIfDue(room);
 
         if (tickResult.outcome) {
           const transition = transitionMatchLifecycle(room.status, 'finish');
