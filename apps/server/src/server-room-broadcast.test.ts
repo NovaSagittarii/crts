@@ -79,6 +79,7 @@ function createRoom(
       turnLengthTicks: 1,
       nextTurn: 0,
       bufferedTurns: 0,
+      mismatchCount: 0,
     },
   };
 }

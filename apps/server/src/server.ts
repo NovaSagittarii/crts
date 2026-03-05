@@ -29,6 +29,8 @@ import {
   type DestroyOutcomePayload,
   type DestroyQueuedPayload,
   type LifecyclePreconditions,
+  type LockstepCheckpointPayload,
+  type LockstepFallbackReason,
   type LockstepMode,
   type LockstepStatusPayload,
   type PlacementTransformInput,
@@ -145,6 +147,10 @@ interface LockstepRuntimeState {
   turnBuffer: Map<number, BufferedLockstepCommand[]>;
   shadowRoom: RtsRoom | null;
   mismatchCount: number;
+  lastFallbackReason: LockstepFallbackReason | null;
+  lastPrimaryHash: string | null;
+  lastShadowHash: string | null;
+  checkpoints: LockstepCheckpointPayload[];
 }
 
 interface RuntimeRoom extends RuntimeBroadcastRoom {
@@ -454,6 +460,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
       turnBuffer: new Map(),
       shadowRoom: null,
       mismatchCount: 0,
+      lastFallbackReason: null,
+      lastPrimaryHash: null,
+      lastShadowHash: null,
+      checkpoints: [],
     };
   }
 
@@ -466,6 +476,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
       turnLengthTicks: lockstepRuntime.turnLengthTicks,
       nextTurn: lockstepRuntime.nextTurn,
       bufferedTurns: lockstepRuntime.turnBuffer.size,
+      mismatchCount: lockstepRuntime.mismatchCount,
+      lastFallbackReason: lockstepRuntime.lastFallbackReason ?? undefined,
+      lastPrimaryHash: lockstepRuntime.lastPrimaryHash ?? undefined,
+      lastShadowHash: lockstepRuntime.lastShadowHash ?? undefined,
     };
   }
 
@@ -647,6 +661,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
     const fromMode = lockstepRuntime.mode;
     lockstepRuntime.mode = 'off';
     lockstepRuntime.status = 'fallback';
+    lockstepRuntime.lastFallbackReason = reason;
+    if (checkpoint) {
+      lockstepRuntime.lastPrimaryHash = checkpoint.hashHex;
+    }
     lockstepRuntime.turnBuffer.clear();
     lockstepRuntime.shadowRoom = null;
     lockstepRuntime.nextTurn = room.rtsRoom.state.tick;
@@ -656,6 +674,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       fromMode,
       reason,
       checkpoint,
+      mismatchCount: lockstepRuntime.mismatchCount,
     });
   }
 
@@ -666,6 +685,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
     lockstepRuntime.turnBuffer.clear();
     lockstepRuntime.shadowRoom = null;
     lockstepRuntime.mismatchCount = 0;
+    lockstepRuntime.lastFallbackReason = null;
+    lockstepRuntime.lastPrimaryHash = null;
+    lockstepRuntime.lastShadowHash = null;
+    lockstepRuntime.checkpoints = [];
 
     if (lockstepRuntime.mode === 'shadow') {
       try {
@@ -904,6 +927,17 @@ export function createServer(options: ServerOptions = {}): GameServer {
     syncLockstepStatus(room);
   }
 
+  function recordLockstepCheckpoint(
+    room: RuntimeRoom,
+    checkpoint: LockstepCheckpointPayload,
+  ): void {
+    const checkpoints = room.lockstepRuntime.checkpoints;
+    checkpoints.push(checkpoint);
+    if (checkpoints.length > 16) {
+      checkpoints.shift();
+    }
+  }
+
   function emitLockstepCheckpointIfDue(room: RuntimeRoom): void {
     const lockstepRuntime = room.lockstepRuntime;
     if (
@@ -921,6 +955,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     }
 
     const checkpoint = room.rtsRoom.createDeterminismCheckpoint();
+    lockstepRuntime.lastPrimaryHash = checkpoint.hashHex;
     if (lockstepRuntime.mode === 'shadow') {
       const shadowRoom = lockstepRuntime.shadowRoom;
       if (!shadowRoom) {
@@ -929,18 +964,27 @@ export function createServer(options: ServerOptions = {}): GameServer {
       }
 
       const shadowCheckpoint = shadowRoom.createDeterminismCheckpoint();
+      lockstepRuntime.lastShadowHash = shadowCheckpoint.hashHex;
       if (shadowCheckpoint.hashHex !== checkpoint.hashHex) {
         lockstepRuntime.mismatchCount += 1;
         fallbackToLegacyLockstep(room, 'hash-mismatch', checkpoint);
         return;
       }
+    } else {
+      lockstepRuntime.lastShadowHash = null;
     }
 
-    roomBroadcast.emitLockstepCheckpoint(room, {
+    const payload: Omit<LockstepCheckpointPayload, 'roomId'> = {
       ...checkpoint,
       mode: lockstepRuntime.mode,
       turn: lockstepRuntime.nextTurn,
+    };
+    recordLockstepCheckpoint(room, {
+      roomId: room.rtsRoom.id,
+      ...payload,
     });
+    syncLockstepStatus(room);
+    roomBroadcast.emitLockstepCheckpoint(room, payload);
   }
 
   function clearActiveDisconnectExpiry(sessionId: string): void {
@@ -1206,6 +1250,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
       state: room.rtsRoom.createStatePayload(),
       lockstep: room.lockstep,
     });
+
+    const latestCheckpoint = room.lockstepRuntime.checkpoints.at(-1);
+    if (latestCheckpoint) {
+      socket.emit('lockstep:checkpoint', latestCheckpoint);
+    }
 
     emitMembership(room);
     emitRoomList();

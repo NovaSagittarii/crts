@@ -38,6 +38,10 @@ export interface LockstepStatusPayload {
   turnLengthTicks: number;
   nextTurn: number;
   bufferedTurns: number;
+  mismatchCount: number;
+  lastFallbackReason?: LockstepFallbackReason;
+  lastPrimaryHash?: string;
+  lastShadowHash?: string;
 }
 
 export interface LockstepCheckpointPayload extends RoomDeterminismCheckpoint {
@@ -51,6 +55,7 @@ export interface LockstepFallbackPayload {
   fromMode: Exclude<LockstepMode, 'off'>;
   reason: LockstepFallbackReason;
   checkpoint?: RoomDeterminismCheckpoint;
+  mismatchCount?: number;
 }
 
 export interface BuildQueuedPayload {
