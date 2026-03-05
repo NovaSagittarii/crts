@@ -25,11 +25,6 @@ import type {
   StructureTemplateSummary,
   TeamIncomeBreakdownPayload,
 } from '#rts-engine';
-import {
-  collectBuildZoneContributors,
-  collectCoveredBuildZoneCells,
-  type BuildZoneContributorProjectionInput,
-} from '#rts-engine';
 
 import {
   aggregateIncomeDelta,
@@ -64,6 +59,8 @@ import {
   clearReconnectNotice,
   createMatchScreenViewState,
   getReconnectNoticeCopy,
+  hasVisibleReconnectNotice,
+  isReconnectSyncing,
   markReconnectPending,
   RECONNECT_NOTICE_MS,
   SCREEN_TRANSITION_NOTICE_MS,
@@ -103,6 +100,18 @@ import {
   type TacticalOverlayTeamSnapshot,
   type TacticalOverlayState,
 } from './tactical-overlay-view-model.js';
+import { chooseGridCellSize } from './canvas-layout.js';
+import {
+  DEFAULT_CHAT_LOG_MAX_MESSAGES,
+  getChatOverflowCount,
+} from './chat-log-view-model.js';
+import { computeLocalBuildZoneOverlay } from './local-build-zone-view-model.js';
+import { getWrappedBoundsSegments } from './wrapped-grid-view-model.js';
+import {
+  computeVisibleGridBounds,
+  type VisibleGridBounds,
+} from './render-viewport.js';
+import { createRenderScheduler } from './render-scheduler.js';
 
 type RoomListEntry = RoomListEntryPayload;
 type StatePayload = RoomStatePayload;
@@ -475,14 +484,13 @@ let structureCellIndex = new Map<string, VisibleStructure>();
 let localBuildZoneCells: Cell[] = [];
 let localBuildZoneCellKeys = new Set<number>();
 let localBuildZoneSignature = '';
-let cachedGridCells: Cell[] = [];
-let cachedGridCellWidth = 0;
-let cachedGridCellHeight = 0;
+const localBuildZoneCoverageCache = new Map<string, readonly number[]>();
 let edgeBannerTimeoutId: number | null = null;
 let reconnectNoticeTimeoutId: number | null = null;
 
 const BUILD_ERROR_TOAST_DEDUPE_MS = 800;
 const CAMERA_KEYBOARD_WORLD_STEP_CELLS = 8;
+const LOCAL_BUILD_ZONE_CACHE_MAX_ENTRIES = 512;
 
 function addToast(message: string, isError = false): void {
   const toast = document.createElement('div');
@@ -735,6 +743,15 @@ function appendChatMessage(payload: ChatMessagePayload): void {
 
   item.append(sender, body, meta);
   chatLogEl.append(item);
+
+  const overflowCount = getChatOverflowCount(
+    chatLogEl.childElementCount,
+    DEFAULT_CHAT_LOG_MAX_MESSAGES,
+  );
+  for (let index = 0; index < overflowCount; index += 1) {
+    chatLogEl.firstElementChild?.remove();
+  }
+
   chatLogEl.scrollTop = chatLogEl.scrollHeight;
 }
 
@@ -1021,7 +1038,7 @@ function scheduleStructureHoverTick(nowMs: number): void {
     );
     syncDestroySelectionFromInteraction(tickNow);
     renderStructureInspector(tickNow);
-    updateDestroyUi();
+    refreshActionUi(tickNow);
   }, delayMs);
 }
 
@@ -1101,7 +1118,7 @@ function applyStructureInteraction(
   syncDestroySelectionFromInteraction(nowMs);
   scheduleStructureHoverTick(nowMs);
   renderStructureInspector(nowMs);
-  updateDestroyUi();
+  refreshActionUi(nowMs);
 }
 
 function updateStructureHoverStateForPointer(event: PointerEvent): void {
@@ -1167,7 +1184,7 @@ function scheduleTacticalOverlayTick(nowMs: number): void {
 
   if (
     lastAuthoritativeStateAtMs !== null &&
-    !matchScreenState.reconnectNotice
+    !hasVisibleReconnectNotice(matchScreenState)
   ) {
     const staleTickAt =
       lastAuthoritativeStateAtMs + DEFAULT_SYNC_STALE_THRESHOLD_MS + 1;
@@ -1336,7 +1353,7 @@ function renderTacticalOverlay(nowMs = Date.now()): void {
     previewReasonCopy: previewReasonEl.textContent,
     latestActionCopy: overlayTeamFeedbackCopy,
     sync: {
-      reconnectPending: Boolean(matchScreenState.reconnectNotice),
+      reconnectPending: isReconnectSyncing(matchScreenState),
       lastAuthoritativeUpdateAtMs: lastAuthoritativeStateAtMs,
       staleThresholdMs: DEFAULT_SYNC_STALE_THRESHOLD_MS,
       hintCopy: 'Syncing tactical data from server updates...',
@@ -1407,6 +1424,24 @@ function resetTacticalOverlayState(): void {
   renderTacticalOverlay();
 }
 
+function resetRoomTransitionFlags(): void {
+  countdownSecondsRemaining = null;
+  currentMatchFinished = null;
+  isFinishedPanelMinimized = false;
+  currentTeamDefeated = false;
+  persistentDefeatReason = null;
+  latestOutcomeTimelineMetadata = null;
+  currentMembership = null;
+  lastBuildErrorToast = null;
+}
+
+function resetRoomTransitionViewModels(): void {
+  clearSelectedTemplatePlacement();
+  resetEconomyTracking();
+  resetDestroyInteractionState();
+  resetTacticalOverlayState();
+}
+
 function syncVisibleStructures(payload: StatePayload): void {
   const nextStructures: VisibleStructure[] = [];
   const nextIndex = new Map<string, VisibleStructure>();
@@ -1464,7 +1499,7 @@ function syncVisibleStructures(payload: StatePayload): void {
   syncDestroySelectionFromInteraction(nowMs);
   scheduleStructureHoverTick(nowMs);
   renderStructureInspector(nowMs);
-  updateDestroyUi();
+  refreshActionUi(nowMs);
 }
 
 function cellKey(x: number, y: number): number {
@@ -1475,41 +1510,7 @@ function clearLocalBuildZoneOverlay(): void {
   localBuildZoneCells = [];
   localBuildZoneCellKeys = new Set<number>();
   localBuildZoneSignature = '';
-}
-
-function getAllGridCells(): Cell[] {
-  if (
-    cachedGridCellWidth === gridWidth &&
-    cachedGridCellHeight === gridHeight &&
-    cachedGridCells.length > 0
-  ) {
-    return cachedGridCells;
-  }
-
-  const cells: Cell[] = [];
-  for (let y = 0; y < gridHeight; y += 1) {
-    for (let x = 0; x < gridWidth; x += 1) {
-      cells.push({ x, y });
-    }
-  }
-
-  cachedGridCellWidth = gridWidth;
-  cachedGridCellHeight = gridHeight;
-  cachedGridCells = cells;
-  return cells;
-}
-
-function buildLocalBuildZoneSignature(team: TeamPayload): string {
-  const orderedStructures = [...team.structures].sort((left, right) =>
-    left.key.localeCompare(right.key),
-  );
-
-  return orderedStructures
-    .map(
-      (structure) =>
-        `${structure.key}:${structure.x},${structure.y},${structure.width},${structure.height},${structure.hp}`,
-    )
-    .join('|');
+  localBuildZoneCoverageCache.clear();
 }
 
 function syncLocalBuildZoneOverlay(payload: StatePayload): void {
@@ -1524,33 +1525,25 @@ function syncLocalBuildZoneOverlay(payload: StatePayload): void {
     return;
   }
 
-  const signature = buildLocalBuildZoneSignature(localTeam);
-  if (signature === localBuildZoneSignature) {
+  const overlayProjection = computeLocalBuildZoneOverlay({
+    structures: localTeam.structures,
+    gridWidth,
+    gridHeight,
+    previousSignature: localBuildZoneSignature,
+    coverageCache: localBuildZoneCoverageCache,
+    maxCoverageCacheEntries: LOCAL_BUILD_ZONE_CACHE_MAX_ENTRIES,
+  });
+
+  if (!overlayProjection.changed) {
     return;
   }
 
-  const contributorInputs: BuildZoneContributorProjectionInput[] = [
-    ...localTeam.structures,
-  ]
-    .sort((left, right) => left.key.localeCompare(right.key))
-    .map((structure) => ({
-      x: structure.x,
-      y: structure.y,
-      width: structure.width,
-      height: structure.height,
-      hp: structure.hp,
-    }));
-
-  const contributors = collectBuildZoneContributors(contributorInputs);
-  const coveredCells = collectCoveredBuildZoneCells(
-    getAllGridCells(),
-    contributors,
-  );
-  localBuildZoneCells = coveredCells;
-  localBuildZoneCellKeys = new Set(
-    coveredCells.map((cell) => cellKey(cell.x, cell.y)),
-  );
-  localBuildZoneSignature = signature;
+  localBuildZoneSignature = overlayProjection.signature;
+  localBuildZoneCellKeys = new Set(overlayProjection.cellKeys);
+  localBuildZoneCells = overlayProjection.cellKeys.map((key) => ({
+    x: key % gridWidth,
+    y: Math.floor(key / gridWidth),
+  }));
 }
 
 function selectDestroyStructureAtCell(cell: Cell): boolean {
@@ -1588,8 +1581,7 @@ function selectDestroyStructureAtCell(cell: Cell): boolean {
   return true;
 }
 
-function updateDestroyUi(): void {
-  const nowMs = Date.now();
+function updateDestroyUi(nowMs = Date.now()): void {
   const canUsePinnedActions = canShowStructureActions(
     structureInteractionState,
     nowMs,
@@ -1650,8 +1642,6 @@ function updateDestroyUi(): void {
     destroyFeedbackEl.classList.toggle('queue-feedback--error', isError);
     overlayTeamFeedbackCopy = feedback;
     overlayTeamFeedbackIsError = isError;
-    renderOverlayFeedbackRows();
-    renderTacticalOverlay(nowMs);
     return;
   }
 
@@ -1711,8 +1701,6 @@ function updateDestroyUi(): void {
   destroyFeedbackEl.classList.toggle('queue-feedback--error', isError);
   overlayTeamFeedbackCopy = feedback;
   overlayTeamFeedbackIsError = isError;
-  renderOverlayFeedbackRows();
-  renderTacticalOverlay(nowMs);
 }
 
 function updateTransformIndicator(): void {
@@ -1814,8 +1802,13 @@ function updateQueueAffordabilityUi(): void {
   queueFeedbackEl.classList.toggle('queue-feedback--error', isError);
   overlayBuildFeedbackCopy = feedback;
   overlayBuildFeedbackIsError = isError;
+}
+
+function refreshActionUi(nowMs = Date.now()): void {
+  updateQueueAffordabilityUi();
+  updateDestroyUi(nowMs);
   renderOverlayFeedbackRows();
-  updateDestroyUi();
+  renderTacticalOverlay(nowMs);
 }
 
 function emitBuildPreviewForSelectedPlacement(): void {
@@ -1832,7 +1825,7 @@ function emitBuildPreviewForSelectedPlacement(): void {
   previewPending = true;
   latestBuildPreview = null;
   socket.emit('build:preview', previewRequest);
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 }
 
 function emitDestroyQueueForSelection(): void {
@@ -1843,7 +1836,7 @@ function emitDestroyQueueForSelection(): void {
 
   const structureKey = destroyViewState.selectedKey;
   if (!structureKey || !canQueueDestroy(destroyViewState)) {
-    updateDestroyUi();
+    refreshActionUi();
     return;
   }
 
@@ -1855,7 +1848,7 @@ function emitDestroyQueueForSelection(): void {
   socket.emit('destroy:queue', {
     structureKey,
   });
-  updateDestroyUi();
+  refreshActionUi();
 }
 
 function applyTransformControl(
@@ -1874,8 +1867,8 @@ function applyTransformControl(
   updateTransformIndicator();
   setMessage(`${label} applied. Preview updated with lockstep legality.`);
   emitBuildPreviewForSelectedPlacement();
-  render();
-  updateQueueAffordabilityUi();
+  requestRender();
+  refreshActionUi();
 }
 
 function cancelTemplateBuildMode(): void {
@@ -1888,8 +1881,8 @@ function cancelTemplateBuildMode(): void {
   buildModeEl.value = 'paint';
   clearSelectedTemplatePlacement();
   setMessage('Build mode canceled. Returned to Paint Cells mode.');
-  render();
-  updateQueueAffordabilityUi();
+  requestRender();
+  refreshActionUi();
 }
 
 function renderIncomeBreakdown(team: TeamPayload | null): void {
@@ -2105,7 +2098,7 @@ function selectTemplatePlacementAt(cell: Cell): void {
   resetQueueFeedbackOverride();
   setMessage(`Template placement selected at (${x}, ${y}).`);
   emitBuildPreviewForSelectedPlacement();
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 }
 
 function updateTemplateOptions(): void {
@@ -2118,7 +2111,7 @@ function updateTemplateOptions(): void {
     option.textContent = 'No templates';
     templateSelectEl.append(option);
     selectedTemplateId = '';
-    updateQueueAffordabilityUi();
+    refreshActionUi();
     return;
   }
 
@@ -2134,7 +2127,7 @@ function updateTemplateOptions(): void {
     clearSelectedTemplatePlacement();
   }
   templateSelectEl.value = selectedTemplateId;
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 }
 
 function getSelfParticipant(): MembershipParticipant | null {
@@ -2253,8 +2246,7 @@ function updateReadOnlyExperience(): void {
   spectatorBannerEl.classList.toggle('is-hidden', bannerCopy === null);
 
   if (!bannerCopy) {
-    updateQueueAffordabilityUi();
-    updateDestroyUi();
+    refreshActionUi();
     return;
   }
 
@@ -2264,8 +2256,7 @@ function updateReadOnlyExperience(): void {
   );
   spectatorBannerTitleEl.textContent = bannerCopy.title;
   spectatorBannerTextEl.textContent = bannerCopy.text;
-  updateQueueAffordabilityUi();
-  updateDestroyUi();
+  refreshActionUi();
 }
 
 function syncCurrentTeamIdFromState(payload: StatePayload): void {
@@ -2461,9 +2452,11 @@ function getCell(x: number, y: number): number {
 }
 
 function chooseCellSize(width: number): number {
-  const maxWidth = Math.max(240, window.innerWidth - 32);
-  const proposed = Math.floor(maxWidth / width);
-  return Math.max(3, Math.min(8, proposed));
+  const viewportWidth =
+    gridViewportEl.clientWidth > 0
+      ? gridViewportEl.clientWidth
+      : window.innerWidth;
+  return chooseGridCellSize(width, viewportWidth);
 }
 
 function resizeCanvas(): void {
@@ -2510,58 +2503,10 @@ function previewMatchesCurrentSelection(preview: BuildPreview): boolean {
   return true;
 }
 
-function wrapCoordinate(value: number, size: number): number {
-  return ((value % size) + size) % size;
-}
-
-function splitWrappedSpan(
-  start: number,
-  length: number,
-  size: number,
-): Array<{ start: number; length: number }> {
-  if (length <= 0) {
-    return [];
-  }
-
-  const normalizedStart = wrapCoordinate(start, size);
-  if (normalizedStart + length <= size) {
-    return [{ start: normalizedStart, length }];
-  }
-
-  return [
-    { start: normalizedStart, length: size - normalizedStart },
-    { start: 0, length: normalizedStart + length - size },
-  ];
-}
-
-function getWrappedBoundsSegments(
-  bounds: BuildPreview['bounds'],
-): Array<{ x: number; y: number; width: number; height: number }> {
-  const xSpans = splitWrappedSpan(bounds.x, bounds.width, gridWidth);
-  const ySpans = splitWrappedSpan(bounds.y, bounds.height, gridHeight);
-
-  const segments: Array<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  }> = [];
-  for (const xSpan of xSpans) {
-    for (const ySpan of ySpans) {
-      segments.push({
-        x: xSpan.start,
-        y: ySpan.start,
-        width: xSpan.length,
-        height: ySpan.length,
-      });
-    }
-  }
-
-  return segments;
-}
-
-function renderLocalBuildZoneOverlay(): void {
-  if (localBuildZoneCells.length === 0) {
+function renderLocalBuildZoneOverlay(
+  visibleBounds: VisibleGridBounds | null,
+): void {
+  if (!visibleBounds || localBuildZoneCells.length === 0) {
     return;
   }
 
@@ -2573,6 +2518,15 @@ function renderLocalBuildZoneOverlay(): void {
   const fillInset = 0.6;
   const fillSize = Math.max(1, cellSize - fillInset * 2);
   for (const cell of localBuildZoneCells) {
+    if (
+      cell.x < visibleBounds.minX ||
+      cell.x > visibleBounds.maxX ||
+      cell.y < visibleBounds.minY ||
+      cell.y > visibleBounds.maxY
+    ) {
+      continue;
+    }
+
     ctx.fillRect(
       cell.x * cellSize + fillInset,
       cell.y * cellSize + fillInset,
@@ -2588,6 +2542,15 @@ function renderLocalBuildZoneOverlay(): void {
   ctx.beginPath();
 
   for (const cell of localBuildZoneCells) {
+    if (
+      cell.x < visibleBounds.minX ||
+      cell.x > visibleBounds.maxX ||
+      cell.y < visibleBounds.minY ||
+      cell.y > visibleBounds.maxY
+    ) {
+      continue;
+    }
+
     const left = cell.x * cellSize;
     const top = cell.y * cellSize;
     const right = left + cellSize;
@@ -2614,8 +2577,10 @@ function renderLocalBuildZoneOverlay(): void {
   ctx.stroke();
 }
 
-function renderBuildPreviewOverlay(): void {
-  if (!templateMode || !latestBuildPreview) {
+function renderBuildPreviewOverlay(
+  visibleBounds: VisibleGridBounds | null,
+): void {
+  if (!visibleBounds || !templateMode || !latestBuildPreview) {
     return;
   }
   if (!previewMatchesCurrentSelection(latestBuildPreview)) {
@@ -2627,6 +2592,15 @@ function renderBuildPreviewOverlay(): void {
   );
 
   for (const cell of latestBuildPreview.illegalCells) {
+    if (
+      cell.x < visibleBounds.minX ||
+      cell.x > visibleBounds.maxX ||
+      cell.y < visibleBounds.minY ||
+      cell.y > visibleBounds.maxY
+    ) {
+      continue;
+    }
+
     ctx.fillStyle = 'rgba(224, 122, 122, 0.36)';
     ctx.fillRect(
       cell.x * cellSize + 1,
@@ -2637,6 +2611,15 @@ function renderBuildPreviewOverlay(): void {
   }
 
   for (const cell of latestBuildPreview.footprint) {
+    if (
+      cell.x < visibleBounds.minX ||
+      cell.x > visibleBounds.maxX ||
+      cell.y < visibleBounds.minY ||
+      cell.y > visibleBounds.maxY
+    ) {
+      continue;
+    }
+
     const isIllegal = illegalCellKeys.has(`${cell.x},${cell.y}`);
     ctx.fillStyle = isIllegal
       ? 'rgba(224, 122, 122, 0.72)'
@@ -2651,7 +2634,22 @@ function renderBuildPreviewOverlay(): void {
 
   ctx.strokeStyle = 'rgba(248, 192, 108, 0.85)';
   ctx.lineWidth = 1 / cameraState.zoom;
-  for (const segment of getWrappedBoundsSegments(latestBuildPreview.bounds)) {
+  for (const segment of getWrappedBoundsSegments(
+    latestBuildPreview.bounds,
+    gridWidth,
+    gridHeight,
+  )) {
+    const segmentMaxX = segment.x + segment.width - 1;
+    const segmentMaxY = segment.y + segment.height - 1;
+    if (
+      segmentMaxX < visibleBounds.minX ||
+      segment.x > visibleBounds.maxX ||
+      segmentMaxY < visibleBounds.minY ||
+      segment.y > visibleBounds.maxY
+    ) {
+      continue;
+    }
+
     ctx.strokeRect(
       segment.x * cellSize + 0.5,
       segment.y * cellSize + 0.5,
@@ -2661,8 +2659,27 @@ function renderBuildPreviewOverlay(): void {
   }
 }
 
+const renderScheduler = createRenderScheduler({
+  render,
+  requestAnimationFrame: (callback) => window.requestAnimationFrame(callback),
+  cancelAnimationFrame: (frameId) => window.cancelAnimationFrame(frameId),
+});
+
+function requestRender(): void {
+  renderScheduler.requestRender();
+}
+
 function render(): void {
   if (!gridBytes) return;
+
+  const visibleBounds = computeVisibleGridBounds({
+    camera: cameraState,
+    canvasWidth: canvasCssWidth,
+    canvasHeight: canvasCssHeight,
+    cellSize,
+    gridWidth,
+    gridHeight,
+  });
 
   ctx.setTransform(canvasRatio, 0, 0, canvasRatio, 0, 0);
   ctx.clearRect(0, 0, canvasCssWidth, canvasCssHeight);
@@ -2676,18 +2693,21 @@ function render(): void {
   ctx.fillStyle = '#0b101b';
   ctx.fillRect(0, 0, gridWidth * cellSize, gridHeight * cellSize);
 
-  renderLocalBuildZoneOverlay();
+  renderLocalBuildZoneOverlay(visibleBounds);
 
-  ctx.fillStyle = '#46d5b6';
-  for (let y = 0; y < gridHeight; y += 1) {
-    for (let x = 0; x < gridWidth; x += 1) {
-      const idx = y * gridWidth + x;
-      if (gridBytes[idx] !== 1) continue;
-      ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+  if (visibleBounds) {
+    ctx.fillStyle = '#46d5b6';
+    for (let y = visibleBounds.minY; y <= visibleBounds.maxY; y += 1) {
+      const rowOffset = y * gridWidth;
+      for (let x = visibleBounds.minX; x <= visibleBounds.maxX; x += 1) {
+        const idx = rowOffset + x;
+        if (gridBytes[idx] !== 1) continue;
+        ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+      }
     }
   }
 
-  renderBuildPreviewOverlay();
+  renderBuildPreviewOverlay(visibleBounds);
   ctx.restore();
 }
 
@@ -2741,7 +2761,7 @@ function updateTeamStats(payload: StatePayload): void {
     incomeEl.textContent = '-';
     baseEl.textContent = 'Unknown';
     syncEconomyHud(null, payload.tick);
-    updateQueueAffordabilityUi();
+    refreshActionUi();
     return;
   }
 
@@ -2755,7 +2775,7 @@ function updateTeamStats(payload: StatePayload): void {
     incomeEl.textContent = '-';
     baseEl.textContent = 'Unknown';
     syncEconomyHud(null, payload.tick);
-    updateQueueAffordabilityUi();
+    refreshActionUi();
     return;
   }
 
@@ -2782,7 +2802,7 @@ function updateTeamStats(payload: StatePayload): void {
   }
 
   syncEconomyHud(team, payload.tick);
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 }
 
 function renderLobbyStatus(payload: RoomMembershipPayload): void {
@@ -3018,7 +3038,7 @@ function applyKeyboardZoom(zoomFactor: number): void {
     zoomFactor,
   );
   updateCameraStatus();
-  render();
+  requestRender();
 }
 
 canvas.addEventListener('contextmenu', (event) => {
@@ -3044,7 +3064,7 @@ canvas.addEventListener(
       zoomFactor,
     );
     updateCameraStatus();
-    render();
+    requestRender();
   },
   { passive: false },
 );
@@ -3128,7 +3148,7 @@ canvas.addEventListener('pointermove', (event) => {
     };
     cameraState = applyPanDelta(cameraState, deltaX, deltaY);
     updateCameraStatus();
-    render();
+    requestRender();
     return;
   }
 
@@ -3194,7 +3214,7 @@ window.addEventListener('keydown', (event) => {
   if (event.key === 'f' || event.key === 'F') {
     event.preventDefault();
     resetCameraForCurrentTeam();
-    render();
+    requestRender();
     return;
   }
 
@@ -3228,7 +3248,7 @@ window.addEventListener('keydown', (event) => {
     CAMERA_KEYBOARD_WORLD_STEP_CELLS * cellSize * cameraState.zoom;
   cameraState = applyKeyboardPan(cameraState, panDirection, panStep);
   updateCameraStatus();
-  render();
+  requestRender();
 });
 
 window.addEventListener('resize', () => {
@@ -3238,7 +3258,7 @@ window.addEventListener('resize', () => {
     resetCameraForCurrentTeam();
   }
   if (gridBytes) {
-    render();
+    requestRender();
   }
 });
 
@@ -3319,18 +3339,8 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   currentRoomCode = payload.roomCode;
   currentRoomName = payload.roomName;
   currentTeamId = payload.teamId;
-  countdownSecondsRemaining = null;
-  currentMatchFinished = null;
-  isFinishedPanelMinimized = false;
-  currentTeamDefeated = false;
-  persistentDefeatReason = null;
-  latestOutcomeTimelineMetadata = null;
-  currentMembership = null;
-  lastBuildErrorToast = null;
-  clearSelectedTemplatePlacement();
-  resetEconomyTracking();
-  resetDestroyInteractionState();
-  resetTacticalOverlayState();
+  resetRoomTransitionFlags();
+  resetRoomTransitionViewModels();
   availableTemplates = payload.templates;
   selectedTemplateId = payload.templates[0]?.id ?? '';
   updateTemplateOptions();
@@ -3355,7 +3365,7 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   renderSpawnMarkers(payload.state);
   resizeCanvas();
   resetCameraForCurrentTeam();
-  render();
+  requestRender();
   updateVisibleMatchScreen();
   updateReconnectIndicator();
   updateLobbyControls();
@@ -3367,22 +3377,12 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   currentRoomCode = '-';
   currentRoomName = '-';
   currentTeamId = null;
-  countdownSecondsRemaining = null;
-  currentMatchFinished = null;
-  isFinishedPanelMinimized = false;
-  currentTeamDefeated = false;
-  persistentDefeatReason = null;
-  latestOutcomeTimelineMetadata = null;
-  currentMembership = null;
-  lastBuildErrorToast = null;
+  resetRoomTransitionFlags();
   clearEdgeBannerTimeout();
   edgeBannerEl.classList.add('is-hidden');
   matchScreenState = createMatchScreenViewState('lobby');
   updateReconnectIndicator();
-  clearSelectedTemplatePlacement();
-  resetEconomyTracking();
-  resetDestroyInteractionState();
-  resetTacticalOverlayState();
+  resetRoomTransitionViewModels();
   cameraState = createCameraViewState();
   updateCameraStatus();
   applyRoomStatus('lobby');
@@ -3405,7 +3405,7 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   setMessage('You left the room.');
   updateLobbyControls();
   updateLifecycleUi();
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 });
 
 socket.on('room:error', (payload: RoomErrorPayload) => {
@@ -3470,8 +3470,7 @@ socket.on('room:error', (payload: RoomErrorPayload) => {
   if (!suppressToast) {
     addToast(message, true);
   }
-  updateQueueAffordabilityUi();
-  updateDestroyUi();
+  refreshActionUi();
 });
 
 socket.on('room:membership', (payload: RoomMembershipPayload) => {
@@ -3561,8 +3560,8 @@ socket.on('build:preview', (payload: BuildPreview) => {
   previewPending = false;
   latestBuildPreview = payload;
   resetQueueFeedbackOverride();
-  updateQueueAffordabilityUi();
-  render();
+  refreshActionUi();
+  requestRender();
 });
 
 socket.on('build:outcome', (payload: BuildOutcome) => {
@@ -3596,7 +3595,7 @@ socket.on('build:outcome', (payload: BuildOutcome) => {
     setQueueFeedbackOverride(overlayBuildFeedbackCopy, false);
   }
 
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 });
 
 socket.on('build:queued', (payload: BuildQueuedPayload) => {
@@ -3608,7 +3607,7 @@ socket.on('build:queued', (payload: BuildQueuedPayload) => {
   setMessage(
     `Build queued (#${payload.eventId}) for tick ${payload.executeTick}.`,
   );
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 });
 
 socket.on('destroy:outcome', (payload: DestroyOutcome) => {
@@ -3643,7 +3642,7 @@ socket.on('destroy:outcome', (payload: DestroyOutcome) => {
     addToast('Structure destroyed.');
   }
 
-  updateDestroyUi();
+  refreshActionUi();
 });
 
 socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
@@ -3664,7 +3663,7 @@ socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
   if (!payload.idempotent) {
     addToast(feedback);
   }
-  updateDestroyUi();
+  refreshActionUi();
 });
 
 socket.on('state', (payload: StatePayload) => {
@@ -3691,7 +3690,7 @@ socket.on('state', (payload: StatePayload) => {
   if (gridWidth !== previousGridWidth || gridHeight !== previousGridHeight) {
     resetCameraForCurrentTeam();
   }
-  render();
+  requestRender();
   updateLifecycleUi();
 
   if (
@@ -3723,15 +3722,15 @@ buildModeEl.addEventListener('change', () => {
       ? 'Template mode: click on the board to select placement, then use Queue Selected Placement.'
       : 'Paint mode: click and drag to toggle cells.',
   );
-  render();
-  updateQueueAffordabilityUi();
+  requestRender();
+  refreshActionUi();
 });
 
 templateSelectEl.addEventListener('change', () => {
   selectedTemplateId = templateSelectEl.value;
   clearSelectedTemplatePlacement();
-  render();
-  updateQueueAffordabilityUi();
+  requestRender();
+  refreshActionUi();
 });
 
 buildDelayEl.addEventListener('change', () => {
@@ -3811,7 +3810,7 @@ startMatchButton.addEventListener('click', () => {
 queueBuildButton.addEventListener('click', () => {
   const queueRequest = buildPreviewRequestFromSelection();
   if (!queueRequest || !latestBuildPreview || !latestBuildPreview.affordable) {
-    updateQueueAffordabilityUi();
+    refreshActionUi();
     return;
   }
 
@@ -3827,7 +3826,7 @@ queueBuildButton.addEventListener('click', () => {
     transform: queueRequest.transform,
     delayTicks: readDelayTicks(),
   });
-  updateQueueAffordabilityUi();
+  refreshActionUi();
 });
 
 destroyQueueButton.addEventListener('click', () => {
@@ -3837,7 +3836,7 @@ destroyQueueButton.addEventListener('click', () => {
 destroyConfirmButton.addEventListener('click', () => {
   if (!destroyViewState.confirmArmed) {
     destroyViewState = armDestroyConfirm(destroyViewState);
-    updateDestroyUi();
+    refreshActionUi();
     return;
   }
 
@@ -3847,7 +3846,7 @@ destroyConfirmButton.addEventListener('click', () => {
 destroyCancelButton.addEventListener('click', () => {
   destroyViewState = cancelDestroyConfirm(destroyViewState);
   resetDestroyFeedbackOverride();
-  updateDestroyUi();
+  refreshActionUi();
 });
 
 finishedMinimizeButton.addEventListener('click', () => {
@@ -3909,4 +3908,4 @@ updateReconnectIndicator();
 updateLobbyControls();
 renderFinishedResults();
 updateLifecycleUi();
-updateQueueAffordabilityUi();
+refreshActionUi();

@@ -9,7 +9,7 @@ import {
   isCanonicalBaseCell,
 } from './geometry.js';
 import { BUILD_ZONE_RADIUS } from './gameplay-rules.js';
-import { RtsEngine, StructureTemplate } from './rts.js';
+import { RtsEngine, RtsRoom, StructureTemplate } from './rts.js';
 
 interface Cell {
   x: number;
@@ -202,6 +202,64 @@ describe('rts', () => {
     expect(template.isCellAlive(0, 0)).toBe(true);
     expect(template.isCellAlive(1, 1)).toBe(false);
     expect(template.isCellAlive(1, 0)).toBe(false);
+  });
+
+  test('provides a cached room instance API while preserving static parity', () => {
+    const room = RtsEngine.createRoom({
+      id: 'instance-room',
+      name: 'Instance Room',
+      width: 48,
+      height: 48,
+    });
+
+    expect(room).toBe(RtsEngine.fromRoomState(room.state));
+    expect(room).toBe(RtsRoom.fromState(room.state));
+    expect(room.id).toBe(RtsEngine.getRoomId(room.state));
+    expect(room.name).toBe(RtsEngine.getRoomName(room.state));
+    expect(room.width).toBe(RtsEngine.getRoomWidth(room.state));
+    expect(room.height).toBe(RtsEngine.getRoomHeight(room.state));
+
+    const team = room.addPlayer('p1', 'Alice');
+    expect(team.id).toBe(1);
+
+    expect(room.getTemplate('block')?.id).toBe('block');
+    expect(room.getTimelineEvents()).toEqual(
+      RtsEngine.getTimelineEvents(room.state),
+    );
+    expect(room.createStatePayload()).toEqual(
+      RtsEngine.createRoomStatePayload(room.state),
+    );
+
+    const missingBuild = room.queueBuildEvent('missing-player', {
+      templateId: 'block',
+      x: 0,
+      y: 0,
+    });
+    expect(missingBuild.accepted).toBe(false);
+    expect(room.tick()).toEqual(RtsEngine.tickRoom(room.state));
+  });
+
+  test('rejects detached room states for instance wrappers', () => {
+    const room = RtsEngine.createRoom({
+      id: 'detached-room',
+      name: 'Detached Room',
+      width: 32,
+      height: 32,
+    });
+
+    const detachedState = {
+      ...room.state,
+      teams: new Map(room.state.teams),
+      players: new Map(room.state.players),
+      templates: [...room.state.templates],
+    } as unknown as ReturnType<typeof RtsEngine.createRoomState>;
+
+    expect(() => RtsEngine.fromRoomState(detachedState)).toThrow(
+      'RoomState must come from RtsEngine.createRoomState or RtsEngine.createRoom',
+    );
+    expect(() => RtsRoom.fromState(detachedState)).toThrow(
+      'RoomState must come from RtsEngine.createRoomState or RtsEngine.createRoom',
+    );
   });
 
   test('adds players, seeds base cells, and lists room occupancy', () => {

@@ -77,6 +77,16 @@ export function getReconnectNoticeCopy(
   return null;
 }
 
+export function isReconnectSyncing(state: MatchScreenViewState): boolean {
+  return state.reconnectNotice === 'syncing';
+}
+
+export function hasVisibleReconnectNotice(
+  state: MatchScreenViewState,
+): boolean {
+  return state.reconnectNotice !== 'hidden';
+}
+
 export function clearReconnectNotice(
   state: MatchScreenViewState,
 ): MatchScreenViewState {

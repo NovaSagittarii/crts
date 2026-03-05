@@ -1,22 +1,19 @@
-import {
-  CORE_FOOTPRINT_HEIGHT,
-  CORE_FOOTPRINT_WIDTH,
-  isCoreFootprintCellAlive,
-} from './core-footprint.js';
+import { CORE_TEMPLATE_GRID } from './core-template-layout.js';
 
 export interface Vector2 {
   x: number;
   y: number;
 }
 
-export const BASE_FOOTPRINT_WIDTH = CORE_FOOTPRINT_WIDTH;
-export const BASE_FOOTPRINT_HEIGHT = CORE_FOOTPRINT_HEIGHT;
+export const BASE_FOOTPRINT_WIDTH = CORE_TEMPLATE_GRID.width;
+export const BASE_FOOTPRINT_HEIGHT = CORE_TEMPLATE_GRID.height;
+export const BASE_CENTER_OFFSET = Math.floor(BASE_FOOTPRINT_WIDTH / 2);
 
 const BASE_CENTER_OFFSET_X = Math.floor(BASE_FOOTPRINT_WIDTH / 2);
 const BASE_CENTER_OFFSET_Y = Math.floor(BASE_FOOTPRINT_HEIGHT / 2);
 
 export function isCanonicalBaseCell(localX: number, localY: number): boolean {
-  return isCoreFootprintCellAlive(localX, localY);
+  return !!CORE_TEMPLATE_GRID.cells[localY * BASE_FOOTPRINT_WIDTH + localX];
 }
 
 export function getBaseCenter(baseTopLeft: Vector2): Vector2 {
