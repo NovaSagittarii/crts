@@ -424,7 +424,7 @@ function createTemplateFromRows({
   startingHp,
   requiresDestroyConfirm = false,
   padding = 0,
-  checked = false,
+  checked: _checked = false,
 }: StructureTemplateRowsOptions): StructureTemplate {
   const parsed = parseTemplateRows(rows);
   const padded = padTemplateGrid(parsed, padding);
