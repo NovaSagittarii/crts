@@ -9,7 +9,8 @@ import {
   isCanonicalBaseCell,
 } from './geometry.js';
 import { BUILD_ZONE_RADIUS } from './gameplay-rules.js';
-import { RtsEngine, RtsRoom, StructureTemplate } from './rts.js';
+import { RtsEngine, RtsRoom } from './rts.js';
+import { StructureTemplate } from './structure.js';
 
 interface Cell {
   x: number;
