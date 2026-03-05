@@ -4,6 +4,7 @@ import type {
   BuildPreviewProjection,
   BuildRejectionReason,
   BuildQueuePayload,
+  RoomDeterminismCheckpoint,
   DestroyOutcome,
   DestroyQueuePayload,
   DestroyRejectionReason,
@@ -23,6 +24,34 @@ import type { RankedTeamOutcome } from './match-lifecycle.js';
 
 export type RoomStatus = 'lobby' | 'countdown' | 'active' | 'finished';
 export type ConnectionStatus = 'connected' | 'held';
+export type LockstepMode = 'off' | 'shadow' | 'primary';
+export type LockstepStatus = 'running' | 'fallback';
+export type LockstepFallbackReason =
+  | 'hash-mismatch'
+  | 'shadow-unavailable'
+  | 'turn-buffer-overflow'
+  | 'manual';
+
+export interface LockstepStatusPayload {
+  mode: LockstepMode;
+  status: LockstepStatus;
+  turnLengthTicks: number;
+  nextTurn: number;
+  bufferedTurns: number;
+}
+
+export interface LockstepCheckpointPayload extends RoomDeterminismCheckpoint {
+  roomId: string;
+  mode: LockstepMode;
+  turn: number;
+}
+
+export interface LockstepFallbackPayload {
+  roomId: string;
+  fromMode: Exclude<LockstepMode, 'off'>;
+  reason: LockstepFallbackReason;
+  checkpoint?: RoomDeterminismCheckpoint;
+}
 
 export interface BuildQueuedPayload {
   eventId: number;
@@ -109,6 +138,7 @@ export interface RoomJoinedPayload {
   teamId: number | null;
   templates: StructureTemplateSummary[];
   state: RoomStatePayload;
+  lockstep?: LockstepStatusPayload;
 }
 
 export interface RoomLeftPayload {
@@ -174,6 +204,7 @@ export interface RoomMembershipPayload {
     } | null
   >;
   countdownSecondsRemaining: number | null;
+  lockstep?: LockstepStatusPayload;
 }
 
 export interface PlayerProfilePayload {
@@ -259,5 +290,7 @@ export interface ServerToClientEvents {
   'build:outcome': (payload: BuildOutcomePayload) => void;
   'destroy:queued': (payload: DestroyQueuedPayload) => void;
   'destroy:outcome': (payload: DestroyOutcomePayload) => void;
+  'lockstep:checkpoint': (payload: LockstepCheckpointPayload) => void;
+  'lockstep:fallback': (payload: LockstepFallbackPayload) => void;
   'player:profile': (payload: PlayerProfilePayload) => void;
 }

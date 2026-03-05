@@ -6,6 +6,9 @@ import {
   type BuildOutcomePayload,
   type ClientToServerEvents,
   type DestroyOutcomePayload,
+  type LockstepCheckpointPayload,
+  type LockstepFallbackPayload,
+  type LockstepStatusPayload,
   type LobbyRoom,
   type MatchFinishedPayload,
   type RoomListEntryPayload,
@@ -25,6 +28,7 @@ export interface RuntimeBroadcastRoom {
   status: RoomStatus;
   countdownSecondsRemaining: number | null;
   matchOutcome: MatchFinishedPayload | null;
+  lockstep: LockstepStatusPayload;
 }
 
 interface RoomBroadcastServiceOptions {
@@ -114,6 +118,7 @@ export class RoomBroadcastService {
       }),
       heldSlots,
       countdownSecondsRemaining: room.countdownSecondsRemaining,
+      lockstep: room.lockstep,
     };
   }
 
@@ -195,6 +200,26 @@ export class RoomBroadcastService {
       winner: room.matchOutcome.winner,
       ranked: room.matchOutcome.ranked,
       comparator: room.matchOutcome.comparator,
+    });
+  }
+
+  public emitLockstepCheckpoint(
+    room: RuntimeBroadcastRoom,
+    payload: Omit<LockstepCheckpointPayload, 'roomId'>,
+  ): void {
+    this.io.to(this.roomChannel(room.rtsRoom.id)).emit('lockstep:checkpoint', {
+      roomId: room.rtsRoom.id,
+      ...payload,
+    });
+  }
+
+  public emitLockstepFallback(
+    room: RuntimeBroadcastRoom,
+    payload: Omit<LockstepFallbackPayload, 'roomId'>,
+  ): void {
+    this.io.to(this.roomChannel(room.rtsRoom.id)).emit('lockstep:fallback', {
+      roomId: room.rtsRoom.id,
+      ...payload,
     });
   }
 }

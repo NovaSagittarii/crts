@@ -73,6 +73,13 @@ function createRoom(
     status,
     countdownSecondsRemaining: null,
     matchOutcome: null,
+    lockstep: {
+      mode: 'off',
+      status: 'running',
+      turnLengthTicks: 1,
+      nextTurn: 0,
+      bufferedTurns: 0,
+    },
   };
 }
 
@@ -140,6 +147,7 @@ describe('RoomBroadcastService', () => {
       holdExpiresAt: 15_000,
       disconnectReason: 'transport close',
     });
+    expect(payload.lockstep).toEqual(room.lockstep);
   });
 
   test('emitRoomList sorts rooms and reports player/spectator totals', () => {
@@ -314,6 +322,51 @@ describe('RoomBroadcastService', () => {
         roomId: '5',
         comparator: OUTCOME_COMPARATOR_DESCRIPTION,
       },
+    });
+  });
+
+  test('emits lockstep checkpoint and fallback on room channel', () => {
+    const { io, events } = createFakeIo();
+    const sessionCoordinator = new LobbySessionCoordinator();
+    const room = createRoom('6', 'active');
+
+    const service = new RoomBroadcastService({
+      io,
+      sessionCoordinator,
+      roomChannel: (id) => `room:${id}`,
+      listRooms: () => [room],
+    });
+
+    service.emitLockstepCheckpoint(room, {
+      tick: 10,
+      generation: 10,
+      hashAlgorithm: 'fnv1a-32',
+      hashHex: 'deadbeef',
+      mode: 'shadow',
+      turn: 10,
+    });
+    service.emitLockstepFallback(room, {
+      fromMode: 'shadow',
+      reason: 'hash-mismatch',
+      checkpoint: {
+        tick: 10,
+        generation: 10,
+        hashAlgorithm: 'fnv1a-32',
+        hashHex: 'deadbeef',
+      },
+    });
+
+    expect(events[0]).toMatchObject({
+      channel: 'room',
+      roomId: 'room:6',
+      event: 'lockstep:checkpoint',
+      payload: { roomId: '6', hashHex: 'deadbeef', mode: 'shadow' },
+    });
+    expect(events[1]).toMatchObject({
+      channel: 'room',
+      roomId: 'room:6',
+      event: 'lockstep:fallback',
+      payload: { roomId: '6', fromMode: 'shadow', reason: 'hash-mismatch' },
     });
   });
 });

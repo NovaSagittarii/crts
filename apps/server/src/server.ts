@@ -29,6 +29,8 @@ import {
   type DestroyOutcomePayload,
   type DestroyQueuedPayload,
   type LifecyclePreconditions,
+  type LockstepMode,
+  type LockstepStatusPayload,
   type PlacementTransformInput,
   type PlacementTransformOperation,
   type QueueDestroyResult,
@@ -57,6 +59,9 @@ const PLAYER_SLOT_IDS = ['team-1', 'team-2'] as const;
 const COUNTDOWN_SECONDS = 3;
 const MEMBERSHIP_RESYNC_INTERVAL_MS = 300;
 const FINISHED_ROOM_RESYNC_INTERVAL_MS = 500;
+const DEFAULT_LOCKSTEP_TURN_TICKS = 1;
+const DEFAULT_LOCKSTEP_CHECKPOINT_INTERVAL_TICKS = 4;
+const DEFAULT_LOCKSTEP_MAX_BUFFERED_TURNS = 64;
 
 type IntervalHandle = ReturnType<typeof setInterval>;
 type TimeoutHandle = ReturnType<typeof setTimeout>;
@@ -80,6 +85,10 @@ export interface ServerOptions {
   clientAssetsDir?: string;
   countdownSeconds?: number;
   reconnectHoldMs?: number;
+  lockstepMode?: LockstepMode;
+  lockstepTurnTicks?: number;
+  lockstepCheckpointIntervalTicks?: number;
+  lockstepMaxBufferedTurns?: number;
   now?: () => number;
   setInterval?: SetIntervalHook;
   clearInterval?: ClearIntervalHook;
@@ -111,8 +120,29 @@ function configureStaticAssets(
   app.use(express.static(clientAssetsDir));
 }
 
+interface BufferedLockstepCommand {
+  sequence: number;
+  kind: 'build' | 'destroy';
+  sessionId: string;
+  payload: BuildQueuePayload | DestroyQueuePayload;
+}
+
+type LockstepRuntimeStatus = 'running' | 'fallback';
+
+interface LockstepRuntimeState {
+  mode: LockstepMode;
+  status: LockstepRuntimeStatus;
+  turnLengthTicks: number;
+  checkpointIntervalTicks: number;
+  maxBufferedTurns: number;
+  nextTurn: number;
+  nextSequence: number;
+  turnBuffer: Map<number, BufferedLockstepCommand[]>;
+}
+
 interface RuntimeRoom extends RuntimeBroadcastRoom {
   countdownTimer: IntervalHandle | null;
+  lockstepRuntime: LockstepRuntimeState;
 }
 
 export interface GameServer {
@@ -156,6 +186,28 @@ function parseReconnectHoldMs(value: unknown): number {
   }
 
   return Math.floor(holdMs);
+}
+
+function parseLockstepMode(value: unknown): LockstepMode {
+  if (value === 'shadow' || value === 'primary') {
+    return value;
+  }
+
+  return 'off';
+}
+
+function parseBoundedInteger(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    return fallback;
+  }
+
+  return Math.max(min, Math.min(max, parsed));
 }
 
 function parseRoomIdentifier(value: unknown): string | null {
@@ -337,6 +389,25 @@ export function createServer(options: ServerOptions = {}): GameServer {
       ? Math.max(0, Math.floor(options.countdownSeconds))
       : COUNTDOWN_SECONDS;
   const reconnectHoldMs = parseReconnectHoldMs(options.reconnectHoldMs);
+  const lockstepMode = parseLockstepMode(options.lockstepMode);
+  const lockstepTurnTicks = parseBoundedInteger(
+    options.lockstepTurnTicks,
+    DEFAULT_LOCKSTEP_TURN_TICKS,
+    1,
+    60,
+  );
+  const lockstepCheckpointIntervalTicks = parseBoundedInteger(
+    options.lockstepCheckpointIntervalTicks,
+    DEFAULT_LOCKSTEP_CHECKPOINT_INTERVAL_TICKS,
+    1,
+    240,
+  );
+  const lockstepMaxBufferedTurns = parseBoundedInteger(
+    options.lockstepMaxBufferedTurns,
+    DEFAULT_LOCKSTEP_MAX_BUFFERED_TURNS,
+    4,
+    512,
+  );
   const now = options.now ?? (() => Date.now());
   const setIntervalHook =
     options.setInterval ??
@@ -364,8 +435,39 @@ export function createServer(options: ServerOptions = {}): GameServer {
   const roomTemplates = RtsEngine.createDefaultTemplates();
   const rooms = new Map<string, RuntimeRoom>();
 
+  function createLockstepRuntimeState(): LockstepRuntimeState {
+    return {
+      mode: lockstepMode,
+      status: 'running',
+      turnLengthTicks: lockstepTurnTicks,
+      checkpointIntervalTicks: lockstepCheckpointIntervalTicks,
+      maxBufferedTurns: lockstepMaxBufferedTurns,
+      nextTurn: 0,
+      nextSequence: 0,
+      turnBuffer: new Map(),
+    };
+  }
+
+  function toLockstepStatusPayload(
+    lockstepRuntime: LockstepRuntimeState,
+  ): LockstepStatusPayload {
+    return {
+      mode: lockstepRuntime.mode,
+      status: lockstepRuntime.status,
+      turnLengthTicks: lockstepRuntime.turnLengthTicks,
+      nextTurn: lockstepRuntime.nextTurn,
+      bufferedTurns: lockstepRuntime.turnBuffer.size,
+    };
+  }
+
+  function resetLockstepRuntime(room: RuntimeRoom): void {
+    room.lockstepRuntime = createLockstepRuntimeState();
+    room.lockstep = toLockstepStatusPayload(room.lockstepRuntime);
+  }
+
   function buildRuntimeRoom(rtsRoom: RtsRoom): RuntimeRoom {
     const roomId = rtsRoom.id;
+    const lockstepRuntime = createLockstepRuntimeState();
     return {
       rtsRoom,
       lobby: LobbyRoom.create({
@@ -378,6 +480,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
       countdownSecondsRemaining: null,
       countdownTimer: null,
       matchOutcome: null,
+      lockstepRuntime,
+      lockstep: toLockstepStatusPayload(lockstepRuntime),
     };
   }
 
@@ -730,6 +834,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         template.toSummary(),
       ),
       state: room.rtsRoom.createStatePayload(),
+      lockstep: room.lockstep,
     });
 
     emitMembership(room);
@@ -901,6 +1006,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
     room.rtsRoom = nextRoom;
     room.matchOutcome = null;
+    resetLockstepRuntime(room);
   }
 
   function emitMatchFinished(room: RuntimeRoom): void {
@@ -914,6 +1020,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
     room.status = 'countdown';
     room.matchOutcome = null;
+    resetLockstepRuntime(room);
     room.countdownSecondsRemaining = countdownSeconds;
     emitMembership(room);
     emitRoomList();
