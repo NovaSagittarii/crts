@@ -94,3 +94,8 @@ npm run lint:fix
 - Use interfaces for object shapes (type aliases are fine for unions)
 - Validate network payloads at runtime boundaries
 - Keep `npm run lint` passing (ESLint + `typescript-eslint` `recommendedTypeChecked`)
+
+## General Practices
+
+- After making a phase of changes, commit them.
+- Use Conventional Commits style of commits.
