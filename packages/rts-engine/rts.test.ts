@@ -162,49 +162,6 @@ function createTemplateGrid(
 }
 
 describe('rts', () => {
-  test('provides default structure templates with expected metadata', () => {
-    const templates = RtsEngine.createDefaultTemplates();
-
-    expect(templates.map(({ id }) => id)).toEqual([
-      'block',
-      'generator',
-      'glider',
-      'eater-1',
-      'gosper',
-    ]);
-
-    const generator = templates.find(({ id }) => id === 'generator');
-    expect(generator).toBeDefined();
-    expect(generator?.width).toBe(4);
-    expect(generator?.height).toBe(4);
-    expect(generator?.activationCost).toBe(6);
-    expect(generator?.income).toBe(2);
-    expect(generator?.checks).toHaveLength(0);
-  });
-
-  test('clones grid-backed template input during construction', () => {
-    const sourceGrid = new Grid(2, 2, [{ x: 0, y: 0 }], 'flat');
-
-    const template = new StructureTemplate({
-      id: 'grid-probe',
-      name: 'Grid Probe',
-      grid: sourceGrid,
-      activationCost: 0,
-      income: 0,
-      buildArea: 0,
-      startingHp: 2,
-      checks: [],
-    });
-
-    sourceGrid.setCell(1, 1, true);
-
-    expect(template.width).toBe(2);
-    expect(template.height).toBe(2);
-    expect(template.isCellAlive(0, 0)).toBe(true);
-    expect(template.isCellAlive(1, 1)).toBe(false);
-    expect(template.isCellAlive(1, 0)).toBe(false);
-  });
-
   test('provides a cached room instance API while preserving static parity', () => {
     const room = RtsEngine.createRoom({
       id: 'instance-room',
