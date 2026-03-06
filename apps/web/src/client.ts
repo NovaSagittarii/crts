@@ -3603,11 +3603,13 @@ socket.on('build:preview', (payload: BuildPreview) => {
 });
 
 socket.on('build:outcome', (payload: BuildOutcome) => {
-  if (payload.roomId !== currentRoomId || currentTeamId === null) {
+  if (payload.roomId !== currentRoomId) {
     return;
   }
 
-  if (payload.teamId !== currentTeamId) {
+  requestStateSnapshot();
+
+  if (currentTeamId === null || payload.teamId !== currentTeamId) {
     return;
   }
 
@@ -3634,7 +3636,6 @@ socket.on('build:outcome', (payload: BuildOutcome) => {
   }
 
   refreshActionUi();
-  requestStateSnapshot();
 });
 
 socket.on('build:queued', (payload: BuildQueuedPayload) => {
@@ -3650,11 +3651,13 @@ socket.on('build:queued', (payload: BuildQueuedPayload) => {
 });
 
 socket.on('destroy:outcome', (payload: DestroyOutcome) => {
-  if (payload.roomId !== currentRoomId || currentTeamId === null) {
+  if (payload.roomId !== currentRoomId) {
     return;
   }
 
-  if (payload.teamId !== currentTeamId) {
+  requestStateSnapshot();
+
+  if (currentTeamId === null || payload.teamId !== currentTeamId) {
     return;
   }
 
@@ -3682,7 +3685,6 @@ socket.on('destroy:outcome', (payload: DestroyOutcome) => {
   }
 
   refreshActionUi();
-  requestStateSnapshot();
 });
 
 socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {

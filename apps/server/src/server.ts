@@ -65,6 +65,7 @@ const DEFAULT_LOCKSTEP_TURN_TICKS = 1;
 const DEFAULT_LOCKSTEP_CHECKPOINT_INTERVAL_TICKS = 4;
 const DEFAULT_LOCKSTEP_MAX_BUFFERED_TURNS = 64;
 const DEFAULT_ACTIVE_STATE_SNAPSHOT_INTERVAL_TICKS = 50;
+const STATE_REQUEST_MIN_INTERVAL_MS = 100;
 
 type IntervalHandle = ReturnType<typeof setInterval>;
 type TimeoutHandle = ReturnType<typeof setTimeout>;
@@ -155,6 +156,13 @@ interface LockstepRuntimeState {
   lastPrimaryHash: string | null;
   lastShadowHash: string | null;
   checkpoints: LockstepCheckpointPayload[];
+}
+
+interface StateRequestBudget {
+  roomId: string;
+  lastRequestedAtMs: number;
+  lastServedTick: number;
+  lastServedRevision: number;
 }
 
 interface RuntimeRoom extends RuntimeBroadcastRoom {
@@ -457,6 +465,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   const roomTemplates = RtsEngine.createDefaultTemplates();
   const rooms = new Map<string, RuntimeRoom>();
+  const stateRequestBudgetBySession = new Map<string, StateRequestBudget>();
 
   function createLockstepRuntimeState(): LockstepRuntimeState {
     return {
@@ -498,6 +507,46 @@ export function createServer(options: ServerOptions = {}): GameServer {
   function resetLockstepRuntime(room: RuntimeRoom): void {
     room.lockstepRuntime = createLockstepRuntimeState();
     room.lockstep = toLockstepStatusPayload(room.lockstepRuntime);
+  }
+
+  function clearStateRequestBudget(sessionId: string): void {
+    stateRequestBudgetBySession.delete(sessionId);
+  }
+
+  function shouldServeStateRequest(
+    sessionId: string,
+    room: RuntimeRoom,
+  ): boolean {
+    const currentTick = room.rtsRoom.state.tick;
+    const currentRevision = room.revision;
+    const currentRoomId = room.rtsRoom.id;
+    const currentTimeMs = now();
+    const budget = stateRequestBudgetBySession.get(sessionId);
+
+    if (
+      budget &&
+      budget.roomId === currentRoomId &&
+      currentTimeMs - budget.lastRequestedAtMs < STATE_REQUEST_MIN_INTERVAL_MS
+    ) {
+      return false;
+    }
+
+    if (
+      budget &&
+      budget.roomId === currentRoomId &&
+      budget.lastServedTick === currentTick &&
+      budget.lastServedRevision === currentRevision
+    ) {
+      return false;
+    }
+
+    stateRequestBudgetBySession.set(sessionId, {
+      roomId: currentRoomId,
+      lastRequestedAtMs: currentTimeMs,
+      lastServedTick: currentTick,
+      lastServedRevision: currentRevision,
+    });
+    return true;
   }
 
   function cloneBuildQueuePayload(
@@ -1264,6 +1313,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     options: LeaveCurrentRoomOptions,
   ): void {
     clearActiveDisconnectExpiry(session.id);
+    clearStateRequestBudget(session.id);
 
     const room = getRoomOrNull(session.roomId);
     if (!room) {
@@ -1978,6 +2028,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
       const room = getRoomOrNull(session.roomId);
       if (!room) {
+        clearStateRequestBudget(session.id);
+        return;
+      }
+
+      if (!shouldServeStateRequest(session.id, room)) {
         return;
       }
 

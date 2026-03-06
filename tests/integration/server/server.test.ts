@@ -422,6 +422,8 @@ describe('GameServer', () => {
     }
     setup.guest.on('state', onGuestState);
 
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
     setup.host.emit('state:request');
     const requestedState = await waitForEvent<StatePayload>(
       setup.host,
@@ -430,6 +432,20 @@ describe('GameServer', () => {
     );
 
     expect(requestedState.roomId).toBe(setup.roomId);
+
+    setup.host.emit('state:request');
+    await expect(
+      waitForEvent<StatePayload>(setup.host, 'state', 80),
+    ).rejects.toThrow(/timed out/i);
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    setup.host.emit('state:request');
+    const secondRequestedState = await waitForEvent<StatePayload>(
+      setup.host,
+      'state',
+      2500,
+    );
+    expect(secondRequestedState.roomId).toBe(setup.roomId);
 
     await new Promise((resolve) => setTimeout(resolve, 250));
     expect(guestStateCount).toBe(0);
