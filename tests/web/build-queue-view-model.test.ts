@@ -1,10 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import type {
-  BuildPreviewPayload,
-  PlacementBounds,
-  PlacementTransformState,
-} from '#rts-engine';
+import type { PlacementTransformState } from '#rts-engine';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -12,6 +8,7 @@ import {
   deriveBuildQueueUi,
   previewMatchesSelection,
   type BuildPlacementSelection,
+  type BuildQueuePreview,
 } from '../../apps/web/src/build-queue-view-model.js';
 
 function createSelection(
@@ -26,22 +23,17 @@ function createSelection(
 }
 
 function createPreview(
-  overrides: Partial<BuildPreviewPayload> = {},
-): BuildPreviewPayload {
+  overrides: Partial<BuildQueuePreview> = {},
+): BuildQueuePreview {
   return {
     affordable: true,
     needed: 6,
     current: 10,
     deficit: 0,
-    roomId: 'room-1',
-    teamId: 1,
     templateId: 'turret',
     x: 4,
     y: 6,
     transform: createTransform(),
-    footprint: [],
-    illegalCells: [],
-    bounds: createBounds(),
     ...overrides,
   };
 }
@@ -57,18 +49,6 @@ function createTransform(
       yx: 0,
       yy: 1,
     },
-  };
-}
-
-function createBounds(
-  overrides: Partial<PlacementBounds> = {},
-): PlacementBounds {
-  return {
-    x: 4,
-    y: 6,
-    width: 2,
-    height: 2,
-    ...overrides,
   };
 }
 

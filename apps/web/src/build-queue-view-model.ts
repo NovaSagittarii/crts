@@ -1,10 +1,23 @@
 import type {
-  BuildPreviewPayload,
+  BuildRejectionReason,
   PlacementTransformInput,
   PlacementTransformOperation,
+  PlacementTransformState,
 } from '#rts-engine';
 
-type BuildPreviewReason = BuildPreviewPayload['reason'];
+export interface BuildQueuePreview {
+  templateId: string;
+  x: number;
+  y: number;
+  transform: PlacementTransformState;
+  reason?: BuildRejectionReason;
+  affordable: boolean;
+  needed: number;
+  current: number;
+  deficit: number;
+}
+
+type BuildPreviewReason = BuildQueuePreview['reason'];
 
 export interface BuildPlacementSelection {
   templateId: string;
@@ -19,7 +32,7 @@ export interface BuildQueueFeedbackOverride {
 
 export interface BuildQueueUiInput {
   selectedPlacement: BuildPlacementSelection | null;
-  latestBuildPreview: BuildPreviewPayload | null;
+  latestBuildPreview: BuildQueuePreview | null;
   activeTransformOperations: readonly PlacementTransformOperation[];
   previewPending: boolean;
   canMutateGameplay: boolean;
@@ -114,7 +127,7 @@ export function buildPreviewRequestFromSelection(
 }
 
 export function previewMatchesSelection(
-  preview: BuildPreviewPayload | null,
+  preview: BuildQueuePreview | null,
   selectedPlacement: BuildPlacementSelection | null,
   activeTransformOperations: readonly PlacementTransformOperation[],
 ): boolean {

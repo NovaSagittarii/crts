@@ -1,7 +1,6 @@
 import type {
   AffordabilityResult,
   BuildOutcome,
-  BuildPreviewProjection,
   BuildRejectionReason,
   BuildQueuePayload,
   RoomDeterminismCheckpoint,
@@ -128,30 +127,6 @@ export type PendingDestroyStatePayload = PendingDestroyPayload;
 export type StructureStatePayload = StructurePayload;
 export type TeamIncomeBreakdownPayload = TeamIncomeBreakdown;
 
-export type BuildPreviewRequestPayload = Pick<
-  BuildQueuePayload,
-  'templateId' | 'x' | 'y' | 'transform'
->;
-
-export type BuildPreviewCellPayload =
-  BuildPreviewProjection['footprint'][number];
-export type BuildPreviewBoundsPayload = BuildPreviewProjection['bounds'];
-export type BuildPreviewTransformPayload = BuildPreviewProjection['transform'];
-
-export interface BuildPreviewPayload extends BuildAffordabilityPayload {
-  roomId: string;
-  teamId: number;
-  templateId: string;
-  x: number;
-  y: number;
-  transform: BuildPreviewTransformPayload;
-  footprint: BuildPreviewCellPayload[];
-  illegalCells: BuildPreviewCellPayload[];
-  bounds: BuildPreviewBoundsPayload;
-  reason?: BuildOutcomeRejectionReason;
-}
-
-export type BuildOutcomeRejectionReason = BuildRejectionReason;
 export type DestroyOutcomeRejectionReason = DestroyRejectionReason;
 
 export interface BuildOutcomePayload extends BuildOutcome {
@@ -312,7 +287,6 @@ export interface ClientToServerEvents {
   'room:cancel-countdown': () => void;
   'chat:send': (payload: ChatSendPayload) => void;
   'state:request': (payload?: StateRequestPayload) => void;
-  'build:preview': (payload: BuildPreviewRequestPayload) => void;
   'build:queue': (payload: BuildQueuePayload) => void;
   'destroy:queue': (payload: DestroyQueuePayload) => void;
 }
@@ -332,7 +306,6 @@ export interface ServerToClientEvents {
   'room:match-finished': (payload: MatchFinishedPayload) => void;
   'room:error': (payload: RoomErrorPayload) => void;
   'chat:message': (payload: ChatMessagePayload) => void;
-  'build:preview': (payload: BuildPreviewPayload) => void;
   'build:queued': (payload: BuildQueuedPayload) => void;
   'build:scheduled': (payload: BuildScheduledPayload) => void;
   'build:outcome': (payload: BuildOutcomePayload) => void;

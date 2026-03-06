@@ -6,7 +6,6 @@ import {
   type BuildPreviewTemplateSnapshot,
   BuildScheduledPayload,
   BuildOutcomePayload,
-  BuildPreviewPayload,
   BuildQueuedPayload,
   ChatMessagePayload,
   ClientToServerEvents,
@@ -25,6 +24,7 @@ import {
   RoomListEntryPayload,
   RoomMembershipPayload,
   RoomGridStatePayload,
+  PlacementBounds,
   RoomStateHashesPayload,
   RoomStatus,
   RoomSlotClaimedPayload,
@@ -52,6 +52,7 @@ import {
   previewMatchesSelection,
   type BuildPlacementSelection,
   type BuildQueueFeedbackOverride,
+  type BuildQueuePreview,
 } from './build-queue-view-model.js';
 import {
   applyPlacementTransformOperation,
@@ -136,7 +137,11 @@ type RoomListEntry = RoomListEntryPayload;
 type StatePayload = RoomStatePayload;
 type TemplateSummary = StructureTemplatePayload;
 type TeamPayload = StatePayload['teams'][number];
-type BuildPreview = BuildPreviewPayload;
+type BuildPreview = BuildQueuePreview & {
+  footprint: Cell[];
+  illegalCells: Cell[];
+  bounds: PlacementBounds;
+};
 type BuildOutcome = BuildOutcomePayload;
 type DestroyOutcome = DestroyOutcomePayload;
 
@@ -1967,8 +1972,6 @@ function deriveLocalBuildPreview(
   });
 
   return {
-    roomId: currentRoomId,
-    teamId: currentTeamId,
     templateId: previewRequest.templateId,
     x: previewRequest.x,
     y: previewRequest.y,
