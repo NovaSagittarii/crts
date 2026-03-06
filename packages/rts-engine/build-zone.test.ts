@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { BUILD_ZONE_RADIUS } from './gameplay-rules.js';
 import {
   collectBuildZoneContributors,
+  collectCoveredBuildZoneCells,
   collectIllegalBuildZoneCells,
   isBuildZoneCoveredByContributor,
 } from './build-zone.js';
@@ -35,6 +36,36 @@ describe('build-zone helpers', () => {
       {
         centerX: 14,
         centerY: 25,
+      },
+    ]);
+  });
+
+  test('ignores contributors with invalid width or height', () => {
+    const contributors = collectBuildZoneContributors([
+      {
+        x: 2,
+        y: 4,
+        width: 2,
+        height: 2,
+      },
+      {
+        x: 8,
+        y: 10,
+        width: 0,
+        height: 3,
+      },
+      {
+        x: 12,
+        y: 16,
+        width: 3,
+        height: -1,
+      },
+    ]);
+
+    expect(contributors).toEqual([
+      {
+        centerX: 3,
+        centerY: 5,
       },
     ]);
   });
@@ -95,6 +126,16 @@ describe('build-zone helpers', () => {
     ]);
   });
 
+  test('treats every cell as illegal when no contributors are present', () => {
+    const areaCells: Cell[] = [
+      { x: 2, y: 0 },
+      { x: 15, y: 0 },
+    ];
+
+    expect(collectIllegalBuildZoneCells(areaCells, [])).toEqual(areaCells);
+    expect(collectCoveredBuildZoneCells(areaCells, [])).toEqual([]);
+  });
+
   test('shrinks legal coverage after contributor removal', () => {
     const contributors = collectBuildZoneContributors([
       {
@@ -121,5 +162,36 @@ describe('build-zone helpers', () => {
     expect(collectIllegalBuildZoneCells(areaCells, [firstContributor])).toEqual(
       [{ x: 30, y: 0 }],
     );
+  });
+
+  test('collects covered cells in input order across multiple contributors', () => {
+    const contributors = collectBuildZoneContributors([
+      {
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+      },
+      {
+        x: 30,
+        y: 0,
+        width: 1,
+        height: 1,
+      },
+    ]);
+
+    const areaCells: Cell[] = [
+      { x: 30, y: 0 },
+      { x: 15, y: 0 },
+      { x: 2, y: 0 },
+      { x: 44, y: 0 },
+      { x: 47, y: 0 },
+    ];
+
+    expect(collectCoveredBuildZoneCells(areaCells, contributors)).toEqual([
+      { x: 30, y: 0 },
+      { x: 2, y: 0 },
+      { x: 44, y: 0 },
+    ]);
   });
 });

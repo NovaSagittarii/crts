@@ -129,6 +129,23 @@ import {
   type VisibleGridBounds,
 } from './render-viewport.js';
 import { createRenderScheduler } from './render-scheduler.js';
+import {
+  applyAuthoritativeIdentity,
+  createPlayerIdentityState,
+  resolveTeamIdForSession,
+  selectIsHost,
+  selectSelfParticipant,
+} from './player-identity-view-model.js';
+import {
+  applyJoinedHashes,
+  createStateHashResyncState,
+  markAwaitingHashesAfterFullState,
+  noteAppliedGridHash,
+  noteAppliedMembershipHash,
+  noteAppliedStructuresHash,
+  reconcileIncomingHashes,
+  resetStateHashResyncState,
+} from './state-hash-resync-view-model.js';
 
 type RoomListEntry = RoomListEntryPayload;
 type StatePayload = RoomStatePayload;
@@ -444,7 +461,10 @@ let currentRoomStatus: RoomStatus = 'lobby';
 let matchScreenState: MatchScreenViewState =
   createMatchScreenViewState('lobby');
 let currentMembership: RoomMembershipPayload | null = null;
-let currentSessionId: string | null = persistedSessionId;
+let playerIdentityState = createPlayerIdentityState(
+  persistedSessionId,
+  playerNameEl.value.trim(),
+);
 let availableTemplates: TemplateSummary[] = [];
 let selectedTemplateId = '';
 let placementTransformState: PlacementTransformViewState =
@@ -494,14 +514,11 @@ const localBuildZoneCoverageCache = new Map<string, readonly number[]>();
 let edgeBannerTimeoutId: number | null = null;
 let reconnectNoticeTimeoutId: number | null = null;
 let lastStateRequestAtMs = 0;
-let lastGridHashHex: string | null = null;
-let lastStructuresHashHex: string | null = null;
-let lastMembershipHashHex: string | null = null;
+let stateHashResyncState = createStateHashResyncState();
 const pendingStateRequestSections = new Set<
   NonNullable<StateRequestPayload['sections']>[number]
 >();
 let pendingStateRequestTimerId: number | null = null;
-let awaitingStateHashesAfterFullState = false;
 
 const BUILD_ERROR_TOAST_DEDUPE_MS = 800;
 const CAMERA_KEYBOARD_WORLD_STEP_CELLS = 8;
@@ -566,10 +583,12 @@ function flushPendingStateRequest(force = false): void {
   }
 
   lastStateRequestAtMs = now;
-  const requestedSections = [...pendingStateRequestSections];
+  let requestedSections: NonNullable<StateRequestPayload['sections']> = [
+    ...pendingStateRequestSections,
+  ];
   pendingStateRequestSections.clear();
   if (requestedSections.includes('full')) {
-    awaitingStateHashesAfterFullState = true;
+    requestedSections = ['full'];
   }
   socket.emit('state:request', {
     sections: requestedSections,
@@ -596,10 +615,23 @@ function requestStateSnapshot(force = false): void {
   requestStateSections(['full'], force);
 }
 
-function syncAppliedStateHashes(payload: RoomStateHashesPayload): void {
-  lastGridHashHex = payload.gridHash;
-  lastStructuresHashHex = payload.structuresHash;
-  lastMembershipHashHex = payload.roomMembershipHash;
+function applyAuthoritativePlayerIdentity(payload: {
+  sessionId: string;
+  name: string;
+}): void {
+  playerIdentityState = applyAuthoritativeIdentity(
+    playerIdentityState,
+    payload,
+  );
+  socket.auth = {
+    sessionId: playerIdentityState.sessionId,
+  };
+  try {
+    localStorage.setItem(SESSION_STORAGE_KEY, payload.sessionId);
+  } catch {
+    // Ignore storage failures; reconnect auth still uses in-memory value.
+  }
+  playerNameEl.value = playerIdentityState.name;
 }
 
 function createSyntheticStatePayload(
@@ -646,7 +678,6 @@ function applyStatePayload(payload: StatePayload): void {
 
   if (
     selectedTemplatePlacement &&
-    templateMode &&
     canMutateGameplay() &&
     !previewPending &&
     lastPreviewRefreshTick !== payload.tick
@@ -678,7 +709,6 @@ function applyGridStatePayload(payload: RoomGridStatePayload): void {
 
   if (
     selectedTemplatePlacement &&
-    templateMode &&
     canMutateGameplay() &&
     !previewPending &&
     lastPreviewRefreshTick !== payload.tick
@@ -702,7 +732,6 @@ function applyStructuresStatePayload(
 
   if (
     selectedTemplatePlacement &&
-    templateMode &&
     canMutateGameplay() &&
     !previewPending &&
     lastPreviewRefreshTick !== payload.tick
@@ -953,7 +982,7 @@ function appendChatMessage(payload: ChatMessagePayload): void {
 }
 
 function updateLobbyControls(): void {
-  if (!currentMembership || !currentSessionId) {
+  if (!currentMembership || !playerIdentityState.sessionId) {
     claimTeamOneButton.disabled = false;
     claimTeamTwoButton.disabled = false;
     toggleReadyButton.disabled = true;
@@ -962,11 +991,12 @@ function updateLobbyControls(): void {
     return;
   }
 
-  const self = currentMembership.participants.find(
-    (participant) => participant.sessionId === currentSessionId,
+  const self = selectSelfParticipant(
+    currentMembership,
+    playerIdentityState.sessionId,
   );
   const isPlayer = self?.role === 'player';
-  const isHost = currentMembership.hostSessionId === currentSessionId;
+  const isHost = selectIsHost(currentMembership, playerIdentityState.sessionId);
   const ready = Boolean(self?.ready);
   const lifecycleLocked = currentMembership.status !== 'lobby';
   const canHostStartOrRestart =
@@ -2221,21 +2251,14 @@ function updateTemplateOptions(): void {
 }
 
 function getSelfParticipant(): MembershipParticipant | null {
-  if (!currentMembership || !currentSessionId) {
-    return null;
-  }
-  return (
-    currentMembership.participants.find(
-      (participant) => participant.sessionId === currentSessionId,
-    ) ?? null
+  return selectSelfParticipant(
+    currentMembership,
+    playerIdentityState.sessionId,
   );
 }
 
 function isCurrentUserHost(): boolean {
-  if (!currentMembership || !currentSessionId) {
-    return false;
-  }
-  return currentMembership.hostSessionId === currentSessionId;
+  return selectIsHost(currentMembership, playerIdentityState.sessionId);
 }
 
 function getLifecycleLabel(status: RoomStatus): string {
@@ -2349,17 +2372,10 @@ function updateReadOnlyExperience(): void {
 }
 
 function syncCurrentTeamIdFromState(payload: StatePayload): void {
-  if (!currentSessionId) {
-    currentTeamId = null;
-    return;
-  }
-
-  const sessionId = currentSessionId;
-
-  const nextTeam = payload.teams.find(({ playerIds }) =>
-    playerIds.includes(sessionId),
+  currentTeamId = resolveTeamIdForSession(
+    payload.teams,
+    playerIdentityState.sessionId,
   );
-  currentTeamId = nextTeam?.id ?? null;
 }
 
 function formatOutcomeLabel(
@@ -3354,13 +3370,19 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   currentRoomName = payload.roomName;
   currentTeamId = payload.teamId;
   clearPendingStateRequests();
-  awaitingStateHashesAfterFullState = false;
+  stateHashResyncState = applyJoinedHashes(
+    stateHashResyncState,
+    payload.stateHashes,
+  );
   resetRoomTransitionFlags();
   resetRoomTransitionViewModels();
   availableTemplates = payload.templates;
   selectedTemplateId = payload.templates[0]?.id ?? '';
   updateTemplateOptions();
-  playerNameEl.value = payload.playerName;
+  applyAuthoritativePlayerIdentity({
+    sessionId: payload.playerId,
+    name: payload.playerName,
+  });
   chatLogEl.innerHTML = '';
   renderFinishedResults();
 
@@ -3370,7 +3392,6 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
       : `Joined ${payload.roomName} as team #${payload.teamId}.`,
   );
 
-  syncAppliedStateHashes(payload.stateHashes);
   applyStatePayload(payload.state);
   resizeCanvas();
   resetCameraForCurrentTeam();
@@ -3387,10 +3408,7 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   currentRoomName = '-';
   currentTeamId = null;
   clearPendingStateRequests();
-  awaitingStateHashesAfterFullState = false;
-  lastGridHashHex = null;
-  lastStructuresHashHex = null;
-  lastMembershipHashHex = null;
+  stateHashResyncState = resetStateHashResyncState();
   resetRoomTransitionFlags();
   clearEdgeBannerTimeout();
   edgeBannerEl.classList.add('is-hidden');
@@ -3491,7 +3509,10 @@ socket.on('room:membership', (payload: RoomMembershipPayload) => {
   clearBootstrapMembershipTimeout();
   clearConnectionIssue(true);
   currentMembership = payload;
-  lastMembershipHashHex = payload.membershipHash;
+  stateHashResyncState = noteAppliedMembershipHash(
+    stateHashResyncState,
+    payload.membershipHash,
+  );
   renderLobbyMembership(payload);
 });
 
@@ -3566,16 +3587,10 @@ socket.on('chat:message', (payload: ChatMessagePayload) => {
 });
 
 socket.on('player:profile', (payload: PlayerProfilePayload) => {
-  currentSessionId = payload.playerId;
-  socket.auth = {
+  applyAuthoritativePlayerIdentity({
     sessionId: payload.playerId,
-  };
-  try {
-    localStorage.setItem(SESSION_STORAGE_KEY, payload.playerId);
-  } catch {
-    // Ignore storage failures; reconnect auth still uses in-memory value.
-  }
-  playerNameEl.value = payload.name;
+    name: payload.name,
+  });
   updateLobbyControls();
   updateLifecycleUi();
 });
@@ -3775,7 +3790,10 @@ socket.on('state:grid', (payload: RoomGridStatePayload) => {
     emitBuildPreviewForSelectedPlacement();
   }
 
-  lastGridHashHex = payload.hashHex;
+  stateHashResyncState = noteAppliedGridHash(
+    stateHashResyncState,
+    payload.hashHex,
+  );
   applyGridStatePayload(payload);
 });
 
@@ -3784,7 +3802,10 @@ socket.on('state:structures', (payload: RoomStructuresStatePayload) => {
     return;
   }
 
-  lastStructuresHashHex = payload.hashHex;
+  stateHashResyncState = noteAppliedStructuresHash(
+    stateHashResyncState,
+    payload.hashHex,
+  );
   applyStructuresStatePayload(payload);
 });
 
@@ -3793,30 +3814,19 @@ socket.on('state:hashes', (payload: RoomStateHashesPayload) => {
     return;
   }
 
-  if (awaitingStateHashesAfterFullState) {
-    syncAppliedStateHashes(payload);
-    awaitingStateHashesAfterFullState = false;
-    return;
-  }
+  const nextResyncState = reconcileIncomingHashes(
+    stateHashResyncState,
+    payload,
+  );
+  stateHashResyncState = nextResyncState.state;
 
-  const sections: StateRequestPayload['sections'] = [];
-  if (lastGridHashHex !== payload.gridHash) {
-    sections.push('grid');
-  }
-  if (lastStructuresHashHex !== payload.structuresHash) {
-    sections.push('structures');
-  }
-  if (lastMembershipHashHex !== payload.roomMembershipHash) {
-    sections.push('membership');
-  }
-
-  if (sections.length > 0) {
-    requestStateSections(sections);
+  if (nextResyncState.requestSections.length > 0) {
+    requestStateSections(nextResyncState.requestSections);
   }
 });
 
 socket.on('state', (payload: StatePayload) => {
-  awaitingStateHashesAfterFullState = true;
+  stateHashResyncState = markAwaitingHashesAfterFullState(stateHashResyncState);
   applyStatePayload(payload);
 });
 
@@ -3890,13 +3900,11 @@ claimTeamTwoButton.addEventListener('click', () => {
 });
 
 toggleReadyButton.addEventListener('click', () => {
-  if (!currentMembership || !currentSessionId) {
+  if (!currentMembership) {
     return;
   }
 
-  const self = currentMembership.participants.find(
-    (participant) => participant.sessionId === currentSessionId,
-  );
+  const self = getSelfParticipant();
   if (!self) {
     return;
   }

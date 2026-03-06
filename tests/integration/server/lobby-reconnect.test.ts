@@ -240,6 +240,65 @@ describe('lobby reconnect reliability', () => {
     },
   );
 
+  test('rejects third-party claims while a disconnected player slot is held', async () => {
+    const host = connectClient({ sessionId: 'host-slot-held' });
+    await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
+
+    host.emit('room:create', {
+      name: 'Held Slot Room',
+      width: 50,
+      height: 50,
+    });
+    const created = await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
+
+    const player = connectClient({ sessionId: 'session-slot-held' });
+    await waitForEvent<RoomJoinedPayload>(player, 'room:joined');
+    player.emit('room:join', { roomId: created.roomId });
+    await waitForEvent<RoomJoinedPayload>(player, 'room:joined');
+
+    player.emit('room:claim-slot', { slotId: 'team-1' });
+    await waitForMembership(
+      host,
+      created.roomId,
+      (payload) => payload.slots['team-1'] === 'session-slot-held',
+    );
+
+    player.disconnect();
+
+    const heldMembership = await waitForMembership(
+      host,
+      created.roomId,
+      (payload) =>
+        payload.heldSlots['team-1']?.sessionId === 'session-slot-held' &&
+        payload.participants.some(
+          ({ sessionId, connectionStatus, slotId }) =>
+            sessionId === 'session-slot-held' &&
+            connectionStatus === 'held' &&
+            slotId === 'team-1',
+        ),
+      { overallTimeoutMs: 10_000 },
+    );
+
+    expect(heldMembership.slots['team-1']).toBe('session-slot-held');
+
+    const spectator = connectClient({ sessionId: 'spectator-slot-held' });
+    await waitForEvent<RoomJoinedPayload>(spectator, 'room:joined');
+    spectator.emit('room:join', { roomId: created.roomId });
+    await waitForEvent<RoomJoinedPayload>(spectator, 'room:joined');
+
+    const claimErrorPromise = waitForEvent<RoomErrorPayload>(
+      spectator,
+      'room:error',
+    );
+    spectator.emit('room:claim-slot', { slotId: 'team-1' });
+
+    const claimError = await claimErrorPromise;
+    expect(claimError.reason).toBe('slot-held');
+    expect(claimError.message).toBe(
+      'Selected team slot is temporarily held for reconnect',
+    );
+  });
+
   test('gives reconnecting session priority over spectator slot claim races', async () => {
     const host = connectClient({ sessionId: 'host-race' });
     await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
@@ -321,10 +380,14 @@ describe('lobby reconnect reliability', () => {
       (payload) => payload.slots['team-1'] === 'session-newest-wins',
     );
 
-    const newestSocket = connectClient({ sessionId: 'session-newest-wins' });
-    await waitForEvent<RoomJoinedPayload>(newestSocket, 'room:joined');
-    newestSocket.emit('room:join', { roomId: created.roomId });
-
+    const newestSocket = connectClient({
+      sessionId: 'session-newest-wins',
+      connect: false,
+    });
+    const newestBootstrapJoinedPromise = waitForEvent<RoomJoinedPayload>(
+      newestSocket,
+      'room:joined',
+    );
     const staleErrorPromise = waitForEvent<RoomErrorPayload>(
       firstSocket,
       'room:error',
@@ -333,7 +396,17 @@ describe('lobby reconnect reliability', () => {
       firstSocket,
       'disconnect',
     );
-    firstSocket.emit('room:set-ready', { ready: true });
+
+    newestSocket.connect();
+    await newestBootstrapJoinedPromise;
+
+    const newestRoomJoinedPromise = waitForEvent<RoomJoinedPayload>(
+      newestSocket,
+      'room:joined',
+    );
+    newestSocket.emit('room:join', { roomId: created.roomId });
+    await newestRoomJoinedPromise;
+
     const staleError = await staleErrorPromise;
     expect(staleError.reason).toBe('session-replaced');
     expect([
