@@ -35,6 +35,15 @@ import {
   type IncomeDeltaSample,
 } from './economy-view-model.js';
 import {
+  buildPreviewRequestFromSelection,
+  describeBuildFailureReason,
+  deriveBuildQueueUi,
+  formatDeficitCopy,
+  previewMatchesSelection,
+  type BuildPlacementSelection,
+  type BuildQueueFeedbackOverride,
+} from './build-queue-view-model.js';
+import {
   applyPlacementTransformOperation,
   createPlacementTransformViewState,
   formatPlacementTransformIndicator,
@@ -135,12 +144,6 @@ interface VisibleStructure {
   isCore: boolean;
   requiresDestroyConfirm: boolean;
   footprint: Cell[];
-}
-
-interface SelectedTemplatePlacement {
-  templateId: string;
-  x: number;
-  y: number;
 }
 
 interface TeamEconomySnapshot {
@@ -357,8 +360,9 @@ const transformMirrorHorizontalButton = getRequiredElement<HTMLButtonElement>(
 const transformMirrorVerticalButton = getRequiredElement<HTMLButtonElement>(
   'transform-mirror-vertical',
 );
-const cancelBuildModeButton =
-  getRequiredElement<HTMLButtonElement>('cancel-build-mode');
+const clearBuildPlacementButton = getRequiredElement<HTMLButtonElement>(
+  'clear-build-placement',
+);
 const transformIndicatorEl = getRequiredElement<HTMLElement>(
   'transform-indicator',
 );
@@ -443,7 +447,7 @@ let isFinishedPanelMinimized = false;
 let currentTeamDefeated = false;
 let persistentDefeatReason: string | null = null;
 let latestOutcomeTimelineMetadata: unknown = null;
-let selectedTemplatePlacement: SelectedTemplatePlacement | null = null;
+let selectedTemplatePlacement: BuildPlacementSelection | null = null;
 let latestBuildPreview: BuildPreview | null = null;
 let previewPending = false;
 let lastPreviewRefreshTick: number | null = null;
@@ -451,7 +455,7 @@ let lastTeamEconomySnapshot: TeamEconomySnapshot | null = null;
 let latestEconomyDeltaCue: AggregatedIncomeDelta | null = null;
 let latestEconomyDeltaTick: number | null = null;
 let latestEconomyDeltaSamples: IncomeDeltaSample[] = [];
-let queueFeedbackOverride: { text: string; isError: boolean } | null = null;
+let queueFeedbackOverride: BuildQueueFeedbackOverride | null = null;
 let destroyFeedbackOverride: { text: string; isError: boolean } | null = null;
 let lifecycleConnectionNotice: string | null = null;
 let bootstrapMembershipTimeoutId: number | null = null;
@@ -818,40 +822,6 @@ function readDelayTicks(): number {
   return normalized;
 }
 
-function describeBuildFailureReason(reason: string | undefined): string {
-  if (reason === 'outside-territory') {
-    return 'outside build zone';
-  }
-  if (reason === 'occupied-site') {
-    return 'occupied site';
-  }
-  if (reason === 'template-exceeds-map-size') {
-    return 'template exceeds map size';
-  }
-  if (reason === 'unknown-template') {
-    return 'unknown template';
-  }
-  if (reason === 'invalid-coordinates') {
-    return 'invalid coordinates';
-  }
-  if (reason === 'invalid-delay') {
-    return 'invalid delay';
-  }
-  if (reason === 'team-defeated') {
-    return 'team defeated';
-  }
-  if (reason === 'match-finished') {
-    return 'match finished';
-  }
-  if (reason === 'template-compare-failed') {
-    return 'template compare failed';
-  }
-  if (reason === 'apply-failed') {
-    return 'apply failed';
-  }
-  return 'validation failed';
-}
-
 function describeDestroyFailureReason(reason: string | undefined): string {
   if (reason === 'wrong-owner') {
     return 'wrong owner';
@@ -872,22 +842,6 @@ function describeDestroyFailureReason(reason: string | undefined): string {
     return 'match finished';
   }
   return 'destroy rejected';
-}
-
-function describePreviewReason(reason: string | undefined): string {
-  if (!reason) {
-    return 'Preview reason: legal placement';
-  }
-
-  return `Preview reason: ${describeBuildFailureReason(reason)}.`;
-}
-
-function formatDeficitCopy(
-  needed: number,
-  current: number,
-  deficit: number,
-): string {
-  return `Need ${needed}, current ${current} (deficit ${deficit}).`;
 }
 
 function triggerValuePulse(...elements: HTMLElement[]): void {
@@ -1703,97 +1657,41 @@ function updateTransformIndicator(): void {
   );
 }
 
-function buildPreviewRequestFromSelection(): {
-  templateId: string;
-  x: number;
-  y: number;
-  transform: ReturnType<typeof toPlacementTransformInput>;
-} | null {
-  if (!selectedTemplatePlacement) {
-    return null;
-  }
-
-  return {
-    templateId: selectedTemplatePlacement.templateId,
-    x: selectedTemplatePlacement.x,
-    y: selectedTemplatePlacement.y,
-    transform: toPlacementTransformInput(placementTransformState),
-  };
-}
-
-function updateQueuePlacementCopy(): void {
-  if (!selectedTemplatePlacement) {
-    queuePlacementEl.textContent =
-      'Select a board placement to request affordability.';
-    return;
-  }
-
-  queuePlacementEl.textContent = `Placement: (${selectedTemplatePlacement.x}, ${selectedTemplatePlacement.y}) for ${selectedTemplatePlacement.templateId}.`;
-}
-
 function updateQueueAffordabilityUi(): void {
-  updateQueuePlacementCopy();
+  const queueUi = deriveBuildQueueUi({
+    selectedPlacement: selectedTemplatePlacement,
+    latestBuildPreview,
+    activeTransformOperations: placementTransformState.operations,
+    previewPending,
+    canMutateGameplay: canMutateGameplay(),
+    queueFeedbackOverride,
+  });
+
+  queuePlacementEl.textContent = queueUi.placementCopy;
+  previewReasonEl.textContent = queueUi.previewReasonCopy;
+  previewReasonEl.classList.toggle(
+    'queue-feedback--error',
+    queueUi.previewReasonIsError,
+  );
 
   queueCostEl.classList.remove('queue-cost--affordable', 'queue-cost--blocked');
-  if (!latestBuildPreview) {
-    previewReasonEl.textContent = 'Preview reason: awaiting lockstep preview.';
-    previewReasonEl.classList.remove('queue-feedback--error');
-    queueCostEl.textContent = 'Cost: --';
-  } else {
-    previewReasonEl.textContent = describePreviewReason(
-      latestBuildPreview.reason,
-    );
-    previewReasonEl.classList.toggle(
-      'queue-feedback--error',
-      Boolean(latestBuildPreview.reason),
-    );
-    queueCostEl.textContent = `Cost: ${latestBuildPreview.needed} | Current: ${latestBuildPreview.current}`;
+  queueCostEl.textContent = queueUi.queueCostCopy;
+  if (queueUi.queueCostTone !== 'neutral') {
     queueCostEl.classList.add(
-      latestBuildPreview.affordable
+      queueUi.queueCostTone === 'affordable'
         ? 'queue-cost--affordable'
         : 'queue-cost--blocked',
     );
   }
 
-  let feedback = 'Queue action is disabled until placement preview returns.';
-  let isError = false;
-  let disabled = true;
-
-  if (!canMutateGameplay()) {
-    feedback =
-      'Queue action is read-only until you are an active, non-defeated player.';
-  } else if (!selectedTemplatePlacement) {
-    feedback = 'Select a board placement to request affordability preview.';
-  } else if (previewPending) {
-    feedback = 'Checking affordability...';
-  } else if (!latestBuildPreview) {
-    feedback = 'Preview unavailable. Select placement again.';
-  } else if (!latestBuildPreview.affordable) {
-    if (latestBuildPreview.deficit > 0) {
-      feedback = formatDeficitCopy(
-        latestBuildPreview.needed,
-        latestBuildPreview.current,
-        latestBuildPreview.deficit,
-      );
-    } else {
-      feedback = `Cannot queue here: ${describeBuildFailureReason(latestBuildPreview.reason)}.`;
-    }
-    isError = true;
-  } else {
-    feedback = `Affordable: need ${latestBuildPreview.needed}, current ${latestBuildPreview.current}.`;
-    disabled = false;
-  }
-
-  if (queueFeedbackOverride) {
-    feedback = queueFeedbackOverride.text;
-    isError = queueFeedbackOverride.isError;
-  }
-
-  queueBuildButton.disabled = disabled;
-  queueFeedbackEl.textContent = feedback;
-  queueFeedbackEl.classList.toggle('queue-feedback--error', isError);
-  overlayBuildFeedbackCopy = feedback;
-  overlayBuildFeedbackIsError = isError;
+  queueBuildButton.disabled = queueUi.queueDisabled;
+  queueFeedbackEl.textContent = queueUi.queueFeedbackCopy;
+  queueFeedbackEl.classList.toggle(
+    'queue-feedback--error',
+    queueUi.queueFeedbackIsError,
+  );
+  overlayBuildFeedbackCopy = queueUi.queueFeedbackCopy;
+  overlayBuildFeedbackIsError = queueUi.queueFeedbackIsError;
 }
 
 function refreshActionUi(nowMs = Date.now()): void {
@@ -1808,7 +1706,10 @@ function emitBuildPreviewForSelectedPlacement(): void {
     return;
   }
 
-  const previewRequest = buildPreviewRequestFromSelection();
+  const previewRequest = buildPreviewRequestFromSelection(
+    selectedTemplatePlacement,
+    toPlacementTransformInput(placementTransformState),
+  );
   if (!previewRequest) {
     return;
   }
@@ -1870,7 +1771,7 @@ function clearSelectedBuildPlacement(): void {
   }
 
   clearSelectedTemplatePlacement();
-  setMessage('Cleared selected template placement.');
+  setMessage('Cleared selected build placement.');
   requestRender();
   refreshActionUi();
 }
@@ -2086,7 +1987,7 @@ function selectTemplatePlacementAt(cell: Cell): void {
   };
   lastPreviewRefreshTick = null;
   resetQueueFeedbackOverride();
-  setMessage(`Template placement selected at (${x}, ${y}).`);
+  setMessage(`Build placement selected at (${x}, ${y}).`);
   emitBuildPreviewForSelectedPlacement();
   refreshActionUi();
 }
@@ -2224,7 +2125,7 @@ function updateReadOnlyExperience(): void {
   transformRotateButton.disabled = !gameplayAllowed;
   transformMirrorHorizontalButton.disabled = !gameplayAllowed;
   transformMirrorVerticalButton.disabled = !gameplayAllowed;
-  cancelBuildModeButton.disabled = !gameplayAllowed;
+  clearBuildPlacementButton.disabled = !gameplayAllowed;
   destroyQueueButton.disabled = !gameplayAllowed;
   destroyConfirmButton.disabled = !gameplayAllowed;
   destroyCancelButton.disabled = !gameplayAllowed;
@@ -2459,31 +2360,11 @@ function resizeCanvas(): void {
 }
 
 function previewMatchesCurrentSelection(preview: BuildPreview): boolean {
-  if (!selectedTemplatePlacement) {
-    return false;
-  }
-
-  if (
-    preview.templateId !== selectedTemplatePlacement.templateId ||
-    preview.x !== selectedTemplatePlacement.x ||
-    preview.y !== selectedTemplatePlacement.y
-  ) {
-    return false;
-  }
-
-  const previewOps = preview.transform.operations;
-  const activeOps = placementTransformState.operations;
-  if (previewOps.length !== activeOps.length) {
-    return false;
-  }
-
-  for (let index = 0; index < previewOps.length; index += 1) {
-    if (previewOps[index] !== activeOps[index]) {
-      return false;
-    }
-  }
-
-  return true;
+  return previewMatchesSelection(
+    preview,
+    selectedTemplatePlacement,
+    placementTransformState.operations,
+  );
 }
 
 function renderLocalBuildZoneOverlay(
@@ -2701,12 +2582,15 @@ function pointerToCell(event: PointerEvent): Cell | null {
 
 function chooseTemplatePlacement(cell: Cell): void {
   if (!canMutateGameplay()) {
-    setMessage('Template queues are disabled while you are spectating.', true);
+    setMessage(
+      'Build placement is unavailable while you are spectating.',
+      true,
+    );
     return;
   }
 
   if (!currentRoomId || currentRoomId === '-') {
-    setMessage('Join a room before queuing templates.', true);
+    setMessage('Join a room before selecting a build placement.', true);
     return;
   }
 
@@ -3068,7 +2952,7 @@ canvas.addEventListener('pointerdown', (event) => {
 
   if (!canMutateGameplay()) {
     setMessage(
-      'Board edits are read-only until you are an active, non-defeated player.',
+      'Build placement is read-only until you are an active, non-defeated player.',
       true,
     );
     return;
@@ -3665,7 +3549,7 @@ transformMirrorVerticalButton.addEventListener('click', () => {
   applyTransformControl('mirror-vertical', 'Vertical mirror');
 });
 
-cancelBuildModeButton.addEventListener('click', () => {
+clearBuildPlacementButton.addEventListener('click', () => {
   clearSelectedBuildPlacement();
 });
 
@@ -3724,7 +3608,10 @@ startMatchButton.addEventListener('click', () => {
 });
 
 queueBuildButton.addEventListener('click', () => {
-  const queueRequest = buildPreviewRequestFromSelection();
+  const queueRequest = buildPreviewRequestFromSelection(
+    selectedTemplatePlacement,
+    toPlacementTransformInput(placementTransformState),
+  );
   if (!queueRequest || !latestBuildPreview || !latestBuildPreview.affordable) {
     refreshActionUi();
     return;
