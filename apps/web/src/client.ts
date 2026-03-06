@@ -9,6 +9,8 @@ import type {
   ClientToServerEvents,
   DestroyOutcomePayload,
   DestroyQueuedPayload,
+  LockstepCheckpointPayload,
+  LockstepFallbackPayload,
   MembershipParticipant,
   MatchFinishedPayload,
   PlayerProfilePayload,
@@ -487,10 +489,12 @@ let localBuildZoneSignature = '';
 const localBuildZoneCoverageCache = new Map<string, readonly number[]>();
 let edgeBannerTimeoutId: number | null = null;
 let reconnectNoticeTimeoutId: number | null = null;
+let lastStateRequestAtMs = 0;
 
 const BUILD_ERROR_TOAST_DEDUPE_MS = 800;
 const CAMERA_KEYBOARD_WORLD_STEP_CELLS = 8;
 const LOCAL_BUILD_ZONE_CACHE_MAX_ENTRIES = 512;
+const STATE_REQUEST_MIN_INTERVAL_MS = 120;
 
 function addToast(message: string, isError = false): void {
   const toast = document.createElement('div');
@@ -513,6 +517,20 @@ function addToast(message: string, isError = false): void {
 function setMessage(message: string, isError = false): void {
   messageEl.textContent = message;
   messageEl.classList.toggle('message--error', isError);
+}
+
+function requestStateSnapshot(force = false): void {
+  if (!currentRoomId || currentRoomId === '-') {
+    return;
+  }
+
+  const now = Date.now();
+  if (!force && now - lastStateRequestAtMs < STATE_REQUEST_MIN_INTERVAL_MS) {
+    return;
+  }
+
+  lastStateRequestAtMs = now;
+  socket.emit('state:request');
 }
 
 function getCanvasViewportPoint(event: MouseEvent | PointerEvent): CameraPoint {
@@ -3495,6 +3513,7 @@ socket.on('room:match-started', () => {
   applyRoomStatus('active');
   lobbyCountdownEl.textContent = 'Match active';
   addToast('Match started. Good luck.');
+  requestStateSnapshot(true);
 });
 
 socket.on('room:match-finished', (payload: MatchFinishedPayload) => {
@@ -3516,6 +3535,25 @@ socket.on('room:match-finished', (payload: MatchFinishedPayload) => {
   applyRoomStatus('finished');
   renderFinishedResults();
   updateLifecycleUi();
+  requestStateSnapshot(true);
+});
+
+socket.on('lockstep:checkpoint', (payload: LockstepCheckpointPayload) => {
+  if (payload.roomId !== currentRoomId) {
+    return;
+  }
+
+  if (payload.tick % 50 === 0) {
+    requestStateSnapshot();
+  }
+});
+
+socket.on('lockstep:fallback', (payload: LockstepFallbackPayload) => {
+  if (payload.roomId !== currentRoomId) {
+    return;
+  }
+
+  requestStateSnapshot(true);
 });
 
 socket.on('room:slot-claimed', (payload: RoomSlotClaimedPayload) => {
@@ -3596,6 +3634,7 @@ socket.on('build:outcome', (payload: BuildOutcome) => {
   }
 
   refreshActionUi();
+  requestStateSnapshot();
 });
 
 socket.on('build:queued', (payload: BuildQueuedPayload) => {
@@ -3643,6 +3682,7 @@ socket.on('destroy:outcome', (payload: DestroyOutcome) => {
   }
 
   refreshActionUi();
+  requestStateSnapshot();
 });
 
 socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
