@@ -161,6 +161,20 @@ function createTemplateGrid(
   return new Grid(width, height, aliveCells, 'flat');
 }
 
+function setCellsAlive(
+  room: RoomState,
+  cells: readonly Cell[],
+  alive: number,
+): void {
+  for (const cell of cells) {
+    room.grid.setCell(cell.x, cell.y, alive);
+  }
+}
+
+function clearCells(room: RoomState, cells: readonly Cell[]): void {
+  setCellsAlive(room, cells, 0);
+}
+
 describe('rts', () => {
   test('provides a cached room instance API while preserving static parity', () => {
     const room = RtsEngine.createRoom({
@@ -722,25 +736,26 @@ describe('rts', () => {
     });
     expect(afterExpansion.accepted).toBe(true);
 
-    const blockCells = [
-      { x: setup.contributorX, y: setup.contributorY },
-      { x: setup.contributorX + 1, y: setup.contributorY },
-      { x: setup.contributorX, y: setup.contributorY + 1 },
-      { x: setup.contributorX + 1, y: setup.contributorY + 1 },
-    ];
-    for (const cell of blockCells) {
-      RtsEngine.queueLegacyCellUpdate(room, {
-        x: cell.x,
-        y: cell.y,
-        alive: 0,
-      });
+    const builtContributor = getStructureByTemplateId(room, team.id, 'block');
+    expect(builtContributor).not.toBeNull();
+    if (!builtContributor) {
+      throw new Error('Expected contributor structure to exist before destroy');
     }
 
-    let destroyedContributor = getStructureByTemplateId(room, team.id, 'block');
-    for (let index = 0; index < 8 && destroyedContributor; index += 1) {
-      RtsEngine.tickRoom(room);
-      destroyedContributor = getStructureByTemplateId(room, team.id, 'block');
-    }
+    const queuedDestroy = RtsEngine.queueDestroyEvent(room, 'p1', {
+      structureKey: builtContributor.key,
+      delayTicks: 1,
+    });
+    expect(queuedDestroy.accepted).toBe(true);
+
+    RtsEngine.tickRoom(room);
+    RtsEngine.tickRoom(room);
+
+    const destroyedContributor = getStructureByTemplateId(
+      room,
+      team.id,
+      'block',
+    );
 
     expect(destroyedContributor).toBeNull();
 
@@ -1242,13 +1257,7 @@ describe('rts', () => {
     });
 
     for (let index = 0; index < 8; index += 1) {
-      for (const cell of generatorCells) {
-        RtsEngine.queueLegacyCellUpdate(room, {
-          x: cell.x,
-          y: cell.y,
-          alive: 0,
-        });
-      }
+      clearCells(room, generatorCells);
       RtsEngine.tickRoom(room);
 
       const payload = RtsEngine.createRoomStatePayload(room);
@@ -1348,9 +1357,6 @@ describe('rts', () => {
     });
     const teamOne = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
     const teamTwo = RtsEngine.addPlayerToRoom(room, 'p2', 'Bob');
-    const base = teamOne.baseTopLeft;
-    const baseCells = getCanonicalBaseCells(base);
-
     let result = RtsEngine.tickRoom(room);
     expect(result.outcome).toBeNull();
 
@@ -1366,26 +1372,10 @@ describe('rts', () => {
     });
     expect(destroyCore.accepted).toBe(true);
 
-    for (const cell of baseCells) {
-      RtsEngine.queueLegacyCellUpdate(room, {
-        x: cell.x,
-        y: cell.y,
-        alive: 0,
-      });
-    }
-
-    for (let index = 0; index < 12; index += 1) {
+    for (let index = 0; index < 4; index += 1) {
       result = RtsEngine.tickRoom(room);
       if (result.defeatedTeams.includes(teamOne.id)) {
         break;
-      }
-
-      for (const cell of baseCells) {
-        RtsEngine.queueLegacyCellUpdate(room, {
-          x: cell.x,
-          y: cell.y,
-          alive: 0,
-        });
       }
     }
 
@@ -1500,13 +1490,7 @@ describe('rts', () => {
     expect(team.resources).toBe(postBuildResources + 2);
 
     for (let index = 0; index < 8; index += 1) {
-      for (const cell of generatorCells) {
-        RtsEngine.queueLegacyCellUpdate(room, {
-          x: cell.x,
-          y: cell.y,
-          alive: 0,
-        });
-      }
+      clearCells(room, generatorCells);
       RtsEngine.tickRoom(room);
 
       const currentGenerator = getStructureByTemplateId(
@@ -1526,7 +1510,7 @@ describe('rts', () => {
     expect(generator?.active).toBe(false);
   });
 
-  test('activates and deactivates generator based on integrity state', () => {
+  test('removes generators after unresolved integrity breaches', () => {
     const room = RtsEngine.createRoomState({
       id: '1',
       name: 'Alpha',
@@ -1568,13 +1552,7 @@ describe('rts', () => {
     expect(activeGenerator).not.toBeNull();
     expect(activeGenerator?.active).toBe(true);
 
-    for (const cell of generatorCells) {
-      RtsEngine.queueLegacyCellUpdate(room, {
-        x: cell.x,
-        y: cell.y,
-        alive: 0,
-      });
-    }
+    clearCells(room, generatorCells);
 
     RtsEngine.tickRoom(room);
     RtsEngine.tickRoom(room);
@@ -1623,11 +1601,7 @@ describe('rts', () => {
     RtsEngine.tickRoom(room);
     RtsEngine.tickRoom(room);
 
-    RtsEngine.queueLegacyCellUpdate(room, {
-      x: placement.x,
-      y: placement.y,
-      alive: 0,
-    });
+    clearCells(room, [placement]);
     RtsEngine.tickRoom(room);
     RtsEngine.tickRoom(room);
 
@@ -1646,11 +1620,7 @@ describe('rts', () => {
       ),
     ).toBe(true);
 
-    RtsEngine.queueLegacyCellUpdate(room, {
-      x: placement.x,
-      y: placement.y,
-      alive: 0,
-    });
+    clearCells(room, [placement]);
     for (let index = 0; index < 4; index += 1) {
       RtsEngine.tickRoom(room);
     }
@@ -1735,23 +1705,11 @@ describe('rts', () => {
       { x: placement.x, y: placement.y + 1 },
       { x: placement.x + 1, y: placement.y + 1 },
     ];
-    for (const cell of blockCells) {
-      RtsEngine.queueLegacyCellUpdate(room, {
-        x: cell.x,
-        y: cell.y,
-        alive: 0,
-      });
-    }
+    clearCells(room, blockCells);
 
     let destroyed = getStructureByTemplateId(room, team.id, 'block');
     for (let index = 0; index < 8 && destroyed; index += 1) {
-      for (const cell of blockCells) {
-        RtsEngine.queueLegacyCellUpdate(room, {
-          x: cell.x,
-          y: cell.y,
-          alive: 0,
-        });
-      }
+      clearCells(room, blockCells);
       RtsEngine.tickRoom(room);
       destroyed = getStructureByTemplateId(room, team.id, 'block');
     }
@@ -1791,13 +1749,7 @@ describe('rts', () => {
 
     let result = RtsEngine.tickRoom(room);
     for (let index = 0; index < 400; index += 1) {
-      for (const cell of baseCells) {
-        RtsEngine.queueLegacyCellUpdate(room, {
-          x: cell.x,
-          y: cell.y,
-          alive: 0,
-        });
-      }
+      clearCells(room, baseCells);
       result = RtsEngine.tickRoom(room);
       const currentCore = getCoreStructure(room, team.id);
       if (currentCore) {

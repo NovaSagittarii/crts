@@ -13,7 +13,7 @@ These rules apply to `apps/web/*`.
 - Do not implement simulation rules in the client; consume server `state` payloads.
 - Keep socket event names/payloads aligned with `packages/rts-engine/socket-contract.ts`.
 - Validate and sanitize user-entered values before emitting events.
-- Treat gameplay mutation as queue-driven: `build:queue` is the accepted path, while `cell:update` is legacy/debug and should expect `queue-only-mutation-path` rejection.
+- Treat gameplay mutation as queue-driven: use queue/event paths such as `build:queue` and `destroy:queue`; do not add direct board-mutation socket events.
 - Keep UI responsive for desktop and mobile viewport sizes.
 
 ## Event Usage

@@ -23,7 +23,6 @@ import {
   type QueueBuildResult,
   type BuildQueuePayload,
   type DestroyQueuePayload,
-  type CellUpdatePayload as SocketCellUpdatePayload,
   type ChatSendPayload,
   type ClientToServerEvents,
   type DestroyOutcomePayload,
@@ -90,7 +89,6 @@ export interface ServerOptions {
 export type StatePayload = RoomStatePayload;
 
 type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
-export type CellUpdatePayload = SocketCellUpdatePayload;
 
 function configureStaticAssets(
   app: Express,
@@ -1028,47 +1026,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
     };
   }
 
-  function handleCellUpdate(
-    socket: GameSocket,
-    session: PlayerSession,
-    payload: unknown,
-  ): void {
-    const room = getRoomOrNull(session.roomId);
-    if (!room) {
-      return;
-    }
-
-    const gate = assertGameplayMutationAllowed(room, session.id);
-    if (!gate.allowed) {
-      roomError(
-        socket,
-        gate.message ?? 'Gameplay mutation rejected',
-        gate.reason,
-      );
-      return;
-    }
-
-    if (!payload || typeof payload !== 'object') {
-      roomError(socket, 'Invalid cell update payload', 'invalid-build');
-      return;
-    }
-
-    const update = payload as CellUpdatePayload;
-    if (
-      !Number.isInteger(Number(update.x)) ||
-      !Number.isInteger(Number(update.y))
-    ) {
-      roomError(socket, 'Invalid cell update payload', 'invalid-build');
-      return;
-    }
-
-    roomError(
-      socket,
-      'Direct cell updates are disabled; use build:queue',
-      'queue-only-mutation-path',
-    );
-  }
-
   function mapQueueBuildErrorReason(error?: string): string {
     switch (error) {
       case 'Insufficient resources':
@@ -1733,13 +1690,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
         idempotent: Boolean(result.idempotent),
       };
       socket.emit('destroy:queued', queued);
-    });
-
-    socket.on('cell:update', (payload: unknown) => {
-      if (!ensureCurrentSocket(socket, session)) {
-        return;
-      }
-      handleCellUpdate(socket, session, payload);
     });
 
     socket.on('disconnect', (reason) => {

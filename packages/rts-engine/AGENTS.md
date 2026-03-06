@@ -15,10 +15,9 @@ These rules apply to `packages/rts-engine/*`.
 - Tick order stays deterministic:
   1. process team economy and due queued events
   2. apply accepted templates
-  3. apply legacy cell updates
-  4. step Conway grid
-  5. resolve core integrity checks and mark defeated teams
-  6. compute match outcome and drain pending queue entries as `match-finished` rejections when finished
+  3. step Conway grid
+  4. resolve core integrity checks and mark defeated teams
+  5. compute match outcome and drain pending queue entries as `match-finished` rejections when finished
 
 ## Rules
 
@@ -48,6 +47,6 @@ These rules apply to `packages/rts-engine/*`.
 - Keep `geometry.ts` independent from `RtsEngine`; canonical core footprint reads must come from `structure.ts`.
 - Phase 2 completed: use `RtsRoom` as the preferred room-scoped API for callsites that own a single room instance.
 - During migration, static `RtsEngine` room methods are compatibility wrappers; new room-local behavior should be added on `RtsRoom` first.
-- Phase 4 completed: economy/queue/tick orchestration is split into deterministic private helpers (`processDue*`, `applyAcceptedBuildEvents`, `applyLegacyUpdatesAndAdvanceGeneration`, `resolveDefeatAndOutcome`).
+- Phase 4 completed: economy/queue/tick orchestration is split into deterministic private helpers (`processDue*`, `applyAcceptedBuildEvents`, `advanceGeneration`, `resolveDefeatAndOutcome`).
 - Preserve helper execution order to keep tick determinism and rejection/outcome semantics stable.
 - Phase 5 hardening: `RtsRoom.fromState` only accepts room states created by `RtsEngine.createRoomState`/`RtsEngine.createRoom`; detached clones are invalid inputs.
