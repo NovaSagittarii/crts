@@ -1,5 +1,12 @@
 import { io, type Socket } from 'socket.io-client';
 
+import {
+  BASE_FOOTPRINT_HEIGHT,
+  BASE_FOOTPRINT_WIDTH,
+  BUILD_ZONE_RADIUS,
+  getBaseCenter,
+  normalizePlacementTransform,
+} from '#rts-engine';
 import type {
   BuildOutcomePayload,
   BuildQueuedPayload,
@@ -7,10 +14,13 @@ import type {
   DestroyOutcomePayload,
   DestroyQueuedPayload,
   DestroyScheduledPayload,
+  PlacementTransformInput,
   RoomErrorPayload,
   RoomGridStatePayload,
   RoomJoinedPayload,
+  RoomListEntryPayload,
   RoomMembershipPayload,
+  RoomSlotClaimedPayload,
   RoomStateHashesPayload,
   RoomStatePayload,
   RoomStructuresStatePayload,
@@ -30,16 +40,20 @@ export interface WaitForPredicateOptions {
   timeoutMessage?: string;
 }
 
-export interface WaitForStateOptions extends WaitForPredicateOptions {
+export interface WaitForRequestedStateOptions extends WaitForPredicateOptions {
   roomId?: string;
   autoRequest?: boolean;
   requestIntervalMs?: number;
 }
 
-export interface WaitForStateSectionOptions extends WaitForPredicateOptions {
-  roomId?: string;
-  autoRequest?: boolean;
-  requestIntervalMs?: number;
+export interface WaitForStateOptions extends WaitForRequestedStateOptions {}
+
+export interface WaitForStateSectionOptions extends WaitForRequestedStateOptions {}
+
+export interface CandidatePlacementOptions {
+  transform?: PlacementTransformInput;
+  searchRadius?: number;
+  step?: number;
 }
 
 export interface Cell {
@@ -173,56 +187,12 @@ export function waitForMembership(
   );
 }
 
-export function waitForState(
+function waitForRequestedStateEvent<T>(
   socket: Socket,
-  predicate: (payload: RoomStatePayload) => boolean,
-  options: WaitForStateOptions = {},
-): Promise<RoomStatePayload> {
-  const {
-    roomId,
-    autoRequest = true,
-    requestIntervalMs = 120,
-    ...waitOptions
-  } = options;
-
-  const waitPromise = waitForEventWithPredicate<RoomStatePayload>(
-    socket,
-    'state',
-    (payload) =>
-      (roomId === undefined || payload.roomId === roomId) && predicate(payload),
-    {
-      ...waitOptions,
-      timeoutMessage:
-        waitOptions.timeoutMessage ??
-        'State condition not met in allotted attempts',
-    },
-  );
-
-  if (!autoRequest) {
-    return waitPromise;
-  }
-
-  const intervalMs = Math.max(20, Math.floor(requestIntervalMs));
-  socket.emit('state:request', {
-    sections: ['full'],
-  } satisfies StateRequestPayload);
-  const requestTimer = setInterval(() => {
-    socket.emit('state:request', {
-      sections: ['full'],
-    } satisfies StateRequestPayload);
-  }, intervalMs);
-
-  return waitPromise.finally(() => {
-    clearInterval(requestTimer);
-  });
-}
-
-function waitForStateSection<T>(
-  socket: Socket,
-  event: 'state:grid' | 'state:structures',
-  section: 'grid' | 'structures',
+  event: string,
+  sections: StateRequestPayload['sections'],
   predicate: (payload: T) => boolean,
-  options: WaitForStateSectionOptions = {},
+  options: WaitForRequestedStateOptions = {},
 ): Promise<T> {
   const {
     roomId,
@@ -235,14 +205,19 @@ function waitForStateSection<T>(
     socket,
     event,
     (payload) => {
-      if (!roomId) {
+      if (roomId === undefined) {
         return predicate(payload);
       }
 
       const roomPayload = payload as { roomId?: string };
       return roomPayload.roomId === roomId && predicate(payload);
     },
-    waitOptions,
+    {
+      ...waitOptions,
+      timeoutMessage:
+        waitOptions.timeoutMessage ??
+        `Condition for ${event} not met in allotted attempts`,
+    },
   );
 
   if (!autoRequest) {
@@ -251,11 +226,11 @@ function waitForStateSection<T>(
 
   const intervalMs = Math.max(20, Math.floor(requestIntervalMs));
   socket.emit('state:request', {
-    sections: [section],
+    sections,
   } satisfies StateRequestPayload);
   const requestTimer = setInterval(() => {
     socket.emit('state:request', {
-      sections: [section],
+      sections,
     } satisfies StateRequestPayload);
   }, intervalMs);
 
@@ -264,15 +239,46 @@ function waitForStateSection<T>(
   });
 }
 
+export function waitForState(
+  socket: Socket,
+  predicate: (payload: RoomStatePayload) => boolean,
+  options: WaitForStateOptions = {},
+): Promise<RoomStatePayload> {
+  return waitForRequestedStateEvent<RoomStatePayload>(
+    socket,
+    'state',
+    ['full'],
+    predicate,
+    {
+      ...options,
+      timeoutMessage:
+        options.timeoutMessage ??
+        'State condition not met in allotted attempts',
+    },
+  );
+}
+
+export function waitForRoomState(
+  socket: Socket,
+  roomId: string,
+  predicate: (payload: RoomStatePayload) => boolean,
+  options: Omit<WaitForStateOptions, 'roomId'> = {},
+): Promise<RoomStatePayload> {
+  return waitForState(socket, predicate, {
+    ...options,
+    roomId,
+  });
+}
+
 export function waitForStateGrid(
   socket: Socket,
   predicate: (payload: RoomGridStatePayload) => boolean,
   options: WaitForStateSectionOptions = {},
 ): Promise<RoomGridStatePayload> {
-  return waitForStateSection<RoomGridStatePayload>(
+  return waitForRequestedStateEvent<RoomGridStatePayload>(
     socket,
     'state:grid',
-    'grid',
+    ['grid'],
     predicate,
     options,
   );
@@ -283,10 +289,10 @@ export function waitForStateStructures(
   predicate: (payload: RoomStructuresStatePayload) => boolean,
   options: WaitForStateSectionOptions = {},
 ): Promise<RoomStructuresStatePayload> {
-  return waitForStateSection<RoomStructuresStatePayload>(
+  return waitForRequestedStateEvent<RoomStructuresStatePayload>(
     socket,
     'state:structures',
-    'structures',
+    ['structures'],
     predicate,
     options,
   );
@@ -298,6 +304,150 @@ export function waitForStateHashes(
   options: WaitForPredicateOptions = {},
 ): Promise<RoomStateHashesPayload> {
   return waitForEventWithPredicate(socket, 'state:hashes', predicate, options);
+}
+
+export function waitForRoomList(
+  socket: Socket,
+  predicate: (payload: RoomListEntryPayload[]) => boolean,
+  options: WaitForPredicateOptions = {},
+): Promise<RoomListEntryPayload[]> {
+  return waitForEventWithPredicate(socket, 'room:list', predicate, {
+    ...options,
+    timeoutMessage:
+      options.timeoutMessage ??
+      'Room list condition not met in allotted attempts',
+  });
+}
+
+export async function claimSlot(
+  socket: Socket,
+  slotId: string,
+  timeoutMs = 2500,
+): Promise<RoomSlotClaimedPayload> {
+  const claimedPromise = waitForEvent<RoomSlotClaimedPayload>(
+    socket,
+    'room:slot-claimed',
+    timeoutMs,
+  );
+  socket.emit('room:claim-slot', { slotId });
+  const claimed = await claimedPromise;
+  if (claimed.teamId === null) {
+    throw new Error(`Expected slot claim for ${slotId} to assign a team`);
+  }
+
+  return claimed;
+}
+
+export function getTeamByPlayerId(
+  state: Pick<RoomStatePayload, 'teams'>,
+  playerId: string,
+): TeamPayload {
+  const team = state.teams.find(({ playerIds }) =>
+    playerIds.includes(playerId),
+  );
+  if (!team) {
+    throw new Error(`Unable to resolve team for player ${playerId}`);
+  }
+
+  return team;
+}
+
+function getTransformedTemplateSize(
+  template: Pick<RoomJoinedPayload['templates'][number], 'width' | 'height'>,
+  transform?: PlacementTransformInput,
+): { width: number; height: number } {
+  const { matrix } = normalizePlacementTransform(transform);
+  const corners = [
+    { x: 0, y: 0 },
+    { x: template.width - 1, y: 0 },
+    { x: 0, y: template.height - 1 },
+    { x: template.width - 1, y: template.height - 1 },
+  ];
+
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const corner of corners) {
+    const projectedX = matrix.xx * corner.x + matrix.xy * corner.y;
+    const projectedY = matrix.yx * corner.x + matrix.yy * corner.y;
+    minX = Math.min(minX, projectedX);
+    maxX = Math.max(maxX, projectedX);
+    minY = Math.min(minY, projectedY);
+    maxY = Math.max(maxY, projectedY);
+  }
+
+  return {
+    width: maxX - minX + 1,
+    height: maxY - minY + 1,
+  };
+}
+
+export function collectCandidatePlacements(
+  team: Pick<TeamPayload, 'baseTopLeft'>,
+  template: Pick<RoomJoinedPayload['templates'][number], 'width' | 'height'>,
+  roomWidth: number,
+  roomHeight: number,
+  options: CandidatePlacementOptions = {},
+): Cell[] {
+  const placements: Cell[] = [];
+  const searchRadius = options.searchRadius ?? 10;
+  const step = options.step ?? 2;
+  const baseCenter = getBaseCenter(team.baseTopLeft);
+  const baseLeft = team.baseTopLeft.x;
+  const baseTop = team.baseTopLeft.y;
+  const baseRight = baseLeft + BASE_FOOTPRINT_WIDTH;
+  const baseBottom = baseTop + BASE_FOOTPRINT_HEIGHT;
+  const transformedSize = getTransformedTemplateSize(
+    template,
+    options.transform,
+  );
+
+  for (let y = -searchRadius; y <= searchRadius; y += step) {
+    for (let x = -searchRadius; x <= searchRadius; x += step) {
+      const buildX = team.baseTopLeft.x + x;
+      const buildY = team.baseTopLeft.y + y;
+      if (buildX < 0 || buildY < 0) {
+        continue;
+      }
+      if (
+        buildX + transformedSize.width > roomWidth ||
+        buildY + transformedSize.height > roomHeight
+      ) {
+        continue;
+      }
+
+      const intersectsBase =
+        buildX < baseRight &&
+        buildX + transformedSize.width > baseLeft &&
+        buildY < baseBottom &&
+        buildY + transformedSize.height > baseTop;
+      if (intersectsBase) {
+        continue;
+      }
+
+      let fullyInsideBuildZone = true;
+      for (let ty = 0; ty < transformedSize.height; ty += 1) {
+        for (let tx = 0; tx < transformedSize.width; tx += 1) {
+          const dx = buildX + tx - baseCenter.x;
+          const dy = buildY + ty - baseCenter.y;
+          if (dx * dx + dy * dy > BUILD_ZONE_RADIUS * BUILD_ZONE_RADIUS) {
+            fullyInsideBuildZone = false;
+            break;
+          }
+        }
+        if (!fullyInsideBuildZone) {
+          break;
+        }
+      }
+
+      if (fullyInsideBuildZone) {
+        placements.push({ x: buildX, y: buildY });
+      }
+    }
+  }
+
+  return placements;
 }
 
 function waitForQueueResponse<TQueued>(

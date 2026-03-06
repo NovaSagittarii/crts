@@ -17,30 +17,27 @@ import type {
   DestroyOutcomePayload,
   RoomGridStatePayload,
   RoomJoinedPayload,
-  RoomMembershipPayload,
   RoomErrorPayload,
   RoomLeftPayload,
-  RoomListEntryPayload,
-  RoomSlotClaimedPayload,
   RoomStatePayload,
   TeamPayload,
 } from '#rts-engine';
+import { setupActiveMatch as setupActiveMatchBase } from './match-support.js';
 import {
   createClient,
-  type ActiveMatchSetup,
   type Cell,
+  type TestClientOptions,
+  claimSlot,
   waitForBuildQueueResponse,
   waitForBuildScheduled,
   waitForDestroyScheduled,
   waitForDestroyQueueResponse,
   waitForEvent,
-  waitForEventWithPredicate,
-  waitForState,
+  waitForRoomList,
+  waitForRoomState,
 } from './test-support.js';
 
 type StatePayload = RoomStatePayload;
-type SlotClaimedPayload = RoomSlotClaimedPayload;
-type RoomListEntry = RoomListEntryPayload;
 type BuildPreview = BuildPreviewPayload;
 type BuildQueued = BuildQueuedPayload;
 type BuildScheduled = BuildScheduledPayload;
@@ -61,65 +58,18 @@ function getTeam(state: StatePayload, teamId: number): TeamPayload {
   return team;
 }
 
-async function waitForCondition(
-  socket: Socket,
-  predicate: (state: StatePayload) => boolean,
-  attempts = 6,
-): Promise<StatePayload> {
-  return waitForState(socket, predicate, {
-    attempts,
-    timeoutMs: 2500,
-    timeoutMessage: 'Condition not met in allotted attempts',
+function createPortClient(
+  port: number,
+): (options?: TestClientOptions) => Socket {
+  return (options?: TestClientOptions) => createClient(port, options);
+}
+
+function setupActiveMatch(port: number) {
+  return setupActiveMatchBase({
+    connectClient: createPortClient(port),
+    roomName: 'Build Queue Contract Room',
+    startMode: 'fake-timers',
   });
-}
-
-async function claimSlot(
-  socket: Socket,
-  slotId: string,
-): Promise<SlotClaimedPayload> {
-  socket.emit('room:claim-slot', { slotId });
-  const claimed = await waitForEvent<SlotClaimedPayload>(
-    socket,
-    'room:slot-claimed',
-  );
-  if (claimed.teamId === null) {
-    throw new Error(`Expected slot claim for ${slotId} to assign a team`);
-  }
-  return claimed;
-}
-
-async function waitForRoomList(
-  socket: Socket,
-  predicate: (rooms: RoomListEntry[]) => boolean,
-  attempts = 6,
-): Promise<RoomListEntry[]> {
-  return waitForEventWithPredicate<RoomListEntry[]>(
-    socket,
-    'room:list',
-    predicate,
-    {
-      attempts,
-      timeoutMs: 2500,
-      timeoutMessage: 'Room list condition not met in allotted attempts',
-    },
-  );
-}
-
-async function waitForMembership(
-  socket: Socket,
-  predicate: (membership: RoomMembershipPayload) => boolean,
-  attempts = 20,
-): Promise<RoomMembershipPayload> {
-  return waitForEventWithPredicate<RoomMembershipPayload>(
-    socket,
-    'room:membership',
-    predicate,
-    {
-      attempts,
-      timeoutMs: 2500,
-      timeoutMessage: 'Membership condition not met in allotted attempts',
-    },
-  );
 }
 
 function collectBuildOutcomes(
@@ -408,78 +358,6 @@ function collectCandidatePlacements(
   }
 
   return placements;
-}
-
-async function setupActiveMatch(port: number): Promise<ActiveMatchSetup> {
-  const host = createClient(port);
-  await waitForEvent(host, 'room:joined');
-
-  host.emit('room:create', {
-    name: 'Build Queue Contract Room',
-    width: 52,
-    height: 52,
-  });
-
-  const hostJoined = await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
-
-  const guest = createClient(port);
-  await waitForEvent(guest, 'room:joined');
-  guest.emit('room:join', { roomId: hostJoined.roomId });
-  const guestJoined = await waitForEvent<RoomJoinedPayload>(
-    guest,
-    'room:joined',
-  );
-
-  await claimSlot(host, 'team-1');
-  await claimSlot(guest, 'team-2');
-
-  host.emit('room:set-ready', { ready: true });
-  guest.emit('room:set-ready', { ready: true });
-
-  await waitForMembership(
-    host,
-    (membership) =>
-      membership.roomId === hostJoined.roomId &&
-      membership.participants.filter(
-        ({ role, ready }) => role === 'player' && ready,
-      ).length === 2,
-  );
-
-  const openingCountdownPromise = waitForEvent(host, 'room:countdown', 3500);
-  const matchStartedPromise = waitForEvent(host, 'room:match-started', 7000);
-
-  vi.useFakeTimers();
-  try {
-    host.emit('room:start');
-    await openingCountdownPromise;
-    await vi.advanceTimersByTimeAsync(3_100);
-    await matchStartedPromise;
-  } finally {
-    vi.useRealTimers();
-  }
-
-  const activeState = await waitForCondition(
-    host,
-    (state) =>
-      state.roomId === hostJoined.roomId &&
-      state.teams.some(({ playerIds }) =>
-        playerIds.includes(hostJoined.playerId),
-      ) &&
-      state.teams.some(({ playerIds }) =>
-        playerIds.includes(guestJoined.playerId),
-      ),
-    40,
-  );
-
-  return {
-    host,
-    guest,
-    roomId: hostJoined.roomId,
-    hostJoined,
-    guestJoined,
-    hostTeam: getTeamByPlayerId(activeState, hostJoined.playerId),
-    guestTeam: getTeamByPlayerId(activeState, guestJoined.playerId),
-  };
 }
 
 describe('GameServer', () => {
@@ -1051,8 +929,9 @@ describe('GameServer', () => {
       .sort((a, b) => a.executeTick - b.executeTick || a.eventId - b.eventId)
       .map(({ eventId }) => eventId);
 
-    const pendingState = await waitForCondition(
+    const pendingState = await waitForRoomState(
       setup.host,
+      setup.roomId,
       (state) => {
         const team = state.teams.find(({ id }) => id === setup.hostTeam.id);
         if (!team) {
@@ -1062,7 +941,7 @@ describe('GameServer', () => {
         const pendingIds = team.pendingBuilds.map(({ eventId }) => eventId);
         return queuedEventIds.every((eventId) => pendingIds.includes(eventId));
       },
-      30,
+      { attempts: 30 },
     );
 
     const pendingTeam = getTeamByPlayerId(
@@ -1077,8 +956,9 @@ describe('GameServer', () => {
 
     await collectBuildOutcomes(setup.host, queuedEventIds, 12_000);
 
-    const clearedState = await waitForCondition(
+    const clearedState = await waitForRoomState(
       setup.host,
+      setup.roomId,
       (state) => {
         const team = state.teams.find(({ id }) => id === setup.hostTeam.id);
         if (!team) {
@@ -1090,7 +970,7 @@ describe('GameServer', () => {
         );
         return queuedEventIds.every((eventId) => !pendingIds.has(eventId));
       },
-      40,
+      { attempts: 40 },
     );
 
     const clearedTeam = getTeamByPlayerId(
@@ -1162,8 +1042,9 @@ describe('GameServer', () => {
         continue;
       }
 
-      const builtState = await waitForCondition(
+      const builtState = await waitForRoomState(
         setup.host,
+        setup.roomId,
         (state) => {
           const hostTeamState = getTeamByPlayerId(
             state,
@@ -1176,7 +1057,7 @@ describe('GameServer', () => {
               structure.hp > 0,
           );
         },
-        30,
+        { attempts: 30 },
       );
       const builtTeam = getTeamByPlayerId(
         builtState,
@@ -1323,12 +1204,13 @@ describe('GameServer', () => {
     const setup = await setupActiveMatch(port);
 
     const teamId = setup.hostTeam.id;
-    const initialTeamState = await waitForCondition(
+    const initialTeamState = await waitForRoomState(
       setup.host,
+      setup.roomId,
       (state) =>
         state.roomId === setup.roomId &&
         state.teams.some(({ id }) => id === teamId),
-      20,
+      { attempts: 20 },
     );
     const initialTeam = getTeam(initialTeamState, teamId);
 
@@ -1374,12 +1256,13 @@ describe('GameServer', () => {
     expect(scheduled.eventId).toBeGreaterThan(0);
     expect(scheduled.executeTick).toBeGreaterThan(0);
 
-    const builtState = await waitForCondition(
+    const builtState = await waitForRoomState(
       setup.host,
+      setup.roomId,
       (state) =>
         blockAlive(state, blockCells) &&
         getTeam(state, teamId).resources < initialTeam.resources,
-      12,
+      { attempts: 12 },
     );
 
     expect(blockAlive(builtState, blockCells)).toBe(true);
@@ -1414,7 +1297,7 @@ describe('GameServer', () => {
     const rooms = await waitForRoomList(
       socket,
       (entries) => entries.some(({ roomId }) => roomId === joined.roomId),
-      8,
+      { attempts: 8 },
     );
     expect(rooms.some(({ roomId }) => roomId === joined.roomId)).toBe(true);
 
@@ -1451,10 +1334,11 @@ describe('GameServer', () => {
     expect(guestRoom.roomId).toBe(ownerRoom.roomId);
     await claimSlot(guest, 'team-2');
 
-    const withTwoTeams = await waitForCondition(
+    const withTwoTeams = await waitForRoomState(
       owner,
+      ownerRoom.roomId,
       (state) => state.roomId === ownerRoom.roomId && state.teams.length >= 2,
-      12,
+      { attempts: 12 },
     );
     expect(withTwoTeams.teams.length).toBeGreaterThanOrEqual(2);
 
@@ -1462,10 +1346,11 @@ describe('GameServer', () => {
     const leftPayload = await waitForEvent<RoomLeftPayload>(guest, 'room:left');
     expect(leftPayload.roomId).toBe(ownerRoom.roomId);
 
-    const backToOneTeam = await waitForCondition(
+    const backToOneTeam = await waitForRoomState(
       owner,
+      ownerRoom.roomId,
       (state) => state.roomId === ownerRoom.roomId && state.teams.length === 1,
-      12,
+      { attempts: 12 },
     );
     expect(backToOneTeam.teams).toHaveLength(1);
 

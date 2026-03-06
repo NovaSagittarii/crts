@@ -1,133 +1,24 @@
 import { describe, expect, test } from 'vitest';
-import type { Socket } from 'socket.io-client';
 
 import { createServer } from '../../../apps/server/src/server.js';
 import type {
   BuildQueuedPayload,
   RoomGridStatePayload,
-  RoomJoinedPayload,
-  RoomMembershipPayload,
   RoomStateHashesPayload,
   RoomStructuresStatePayload,
   RoomStatePayload,
-  RoomSlotClaimedPayload,
-  TeamPayload,
 } from '#rts-engine';
+import { setupActiveMatch } from './match-support.js';
 import {
+  type ActiveMatchSetup,
   createClient,
   waitForBuildQueueResponse,
   waitForBuildScheduled,
   waitForEvent,
-  waitForMembership,
-  waitForState,
   waitForStateGrid,
   waitForStateHashes,
   waitForStateStructures,
 } from './test-support.js';
-
-function resolveTeamForPlayer(
-  teams: TeamPayload[],
-  playerId: string,
-): TeamPayload {
-  const team = teams.find(({ playerIds }) => playerIds.includes(playerId));
-  if (!team) {
-    throw new Error(`Unable to resolve team for player ${playerId}`);
-  }
-
-  return team;
-}
-
-async function claimSlot(socket: Socket, slotId: string): Promise<number> {
-  const claimedPromise = waitForEvent<RoomSlotClaimedPayload>(
-    socket,
-    'room:slot-claimed',
-  );
-  socket.emit('room:claim-slot', { slotId });
-  const claimed = await claimedPromise;
-  if (claimed.teamId === null) {
-    throw new Error(`Expected ${slotId} claim to assign a team`);
-  }
-
-  return claimed.teamId;
-}
-
-async function setupActiveMatch(port: number): Promise<{
-  host: Socket;
-  guest: Socket;
-  roomId: string;
-  hostJoined: RoomJoinedPayload;
-  guestJoined: RoomJoinedPayload;
-  hostTeam: TeamPayload;
-}> {
-  const host = createClient(port, { sessionId: 'sections-host' });
-  await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
-
-  const createdPromise = waitForEvent<RoomJoinedPayload>(host, 'room:joined');
-  host.emit('room:create', {
-    name: 'State Sections Room',
-    width: 52,
-    height: 52,
-  });
-  const hostJoined = await createdPromise;
-
-  const guest = createClient(port, { sessionId: 'sections-guest' });
-  await waitForEvent<RoomJoinedPayload>(guest, 'room:joined');
-
-  const guestJoinedPromise = waitForEvent<RoomJoinedPayload>(
-    guest,
-    'room:joined',
-  );
-  guest.emit('room:join', { roomId: hostJoined.roomId });
-  const guestJoined = await guestJoinedPromise;
-
-  await claimSlot(host, 'team-1');
-  await claimSlot(guest, 'team-2');
-  await waitForMembership(
-    host,
-    hostJoined.roomId,
-    (payload: RoomMembershipPayload) =>
-      payload.slots['team-1'] === hostJoined.playerId &&
-      payload.slots['team-2'] === guestJoined.playerId,
-  );
-
-  const readyMembershipPromise = waitForMembership(
-    host,
-    hostJoined.roomId,
-    (payload: RoomMembershipPayload) =>
-      payload.participants.filter(
-        ({ role, ready }) => role === 'player' && ready,
-      ).length === 2,
-  );
-  host.emit('room:set-ready', { ready: true });
-  guest.emit('room:set-ready', { ready: true });
-  await readyMembershipPromise;
-
-  host.emit('room:start');
-  await waitForEvent(host, 'room:match-started', 7_000);
-
-  const state = await waitForState(
-    host,
-    (payload: RoomStatePayload) =>
-      payload.roomId === hostJoined.roomId &&
-      payload.teams.some(({ playerIds }) =>
-        playerIds.includes(hostJoined.playerId),
-      ),
-    {
-      roomId: hostJoined.roomId,
-      attempts: 40,
-      timeoutMs: 2_000,
-    },
-  );
-
-  return {
-    host,
-    guest,
-    roomId: hostJoined.roomId,
-    hostJoined,
-    guestJoined,
-    hostTeam: resolveTeamForPlayer(state.teams, hostJoined.playerId),
-  };
-}
 
 describe('section sync and queued scheduling', () => {
   test('serves grid and structures sections only to the requester', async () => {
@@ -140,10 +31,15 @@ describe('section sync and queued scheduling', () => {
     });
     const port = await server.start();
 
-    let setup: Awaited<ReturnType<typeof setupActiveMatch>> | null = null;
+    let setup: ActiveMatchSetup | null = null;
 
     try {
-      setup = await setupActiveMatch(port);
+      setup = await setupActiveMatch({
+        connectClient: (options) => createClient(port, options),
+        roomName: 'State Sections Room',
+        hostSessionId: 'sections-host',
+        guestSessionId: 'sections-guest',
+      });
 
       let guestGridCount = 0;
       let guestStructuresCount = 0;
@@ -238,10 +134,15 @@ describe('section sync and queued scheduling', () => {
     });
     const port = await server.start();
 
-    let setup: Awaited<ReturnType<typeof setupActiveMatch>> | null = null;
+    let setup: ActiveMatchSetup | null = null;
 
     try {
-      setup = await setupActiveMatch(port);
+      setup = await setupActiveMatch({
+        connectClient: (options) => createClient(port, options),
+        roomName: 'State Sections Room',
+        hostSessionId: 'sections-host',
+        guestSessionId: 'sections-guest',
+      });
 
       const hostQueuedPromise = waitForBuildQueueResponse(setup.host, 4_000);
       const guestQueuedPromise = waitForBuildQueueResponse(setup.guest, 4_000);

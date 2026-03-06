@@ -19,86 +19,24 @@ import type {
   PlacementTransformInput,
   RoomErrorPayload,
   RoomJoinedPayload,
-  RoomMembershipPayload,
-  RoomSlotClaimedPayload,
-  RoomStatePayload,
   TeamPayload,
 } from '#rts-engine';
+import { setupActiveMatch } from './match-support.js';
 import {
   createClient,
   type ActiveMatchSetup,
   type Cell,
   type TestClientOptions,
+  getTeamByPlayerId,
   waitForBuildOutcome,
   waitForBuildQueueResponse,
   waitForBuildScheduled,
   waitForDestroyOutcome,
   waitForDestroyQueueResponse,
   waitForDestroyScheduled,
-  waitForEvent as waitForEventBase,
-  waitForMembership as waitForMembershipBase,
-  waitForState as waitForStateBase,
+  waitForEvent,
+  waitForRoomState,
 } from './test-support.js';
-
-function waitForEvent<T>(
-  socket: Socket,
-  event: string,
-  timeoutMs = 3000,
-): Promise<T> {
-  return waitForEventBase(socket, event, timeoutMs);
-}
-
-async function waitForMembership(
-  socket: Socket,
-  roomId: string,
-  predicate: (payload: RoomMembershipPayload) => boolean,
-  attempts = 30,
-  timeoutMs = 3000,
-): Promise<RoomMembershipPayload> {
-  return waitForMembershipBase(socket, roomId, predicate, {
-    attempts,
-    timeoutMs,
-  });
-}
-
-async function waitForState(
-  socket: Socket,
-  roomId: string,
-  predicate: (payload: RoomStatePayload) => boolean,
-  attempts = 40,
-  timeoutMs = 3000,
-): Promise<RoomStatePayload> {
-  return waitForStateBase(socket, predicate, {
-    roomId,
-    attempts,
-    timeoutMs,
-  });
-}
-
-async function claimSlot(socket: Socket, slotId: string): Promise<void> {
-  const claimedPromise = waitForEvent<RoomSlotClaimedPayload>(
-    socket,
-    'room:slot-claimed',
-  );
-  socket.emit('room:claim-slot', { slotId });
-  const claimed = await claimedPromise;
-  if (claimed.teamId === null) {
-    throw new Error(`Expected ${slotId} claim to assign a team`);
-  }
-}
-
-function getTeamByPlayerId(
-  state: RoomStatePayload,
-  playerId: string,
-): TeamPayload {
-  const team = state.teams.find(({ playerIds }) =>
-    playerIds.includes(playerId),
-  );
-  if (!team) {
-    throw new Error(`Unable to resolve team for player ${playerId}`);
-  }
-  return team;
-}
 
 function collectCandidatePlacements(
   team: TeamPayload,
@@ -191,92 +129,6 @@ function estimateTransformedTemplateSize(
 
 interface QueueBuildAttempt {
   transform?: PlacementTransformInput;
-}
-
-async function setupActiveMatch(
-  connectClient: () => Socket,
-): Promise<ActiveMatchSetup> {
-  const host = connectClient();
-  await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
-
-  const hostCreatedPromise = waitForEvent<RoomJoinedPayload>(
-    host,
-    'room:joined',
-  );
-  host.emit('room:create', {
-    name: 'QUAL-02 Loop Room',
-    width: 52,
-    height: 52,
-  });
-  const hostJoined = await hostCreatedPromise;
-
-  const guest = connectClient();
-  await waitForEvent<RoomJoinedPayload>(guest, 'room:joined');
-
-  const guestJoinedPromise = waitForEvent<RoomJoinedPayload>(
-    guest,
-    'room:joined',
-  );
-  guest.emit('room:join', { roomId: hostJoined.roomId });
-  const guestJoined = await guestJoinedPromise;
-
-  await claimSlot(host, 'team-1');
-  await claimSlot(guest, 'team-2');
-
-  const slotMembershipPromise = waitForMembership(
-    host,
-    hostJoined.roomId,
-    (payload) =>
-      payload.slots['team-1'] === hostJoined.playerId &&
-      payload.slots['team-2'] === guestJoined.playerId,
-  );
-  await slotMembershipPromise;
-
-  const readyMembershipPromise = waitForMembership(
-    host,
-    hostJoined.roomId,
-    (payload) =>
-      payload.participants.filter(
-        ({ role, ready }) => role === 'player' && ready,
-      ).length === 2,
-  );
-  host.emit('room:set-ready', { ready: true });
-  guest.emit('room:set-ready', { ready: true });
-  await readyMembershipPromise;
-
-  const matchStartedPromise = waitForEvent(host, 'room:match-started', 7000);
-  host.emit('room:start');
-  await matchStartedPromise;
-
-  await waitForMembership(
-    host,
-    hostJoined.roomId,
-    (payload) => payload.status === 'active',
-    40,
-  );
-
-  const activeState = await waitForState(
-    host,
-    hostJoined.roomId,
-    (payload) =>
-      payload.teams.some(({ playerIds }) =>
-        playerIds.includes(hostJoined.playerId),
-      ) &&
-      payload.teams.some(({ playerIds }) =>
-        playerIds.includes(guestJoined.playerId),
-      ),
-    40,
-  );
-
-  return {
-    host,
-    guest,
-    roomId: hostJoined.roomId,
-    hostJoined,
-    guestJoined,
-    hostTeam: getTeamByPlayerId(activeState, hostJoined.playerId),
-    guestTeam: getTeamByPlayerId(activeState, guestJoined.playerId),
-  };
 }
 
 async function queueValidHostBuild(
@@ -380,7 +232,7 @@ async function queueAppliedHostBuild(match: ActiveMatchSetup): Promise<{
       continue;
     }
 
-    const stateWithBuiltBlock = await waitForState(
+    const stateWithBuiltBlock = await waitForRoomState(
       match.host,
       match.roomId,
       (payload) => {
@@ -392,7 +244,7 @@ async function queueAppliedHostBuild(match: ActiveMatchSetup): Promise<{
             structure.hp > 0,
         );
       },
-      40,
+      { attempts: 40 },
     );
 
     const hostTeam = getTeamByPlayerId(
@@ -445,7 +297,11 @@ describe('QUAL-02 quality gate integration loop', () => {
   }
 
   test('QUAL-02: join -> build -> tick -> breach -> defeat with defeated build rejection', async () => {
-    const match = await setupActiveMatch(() => connectClientForTest());
+    const match = await setupActiveMatch({
+      connectClient: () => connectClientForTest(),
+      roomName: 'QUAL-02 Loop Room',
+      waitForActiveMembership: true,
+    });
 
     // QUAL-02 requires one explicit build queue + terminal outcome in the loop.
     const { scheduled, outcome } = await queueValidHostBuild(match);
@@ -527,7 +383,11 @@ describe('QUAL-02 quality gate integration loop', () => {
   }, 45_000);
 
   test('QUAL-04: build plus destroy stays deterministic across reconnect checkpoints', async () => {
-    const match = await setupActiveMatch(() => connectClientForTest());
+    const match = await setupActiveMatch({
+      connectClient: () => connectClientForTest(),
+      roomName: 'QUAL-02 Loop Room',
+      waitForActiveMembership: true,
+    });
 
     const appliedBuild = await queueAppliedHostBuild(match);
     expect(appliedBuild.outcome.outcome).toBe('applied');
@@ -559,7 +419,7 @@ describe('QUAL-02 quality gate integration loop', () => {
     );
     expect(rejoined.roomId).toBe(match.roomId);
 
-    await waitForState(
+    await waitForRoomState(
       reconnectGuest,
       match.roomId,
       (payload) => {
@@ -568,8 +428,7 @@ describe('QUAL-02 quality gate integration loop', () => {
           ({ eventId }) => eventId === destroyScheduled.eventId,
         );
       },
-      60,
-      2000,
+      { attempts: 60, timeoutMs: 2000 },
     );
 
     const [hostOutcome, reconnectOutcome] = await Promise.all([
@@ -580,7 +439,7 @@ describe('QUAL-02 quality gate integration loop', () => {
     expect(hostOutcome.outcome).toBe('destroyed');
     expect(hostOutcome.structureKey).toBe(appliedBuild.structureKey);
 
-    const hostSettled = await waitForState(
+    const hostSettled = await waitForRoomState(
       match.host,
       match.roomId,
       (payload) => {
@@ -595,11 +454,10 @@ describe('QUAL-02 quality gate integration loop', () => {
           )
         );
       },
-      80,
-      2000,
+      { attempts: 80, timeoutMs: 2000 },
     );
 
-    const reconnectSettled = await waitForState(
+    const reconnectSettled = await waitForRoomState(
       reconnectGuest,
       match.roomId,
       (payload) => {
@@ -614,8 +472,7 @@ describe('QUAL-02 quality gate integration loop', () => {
           )
         );
       },
-      80,
-      2000,
+      { attempts: 80, timeoutMs: 2000 },
     );
 
     const hostTeam = getTeamByPlayerId(hostSettled, match.hostJoined.playerId);
