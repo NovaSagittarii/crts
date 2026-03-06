@@ -26,6 +26,8 @@ export interface WaitForPredicateOptions {
 
 export interface WaitForStateOptions extends WaitForPredicateOptions {
   roomId?: string;
+  autoRequest?: boolean;
+  requestIntervalMs?: number;
 }
 
 export interface Cell {
@@ -164,8 +166,14 @@ export function waitForState(
   predicate: (payload: RoomStatePayload) => boolean,
   options: WaitForStateOptions = {},
 ): Promise<RoomStatePayload> {
-  const { roomId, ...waitOptions } = options;
-  return waitForEventWithPredicate(
+  const {
+    roomId,
+    autoRequest = true,
+    requestIntervalMs = 120,
+    ...waitOptions
+  } = options;
+
+  const waitPromise = waitForEventWithPredicate<RoomStatePayload>(
     socket,
     'state',
     (payload) =>
@@ -177,6 +185,20 @@ export function waitForState(
         'State condition not met in allotted attempts',
     },
   );
+
+  if (!autoRequest) {
+    return waitPromise;
+  }
+
+  const intervalMs = Math.max(20, Math.floor(requestIntervalMs));
+  socket.emit('state:request');
+  const requestTimer = setInterval(() => {
+    socket.emit('state:request');
+  }, intervalMs);
+
+  return waitPromise.finally(() => {
+    clearInterval(requestTimer);
+  });
 }
 
 function waitForQueueResponse<TQueued>(

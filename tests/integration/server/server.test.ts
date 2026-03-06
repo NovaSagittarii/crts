@@ -31,6 +31,7 @@ import {
   waitForDestroyQueueResponse,
   waitForEvent,
   waitForEventWithPredicate,
+  waitForState,
 } from './test-support.js';
 
 type StatePayload = RoomStatePayload;
@@ -60,7 +61,7 @@ async function waitForCondition(
   predicate: (state: StatePayload) => boolean,
   attempts = 6,
 ): Promise<StatePayload> {
-  return waitForEventWithPredicate<StatePayload>(socket, 'state', predicate, {
+  return waitForState(socket, predicate, {
     attempts,
     timeoutMs: 2500,
     timeoutMessage: 'Condition not met in allotted attempts',
@@ -379,18 +380,61 @@ async function setupActiveMatch(port: number): Promise<ActiveMatchSetup> {
 }
 
 describe('GameServer', () => {
-  test('broadcasts generations on a cadence during active matches', async () => {
-    const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
+  test('broadcasts periodic snapshots during active matches', async () => {
+    const server = createServer({
+      port: 0,
+      width: 52,
+      height: 52,
+      tickMs: 40,
+      activeStateSnapshotIntervalTicks: 50,
+    });
     const port = await server.start();
 
     const setup = await setupActiveMatch(port);
 
-    const first = await waitForEvent<StatePayload>(setup.host, 'state');
-    const second = await waitForEvent<StatePayload>(setup.host, 'state');
+    const first = await waitForEvent<StatePayload>(setup.host, 'state', 7000);
+    const second = await waitForEvent<StatePayload>(setup.host, 'state', 7000);
 
     expect(second.generation).toBeGreaterThan(first.generation);
     expect(second.tick).toBeGreaterThan(first.tick);
+    expect(second.tick - first.tick).toBeGreaterThanOrEqual(50);
 
+    setup.host.close();
+    setup.guest.close();
+    await server.stop();
+  }, 20_000);
+
+  test('responds to on-demand state requests only to requester', async () => {
+    const server = createServer({
+      port: 0,
+      width: 52,
+      height: 52,
+      tickMs: 40,
+      activeStateSnapshotIntervalTicks: 1000,
+    });
+    const port = await server.start();
+
+    const setup = await setupActiveMatch(port);
+
+    let guestStateCount = 0;
+    function onGuestState(): void {
+      guestStateCount += 1;
+    }
+    setup.guest.on('state', onGuestState);
+
+    setup.host.emit('state:request');
+    const requestedState = await waitForEvent<StatePayload>(
+      setup.host,
+      'state',
+      2500,
+    );
+
+    expect(requestedState.roomId).toBe(setup.roomId);
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(guestStateCount).toBe(0);
+
+    setup.guest.off('state', onGuestState);
     setup.host.close();
     setup.guest.close();
     await server.stop();
