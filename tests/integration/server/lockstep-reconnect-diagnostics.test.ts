@@ -94,7 +94,7 @@ describe('lockstep reconnect diagnostics', () => {
       host.emit('room:start');
       await waitForEvent(host, 'room:match-started', 7_000);
 
-      const latestCheckpoint = await waitForEvent<LockstepCheckpointPayload>(
+      await waitForEvent<LockstepCheckpointPayload>(
         host,
         'lockstep:checkpoint',
         4_000,

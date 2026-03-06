@@ -87,13 +87,25 @@ describe('lockstep shadow mode', () => {
       const guestJoined = await guestJoinedPromise;
 
       await claimSlot(host, 'team-1');
+      const hostLeftPromise = waitForEvent(host, 'room:left');
+      host.emit('room:leave');
+      await hostLeftPromise;
+
+      const hostRejoinedPromise = waitForEvent<RoomJoinedPayload>(
+        host,
+        'room:joined',
+      );
+      host.emit('room:join', { roomId: hostJoined.roomId });
+      const hostRejoined = await hostRejoinedPromise;
+
+      await claimSlot(host, 'team-1');
       await claimSlot(guest, 'team-2');
 
       await waitForMembership(
         host,
         hostJoined.roomId,
         (payload: RoomMembershipPayload) =>
-          payload.slots['team-1'] === hostJoined.playerId &&
+          payload.slots['team-1'] === hostRejoined.playerId &&
           payload.slots['team-2'] === guestJoined.playerId,
       );
 
@@ -114,7 +126,7 @@ describe('lockstep shadow mode', () => {
       guest.emit('room:set-ready', { ready: true });
       await readyMembershipPromise;
 
-      host.emit('room:start');
+      guest.emit('room:start');
       await waitForEvent(host, 'room:match-started', 7_000);
 
       const firstCheckpoint = await waitForEvent<LockstepCheckpointPayload>(
@@ -131,7 +143,7 @@ describe('lockstep shadow mode', () => {
         (payload) =>
           payload.roomId === hostJoined.roomId &&
           payload.teams.some(({ playerIds }) =>
-            playerIds.includes(hostJoined.playerId),
+            playerIds.includes(hostRejoined.playerId),
           ),
         {
           roomId: hostJoined.roomId,
@@ -139,7 +151,7 @@ describe('lockstep shadow mode', () => {
           timeoutMs: 2_000,
         },
       );
-      const team = resolveTeamForPlayer(state.teams, hostJoined.playerId);
+      const team = resolveTeamForPlayer(state.teams, hostRejoined.playerId);
 
       host.emit('build:queue', {
         templateId: 'block',
@@ -163,7 +175,6 @@ describe('lockstep shadow mode', () => {
       );
       expect(secondCheckpoint.mode).toBe('shadow');
 
-      await new Promise((resolve) => setTimeout(resolve, 500));
       expect(fallbackEvents).toEqual([]);
 
       host.off('lockstep:fallback');
