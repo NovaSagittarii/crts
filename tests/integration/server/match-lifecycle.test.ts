@@ -13,9 +13,11 @@ import type {
   MatchStartedPayload,
   RoomErrorPayload,
   RoomJoinedPayload,
-  RoomMembershipPayload,
-  RoomStatePayload,
 } from '#rts-engine';
+import {
+  setupConnectedRoom,
+  startMatchAndWaitForActive,
+} from './match-support.js';
 import {
   createClient,
   type TestClientOptions,
@@ -23,8 +25,8 @@ import {
   waitForDestroyQueueResponse,
   waitForDestroyScheduled,
   waitForEvent,
-  waitForMembership as waitForMembershipBase,
-  waitForState as waitForStateBase,
+  waitForMembership,
+  waitForRoomState,
 } from './test-support.js';
 
 interface ConnectedPair {
@@ -42,136 +44,58 @@ interface ActiveMatch extends ConnectedPair {
   initialGrid: ArrayBuffer;
 }
 
-async function waitForMembership(
-  socket: Socket,
-  roomId: string,
-  predicate: (payload: RoomMembershipPayload) => boolean,
-  attempts = 25,
-  timeoutMs = 3000,
-): Promise<RoomMembershipPayload> {
-  return waitForMembershipBase(socket, roomId, predicate, {
-    attempts,
-    timeoutMs,
-  });
-}
-
-async function waitForState(
-  socket: Socket,
-  predicate: (payload: RoomStatePayload) => boolean,
-  attempts = 40,
-  timeoutMs = 2500,
-): Promise<RoomStatePayload> {
-  return waitForStateBase(socket, predicate, { attempts, timeoutMs });
-}
-
 async function setupConnectedPair(
-  connect: () => Socket,
+  connect: (options?: TestClientOptions) => Socket,
 ): Promise<ConnectedPair> {
-  const host = connect();
-  await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
-
-  host.emit('room:create', {
-    name: 'Lifecycle Room',
-    width: 52,
-    height: 52,
+  const setup = await setupConnectedRoom({
+    connectClient: connect,
+    roomName: 'Lifecycle Room',
   });
-  const room = await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
-
-  const guest = connect();
-  await waitForEvent<RoomJoinedPayload>(guest, 'room:joined');
-  guest.emit('room:join', { roomId: room.roomId });
-  const guestJoined = await waitForEvent<RoomJoinedPayload>(
-    guest,
-    'room:joined',
-  );
 
   return {
-    host,
-    guest,
-    room,
-    guestJoined,
+    host: setup.host,
+    guest: setup.guest,
+    room: setup.hostJoined,
+    guestJoined: setup.guestJoined,
   };
 }
 
 async function moveToActive(pair: ConnectedPair): Promise<ActiveMatch> {
-  const { host, guest, room, guestJoined } = pair;
-
-  host.emit('room:claim-slot', { slotId: 'team-1' });
-  guest.emit('room:claim-slot', { slotId: 'team-2' });
-  await waitForMembership(
-    host,
-    room.roomId,
-    (payload) =>
-      payload.slots['team-1'] === room.playerId &&
-      payload.slots['team-2'] === guestJoined.playerId,
+  const activeSetup = await startMatchAndWaitForActive(
+    {
+      host: pair.host,
+      guest: pair.guest,
+      roomId: pair.room.roomId,
+      hostJoined: pair.room,
+      guestJoined: pair.guestJoined,
+    },
+    {
+      startMode: 'fake-timers',
+      waitForActiveMembership: true,
+      membershipAttempts: 40,
+    },
   );
-
-  host.emit('room:set-ready', { ready: true });
-  guest.emit('room:set-ready', { ready: true });
-  await waitForMembership(
-    host,
-    room.roomId,
-    (payload) =>
-      payload.participants.filter(
-        ({ role, ready }) => role === 'player' && ready,
-      ).length === 2,
-  );
-
-  const countdownMembershipPromise = waitForMembership(
-    host,
-    room.roomId,
-    (payload) => payload.status === 'countdown',
-  );
-  const matchStartedPromise = waitForEvent<MatchStartedPayload>(
-    host,
-    'room:match-started',
-    6000,
-  );
-
-  vi.useFakeTimers();
-  try {
-    host.emit('room:start');
-    await countdownMembershipPromise;
-    await vi.advanceTimersByTimeAsync(3_100);
-    await matchStartedPromise;
-  } finally {
-    vi.useRealTimers();
-  }
 
   const activeMembership = await waitForMembership(
-    host,
-    room.roomId,
+    pair.host,
+    pair.room.roomId,
     (payload) => payload.status === 'active',
-    40,
+    { attempts: 40 },
   );
   expect(activeMembership.status).toBe('active');
 
-  const activeState = await waitForState(
-    host,
-    (payload) => payload.roomId === room.roomId,
+  const activeState = await waitForRoomState(
+    pair.host,
+    pair.room.roomId,
+    (payload) => payload.roomId === pair.room.roomId,
   );
-
-  const hostTeam = activeState.teams.find(({ playerIds }) =>
-    playerIds.includes(room.playerId),
-  );
-  const guestTeam = activeState.teams.find(({ playerIds }) =>
-    playerIds.includes(guestJoined.playerId),
-  );
-  expect(hostTeam).toBeDefined();
-  expect(guestTeam).toBeDefined();
 
   return {
     ...pair,
-    hostTeamId: hostTeam?.id ?? 0,
-    guestTeamId: guestTeam?.id ?? 0,
-    hostBaseTopLeft: {
-      x: hostTeam?.baseTopLeft.x ?? 0,
-      y: hostTeam?.baseTopLeft.y ?? 0,
-    },
-    guestBaseTopLeft: {
-      x: guestTeam?.baseTopLeft.x ?? 0,
-      y: guestTeam?.baseTopLeft.y ?? 0,
-    },
+    hostTeamId: activeSetup.hostTeam.id,
+    guestTeamId: activeSetup.guestTeam.id,
+    hostBaseTopLeft: activeSetup.hostTeam.baseTopLeft,
+    guestBaseTopLeft: activeSetup.guestTeam.baseTopLeft,
     initialGrid: activeState.grid,
   };
 }
@@ -179,8 +103,9 @@ async function moveToActive(pair: ConnectedPair): Promise<ActiveMatch> {
 async function breachGuestCore(
   match: ActiveMatch,
 ): Promise<MatchFinishedPayload> {
-  const activeState = await waitForState(
+  const activeState = await waitForRoomState(
     match.host,
+    match.room.roomId,
     (payload) => payload.roomId === match.room.roomId,
   );
   const guestTeam = activeState.teams.find(
@@ -354,7 +279,7 @@ describe('server match lifecycle contract', () => {
       setup.host,
       setup.room.roomId,
       (payload) => payload.status === 'lobby',
-      30,
+      { attempts: 30 },
     );
     expect(backToLobby.countdownSecondsRemaining).toBeNull();
   });
@@ -416,7 +341,7 @@ describe('server match lifecycle contract', () => {
       setup.host,
       setup.room.roomId,
       (payload) => payload.status === 'active',
-      35,
+      { attempts: 35 },
     );
 
     const guestReconnect = connectClient({
@@ -425,8 +350,9 @@ describe('server match lifecycle contract', () => {
     await waitForEvent<RoomJoinedPayload>(guestReconnect, 'room:joined');
     guestReconnect.emit('room:join', { roomId: setup.room.roomId });
 
-    const activeState = await waitForState(
+    const activeState = await waitForRoomState(
       setup.host,
+      setup.room.roomId,
       (payload) => payload.roomId === setup.room.roomId,
     );
     const hostTeam = activeState.teams.find(({ playerIds }) =>
@@ -478,7 +404,7 @@ describe('server match lifecycle contract', () => {
       match.host,
       setup.room.roomId,
       (payload) => (payload.status as string) === 'finished',
-      35,
+      { attempts: 35 },
     );
     expect(finishedMembership.status).toBe('finished');
 
@@ -571,7 +497,7 @@ describe('server match lifecycle contract', () => {
       match.host,
       setup.room.roomId,
       (payload) => payload.status === 'countdown',
-      35,
+      { attempts: 35 },
     );
     const restartMatchStartedPromise = waitForEvent<MatchStartedPayload>(
       match.host,
@@ -589,10 +515,11 @@ describe('server match lifecycle contract', () => {
       vi.useRealTimers();
     }
 
-    const restartedState = await waitForState(
+    const restartedState = await waitForRoomState(
       match.host,
+      setup.room.roomId,
       (payload) => payload.roomId === setup.room.roomId,
-      40,
+      { attempts: 40 },
     );
     expect(restartedState.grid).toStrictEqual(match.initialGrid);
     expect(restartedState.tick).toBeLessThan(4);

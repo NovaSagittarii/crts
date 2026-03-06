@@ -5,12 +5,6 @@ import {
   createServer,
   type GameServer,
 } from '../../../apps/server/src/server.js';
-import {
-  BASE_FOOTPRINT_HEIGHT,
-  BASE_FOOTPRINT_WIDTH,
-  BUILD_ZONE_RADIUS,
-  getBaseCenter,
-} from '#rts-engine';
 
 import type {
   BuildScheduledPayload,
@@ -19,264 +13,26 @@ import type {
   PlacementTransformInput,
   RoomErrorPayload,
   RoomJoinedPayload,
-  RoomMembershipPayload,
-  RoomSlotClaimedPayload,
-  RoomStatePayload,
-  TeamPayload,
 } from '#rts-engine';
+import { setupActiveMatch } from './match-support.js';
 import {
   createClient,
   type ActiveMatchSetup,
-  type Cell,
   type TestClientOptions,
+  collectCandidatePlacements,
+  getTeamByPlayerId,
   waitForBuildOutcome,
   waitForBuildQueueResponse,
   waitForBuildScheduled,
   waitForDestroyOutcome,
   waitForDestroyQueueResponse,
   waitForDestroyScheduled,
-  waitForEvent as waitForEventBase,
-  waitForMembership as waitForMembershipBase,
-  waitForState as waitForStateBase,
+  waitForEvent,
+  waitForRoomState,
 } from './test-support.js';
-
-function waitForEvent<T>(
-  socket: Socket,
-  event: string,
-  timeoutMs = 3000,
-): Promise<T> {
-  return waitForEventBase(socket, event, timeoutMs);
-}
-
-async function waitForMembership(
-  socket: Socket,
-  roomId: string,
-  predicate: (payload: RoomMembershipPayload) => boolean,
-  attempts = 30,
-  timeoutMs = 3000,
-): Promise<RoomMembershipPayload> {
-  return waitForMembershipBase(socket, roomId, predicate, {
-    attempts,
-    timeoutMs,
-  });
-}
-
-async function waitForState(
-  socket: Socket,
-  roomId: string,
-  predicate: (payload: RoomStatePayload) => boolean,
-  attempts = 40,
-  timeoutMs = 3000,
-): Promise<RoomStatePayload> {
-  return waitForStateBase(socket, predicate, {
-    roomId,
-    attempts,
-    timeoutMs,
-  });
-}
-
-async function claimSlot(socket: Socket, slotId: string): Promise<void> {
-  const claimedPromise = waitForEvent<RoomSlotClaimedPayload>(
-    socket,
-    'room:slot-claimed',
-  );
-  socket.emit('room:claim-slot', { slotId });
-  const claimed = await claimedPromise;
-  if (claimed.teamId === null) {
-    throw new Error(`Expected ${slotId} claim to assign a team`);
-  }
-}
-
-function getTeamByPlayerId(
-  state: RoomStatePayload,
-  playerId: string,
-): TeamPayload {
-  const team = state.teams.find(({ playerIds }) =>
-    playerIds.includes(playerId),
-  );
-  if (!team) {
-    throw new Error(`Unable to resolve team for player ${playerId}`);
-  }
-  return team;
-}
-
-function collectCandidatePlacements(
-  team: TeamPayload,
-  template: RoomJoinedPayload['templates'][number],
-  roomWidth: number,
-  roomHeight: number,
-  transform?: PlacementTransformInput,
-): Cell[] {
-  const placements: Cell[] = [];
-  const baseCenter = getBaseCenter(team.baseTopLeft);
-  const baseLeft = team.baseTopLeft.x;
-  const baseTop = team.baseTopLeft.y;
-  const baseRight = baseLeft + BASE_FOOTPRINT_WIDTH;
-  const baseBottom = baseTop + BASE_FOOTPRINT_HEIGHT;
-  const transformedSize = estimateTransformedTemplateSize(template, transform);
-
-  for (let y = -10; y <= 10; y += 2) {
-    for (let x = -10; x <= 10; x += 2) {
-      const buildX = team.baseTopLeft.x + x;
-      const buildY = team.baseTopLeft.y + y;
-      if (buildX < 0 || buildY < 0) {
-        continue;
-      }
-      if (
-        buildX + transformedSize.width > roomWidth ||
-        buildY + transformedSize.height > roomHeight
-      ) {
-        continue;
-      }
-
-      const intersectsBase =
-        buildX < baseRight &&
-        buildX + transformedSize.width > baseLeft &&
-        buildY < baseBottom &&
-        buildY + transformedSize.height > baseTop;
-      if (intersectsBase) {
-        continue;
-      }
-
-      let fullyInsideBuildZone = true;
-      for (let ty = 0; ty < transformedSize.height; ty += 1) {
-        for (let tx = 0; tx < transformedSize.width; tx += 1) {
-          const dx = buildX + tx - baseCenter.x;
-          const dy = buildY + ty - baseCenter.y;
-          if (dx * dx + dy * dy > BUILD_ZONE_RADIUS * BUILD_ZONE_RADIUS) {
-            fullyInsideBuildZone = false;
-            break;
-          }
-        }
-        if (!fullyInsideBuildZone) {
-          break;
-        }
-      }
-
-      if (!fullyInsideBuildZone) {
-        continue;
-      }
-
-      placements.push({ x: buildX, y: buildY });
-    }
-  }
-
-  return placements;
-}
-
-function estimateTransformedTemplateSize(
-  template: RoomJoinedPayload['templates'][number],
-  transform: PlacementTransformInput | undefined,
-): { width: number; height: number } {
-  const operations = transform?.operations ?? [];
-  let quarterTurns = 0;
-  for (const operation of operations) {
-    if (operation === 'rotate') {
-      quarterTurns = (quarterTurns + 1) % 4;
-    }
-  }
-
-  if (quarterTurns % 2 === 1) {
-    return {
-      width: template.height,
-      height: template.width,
-    };
-  }
-
-  return {
-    width: template.width,
-    height: template.height,
-  };
-}
 
 interface QueueBuildAttempt {
   transform?: PlacementTransformInput;
-}
-
-async function setupActiveMatch(
-  connectClient: () => Socket,
-): Promise<ActiveMatchSetup> {
-  const host = connectClient();
-  await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
-
-  const hostCreatedPromise = waitForEvent<RoomJoinedPayload>(
-    host,
-    'room:joined',
-  );
-  host.emit('room:create', {
-    name: 'QUAL-02 Loop Room',
-    width: 52,
-    height: 52,
-  });
-  const hostJoined = await hostCreatedPromise;
-
-  const guest = connectClient();
-  await waitForEvent<RoomJoinedPayload>(guest, 'room:joined');
-
-  const guestJoinedPromise = waitForEvent<RoomJoinedPayload>(
-    guest,
-    'room:joined',
-  );
-  guest.emit('room:join', { roomId: hostJoined.roomId });
-  const guestJoined = await guestJoinedPromise;
-
-  await claimSlot(host, 'team-1');
-  await claimSlot(guest, 'team-2');
-
-  const slotMembershipPromise = waitForMembership(
-    host,
-    hostJoined.roomId,
-    (payload) =>
-      payload.slots['team-1'] === hostJoined.playerId &&
-      payload.slots['team-2'] === guestJoined.playerId,
-  );
-  await slotMembershipPromise;
-
-  const readyMembershipPromise = waitForMembership(
-    host,
-    hostJoined.roomId,
-    (payload) =>
-      payload.participants.filter(
-        ({ role, ready }) => role === 'player' && ready,
-      ).length === 2,
-  );
-  host.emit('room:set-ready', { ready: true });
-  guest.emit('room:set-ready', { ready: true });
-  await readyMembershipPromise;
-
-  const matchStartedPromise = waitForEvent(host, 'room:match-started', 7000);
-  host.emit('room:start');
-  await matchStartedPromise;
-
-  await waitForMembership(
-    host,
-    hostJoined.roomId,
-    (payload) => payload.status === 'active',
-    40,
-  );
-
-  const activeState = await waitForState(
-    host,
-    hostJoined.roomId,
-    (payload) =>
-      payload.teams.some(({ playerIds }) =>
-        playerIds.includes(hostJoined.playerId),
-      ) &&
-      payload.teams.some(({ playerIds }) =>
-        playerIds.includes(guestJoined.playerId),
-      ),
-    40,
-  );
-
-  return {
-    host,
-    guest,
-    roomId: hostJoined.roomId,
-    hostJoined,
-    guestJoined,
-    hostTeam: getTeamByPlayerId(activeState, hostJoined.playerId),
-    guestTeam: getTeamByPlayerId(activeState, guestJoined.playerId),
-  };
 }
 
 async function queueValidHostBuild(
@@ -297,7 +53,7 @@ async function queueValidHostBuild(
       blockTemplate,
       match.hostJoined.state.width,
       match.hostJoined.state.height,
-      attempt.transform,
+      { transform: attempt.transform },
     );
 
     for (const placement of placements) {
@@ -380,7 +136,7 @@ async function queueAppliedHostBuild(match: ActiveMatchSetup): Promise<{
       continue;
     }
 
-    const stateWithBuiltBlock = await waitForState(
+    const stateWithBuiltBlock = await waitForRoomState(
       match.host,
       match.roomId,
       (payload) => {
@@ -392,7 +148,7 @@ async function queueAppliedHostBuild(match: ActiveMatchSetup): Promise<{
             structure.hp > 0,
         );
       },
-      40,
+      { attempts: 40 },
     );
 
     const hostTeam = getTeamByPlayerId(
@@ -445,7 +201,11 @@ describe('QUAL-02 quality gate integration loop', () => {
   }
 
   test('QUAL-02: join -> build -> tick -> breach -> defeat with defeated build rejection', async () => {
-    const match = await setupActiveMatch(() => connectClientForTest());
+    const match = await setupActiveMatch({
+      connectClient: () => connectClientForTest(),
+      roomName: 'QUAL-02 Loop Room',
+      waitForActiveMembership: true,
+    });
 
     // QUAL-02 requires one explicit build queue + terminal outcome in the loop.
     const { scheduled, outcome } = await queueValidHostBuild(match);
@@ -527,7 +287,11 @@ describe('QUAL-02 quality gate integration loop', () => {
   }, 45_000);
 
   test('QUAL-04: build plus destroy stays deterministic across reconnect checkpoints', async () => {
-    const match = await setupActiveMatch(() => connectClientForTest());
+    const match = await setupActiveMatch({
+      connectClient: () => connectClientForTest(),
+      roomName: 'QUAL-02 Loop Room',
+      waitForActiveMembership: true,
+    });
 
     const appliedBuild = await queueAppliedHostBuild(match);
     expect(appliedBuild.outcome.outcome).toBe('applied');
@@ -559,7 +323,7 @@ describe('QUAL-02 quality gate integration loop', () => {
     );
     expect(rejoined.roomId).toBe(match.roomId);
 
-    await waitForState(
+    await waitForRoomState(
       reconnectGuest,
       match.roomId,
       (payload) => {
@@ -568,8 +332,7 @@ describe('QUAL-02 quality gate integration loop', () => {
           ({ eventId }) => eventId === destroyScheduled.eventId,
         );
       },
-      60,
-      2000,
+      { attempts: 60, timeoutMs: 2000 },
     );
 
     const [hostOutcome, reconnectOutcome] = await Promise.all([
@@ -580,7 +343,7 @@ describe('QUAL-02 quality gate integration loop', () => {
     expect(hostOutcome.outcome).toBe('destroyed');
     expect(hostOutcome.structureKey).toBe(appliedBuild.structureKey);
 
-    const hostSettled = await waitForState(
+    const hostSettled = await waitForRoomState(
       match.host,
       match.roomId,
       (payload) => {
@@ -595,11 +358,10 @@ describe('QUAL-02 quality gate integration loop', () => {
           )
         );
       },
-      80,
-      2000,
+      { attempts: 80, timeoutMs: 2000 },
     );
 
-    const reconnectSettled = await waitForState(
+    const reconnectSettled = await waitForRoomState(
       reconnectGuest,
       match.roomId,
       (payload) => {
@@ -614,8 +376,7 @@ describe('QUAL-02 quality gate integration loop', () => {
           )
         );
       },
-      80,
-      2000,
+      { attempts: 80, timeoutMs: 2000 },
     );
 
     const hostTeam = getTeamByPlayerId(hostSettled, match.hostJoined.playerId);

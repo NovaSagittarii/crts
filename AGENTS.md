@@ -41,8 +41,8 @@ This repository uses nested AGENTS files for local rules.
 - `packages/AGENTS.md`: shared package boundaries
 - `packages/conway-core/AGENTS.md`: Conway grid logic constraints
 - `packages/rts-engine/AGENTS.md`: RTS room/team/economy invariants
-- `tests/AGENTS.md`: global testing rules
-- `tests/integration/AGENTS.md`: integration-test conventions
+- `tests/AGENTS.md`: placement rules for cross-runtime and end-to-end suites
+- `tests/integration/AGENTS.md`: stricter integration-specific test rules
 
 When editing a file, follow the nearest AGENTS.md plus this root file.
 
@@ -53,7 +53,21 @@ When editing a file, follow the nearest AGENTS.md plus this root file.
   - `packages/*` must not import from `apps/*`
 - Keep reusable deterministic logic in `packages/*`
 - Keep runtime bootstrapping and socket lifecycle in `apps/*`
-- For test placement and test-layer policy, follow `tests/AGENTS.md` (plus nested test AGENTS files).
+
+## Test Policy
+
+These rules apply to every `*.test.ts` and `*.spec.ts` file in the repo.
+
+- Use Vitest.
+- Keep test names explicit about the scenario and expected outcome.
+- Verify observable behavior (public APIs, emitted events, payloads, and state effects), not private internals.
+- Prefer helper functions with bounded retries/timeouts over fixed sleeps or timing-sensitive assumptions.
+- Always tear down sockets, servers, and other long-lived resources in tests.
+- Use ephemeral ports (`port: 0`) for runtime/integration tests.
+- Keep deterministic package/unit tests co-located with their source package when practical.
+- Keep cross-runtime, cross-layer, and end-to-end behavior checks under `tests/`.
+
+Nested `AGENTS.md` files should only add test guidance when a subtree needs stricter rules than this baseline.
 
 ## Module Entry Points / Aliases
 

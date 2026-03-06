@@ -28,6 +28,10 @@ These rules apply to `packages/rts-engine/*`.
 - Prefer deterministic behavior over convenience randomness.
 - Add/adjust unit tests for every rule change in room/team/economy logic.
 
+## Cross-Suite Coverage
+
+- When lobby API shape changes, update both `packages/rts-engine/lobby.test.ts` and server integration lobby suites in `tests/integration/server`.
+
 ## Lobby API Shape
 
 - `LobbyRoom` is the canonical lobby aggregate API.
@@ -35,11 +39,6 @@ These rules apply to `packages/rts-engine/*`.
 - Access lobby read models through `snapshot` and explicit accessors; do not mutate internal participant or slot containers from consumers.
 - Follow `packages/AGENTS.md` migration policy for lobby APIs: allow at most one migration commit with temporary wrappers, then ship a dedicated sunset/retire commit that removes them.
 - Preserve deterministic lobby semantics: host transfer by join order, slot contention and idempotent same-slot claims, readiness gating for assigned players, and stable rejection reasons/messages.
-
-## Testing
-
-- Prefer co-located unit tests under `packages/rts-engine` as `*.test.ts`.
-- When lobby API shape changes, update both `packages/rts-engine/lobby.test.ts` and server integration lobby suites in `tests/integration/server`.
 
 ## Migration Notes
 

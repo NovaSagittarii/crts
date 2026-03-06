@@ -16,8 +16,3 @@ These rules apply to `packages/*`.
   - packages may import from other packages
   - packages must not import from `apps/*`
 - Expose typed, stable APIs for runtime layers.
-
-## Testing
-
-- Prefer co-located unit tests next to source files in the package root as `*.test.ts`.
-- Legacy unit tests may remain under `test/`.

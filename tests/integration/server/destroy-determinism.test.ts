@@ -5,236 +5,28 @@ import {
   createServer,
   type GameServer,
 } from '../../../apps/server/src/server.js';
-import {
-  BASE_FOOTPRINT_HEIGHT,
-  BASE_FOOTPRINT_WIDTH,
-  BUILD_ZONE_RADIUS,
-  getBaseCenter,
-} from '#rts-engine';
 
 import type {
   BuildScheduledPayload,
   BuildOutcomePayload,
   RoomJoinedPayload,
-  RoomMembershipPayload,
-  RoomSlotClaimedPayload,
-  RoomStatePayload,
-  TeamPayload,
 } from '#rts-engine';
+import { setupActiveMatch } from './match-support.js';
 import {
   createClient,
   type ActiveMatchSetup,
-  type Cell,
   type TestClientOptions,
+  collectCandidatePlacements,
+  getTeamByPlayerId,
   waitForBuildOutcome,
   waitForBuildQueueResponse,
   waitForBuildScheduled,
   waitForDestroyOutcome,
   waitForDestroyQueueResponse,
   waitForDestroyScheduled,
-  waitForEvent as waitForEventBase,
-  waitForMembership as waitForMembershipBase,
-  waitForState as waitForStateBase,
+  waitForEvent,
+  waitForRoomState,
 } from './test-support.js';
-
-function waitForEvent<T>(
-  socket: Socket,
-  event: string,
-  timeoutMs = 3000,
-): Promise<T> {
-  return waitForEventBase(socket, event, timeoutMs);
-}
-
-async function waitForMembership(
-  socket: Socket,
-  roomId: string,
-  predicate: (payload: RoomMembershipPayload) => boolean,
-  attempts = 40,
-  timeoutMs = 3000,
-): Promise<RoomMembershipPayload> {
-  return waitForMembershipBase(socket, roomId, predicate, {
-    attempts,
-    timeoutMs,
-  });
-}
-
-async function waitForState(
-  socket: Socket,
-  roomId: string,
-  predicate: (payload: RoomStatePayload) => boolean,
-  attempts = 80,
-  timeoutMs = 2000,
-): Promise<RoomStatePayload> {
-  return waitForStateBase(socket, predicate, {
-    roomId,
-    attempts,
-    timeoutMs,
-  });
-}
-
-async function claimSlot(socket: Socket, slotId: string): Promise<void> {
-  const claimedPromise = waitForEvent<RoomSlotClaimedPayload>(
-    socket,
-    'room:slot-claimed',
-  );
-  socket.emit('room:claim-slot', { slotId });
-  const claimed = await claimedPromise;
-  if (claimed.teamId === null) {
-    throw new Error(`Expected ${slotId} claim to assign a team`);
-  }
-}
-
-function getTeamByPlayerId(
-  state: RoomStatePayload,
-  playerId: string,
-): TeamPayload {
-  const team = state.teams.find(({ playerIds }) =>
-    playerIds.includes(playerId),
-  );
-  if (!team) {
-    throw new Error(`Unable to resolve team for player ${playerId}`);
-  }
-  return team;
-}
-
-function collectCandidatePlacements(
-  team: TeamPayload,
-  template: RoomJoinedPayload['templates'][number],
-  roomWidth: number,
-  roomHeight: number,
-): Cell[] {
-  const placements: Cell[] = [];
-  const baseCenter = getBaseCenter(team.baseTopLeft);
-  const baseLeft = team.baseTopLeft.x;
-  const baseTop = team.baseTopLeft.y;
-  const baseRight = baseLeft + BASE_FOOTPRINT_WIDTH;
-  const baseBottom = baseTop + BASE_FOOTPRINT_HEIGHT;
-
-  for (let y = -10; y <= 10; y += 2) {
-    for (let x = -10; x <= 10; x += 2) {
-      const buildX = team.baseTopLeft.x + x;
-      const buildY = team.baseTopLeft.y + y;
-      if (buildX < 0 || buildY < 0) {
-        continue;
-      }
-      if (
-        buildX + template.width > roomWidth ||
-        buildY + template.height > roomHeight
-      ) {
-        continue;
-      }
-
-      const intersectsBase =
-        buildX < baseRight &&
-        buildX + template.width > baseLeft &&
-        buildY < baseBottom &&
-        buildY + template.height > baseTop;
-      if (intersectsBase) {
-        continue;
-      }
-
-      let fullyInsideBuildZone = true;
-      for (let ty = 0; ty < template.height; ty += 1) {
-        for (let tx = 0; tx < template.width; tx += 1) {
-          const dx = buildX + tx - baseCenter.x;
-          const dy = buildY + ty - baseCenter.y;
-          if (dx * dx + dy * dy > BUILD_ZONE_RADIUS * BUILD_ZONE_RADIUS) {
-            fullyInsideBuildZone = false;
-            break;
-          }
-        }
-        if (!fullyInsideBuildZone) {
-          break;
-        }
-      }
-
-      if (!fullyInsideBuildZone) {
-        continue;
-      }
-
-      placements.push({ x: buildX, y: buildY });
-    }
-  }
-
-  return placements;
-}
-
-async function setupActiveMatch(
-  connectClient: (options?: TestClientOptions) => Socket,
-): Promise<ActiveMatchSetup> {
-  const host = connectClient({ sessionId: 'destroy-determinism-host' });
-  await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
-
-  const hostCreatedPromise = waitForEvent<RoomJoinedPayload>(
-    host,
-    'room:joined',
-  );
-  host.emit('room:create', {
-    name: 'Destroy Determinism Room',
-    width: 52,
-    height: 52,
-  });
-  const hostJoined = await hostCreatedPromise;
-
-  const guest = connectClient({ sessionId: 'destroy-determinism-guest' });
-  await waitForEvent<RoomJoinedPayload>(guest, 'room:joined');
-
-  const guestJoinedPromise = waitForEvent<RoomJoinedPayload>(
-    guest,
-    'room:joined',
-  );
-  guest.emit('room:join', { roomId: hostJoined.roomId });
-  const guestJoined = await guestJoinedPromise;
-
-  await claimSlot(host, 'team-1');
-  await claimSlot(guest, 'team-2');
-
-  await waitForMembership(
-    host,
-    hostJoined.roomId,
-    (payload) =>
-      payload.slots['team-1'] === hostJoined.playerId &&
-      payload.slots['team-2'] === guestJoined.playerId,
-  );
-
-  const readyMembershipPromise = waitForMembership(
-    host,
-    hostJoined.roomId,
-    (payload) =>
-      payload.participants.filter(
-        ({ role, ready }) => role === 'player' && ready,
-      ).length === 2,
-  );
-  host.emit('room:set-ready', { ready: true });
-  guest.emit('room:set-ready', { ready: true });
-  await readyMembershipPromise;
-
-  host.emit('room:start');
-  await waitForEvent(host, 'room:match-started', 7000);
-
-  const activeState = await waitForState(
-    host,
-    hostJoined.roomId,
-    (payload) =>
-      payload.teams.some(({ playerIds }) =>
-        playerIds.includes(hostJoined.playerId),
-      ) &&
-      payload.teams.some(({ playerIds }) =>
-        playerIds.includes(guestJoined.playerId),
-      ),
-    40,
-  );
-
-  return {
-    host,
-    guest,
-    roomId: hostJoined.roomId,
-    hostJoined,
-    guestJoined,
-    hostTeam: getTeamByPlayerId(activeState, hostJoined.playerId),
-    guestTeam: getTeamByPlayerId(activeState, guestJoined.playerId),
-  };
-}
 
 async function queueAppliedHostBlock(match: ActiveMatchSetup): Promise<{
   scheduled: BuildScheduledPayload;
@@ -282,7 +74,7 @@ async function queueAppliedHostBlock(match: ActiveMatchSetup): Promise<{
       continue;
     }
 
-    const builtState = await waitForState(
+    const builtState = await waitForRoomState(
       match.host,
       match.roomId,
       (payload) => {
@@ -294,7 +86,7 @@ async function queueAppliedHostBlock(match: ActiveMatchSetup): Promise<{
             structure.hp > 0,
         );
       },
-      40,
+      { attempts: 40 },
     );
 
     const builtTeam = getTeamByPlayerId(builtState, match.hostJoined.playerId);
@@ -342,9 +134,12 @@ describe('destroy reconnect determinism', () => {
   }
 
   test('reconnects during pending destroy and converges on one authoritative terminal outcome', async () => {
-    const match = await setupActiveMatch((options) =>
-      connectClientForTest(options),
-    );
+    const match = await setupActiveMatch({
+      connectClient: (options) => connectClientForTest(options),
+      roomName: 'Destroy Determinism Room',
+      hostSessionId: 'destroy-determinism-host',
+      guestSessionId: 'destroy-determinism-guest',
+    });
     const appliedBuild = await queueAppliedHostBlock(match);
     expect(appliedBuild.outcome.outcome).toBe('applied');
 
@@ -376,7 +171,7 @@ describe('destroy reconnect determinism', () => {
     );
     expect(rejoined.roomId).toBe(match.roomId);
 
-    await waitForState(
+    await waitForRoomState(
       reconnectGuest,
       match.roomId,
       (payload) => {
@@ -385,8 +180,7 @@ describe('destroy reconnect determinism', () => {
           ({ eventId }) => eventId === destroyScheduled.eventId,
         );
       },
-      80,
-      2000,
+      { attempts: 80, timeoutMs: 2000 },
     );
 
     const [hostOutcome, reconnectOutcome] = await Promise.all([
@@ -399,7 +193,7 @@ describe('destroy reconnect determinism', () => {
     expect(hostOutcome.structureKey).toBe(appliedBuild.structureKey);
 
     const [hostSettled, reconnectSettled] = await Promise.all([
-      waitForState(
+      waitForRoomState(
         match.host,
         match.roomId,
         (payload) => {
@@ -416,10 +210,9 @@ describe('destroy reconnect determinism', () => {
             )
           );
         },
-        80,
-        2000,
+        { attempts: 80, timeoutMs: 2000 },
       ),
-      waitForState(
+      waitForRoomState(
         reconnectGuest,
         match.roomId,
         (payload) => {
@@ -436,8 +229,7 @@ describe('destroy reconnect determinism', () => {
             )
           );
         },
-        80,
-        2000,
+        { attempts: 80, timeoutMs: 2000 },
       ),
     ]);
 
@@ -451,9 +243,12 @@ describe('destroy reconnect determinism', () => {
   }, 60_000);
 
   test('reconnects after resolved destroy and receives converged authoritative state', async () => {
-    const match = await setupActiveMatch((options) =>
-      connectClientForTest(options),
-    );
+    const match = await setupActiveMatch({
+      connectClient: (options) => connectClientForTest(options),
+      roomName: 'Destroy Determinism Room',
+      hostSessionId: 'destroy-determinism-host',
+      guestSessionId: 'destroy-determinism-guest',
+    });
     const appliedBuild = await queueAppliedHostBlock(match);
     expect(appliedBuild.outcome.outcome).toBe('applied');
 
@@ -478,7 +273,7 @@ describe('destroy reconnect determinism', () => {
     expect(hostOutcome.outcome).toBe('destroyed');
     expect(hostOutcome.structureKey).toBe(appliedBuild.structureKey);
 
-    const hostSettled = await waitForState(
+    const hostSettled = await waitForRoomState(
       match.host,
       match.roomId,
       (payload) => {
@@ -492,8 +287,7 @@ describe('destroy reconnect determinism', () => {
           )
         );
       },
-      80,
-      2000,
+      { attempts: 80, timeoutMs: 2000 },
     );
 
     match.guest.disconnect();
@@ -508,7 +302,7 @@ describe('destroy reconnect determinism', () => {
     );
     expect(rejoined.roomId).toBe(match.roomId);
 
-    const reconnectSettled = await waitForState(
+    const reconnectSettled = await waitForRoomState(
       reconnectGuest,
       match.roomId,
       (payload) => {
@@ -522,8 +316,7 @@ describe('destroy reconnect determinism', () => {
           )
         );
       },
-      80,
-      2000,
+      { attempts: 80, timeoutMs: 2000 },
     );
 
     const hostTeam = getTeamByPlayerId(hostSettled, match.hostJoined.playerId);

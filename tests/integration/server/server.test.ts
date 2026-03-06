@@ -1,51 +1,47 @@
-import { describe, expect, test, vi } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import type { Socket } from 'socket.io-client';
 
 import { createServer } from '../../../apps/server/src/server.js';
 import { Grid } from '#conway-core';
-import {
-  BASE_FOOTPRINT_HEIGHT,
-  BASE_FOOTPRINT_WIDTH,
-  BUILD_ZONE_RADIUS,
-  getBaseCenter,
-} from '#rts-engine';
 import type {
-  BuildScheduledPayload,
-  BuildPreviewPayload,
   BuildOutcomePayload,
+  BuildPreviewPayload,
   BuildQueuedPayload,
-  DestroyOutcomePayload,
+  BuildScheduledPayload,
   RoomGridStatePayload,
   RoomJoinedPayload,
-  RoomMembershipPayload,
   RoomErrorPayload,
   RoomLeftPayload,
-  RoomListEntryPayload,
-  RoomSlotClaimedPayload,
   RoomStatePayload,
   TeamPayload,
 } from '#rts-engine';
+import { setupActiveMatch as setupActiveMatchBase } from './match-support.js';
 import {
   createClient,
-  type ActiveMatchSetup,
   type Cell,
+  type TestClientOptions,
+  claimSlot,
+  collectBuildOutcomes,
+  collectBuildQueuedEvents,
+  collectBuildScheduledEvents,
+  collectCandidatePlacements,
+  collectDestroyOutcomes,
+  getTeamByPlayerId,
   waitForBuildQueueResponse,
   waitForBuildScheduled,
   waitForDestroyScheduled,
   waitForDestroyQueueResponse,
   waitForEvent,
-  waitForEventWithPredicate,
-  waitForState,
+  waitForNoEvent,
+  waitForRoomList,
+  waitForRoomState,
 } from './test-support.js';
 
 type StatePayload = RoomStatePayload;
-type SlotClaimedPayload = RoomSlotClaimedPayload;
-type RoomListEntry = RoomListEntryPayload;
+type BuildOutcome = BuildOutcomePayload;
 type BuildPreview = BuildPreviewPayload;
 type BuildQueued = BuildQueuedPayload;
 type BuildScheduled = BuildScheduledPayload;
-type BuildOutcome = BuildOutcomePayload;
-type DestroyOutcome = DestroyOutcomePayload;
 type RoomError = RoomErrorPayload;
 
 function blockAlive(state: StatePayload, coords: Cell[]): boolean {
@@ -61,425 +57,18 @@ function getTeam(state: StatePayload, teamId: number): TeamPayload {
   return team;
 }
 
-async function waitForCondition(
-  socket: Socket,
-  predicate: (state: StatePayload) => boolean,
-  attempts = 6,
-): Promise<StatePayload> {
-  return waitForState(socket, predicate, {
-    attempts,
-    timeoutMs: 2500,
-    timeoutMessage: 'Condition not met in allotted attempts',
+function createPortClient(
+  port: number,
+): (options?: TestClientOptions) => Socket {
+  return (options?: TestClientOptions) => createClient(port, options);
+}
+
+function setupActiveMatch(port: number) {
+  return setupActiveMatchBase({
+    connectClient: createPortClient(port),
+    roomName: 'Build Queue Contract Room',
+    startMode: 'fake-timers',
   });
-}
-
-async function claimSlot(
-  socket: Socket,
-  slotId: string,
-): Promise<SlotClaimedPayload> {
-  socket.emit('room:claim-slot', { slotId });
-  const claimed = await waitForEvent<SlotClaimedPayload>(
-    socket,
-    'room:slot-claimed',
-  );
-  if (claimed.teamId === null) {
-    throw new Error(`Expected slot claim for ${slotId} to assign a team`);
-  }
-  return claimed;
-}
-
-async function waitForRoomList(
-  socket: Socket,
-  predicate: (rooms: RoomListEntry[]) => boolean,
-  attempts = 6,
-): Promise<RoomListEntry[]> {
-  return waitForEventWithPredicate<RoomListEntry[]>(
-    socket,
-    'room:list',
-    predicate,
-    {
-      attempts,
-      timeoutMs: 2500,
-      timeoutMessage: 'Room list condition not met in allotted attempts',
-    },
-  );
-}
-
-async function waitForMembership(
-  socket: Socket,
-  predicate: (membership: RoomMembershipPayload) => boolean,
-  attempts = 20,
-): Promise<RoomMembershipPayload> {
-  return waitForEventWithPredicate<RoomMembershipPayload>(
-    socket,
-    'room:membership',
-    predicate,
-    {
-      attempts,
-      timeoutMs: 2500,
-      timeoutMessage: 'Membership condition not met in allotted attempts',
-    },
-  );
-}
-
-function collectBuildOutcomes(
-  socket: Socket,
-  eventIds: number[],
-  timeoutMs = 8000,
-  settleMs = 0,
-): Promise<Map<number, BuildOutcome[]>> {
-  return new Promise((resolve, reject) => {
-    const expected = new Set(eventIds);
-    const outcomesById = new Map<number, BuildOutcome[]>();
-    let settleTimer: NodeJS.Timeout | null = null;
-
-    function cleanup(): void {
-      clearTimeout(timeout);
-      if (settleTimer) {
-        clearTimeout(settleTimer);
-      }
-      socket.off('build:outcome', onOutcome);
-    }
-
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error('Timed out collecting expected build outcomes'));
-    }, timeoutMs);
-
-    function maybeScheduleResolve(): void {
-      if (expected.size === 0 && !settleTimer) {
-        if (settleMs <= 0) {
-          cleanup();
-          resolve(outcomesById);
-          return;
-        }
-
-        settleTimer = setTimeout(() => {
-          cleanup();
-          resolve(outcomesById);
-        }, settleMs);
-      }
-    }
-
-    function onOutcome(payload: BuildOutcome): void {
-      if (
-        !expected.has(payload.eventId) &&
-        !outcomesById.has(payload.eventId)
-      ) {
-        return;
-      }
-
-      const current = outcomesById.get(payload.eventId) ?? [];
-      current.push(payload);
-      outcomesById.set(payload.eventId, current);
-      expected.delete(payload.eventId);
-      maybeScheduleResolve();
-    }
-
-    socket.on('build:outcome', onOutcome);
-    maybeScheduleResolve();
-  });
-}
-
-function collectBuildScheduledEvents(
-  socket: Socket,
-  count: number,
-  timeoutMs = 8000,
-  settleMs = 0,
-): Promise<BuildScheduled[]> {
-  return new Promise((resolve, reject) => {
-    const scheduled: BuildScheduled[] = [];
-    let settleTimer: NodeJS.Timeout | null = null;
-
-    function cleanup(): void {
-      clearTimeout(timeout);
-      if (settleTimer) {
-        clearTimeout(settleTimer);
-      }
-      socket.off('build:scheduled', onScheduled);
-    }
-
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error('Timed out collecting scheduled build events'));
-    }, timeoutMs);
-
-    function maybeResolve(): void {
-      if (scheduled.length < count || settleTimer) {
-        return;
-      }
-
-      if (settleMs <= 0) {
-        cleanup();
-        resolve(scheduled);
-        return;
-      }
-
-      settleTimer = setTimeout(() => {
-        cleanup();
-        resolve(scheduled);
-      }, settleMs);
-    }
-
-    function onScheduled(payload: BuildScheduled): void {
-      scheduled.push(payload);
-      maybeResolve();
-    }
-
-    socket.on('build:scheduled', onScheduled);
-  });
-}
-
-function collectBuildQueuedEvents(
-  socket: Socket,
-  count: number,
-  timeoutMs = 8000,
-  settleMs = 0,
-): Promise<BuildQueued[]> {
-  return new Promise((resolve, reject) => {
-    const queued: BuildQueued[] = [];
-    let settleTimer: NodeJS.Timeout | null = null;
-
-    function cleanup(): void {
-      clearTimeout(timeout);
-      if (settleTimer) {
-        clearTimeout(settleTimer);
-      }
-      socket.off('build:queued', onQueued);
-    }
-
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error('Timed out collecting queued build intents'));
-    }, timeoutMs);
-
-    function maybeResolve(): void {
-      if (queued.length < count || settleTimer) {
-        return;
-      }
-
-      if (settleMs <= 0) {
-        cleanup();
-        resolve(queued);
-        return;
-      }
-
-      settleTimer = setTimeout(() => {
-        cleanup();
-        resolve(queued);
-      }, settleMs);
-    }
-
-    function onQueued(payload: BuildQueued): void {
-      queued.push(payload);
-      maybeResolve();
-    }
-
-    socket.on('build:queued', onQueued);
-  });
-}
-
-function collectDestroyOutcomes(
-  socket: Socket,
-  eventIds: number[],
-  timeoutMs = 8000,
-  settleMs = 0,
-): Promise<Map<number, DestroyOutcome[]>> {
-  return new Promise((resolve, reject) => {
-    const expected = new Set(eventIds);
-    const outcomesById = new Map<number, DestroyOutcome[]>();
-    let settleTimer: NodeJS.Timeout | null = null;
-
-    function cleanup(): void {
-      clearTimeout(timeout);
-      if (settleTimer) {
-        clearTimeout(settleTimer);
-      }
-      socket.off('destroy:outcome', onOutcome);
-    }
-
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error('Timed out collecting expected destroy outcomes'));
-    }, timeoutMs);
-
-    function maybeScheduleResolve(): void {
-      if (expected.size === 0 && !settleTimer) {
-        if (settleMs <= 0) {
-          cleanup();
-          resolve(outcomesById);
-          return;
-        }
-
-        settleTimer = setTimeout(() => {
-          cleanup();
-          resolve(outcomesById);
-        }, settleMs);
-      }
-    }
-
-    function onOutcome(payload: DestroyOutcome): void {
-      if (
-        !expected.has(payload.eventId) &&
-        !outcomesById.has(payload.eventId)
-      ) {
-        return;
-      }
-
-      const current = outcomesById.get(payload.eventId) ?? [];
-      current.push(payload);
-      outcomesById.set(payload.eventId, current);
-      expected.delete(payload.eventId);
-      maybeScheduleResolve();
-    }
-
-    socket.on('destroy:outcome', onOutcome);
-    maybeScheduleResolve();
-  });
-}
-
-function getTeamByPlayerId(state: StatePayload, playerId: string): TeamPayload {
-  const team = state.teams.find(({ playerIds }) =>
-    playerIds.includes(playerId),
-  );
-  if (!team) {
-    throw new Error(`Unable to resolve team for player ${playerId}`);
-  }
-  return team;
-}
-
-function collectCandidatePlacements(
-  team: TeamPayload,
-  template: RoomJoinedPayload['templates'][number],
-  roomWidth: number,
-  roomHeight: number,
-): Cell[] {
-  const placements: Cell[] = [];
-  const baseCenter = getBaseCenter(team.baseTopLeft);
-  const baseLeft = team.baseTopLeft.x;
-  const baseTop = team.baseTopLeft.y;
-  const baseRight = baseLeft + BASE_FOOTPRINT_WIDTH;
-  const baseBottom = baseTop + BASE_FOOTPRINT_HEIGHT;
-
-  for (let y = -10; y <= 10; y += 2) {
-    for (let x = -10; x <= 10; x += 2) {
-      const buildX = team.baseTopLeft.x + x;
-      const buildY = team.baseTopLeft.y + y;
-      if (buildX < 0 || buildY < 0) {
-        continue;
-      }
-      if (
-        buildX + template.width > roomWidth ||
-        buildY + template.height > roomHeight
-      ) {
-        continue;
-      }
-
-      const intersectsBase =
-        buildX < baseRight &&
-        buildX + template.width > baseLeft &&
-        buildY < baseBottom &&
-        buildY + template.height > baseTop;
-      if (intersectsBase) {
-        continue;
-      }
-
-      let fullyInsideBuildZone = true;
-      for (let ty = 0; ty < template.height; ty += 1) {
-        for (let tx = 0; tx < template.width; tx += 1) {
-          const dx = buildX + tx - baseCenter.x;
-          const dy = buildY + ty - baseCenter.y;
-          if (dx * dx + dy * dy > BUILD_ZONE_RADIUS * BUILD_ZONE_RADIUS) {
-            fullyInsideBuildZone = false;
-            break;
-          }
-        }
-        if (!fullyInsideBuildZone) {
-          break;
-        }
-      }
-
-      if (!fullyInsideBuildZone) {
-        continue;
-      }
-
-      placements.push({ x: buildX, y: buildY });
-    }
-  }
-
-  return placements;
-}
-
-async function setupActiveMatch(port: number): Promise<ActiveMatchSetup> {
-  const host = createClient(port);
-  await waitForEvent(host, 'room:joined');
-
-  host.emit('room:create', {
-    name: 'Build Queue Contract Room',
-    width: 52,
-    height: 52,
-  });
-
-  const hostJoined = await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
-
-  const guest = createClient(port);
-  await waitForEvent(guest, 'room:joined');
-  guest.emit('room:join', { roomId: hostJoined.roomId });
-  const guestJoined = await waitForEvent<RoomJoinedPayload>(
-    guest,
-    'room:joined',
-  );
-
-  await claimSlot(host, 'team-1');
-  await claimSlot(guest, 'team-2');
-
-  host.emit('room:set-ready', { ready: true });
-  guest.emit('room:set-ready', { ready: true });
-
-  await waitForMembership(
-    host,
-    (membership) =>
-      membership.roomId === hostJoined.roomId &&
-      membership.participants.filter(
-        ({ role, ready }) => role === 'player' && ready,
-      ).length === 2,
-  );
-
-  const openingCountdownPromise = waitForEvent(host, 'room:countdown', 3500);
-  const matchStartedPromise = waitForEvent(host, 'room:match-started', 7000);
-
-  vi.useFakeTimers();
-  try {
-    host.emit('room:start');
-    await openingCountdownPromise;
-    await vi.advanceTimersByTimeAsync(3_100);
-    await matchStartedPromise;
-  } finally {
-    vi.useRealTimers();
-  }
-
-  const activeState = await waitForCondition(
-    host,
-    (state) =>
-      state.roomId === hostJoined.roomId &&
-      state.teams.some(({ playerIds }) =>
-        playerIds.includes(hostJoined.playerId),
-      ) &&
-      state.teams.some(({ playerIds }) =>
-        playerIds.includes(guestJoined.playerId),
-      ),
-    40,
-  );
-
-  return {
-    host,
-    guest,
-    roomId: hostJoined.roomId,
-    hostJoined,
-    guestJoined,
-    hostTeam: getTeamByPlayerId(activeState, hostJoined.playerId),
-    guestTeam: getTeamByPlayerId(activeState, guestJoined.playerId),
-  };
 }
 
 describe('GameServer', () => {
@@ -519,13 +108,7 @@ describe('GameServer', () => {
 
     const setup = await setupActiveMatch(port);
 
-    let guestGridCount = 0;
-    function onGuestGrid(): void {
-      guestGridCount += 1;
-    }
-    setup.guest.on('state:grid', onGuestGrid);
-
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    await waitForNoEvent(setup.guest, 'state:grid', 120);
 
     setup.host.emit('state:request', { sections: ['grid'] });
     const requestedState = await waitForEvent<RoomGridStatePayload>(
@@ -541,16 +124,13 @@ describe('GameServer', () => {
       waitForEvent<RoomGridStatePayload>(setup.host, 'state:grid', 80),
     ).rejects.toThrow(/timed out/i);
 
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    await waitForNoEvent(setup.host, 'state:grid', 120);
     setup.host.emit('state:request', { sections: ['grid'] });
     await expect(
       waitForEvent<RoomGridStatePayload>(setup.host, 'state:grid', 120),
     ).rejects.toThrow(/timed out/i);
 
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    expect(guestGridCount).toBe(0);
-
-    setup.guest.off('state:grid', onGuestGrid);
+    await waitForNoEvent(setup.guest, 'state:grid', 250);
     setup.host.close();
     setup.guest.close();
     await server.stop();
@@ -1051,8 +631,9 @@ describe('GameServer', () => {
       .sort((a, b) => a.executeTick - b.executeTick || a.eventId - b.eventId)
       .map(({ eventId }) => eventId);
 
-    const pendingState = await waitForCondition(
+    const pendingState = await waitForRoomState(
       setup.host,
+      setup.roomId,
       (state) => {
         const team = state.teams.find(({ id }) => id === setup.hostTeam.id);
         if (!team) {
@@ -1062,7 +643,7 @@ describe('GameServer', () => {
         const pendingIds = team.pendingBuilds.map(({ eventId }) => eventId);
         return queuedEventIds.every((eventId) => pendingIds.includes(eventId));
       },
-      30,
+      { attempts: 30 },
     );
 
     const pendingTeam = getTeamByPlayerId(
@@ -1077,8 +658,9 @@ describe('GameServer', () => {
 
     await collectBuildOutcomes(setup.host, queuedEventIds, 12_000);
 
-    const clearedState = await waitForCondition(
+    const clearedState = await waitForRoomState(
       setup.host,
+      setup.roomId,
       (state) => {
         const team = state.teams.find(({ id }) => id === setup.hostTeam.id);
         if (!team) {
@@ -1090,7 +672,7 @@ describe('GameServer', () => {
         );
         return queuedEventIds.every((eventId) => !pendingIds.has(eventId));
       },
-      40,
+      { attempts: 40 },
     );
 
     const clearedTeam = getTeamByPlayerId(
@@ -1162,8 +744,9 @@ describe('GameServer', () => {
         continue;
       }
 
-      const builtState = await waitForCondition(
+      const builtState = await waitForRoomState(
         setup.host,
+        setup.roomId,
         (state) => {
           const hostTeamState = getTeamByPlayerId(
             state,
@@ -1176,7 +759,7 @@ describe('GameServer', () => {
               structure.hp > 0,
           );
         },
-        30,
+        { attempts: 30 },
       );
       const builtTeam = getTeamByPlayerId(
         builtState,
@@ -1323,12 +906,13 @@ describe('GameServer', () => {
     const setup = await setupActiveMatch(port);
 
     const teamId = setup.hostTeam.id;
-    const initialTeamState = await waitForCondition(
+    const initialTeamState = await waitForRoomState(
       setup.host,
+      setup.roomId,
       (state) =>
         state.roomId === setup.roomId &&
         state.teams.some(({ id }) => id === teamId),
-      20,
+      { attempts: 20 },
     );
     const initialTeam = getTeam(initialTeamState, teamId);
 
@@ -1374,12 +958,13 @@ describe('GameServer', () => {
     expect(scheduled.eventId).toBeGreaterThan(0);
     expect(scheduled.executeTick).toBeGreaterThan(0);
 
-    const builtState = await waitForCondition(
+    const builtState = await waitForRoomState(
       setup.host,
+      setup.roomId,
       (state) =>
         blockAlive(state, blockCells) &&
         getTeam(state, teamId).resources < initialTeam.resources,
-      12,
+      { attempts: 12 },
     );
 
     expect(blockAlive(builtState, blockCells)).toBe(true);
@@ -1414,7 +999,7 @@ describe('GameServer', () => {
     const rooms = await waitForRoomList(
       socket,
       (entries) => entries.some(({ roomId }) => roomId === joined.roomId),
-      8,
+      { attempts: 8 },
     );
     expect(rooms.some(({ roomId }) => roomId === joined.roomId)).toBe(true);
 
@@ -1451,10 +1036,11 @@ describe('GameServer', () => {
     expect(guestRoom.roomId).toBe(ownerRoom.roomId);
     await claimSlot(guest, 'team-2');
 
-    const withTwoTeams = await waitForCondition(
+    const withTwoTeams = await waitForRoomState(
       owner,
+      ownerRoom.roomId,
       (state) => state.roomId === ownerRoom.roomId && state.teams.length >= 2,
-      12,
+      { attempts: 12 },
     );
     expect(withTwoTeams.teams.length).toBeGreaterThanOrEqual(2);
 
@@ -1462,10 +1048,11 @@ describe('GameServer', () => {
     const leftPayload = await waitForEvent<RoomLeftPayload>(guest, 'room:left');
     expect(leftPayload.roomId).toBe(ownerRoom.roomId);
 
-    const backToOneTeam = await waitForCondition(
+    const backToOneTeam = await waitForRoomState(
       owner,
+      ownerRoom.roomId,
       (state) => state.roomId === ownerRoom.roomId && state.teams.length === 1,
-      12,
+      { attempts: 12 },
     );
     expect(backToOneTeam.teams).toHaveLength(1);
 
