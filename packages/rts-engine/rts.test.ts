@@ -144,7 +144,7 @@ function toPreviewSnapshotInput(
         : {
             width: template.width,
             height: template.height,
-            grid: identityTemplate!.grid,
+            grid: identityTemplate.grid,
             checks: template.checks,
             activationCost: template.activationCost,
           },

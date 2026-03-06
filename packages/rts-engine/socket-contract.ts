@@ -1,7 +1,6 @@
 import type {
   AffordabilityResult,
   BuildOutcome,
-  BuildRejectionReason,
   BuildQueuePayload,
   RoomDeterminismCheckpoint,
   RoomGridStatePayload,
