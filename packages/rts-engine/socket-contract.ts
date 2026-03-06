@@ -215,15 +215,6 @@ export interface ChatSendPayload {
   message: string;
 }
 
-/**
- * @deprecated Legacy debug-only payload. Production gameplay mutations must use `build:queue`.
- */
-export interface CellUpdatePayload {
-  x: number;
-  y: number;
-  alive: boolean;
-}
-
 export interface ClientToServerEvents {
   'player:set-name': (payload: PlayerSetNamePayload) => void;
   'room:list': () => void;
@@ -238,10 +229,6 @@ export interface ClientToServerEvents {
   'build:preview': (payload: BuildPreviewRequestPayload) => void;
   'build:queue': (payload: BuildQueuePayload) => void;
   'destroy:queue': (payload: DestroyQueuePayload) => void;
-  /**
-   * @deprecated Legacy debug-only event. Runtime handlers should reject gameplay mutation through this path.
-   */
-  'cell:update': (payload: CellUpdatePayload) => void;
 }
 
 export interface ServerToClientEvents {
