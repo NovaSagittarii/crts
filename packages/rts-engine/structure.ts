@@ -135,6 +135,11 @@ export interface StructureTemplateSummary {
   buildArea: number;
 }
 
+export interface StructureTemplatePayload extends StructureTemplateSummary {
+  cells: number[];
+  checks: Vector2[];
+}
+
 export interface StructurePayload {
   key: string;
   templateId: string;
@@ -285,6 +290,14 @@ export class StructureTemplate {
       activationCost: this.activationCost,
       income: this.income,
       buildArea: this.buildArea,
+    };
+  }
+
+  public toPayload(): StructureTemplatePayload {
+    return {
+      ...this.toSummary(),
+      cells: [...new Uint8Array(this.templateGrid.toPacked())],
+      checks: this.checks.map((check) => ({ x: check.x, y: check.y })),
     };
   }
 }

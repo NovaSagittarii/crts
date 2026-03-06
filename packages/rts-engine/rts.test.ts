@@ -1,6 +1,14 @@
 import { describe, expect, test } from 'vitest';
-import { getBaseCenter, getCanonicalBaseCells } from './geometry.js';
-import { RtsEngine, RtsRoom } from './rts.js';
+import { Grid } from '#conway-core';
+
+import {
+  BASE_FOOTPRINT_HEIGHT,
+  BASE_FOOTPRINT_WIDTH,
+  getBaseCenter,
+  getCanonicalBaseCells,
+  isCanonicalBaseCell,
+} from './geometry.js';
+import { RtsEngine, RtsRoom, type BuildPreviewSnapshotInput } from './rts.js';
 import { StructureTemplate } from './structure.js';
 import {
   BUILD_ZONE_RADIUS,
@@ -19,10 +27,226 @@ import {
   getStructureByTemplateId,
   probeQueueBuild,
   requireTeamPayload,
+  type Cell,
 } from './rts-test-support.js';
-import type { Cell } from './rts-test-support.js';
+import { createIdentityPlacementTransform } from './placement-transform.js';
+
+type RoomState = ReturnType<typeof RtsEngine.createRoomState>;
+
+function toPreviewSnapshotInput(
+  room: RoomState,
+  teamId: number,
+  payload: {
+    templateId: string;
+    x: number;
+    y: number;
+    transform?: BuildPreviewSnapshotInput['transform'];
+  },
+): BuildPreviewSnapshotInput {
+  const team = room.teams.get(teamId);
+  if (!team) {
+    throw new Error(`Expected team ${String(teamId)} to exist`);
+  }
+
+  const template = room.templateMap.get(payload.templateId) ?? null;
+  const identityTemplate =
+    template === null
+      ? null
+      : template.project(createIdentityPlacementTransform());
+
+  return {
+    width: room.width,
+    height: room.height,
+    grid: room.grid,
+    teamResources: team.resources,
+    teamDefeated: team.defeated,
+    teamBuildZoneProjectionInputs: [...team.structures.values()]
+      .sort((left, right) => left.key.localeCompare(right.key))
+      .map((structure) => {
+        const projectedTemplate = structure.projectTemplate();
+        return {
+          x: structure.x,
+          y: structure.y,
+          width: projectedTemplate.width,
+          height: projectedTemplate.height,
+          hp: structure.hp,
+        };
+      }),
+    template:
+      template === null || identityTemplate === null
+        ? null
+        : {
+            width: template.width,
+            height: template.height,
+            grid: identityTemplate.grid,
+            checks: template.checks,
+            activationCost: template.activationCost,
+          },
+    x: payload.x,
+    y: payload.y,
+    transform: payload.transform,
+  };
+}
+
+function getRoomId(room: RoomState): string {
+  return room.id;
+}
 
 describe('rts', () => {
+  test('serializes template payloads with packed cells and checks', () => {
+    const blockTemplate = RtsEngine.createDefaultTemplates().find(
+      (template) => template.id === 'block',
+    );
+
+    if (!blockTemplate) {
+      throw new Error('Expected default block template to exist');
+    }
+
+    const payload = blockTemplate.toPayload();
+
+    expect(payload.id).toBe(blockTemplate.id);
+    expect(payload.width).toBe(blockTemplate.width);
+    expect(payload.height).toBe(blockTemplate.height);
+    expect(payload.activationCost).toBe(blockTemplate.activationCost);
+    expect(payload.checks).toEqual(blockTemplate.checks);
+
+    const unpackedCells = Grid.unpack(
+      Uint8Array.from(payload.cells),
+      payload.width,
+      payload.height,
+    );
+
+    for (let y = 0; y < payload.height; y += 1) {
+      for (let x = 0; x < payload.width; x += 1) {
+        expect(unpackedCells[y * payload.width + x]).toBe(
+          blockTemplate.isCellAlive(x, y) ? 1 : 0,
+        );
+      }
+    }
+  });
+
+  test('provides a cached room instance API while preserving static parity', () => {
+    const room = RtsEngine.createRoom({
+      id: 'instance-room',
+      name: 'Instance Room',
+      width: 48,
+      height: 48,
+    });
+
+    expect(room).toBe(RtsEngine.fromRoomState(room.state));
+    expect(room).toBe(RtsRoom.fromState(room.state));
+    expect(room.id).toBe(RtsEngine.getRoomId(room.state));
+    expect(room.name).toBe(RtsEngine.getRoomName(room.state));
+    expect(room.width).toBe(RtsEngine.getRoomWidth(room.state));
+    expect(room.height).toBe(RtsEngine.getRoomHeight(room.state));
+
+    const team = room.addPlayer('p1', 'Alice');
+    expect(team.id).toBe(1);
+
+    expect(room.getTemplate('block')?.id).toBe('block');
+    expect(room.getTimelineEvents()).toEqual(
+      RtsEngine.getTimelineEvents(room.state),
+    );
+    expect(room.createStatePayload()).toEqual(
+      RtsEngine.createRoomStatePayload(room.state),
+    );
+
+    const missingBuild = room.queueBuildEvent('missing-player', {
+      templateId: 'block',
+      x: 0,
+      y: 0,
+    });
+    expect(missingBuild.accepted).toBe(false);
+    expect(room.tick()).toEqual(RtsEngine.tickRoom(room.state));
+  });
+
+  test('rejects detached room states for instance wrappers', () => {
+    const room = RtsEngine.createRoom({
+      id: 'detached-room',
+      name: 'Detached Room',
+      width: 32,
+      height: 32,
+    });
+
+    const detachedState = {
+      ...room.state,
+      teams: new Map(room.state.teams),
+      players: new Map(room.state.players),
+      templates: [...room.state.templates],
+    } as unknown as ReturnType<typeof RtsEngine.createRoomState>;
+
+    expect(() => RtsEngine.fromRoomState(detachedState)).toThrow(
+      'RoomState must come from RtsEngine.createRoomState or RtsEngine.createRoom',
+    );
+    expect(() => RtsRoom.fromState(detachedState)).toThrow(
+      'RoomState must come from RtsEngine.createRoomState or RtsEngine.createRoom',
+    );
+  });
+
+  test('adds players, seeds base cells, and lists room occupancy', () => {
+    const room = RtsEngine.createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 40,
+      height: 40,
+    });
+    const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+
+    expect(team.id).toBe(1);
+    expect(room.players.get('p1')?.teamId).toBe(team.id);
+
+    const payload = RtsEngine.createRoomStatePayload(room);
+    const base = team.baseTopLeft;
+    const baseCells = getCanonicalBaseCells(base);
+    expect(baseCells).toHaveLength(16);
+
+    for (let localY = 0; localY < BASE_FOOTPRINT_HEIGHT; localY += 1) {
+      for (let localX = 0; localX < BASE_FOOTPRINT_WIDTH; localX += 1) {
+        const expectedAlive = isCanonicalBaseCell(localX, localY);
+        const alive = getCellAlive(
+          payload.grid,
+          getRoomWidth(room),
+          getRoomHeight(room),
+          {
+            x: base.x + localX,
+            y: base.y + localY,
+          },
+        );
+        expect(alive).toBe(expectedAlive);
+      }
+    }
+
+    const rooms = RtsEngine.listRooms(new Map([[getRoomId(room), room]]));
+    expect(rooms).toEqual([
+      {
+        roomId: '1',
+        name: 'Alpha',
+        width: 40,
+        height: 40,
+        players: 1,
+        teams: 1,
+      },
+    ]);
+  });
+
+  test('renames and removes room players with team cleanup', () => {
+    const room = RtsEngine.createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 32,
+      height: 32,
+    });
+    const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+
+    RtsEngine.renamePlayerInRoom(room, 'p1', 'Alicia');
+    expect(room.players.get('p1')?.name).toBe('Alicia');
+    expect(room.teams.get(team.id)?.name).toBe(`Alicia's Team`);
+
+    RtsEngine.removePlayerFromRoom(room, 'p1');
+    expect(room.players.has('p1')).toBe(false);
+    expect(room.teams.has(team.id)).toBe(false);
+  });
+
   test('[QUAL-01] validates queue rejection reasons and delay clamping', () => {
     const room = RtsEngine.createRoomState({
       id: '1',
@@ -309,6 +533,90 @@ describe('rts', () => {
     expect(RtsEngine.getTimelineEvents(room).at(-1)?.metadata?.reason).toBe(
       'template-exceeds-map-size',
     );
+  });
+
+  test('matches room preview results with snapshot preview evaluator', () => {
+    const room = RtsEngine.createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 80,
+      height: 80,
+    });
+    const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+    const baseCenter = getBaseCenter(team.baseTopLeft);
+    const payload = {
+      templateId: 'block',
+      x: baseCenter.x + Math.floor(BUILD_ZONE_RADIUS),
+      y: baseCenter.y,
+      transform: {
+        operations: ['rotate' as const],
+      },
+    };
+
+    const roomPreview = RtsEngine.previewBuildPlacement(room, 'p1', payload);
+    const snapshotPreview = RtsEngine.previewBuildPlacementFromSnapshot(
+      toPreviewSnapshotInput(room, team.id, payload),
+    );
+
+    expect(snapshotPreview).toEqual(roomPreview);
+  });
+
+  test('matches room preview rejection reasons with snapshot preview evaluator', () => {
+    const room = RtsEngine.createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 80,
+      height: 80,
+    });
+    const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+
+    const outsidePayload = {
+      templateId: 'block',
+      x: 79,
+      y: 79,
+    };
+    const outsideRoomPreview = RtsEngine.previewBuildPlacement(
+      room,
+      'p1',
+      outsidePayload,
+    );
+    const outsideSnapshotPreview = RtsEngine.previewBuildPlacementFromSnapshot(
+      toPreviewSnapshotInput(room, team.id, outsidePayload),
+    );
+    expect(outsideSnapshotPreview).toEqual(outsideRoomPreview);
+
+    team.resources = 0;
+    const insufficientPayload = {
+      templateId: 'block',
+      x: team.baseTopLeft.x,
+      y: team.baseTopLeft.y,
+    };
+    const insufficientRoomPreview = RtsEngine.previewBuildPlacement(
+      room,
+      'p1',
+      insufficientPayload,
+    );
+    const insufficientSnapshotPreview =
+      RtsEngine.previewBuildPlacementFromSnapshot(
+        toPreviewSnapshotInput(room, team.id, insufficientPayload),
+      );
+    expect(insufficientSnapshotPreview).toEqual(insufficientRoomPreview);
+
+    const unknownTemplatePayload = {
+      templateId: 'missing-template',
+      x: 0,
+      y: 0,
+    };
+    const unknownRoomPreview = RtsEngine.previewBuildPlacement(
+      room,
+      'p1',
+      unknownTemplatePayload,
+    );
+    const unknownSnapshotPreview = RtsEngine.previewBuildPlacementFromSnapshot(
+      toPreviewSnapshotInput(room, team.id, unknownTemplatePayload),
+    );
+
+    expect(unknownSnapshotPreview).toEqual(unknownRoomPreview);
   });
 
   test('normalizes wrapped-equivalent anchors to one occupied site key', () => {

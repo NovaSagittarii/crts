@@ -224,21 +224,6 @@ describe('socket payload validation', () => {
   );
 
   test.each(INVALID_BUILD_CASES)(
-    'rejects malformed build:preview payloads: $label',
-    async ({ payload }) => {
-      const { host } = await setupActiveMatch();
-      const errorPromise = waitForEvent<RoomErrorPayload>(host, 'room:error');
-
-      host.emit('build:preview', payload);
-
-      await expect(errorPromise).resolves.toMatchObject({
-        reason: 'invalid-build',
-        message: 'Invalid build payload',
-      });
-    },
-  );
-
-  test.each(INVALID_BUILD_CASES)(
     'rejects malformed build:queue payloads: $label',
     async ({ payload }) => {
       const { host } = await setupActiveMatch();

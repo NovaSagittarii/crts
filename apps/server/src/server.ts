@@ -17,9 +17,6 @@ import {
 
 import { LobbyRoom, type LobbyRejectionReason } from '#rts-engine';
 import {
-  type BuildPreviewPayload,
-  type BuildPreviewRequestPayload,
-  type BuildPreviewResult,
   type QueueBuildResult,
   type BuildQueuePayload,
   type BuildScheduledPayload,
@@ -1588,7 +1585,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       playerName: session.name,
       teamId,
       templates: room.rtsRoom.state.templates.map((template) =>
-        template.toSummary(),
+        template.toPayload(),
       ),
       state: room.rtsRoom.createStatePayload(),
       stateHashes: createStateHashesPayload(room),
@@ -1966,81 +1963,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
     return 'destroy-rejected';
   }
 
-  function runQueueBuildProbe(
-    rtsRoom: RtsRoom,
-    playerId: string,
-    payload: BuildQueuePayload,
-  ): BuildPreviewResult {
-    return rtsRoom.previewBuildPlacement(playerId, payload);
-  }
-
-  function derivePreviewAffordability(
-    currentResources: number,
-    previewResult: BuildPreviewResult,
-  ): Pick<
-    BuildPreviewPayload,
-    'affordable' | 'needed' | 'current' | 'deficit'
-  > {
-    if (
-      typeof previewResult.affordable === 'boolean' &&
-      typeof previewResult.needed === 'number' &&
-      typeof previewResult.current === 'number' &&
-      typeof previewResult.deficit === 'number'
-    ) {
-      return {
-        affordable: previewResult.affordable,
-        needed: previewResult.needed,
-        current: previewResult.current,
-        deficit: previewResult.deficit,
-      };
-    }
-
-    return {
-      affordable: previewResult.accepted,
-      needed: 0,
-      current: currentResources,
-      deficit: 0,
-    };
-  }
-
-  function createBuildPreviewPayload(
-    roomId: string,
-    teamId: number,
-    request: BuildPreviewRequestPayload,
-    previewResult: BuildPreviewResult,
-    affordability: Pick<
-      BuildPreviewPayload,
-      'affordable' | 'needed' | 'current' | 'deficit'
-    >,
-  ): BuildPreviewPayload {
-    return {
-      roomId,
-      teamId,
-      templateId: request.templateId,
-      x: request.x,
-      y: request.y,
-      transform: previewResult.transform ?? {
-        operations: [],
-        matrix: {
-          xx: 1,
-          xy: 0,
-          yx: 0,
-          yy: 1,
-        },
-      },
-      footprint: previewResult.footprint ?? [],
-      illegalCells: previewResult.illegalCells ?? [],
-      bounds: previewResult.bounds ?? {
-        x: request.x,
-        y: request.y,
-        width: 0,
-        height: 0,
-      },
-      ...affordability,
-      reason: previewResult.accepted ? undefined : previewResult.reason,
-    };
-  }
-
   function createRoomFromPayload(payload: unknown): RuntimeRoom {
     const roomPayload = (payload ?? {}) as RoomCreatePayload;
     const roomId = roomCounter.toString();
@@ -2390,70 +2312,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
       });
     });
 
-    socket.on('build:preview', (payload: unknown) => {
-      if (!ensureCurrentSocket(socket, session)) {
-        return;
-      }
-
-      const room = getRoomOrNull(session.roomId);
-      if (!room) {
-        roomError(socket, 'Join a room first', 'not-in-room');
-        return;
-      }
-
-      const gate = assertGameplayMutationAllowed(room, session.id);
-      if (!gate.allowed) {
-        roomError(
-          socket,
-          gate.message ?? 'Gameplay mutation rejected',
-          gate.reason,
-        );
-        return;
-      }
-
-      if (!gate.team) {
-        roomError(
-          socket,
-          'Only assigned players can issue gameplay mutations',
-          'not-player',
-        );
-        return;
-      }
-
-      const parsedPayload = parseBuildPayload(payload);
-      if (!parsedPayload) {
-        roomError(socket, 'Invalid build payload', 'invalid-build');
-        return;
-      }
-
-      const previewRequest: BuildPreviewRequestPayload = {
-        templateId: parsedPayload.templateId,
-        x: parsedPayload.x,
-        y: parsedPayload.y,
-        transform: parsedPayload.transform,
-      };
-
-      const previewResult = runQueueBuildProbe(
-        room.rtsRoom,
-        session.id,
-        previewRequest,
-      );
-      const affordability = derivePreviewAffordability(
-        gate.team.resources,
-        previewResult,
-      );
-
-      const previewPayload = createBuildPreviewPayload(
-        room.rtsRoom.id,
-        gate.team.id,
-        previewRequest,
-        previewResult,
-        affordability,
-      );
-
-      socket.emit('build:preview', previewPayload);
-    });
-
     socket.on('build:queue', (payload: unknown) => {
       if (!ensureCurrentSocket(socket, session)) {
         return;
@@ -2551,32 +2409,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
           reason === 'insufficient-resources'
             ? getAffordabilityMetadata(result)
             : undefined,
-        );
-
-        const previewRequest: BuildPreviewRequestPayload = {
-          templateId: parsedPayload.templateId,
-          x: parsedPayload.x,
-          y: parsedPayload.y,
-          transform: parsedPayload.transform,
-        };
-        const refreshedPreview = runQueueBuildProbe(
-          room.rtsRoom,
-          session.id,
-          previewRequest,
-        );
-        const refreshedAffordability = derivePreviewAffordability(
-          team.resources,
-          refreshedPreview,
-        );
-        socket.emit(
-          'build:preview',
-          createBuildPreviewPayload(
-            room.rtsRoom.id,
-            team.id,
-            previewRequest,
-            refreshedPreview,
-            refreshedAffordability,
-          ),
         );
 
         return;
