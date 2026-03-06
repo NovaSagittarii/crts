@@ -20,7 +20,3 @@ These rules apply to `packages/conway-core/*`.
 - Keep Grid behavior in the class API; do not maintain parallel legacy function APIs for the same behavior.
 - Avoid runtime side effects and non-deterministic behavior.
 - Maintain unit coverage for stable patterns (`block`) and moving patterns (`glider`).
-
-## Testing
-
-- Prefer co-located unit tests under `packages/conway-core` as `*.test.ts`.
