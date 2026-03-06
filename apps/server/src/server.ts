@@ -99,6 +99,7 @@ export interface ServerOptions {
   lockstepMode?: LockstepMode;
   lockstepTurnTicks?: number;
   lockstepCheckpointIntervalTicks?: number;
+  lockstepMaxBufferedCommands?: number;
   lockstepMaxBufferedTurns?: number;
   activeStateSnapshotIntervalTicks?: number;
   now?: () => number;
@@ -153,7 +154,7 @@ interface LockstepRuntimeState {
   status: LockstepRuntimeStatus;
   turnLengthTicks: number;
   checkpointIntervalTicks: number;
-  maxBufferedTurns: number;
+  maxBufferedCommands: number;
   nextTurn: number;
   nextSequence: number;
   nextIntentId: number;
@@ -436,8 +437,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
     1,
     240,
   );
-  const lockstepMaxBufferedTurns = parseBoundedInteger(
-    options.lockstepMaxBufferedTurns,
+  const lockstepMaxBufferedCommands = parseBoundedInteger(
+    options.lockstepMaxBufferedCommands ?? options.lockstepMaxBufferedTurns,
     DEFAULT_LOCKSTEP_MAX_BUFFERED_TURNS,
     4,
     512,
@@ -482,7 +483,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       status: 'running',
       turnLengthTicks: lockstepTurnTicks,
       checkpointIntervalTicks: lockstepCheckpointIntervalTicks,
-      maxBufferedTurns: lockstepMaxBufferedTurns,
+      maxBufferedCommands: lockstepMaxBufferedCommands,
       nextTurn: 0,
       nextSequence: 0,
       nextIntentId: 0,
@@ -506,7 +507,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       status: lockstepRuntime.status,
       turnLengthTicks: lockstepRuntime.turnLengthTicks,
       nextTurn: lockstepRuntime.nextTurn,
-      bufferedTurns: lockstepRuntime.turnBuffer.size,
+      bufferedTurnCount: lockstepRuntime.turnBuffer.size,
       mismatchCount: lockstepRuntime.mismatchCount,
       lastFallbackReason: lockstepRuntime.lastFallbackReason ?? undefined,
       lastPrimaryHash: lockstepRuntime.lastPrimaryHash ?? undefined,
@@ -1071,7 +1072,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         : turn;
 
     if (
-      lockstepRuntime.bufferedCommandCount > lockstepRuntime.maxBufferedTurns
+      lockstepRuntime.bufferedCommandCount > lockstepRuntime.maxBufferedCommands
     ) {
       fallbackToLegacyLockstep(room, 'turn-buffer-overflow');
       return true;
@@ -1191,16 +1192,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
     if (lockstepRuntime.turnBuffer.size === 0) {
       return;
     }
-
-    const pendingCommands = [...lockstepRuntime.turnBuffer.values()]
-      .flat()
-      .sort((left, right) => {
-        if (left.turn !== right.turn) {
-          return left.turn - right.turn;
-        }
-
-        return left.sequence - right.sequence;
-      });
 
     lockstepRuntime.turnBuffer.clear();
     lockstepRuntime.bufferedCommandCount = 0;
@@ -2471,8 +2462,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
         );
         return;
       }
-
-      const team = gate.team;
 
       const parsedPayload = parseBuildPayload(payload);
       if (!parsedPayload) {

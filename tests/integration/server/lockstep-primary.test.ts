@@ -341,7 +341,7 @@ describe('lockstep primary mode', () => {
       countdownSeconds: 0,
       lockstepMode: 'primary',
       lockstepTurnTicks: 20,
-      lockstepMaxBufferedTurns: 4,
+      lockstepMaxBufferedCommands: 4,
       lockstepCheckpointIntervalTicks: 1,
     });
     const port = await server.start();

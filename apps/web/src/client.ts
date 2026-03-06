@@ -499,6 +499,11 @@ let lastStateRequestAtMs = 0;
 let lastGridHashHex: string | null = null;
 let lastStructuresHashHex: string | null = null;
 let lastMembershipHashHex: string | null = null;
+const pendingStateRequestSections = new Set<
+  NonNullable<StateRequestPayload['sections']>[number]
+>();
+let pendingStateRequestTimerId: number | null = null;
+let awaitingStateHashesAfterFullState = false;
 
 const BUILD_ERROR_TOAST_DEDUPE_MS = 800;
 const CAMERA_KEYBOARD_WORLD_STEP_CELLS = 8;
@@ -528,23 +533,65 @@ function setMessage(message: string, isError = false): void {
   messageEl.classList.toggle('message--error', isError);
 }
 
-function requestStateSections(
-  sections: StateRequestPayload['sections'],
-  force = false,
-): void {
+function clearPendingStateRequests(): void {
+  if (pendingStateRequestTimerId !== null) {
+    window.clearTimeout(pendingStateRequestTimerId);
+    pendingStateRequestTimerId = null;
+  }
+  pendingStateRequestSections.clear();
+}
+
+function flushPendingStateRequest(force = false): void {
   if (!currentRoomId || currentRoomId === '-') {
+    clearPendingStateRequests();
+    return;
+  }
+
+  if (pendingStateRequestSections.size === 0) {
     return;
   }
 
   const now = Date.now();
-  if (!force && now - lastStateRequestAtMs < STATE_REQUEST_MIN_INTERVAL_MS) {
+  const waitMs = force
+    ? 0
+    : Math.max(0, STATE_REQUEST_MIN_INTERVAL_MS - (now - lastStateRequestAtMs));
+  if (waitMs > 0) {
+    if (pendingStateRequestTimerId !== null) {
+      return;
+    }
+
+    pendingStateRequestTimerId = window.setTimeout(() => {
+      pendingStateRequestTimerId = null;
+      flushPendingStateRequest();
+    }, waitMs);
     return;
   }
 
   lastStateRequestAtMs = now;
+  const requestedSections = [...pendingStateRequestSections];
+  pendingStateRequestSections.clear();
+  if (requestedSections.includes('full')) {
+    awaitingStateHashesAfterFullState = true;
+  }
   socket.emit('state:request', {
-    sections,
+    sections: requestedSections,
   } satisfies StateRequestPayload);
+}
+
+function requestStateSections(
+  sections: StateRequestPayload['sections'],
+  force = false,
+): void {
+  for (const section of sections ?? ['full']) {
+    pendingStateRequestSections.add(section);
+  }
+
+  if (force && pendingStateRequestTimerId !== null) {
+    window.clearTimeout(pendingStateRequestTimerId);
+    pendingStateRequestTimerId = null;
+  }
+
+  flushPendingStateRequest(force);
 }
 
 function requestStateSnapshot(force = false): void {
@@ -3491,6 +3538,8 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   currentRoomCode = payload.roomCode;
   currentRoomName = payload.roomName;
   currentTeamId = payload.teamId;
+  clearPendingStateRequests();
+  awaitingStateHashesAfterFullState = false;
   resetRoomTransitionFlags();
   resetRoomTransitionViewModels();
   availableTemplates = payload.templates;
@@ -3522,6 +3571,8 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   currentRoomCode = '-';
   currentRoomName = '-';
   currentTeamId = null;
+  clearPendingStateRequests();
+  awaitingStateHashesAfterFullState = false;
   lastGridHashHex = null;
   lastStructuresHashHex = null;
   lastMembershipHashHex = null;
@@ -3917,6 +3968,12 @@ socket.on('state:hashes', (payload: RoomStateHashesPayload) => {
     return;
   }
 
+  if (awaitingStateHashesAfterFullState) {
+    syncAppliedStateHashes(payload);
+    awaitingStateHashesAfterFullState = false;
+    return;
+  }
+
   const sections: StateRequestPayload['sections'] = [];
   if (lastGridHashHex !== payload.gridHash) {
     sections.push('grid');
@@ -3934,6 +3991,7 @@ socket.on('state:hashes', (payload: RoomStateHashesPayload) => {
 });
 
 socket.on('state', (payload: StatePayload) => {
+  awaitingStateHashesAfterFullState = true;
   applyStatePayload(payload);
 });
 

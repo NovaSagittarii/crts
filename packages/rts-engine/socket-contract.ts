@@ -40,7 +40,7 @@ export interface LockstepStatusPayload {
   status: LockstepStatus;
   turnLengthTicks: number;
   nextTurn: number;
-  bufferedTurns: number;
+  bufferedTurnCount: number;
   mismatchCount: number;
   lastFallbackReason?: LockstepFallbackReason;
   lastPrimaryHash?: string;
@@ -70,15 +70,6 @@ export interface StateRequestPayload {
 export interface RoomStateHashesPayload extends RoomStateHashes {
   roomId: string;
   roomMembershipHash: string;
-}
-
-interface BufferedIntentPayload {
-  roomId: string;
-  intentId: string;
-  playerId: string;
-  teamId: number;
-  bufferedTurn: number;
-  scheduledByTurn: number;
 }
 
 export interface BuildQueuedPayload {

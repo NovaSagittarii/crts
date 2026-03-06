@@ -13,8 +13,8 @@ import {
 } from '#rts-engine';
 
 import type {
+  BuildScheduledPayload,
   BuildOutcomePayload,
-  BuildQueuedPayload,
   MatchFinishedPayload,
   PlacementTransformInput,
   RoomErrorPayload,
@@ -31,8 +31,10 @@ import {
   type TestClientOptions,
   waitForBuildOutcome,
   waitForBuildQueueResponse,
+  waitForBuildScheduled,
   waitForDestroyOutcome,
   waitForDestroyQueueResponse,
+  waitForDestroyScheduled,
   waitForEvent as waitForEventBase,
   waitForMembership as waitForMembershipBase,
   waitForState as waitForStateBase,
@@ -279,7 +281,7 @@ async function setupActiveMatch(
 
 async function queueValidHostBuild(
   match: ActiveMatchSetup,
-): Promise<{ queued: BuildQueuedPayload; outcome: BuildOutcomePayload }> {
+): Promise<{ scheduled: BuildScheduledPayload; outcome: BuildOutcomePayload }> {
   const blockTemplate = match.hostJoined.templates.find(
     ({ id }) => id === 'block',
   );
@@ -300,6 +302,9 @@ async function queueValidHostBuild(
 
     for (const placement of placements) {
       const queueResponsePromise = waitForBuildQueueResponse(match.host);
+      const scheduledPromise = waitForBuildScheduled(match.host, 4_000).catch(
+        () => null,
+      );
       match.host.emit('build:queue', {
         templateId: blockTemplate.id,
         x: placement.x,
@@ -313,12 +318,14 @@ async function queueValidHostBuild(
         continue;
       }
 
-      const outcome = await waitForBuildOutcome(
-        match.host,
-        response.queued.eventId,
-      );
+      const scheduled = await scheduledPromise;
+      if (!scheduled) {
+        continue;
+      }
+
+      const outcome = await waitForBuildOutcome(match.host, scheduled.eventId);
       return {
-        queued: response.queued,
+        scheduled,
         outcome,
       };
     }
@@ -328,7 +335,7 @@ async function queueValidHostBuild(
 }
 
 async function queueAppliedHostBuild(match: ActiveMatchSetup): Promise<{
-  queued: BuildQueuedPayload;
+  scheduled: BuildScheduledPayload;
   outcome: BuildOutcomePayload;
   structureKey: string;
 }> {
@@ -348,6 +355,9 @@ async function queueAppliedHostBuild(match: ActiveMatchSetup): Promise<{
 
   for (const placement of placements) {
     const responsePromise = waitForBuildQueueResponse(match.host);
+    const scheduledPromise = waitForBuildScheduled(match.host, 4_000).catch(
+      () => null,
+    );
     match.host.emit('build:queue', {
       templateId: blockTemplate.id,
       x: placement.x,
@@ -360,10 +370,12 @@ async function queueAppliedHostBuild(match: ActiveMatchSetup): Promise<{
       continue;
     }
 
-    const outcome = await waitForBuildOutcome(
-      match.host,
-      response.queued.eventId,
-    );
+    const scheduled = await scheduledPromise;
+    if (!scheduled) {
+      continue;
+    }
+
+    const outcome = await waitForBuildOutcome(match.host, scheduled.eventId);
     if (outcome.outcome !== 'applied') {
       continue;
     }
@@ -398,7 +410,7 @@ async function queueAppliedHostBuild(match: ActiveMatchSetup): Promise<{
     }
 
     return {
-      queued: response.queued,
+      scheduled,
       outcome,
       structureKey: structure.key,
     };
@@ -436,10 +448,10 @@ describe('QUAL-02 quality gate integration loop', () => {
     const match = await setupActiveMatch(() => connectClientForTest());
 
     // QUAL-02 requires one explicit build queue + terminal outcome in the loop.
-    const { queued, outcome } = await queueValidHostBuild(match);
-    expect(queued.eventId).toBeGreaterThan(0);
-    expect(outcome.eventId).toBe(queued.eventId);
-    expect(outcome.resolvedTick).toBeGreaterThanOrEqual(queued.executeTick);
+    const { scheduled, outcome } = await queueValidHostBuild(match);
+    expect(scheduled.eventId).toBeGreaterThan(0);
+    expect(outcome.eventId).toBe(scheduled.eventId);
+    expect(outcome.resolvedTick).toBeGreaterThanOrEqual(scheduled.executeTick);
 
     const matchFinishedPromise = waitForEvent<MatchFinishedPayload>(
       match.host,
@@ -455,6 +467,7 @@ describe('QUAL-02 quality gate integration loop', () => {
     const destroyQueueResponsePromise = waitForDestroyQueueResponse(
       match.guest,
     );
+    const destroyScheduledPromise = waitForDestroyScheduled(match.guest, 4_000);
     match.guest.emit('destroy:queue', {
       structureKey: guestCore.key,
       delayTicks: 1,
@@ -467,9 +480,11 @@ describe('QUAL-02 quality gate integration loop', () => {
       );
     }
 
+    const destroyScheduled = await destroyScheduledPromise;
+
     const destroyOutcome = await waitForDestroyOutcome(
       match.guest,
-      destroyQueueResponse.queued.eventId,
+      destroyScheduled.eventId,
       12_000,
     );
     expect(destroyOutcome.outcome).toBe('destroyed');
@@ -518,6 +533,7 @@ describe('QUAL-02 quality gate integration loop', () => {
     expect(appliedBuild.outcome.outcome).toBe('applied');
 
     const destroyQueueResponsePromise = waitForDestroyQueueResponse(match.host);
+    const destroyScheduledPromise = waitForDestroyScheduled(match.host, 4_000);
     match.host.emit('destroy:queue', {
       structureKey: appliedBuild.structureKey,
       delayTicks: 20,
@@ -529,8 +545,8 @@ describe('QUAL-02 quality gate integration loop', () => {
       );
     }
 
-    const destroyQueued = destroyQueueResponse.queued;
-    expect(destroyQueued.idempotent).toBe(false);
+    const destroyScheduled = await destroyScheduledPromise;
+    expect(destroyScheduled.idempotent).toBe(false);
 
     match.guest.disconnect();
     const reconnectGuest = connectClientForTest({
@@ -549,7 +565,7 @@ describe('QUAL-02 quality gate integration loop', () => {
       (payload) => {
         const hostTeam = getTeamByPlayerId(payload, match.hostJoined.playerId);
         return hostTeam.pendingDestroys.some(
-          ({ eventId }) => eventId === destroyQueued.eventId,
+          ({ eventId }) => eventId === destroyScheduled.eventId,
         );
       },
       60,
@@ -557,8 +573,8 @@ describe('QUAL-02 quality gate integration loop', () => {
     );
 
     const [hostOutcome, reconnectOutcome] = await Promise.all([
-      waitForDestroyOutcome(match.host, destroyQueued.eventId, 16_000),
-      waitForDestroyOutcome(reconnectGuest, destroyQueued.eventId, 16_000),
+      waitForDestroyOutcome(match.host, destroyScheduled.eventId, 16_000),
+      waitForDestroyOutcome(reconnectGuest, destroyScheduled.eventId, 16_000),
     ]);
     expect(reconnectOutcome).toEqual(hostOutcome);
     expect(hostOutcome.outcome).toBe('destroyed');
@@ -573,7 +589,7 @@ describe('QUAL-02 quality gate integration loop', () => {
           ({ eventId }) => eventId,
         );
         return (
-          !pendingIds.includes(destroyQueued.eventId) &&
+          !pendingIds.includes(destroyScheduled.eventId) &&
           !hostTeam.structures.some(
             ({ key, hp }) => key === appliedBuild.structureKey && hp > 0,
           )
@@ -592,7 +608,7 @@ describe('QUAL-02 quality gate integration loop', () => {
           ({ eventId }) => eventId,
         );
         return (
-          !pendingIds.includes(destroyQueued.eventId) &&
+          !pendingIds.includes(destroyScheduled.eventId) &&
           !hostTeam.structures.some(
             ({ key, hp }) => key === appliedBuild.structureKey && hp > 0,
           )

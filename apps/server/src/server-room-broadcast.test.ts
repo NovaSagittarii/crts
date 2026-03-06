@@ -78,7 +78,7 @@ function createRoom(
       status: 'running',
       turnLengthTicks: 1,
       nextTurn: 0,
-      bufferedTurns: 0,
+      bufferedTurnCount: 0,
       mismatchCount: 0,
     },
   };

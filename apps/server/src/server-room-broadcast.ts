@@ -190,7 +190,7 @@ export class RoomBroadcastService {
             status: payload.lockstep.status,
             turnLengthTicks: payload.lockstep.turnLengthTicks,
             nextTurn: payload.lockstep.nextTurn,
-            bufferedTurns: payload.lockstep.bufferedTurns,
+            bufferedTurnCount: payload.lockstep.bufferedTurnCount,
             mismatchCount: payload.lockstep.mismatchCount,
             lastFallbackReason: payload.lockstep.lastFallbackReason ?? null,
             lastPrimaryHash: payload.lockstep.lastPrimaryHash ?? null,

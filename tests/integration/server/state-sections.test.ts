@@ -4,7 +4,6 @@ import type { Socket } from 'socket.io-client';
 import { createServer } from '../../../apps/server/src/server.js';
 import type {
   BuildQueuedPayload,
-  BuildScheduledPayload,
   RoomGridStatePayload,
   RoomJoinedPayload,
   RoomMembershipPayload,
