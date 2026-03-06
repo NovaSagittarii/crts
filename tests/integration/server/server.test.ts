@@ -36,18 +36,12 @@ import {
   waitForRoomState,
 } from './test-support.js';
 
-type StatePayload = RoomStatePayload;
-type BuildOutcome = BuildOutcomePayload;
-type BuildQueued = BuildQueuedPayload;
-type BuildScheduled = BuildScheduledPayload;
-type RoomError = RoomErrorPayload;
-
-function blockAlive(state: StatePayload, coords: Cell[]): boolean {
+function blockAlive(state: RoomStatePayload, coords: Cell[]): boolean {
   const unpackedGrid = Grid.unpack(state.grid, state.width, state.height);
   return coords.every(({ x, y }) => unpackedGrid[y * state.width + x] === 1);
 }
 
-function getTeam(state: StatePayload, teamId: number): TeamPayload {
+function getTeam(state: RoomStatePayload, teamId: number): TeamPayload {
   const team = state.teams?.find(({ id }) => id === teamId);
   if (!team) {
     throw new Error(`Unable to find team ${teamId}`);
@@ -82,8 +76,16 @@ describe('GameServer', () => {
 
     const setup = await setupActiveMatch(port);
 
-    const first = await waitForEvent<StatePayload>(setup.host, 'state', 7000);
-    const second = await waitForEvent<StatePayload>(setup.host, 'state', 7000);
+    const first = await waitForEvent<RoomStatePayload>(
+      setup.host,
+      'state',
+      7000,
+    );
+    const second = await waitForEvent<RoomStatePayload>(
+      setup.host,
+      'state',
+      7000,
+    );
 
     expect(second.generation).toBeGreaterThan(first.generation);
     expect(second.tick).toBeGreaterThan(first.tick);
@@ -154,8 +156,8 @@ describe('GameServer', () => {
       setup.hostJoined.state.height,
     );
 
-    const queuedIntents: BuildQueued[] = [];
-    const scheduledEvents: BuildScheduled[] = [];
+    const queuedIntents: BuildQueuedPayload[] = [];
+    const scheduledEvents: BuildScheduledPayload[] = [];
     for (const placement of candidatePlacements) {
       const scheduledPromise = waitForBuildScheduled(setup.host, 2_000).catch(
         () => null,
@@ -202,7 +204,7 @@ describe('GameServer', () => {
 
     expect(outcomesById.size).toBe(queuedById.size);
 
-    const observedOutcomes: BuildOutcome[] = [];
+    const observedOutcomes: BuildOutcomePayload[] = [];
     for (const [eventId, outcomes] of outcomesById.entries()) {
       expect(outcomes).toHaveLength(1);
 
@@ -262,9 +264,11 @@ describe('GameServer', () => {
     expect(hostPlacements).toHaveLength(2);
     expect(guestPlacements).toHaveLength(2);
 
-    const queuedEvents: Array<BuildQueued & { source: 'host' | 'guest' }> = [];
+    const queuedEvents: Array<
+      BuildQueuedPayload & { source: 'host' | 'guest' }
+    > = [];
     const scheduledEvents: Array<
-      BuildScheduled & { source: 'host' | 'guest' }
+      BuildScheduledPayload & { source: 'host' | 'guest' }
     > = [];
     for (let index = 0; index < hostPlacements.length; index += 1) {
       const queuedPromise = collectBuildQueuedEvents(setup.host, 2, 4_000, 50);
@@ -371,7 +375,10 @@ describe('GameServer', () => {
       y: 0,
       delayTicks: 1,
     });
-    const outOfBounds = await waitForEvent<RoomError>(setup.host, 'room:error');
+    const outOfBounds = await waitForEvent<RoomErrorPayload>(
+      setup.host,
+      'room:error',
+    );
     expect(outOfBounds.reason).toBe('outside-territory');
 
     setup.host.emit('build:queue', {
@@ -380,7 +387,7 @@ describe('GameServer', () => {
       y: setup.guestTeam.baseTopLeft.y,
       delayTicks: 1,
     });
-    const outsideTerritory = await waitForEvent<RoomError>(
+    const outsideTerritory = await waitForEvent<RoomErrorPayload>(
       setup.host,
       'room:error',
     );
@@ -412,10 +419,10 @@ describe('GameServer', () => {
     );
     expect(placements.length).toBeGreaterThan(0);
 
-    let insufficient: { error: RoomError } | null = null;
+    let insufficient: { error: RoomErrorPayload } | null = null;
     for (let attempt = 0; attempt < placements.length; attempt += 1) {
       const placement = placements[attempt];
-      const errorPromise = waitForEvent<RoomError>(
+      const errorPromise = waitForEvent<RoomErrorPayload>(
         setup.host,
         'room:error',
         1_500,
@@ -499,7 +506,7 @@ describe('GameServer', () => {
     ).slice(0, 3);
     expect(placements).toHaveLength(3);
 
-    const scheduled: BuildScheduled[] = [];
+    const scheduled: BuildScheduledPayload[] = [];
     const delays = [18, 14, 18];
 
     for (let index = 0; index < placements.length; index += 1) {
@@ -729,7 +736,7 @@ describe('GameServer', () => {
       structureKey: targetStructureKey,
       delayTicks: 1,
     });
-    const wrongOwnerError = await waitForEvent<RoomError>(
+    const wrongOwnerError = await waitForEvent<RoomErrorPayload>(
       setup.guest,
       'room:error',
       1_500,
@@ -740,7 +747,7 @@ describe('GameServer', () => {
       structureKey: 'missing-target-key',
       delayTicks: 1,
     });
-    const invalidTargetError = await waitForEvent<RoomError>(
+    const invalidTargetError = await waitForEvent<RoomErrorPayload>(
       setup.host,
       'room:error',
       1_500,
@@ -783,7 +790,7 @@ describe('GameServer', () => {
       structureKey: targetStructureKey,
       delayTicks: 1,
     });
-    const staleDestroyError = await waitForEvent<RoomError>(
+    const staleDestroyError = await waitForEvent<RoomErrorPayload>(
       setup.host,
       'room:error',
       1_500,
@@ -848,7 +855,10 @@ describe('GameServer', () => {
     });
 
     const scheduledPromise = waitForBuildScheduled(setup.host, 4_000);
-    const queued = await waitForEvent<BuildQueued>(setup.host, 'build:queued');
+    const queued = await waitForEvent<BuildQueuedPayload>(
+      setup.host,
+      'build:queued',
+    );
     expect(queued.intentId).toMatch(/^intent-/);
     const scheduled = await scheduledPromise;
     expect(scheduled.eventId).toBeGreaterThan(0);

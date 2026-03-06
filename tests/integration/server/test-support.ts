@@ -46,10 +46,6 @@ export interface WaitForRequestedStateOptions extends WaitForPredicateOptions {
   requestIntervalMs?: number;
 }
 
-export type WaitForStateOptions = WaitForRequestedStateOptions;
-
-export type WaitForStateSectionOptions = WaitForRequestedStateOptions;
-
 export interface CandidatePlacementOptions {
   transform?: PlacementTransformInput;
   searchRadius?: number;
@@ -267,7 +263,7 @@ function waitForRequestedStateEvent<T>(
 export function waitForState(
   socket: Socket,
   predicate: (payload: RoomStatePayload) => boolean,
-  options: WaitForStateOptions = {},
+  options: WaitForRequestedStateOptions = {},
 ): Promise<RoomStatePayload> {
   return waitForRequestedStateEvent<RoomStatePayload>(
     socket,
@@ -287,7 +283,7 @@ export function waitForRoomState(
   socket: Socket,
   roomId: string,
   predicate: (payload: RoomStatePayload) => boolean,
-  options: Omit<WaitForStateOptions, 'roomId'> = {},
+  options: Omit<WaitForRequestedStateOptions, 'roomId'> = {},
 ): Promise<RoomStatePayload> {
   return waitForState(socket, predicate, {
     ...options,
@@ -298,7 +294,7 @@ export function waitForRoomState(
 export function waitForStateGrid(
   socket: Socket,
   predicate: (payload: RoomGridStatePayload) => boolean,
-  options: WaitForStateSectionOptions = {},
+  options: WaitForRequestedStateOptions = {},
 ): Promise<RoomGridStatePayload> {
   return waitForRequestedStateEvent<RoomGridStatePayload>(
     socket,
@@ -312,7 +308,7 @@ export function waitForStateGrid(
 export function waitForStateStructures(
   socket: Socket,
   predicate: (payload: RoomStructuresStatePayload) => boolean,
-  options: WaitForStateSectionOptions = {},
+  options: WaitForRequestedStateOptions = {},
 ): Promise<RoomStructuresStatePayload> {
   return waitForRequestedStateEvent<RoomStructuresStatePayload>(
     socket,

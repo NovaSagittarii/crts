@@ -23,8 +23,6 @@ import {
 
 const HOLD_EXPIRY_ADVANCE_MS = 31_000;
 
-type RoomListEntry = RoomListEntryPayload;
-
 function normalizeMembership(payload: RoomMembershipPayload): object {
   const sortedSlots: Record<string, string | null> = {};
   for (const slotId of Object.keys(payload.slots).sort()) {
@@ -127,7 +125,10 @@ describe('lobby reliability regression', () => {
     const created = await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
 
     host.emit('room:list');
-    const listedRooms = await waitForEvent<RoomListEntry[]>(host, 'room:list');
+    const listedRooms = await waitForEvent<RoomListEntryPayload[]>(
+      host,
+      'room:list',
+    );
     expect(
       listedRooms.some(
         ({ roomId, roomCode }) =>

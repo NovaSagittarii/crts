@@ -150,17 +150,12 @@ import {
   resetStateHashResyncState,
 } from './state-hash-resync-view-model.js';
 
-type RoomListEntry = RoomListEntryPayload;
-type StatePayload = RoomStatePayload;
-type TemplateSummary = StructureTemplatePayload;
-type TeamPayload = StatePayload['teams'][number];
+type TeamPayload = RoomStatePayload['teams'][number];
 type BuildPreview = BuildQueuePreview & {
   footprint: Cell[];
   illegalCells: Cell[];
   bounds: PlacementBounds;
 };
-type BuildOutcome = BuildOutcomePayload;
-type DestroyOutcome = DestroyOutcomePayload;
 
 interface VisibleStructure {
   teamId: number;
@@ -474,7 +469,7 @@ let playerIdentityState = createPlayerIdentityState(
   persistedSessionId,
   playerNameEl.value.trim(),
 );
-let availableTemplates: TemplateSummary[] = [];
+let availableTemplates: StructureTemplatePayload[] = [];
 const previewTemplateSnapshotsById = new Map<
   string,
   BuildPreviewTemplateSnapshot
@@ -649,7 +644,7 @@ function applyAuthoritativePlayerIdentity(payload: {
 
 function createSyntheticStatePayload(
   payload: RoomStructuresStatePayload,
-): StatePayload {
+): RoomStatePayload {
   return {
     roomId: payload.roomId,
     roomName: currentRoomName,
@@ -662,7 +657,7 @@ function createSyntheticStatePayload(
   };
 }
 
-function applyStatePayload(payload: StatePayload): void {
+function applyStatePayload(payload: RoomStatePayload): void {
   const previousGridWidth = gridWidth;
   const previousGridHeight = gridHeight;
 
@@ -1047,7 +1042,7 @@ function syncPlayerNameBeforeJoin(): void {
   socket.emit('player:set-name', { name });
 }
 
-function getSelectedTemplate(): TemplateSummary | null {
+function getSelectedTemplate(): StructureTemplatePayload | null {
   if (!selectedTemplateId) return null;
   return availableTemplates.find(({ id }) => id === selectedTemplateId) ?? null;
 }
@@ -1636,7 +1631,7 @@ function resetRoomTransitionViewModels(): void {
   resetTacticalOverlayState();
 }
 
-function syncVisibleStructures(payload: StatePayload): void {
+function syncVisibleStructures(payload: RoomStatePayload): void {
   const nextStructures: VisibleStructure[] = [];
   const nextIndex = new Map<string, VisibleStructure>();
 
@@ -1707,7 +1702,7 @@ function clearLocalBuildZoneOverlay(): void {
   localBuildZoneCoverageCache.clear();
 }
 
-function syncLocalBuildZoneOverlay(payload: StatePayload): void {
+function syncLocalBuildZoneOverlay(payload: RoomStatePayload): void {
   if (currentTeamId === null) {
     clearLocalBuildZoneOverlay();
     return;
@@ -1948,7 +1943,7 @@ function refreshActionUi(nowMs = Date.now()): void {
 }
 
 function syncPreviewTemplateSnapshots(
-  templates: readonly TemplateSummary[],
+  templates: readonly StructureTemplatePayload[],
 ): void {
   previewTemplateSnapshotsById.clear();
 
@@ -2461,7 +2456,7 @@ function updateReadOnlyExperience(): void {
   refreshActionUi();
 }
 
-function syncCurrentTeamIdFromState(payload: StatePayload): void {
+function syncCurrentTeamIdFromState(payload: RoomStatePayload): void {
   currentTeamId = resolveTeamIdForSession(
     payload.teams,
     playerIdentityState.sessionId,
@@ -2613,7 +2608,7 @@ function applyRoomStatus(nextStatus: RoomStatus): void {
   updateLifecycleUi();
 }
 
-function renderRoomList(rooms: RoomListEntry[]): void {
+function renderRoomList(rooms: RoomListEntryPayload[]): void {
   roomListEl.innerHTML = '';
 
   for (const room of rooms) {
@@ -2902,7 +2897,7 @@ function chooseTemplatePlacement(cell: Cell): void {
   selectTemplatePlacementAt(cell);
 }
 
-function updateTeamStats(payload: StatePayload): void {
+function updateTeamStats(payload: RoomStatePayload): void {
   syncCurrentTeamIdFromState(payload);
 
   roomEl.textContent = `${payload.roomName} (#${payload.roomId})`;
@@ -3120,7 +3115,7 @@ function renderLobbyMembership(payload: RoomMembershipPayload): void {
   updateLifecycleUi();
 }
 
-function renderSpawnMarkers(payload: StatePayload): void {
+function renderSpawnMarkers(payload: RoomStatePayload): void {
   spawnMarkersEl.innerHTML = '';
 
   if (payload.teams.length === 0) {
@@ -3447,7 +3442,7 @@ socket.io.on('reconnect_failed', () => {
   );
 });
 
-socket.on('room:list', (rooms: RoomListEntry[]) => {
+socket.on('room:list', (rooms: RoomListEntryPayload[]) => {
   renderRoomList(rooms);
 });
 
@@ -3698,7 +3693,7 @@ socket.on('player:profile', (payload: PlayerProfilePayload) => {
   updateLifecycleUi();
 });
 
-socket.on('build:outcome', (payload: BuildOutcome) => {
+socket.on('build:outcome', (payload: BuildOutcomePayload) => {
   if (payload.roomId !== currentRoomId) {
     return;
   }
@@ -3771,7 +3766,7 @@ socket.on('build:scheduled', (payload: BuildScheduledPayload) => {
   refreshActionUi();
 });
 
-socket.on('destroy:outcome', (payload: DestroyOutcome) => {
+socket.on('destroy:outcome', (payload: DestroyOutcomePayload) => {
   if (payload.roomId !== currentRoomId) {
     return;
   }
@@ -3908,7 +3903,7 @@ socket.on('state:hashes', (payload: RoomStateHashesPayload) => {
   }
 });
 
-socket.on('state', (payload: StatePayload) => {
+socket.on('state', (payload: RoomStatePayload) => {
   stateHashResyncState = markAwaitingHashesAfterFullState(stateHashResyncState);
   applyStatePayload(payload);
 });

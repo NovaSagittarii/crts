@@ -105,8 +105,6 @@ export interface ServerOptions {
   clearTimeout?: ClearTimeoutHook;
 }
 
-export type StatePayload = RoomStatePayload;
-
 type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
 function configureStaticAssets(
@@ -178,7 +176,7 @@ interface RuntimeRoom extends RuntimeBroadcastRoom {
 export interface GameServer {
   start(): Promise<number>;
   stop(): Promise<void>;
-  getStatePayload(): StatePayload;
+  getStatePayload(): RoomStatePayload;
 }
 
 function roomChannel(roomId: string): string {
@@ -2547,7 +2545,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   let interval: IntervalHandle | null = null;
   let tickCounter = 0;
 
-  function getStatePayload(): StatePayload {
+  function getStatePayload(): RoomStatePayload {
     const room = rooms.get(defaultRoomId);
     if (room) {
       return room.rtsRoom.createStatePayload();

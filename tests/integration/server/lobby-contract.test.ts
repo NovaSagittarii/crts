@@ -20,8 +20,6 @@ import {
   waitForMembership,
 } from './test-support.js';
 
-type RoomListEntry = RoomListEntryPayload;
-
 function countPlayers(payload: RoomMembershipPayload): number {
   return payload.participants.filter(({ role }) => role === 'player').length;
 }
@@ -108,7 +106,10 @@ describe('lobby room/team contract', () => {
     const created = await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
 
     owner.emit('room:list');
-    const rooms = await waitForEvent<RoomListEntry[]>(owner, 'room:list');
+    const rooms = await waitForEvent<RoomListEntryPayload[]>(
+      owner,
+      'room:list',
+    );
     expect(rooms.some(({ roomCode }) => roomCode === created.roomCode)).toBe(
       true,
     );
