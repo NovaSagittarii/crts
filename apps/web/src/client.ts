@@ -9,6 +9,8 @@ import type {
   ClientToServerEvents,
   DestroyOutcomePayload,
   DestroyQueuedPayload,
+  LockstepCheckpointPayload,
+  LockstepFallbackPayload,
   MembershipParticipant,
   MatchFinishedPayload,
   PlayerProfilePayload,
@@ -348,7 +350,6 @@ const setNameButton = getRequiredElement<HTMLButtonElement>('set-name');
 
 const templateSelectEl =
   getRequiredElement<HTMLSelectElement>('template-select');
-const buildModeEl = getRequiredElement<HTMLSelectElement>('build-mode');
 const buildDelayEl = getRequiredElement<HTMLInputElement>('build-delay');
 const transformRotateButton =
   getRequiredElement<HTMLButtonElement>('transform-rotate');
@@ -419,10 +420,6 @@ let cellSize = 6;
 let canvasRatio = window.devicePixelRatio || 1;
 let canvasCssWidth = 0;
 let canvasCssHeight = 0;
-let isDrawing = false;
-let drawingPointerId: number | null = null;
-let drawValue = true;
-let lastCell: Cell | null = null;
 let cameraState: CameraViewState = createCameraViewState();
 let isCameraPanning = false;
 let cameraPanPointerId: number | null = null;
@@ -442,7 +439,6 @@ let availableTemplates: TemplateSummary[] = [];
 let selectedTemplateId = '';
 let placementTransformState: PlacementTransformViewState =
   createPlacementTransformViewState();
-let templateMode = false;
 let countdownSecondsRemaining: number | null = null;
 let currentMatchFinished: MatchFinishedPayload | null = null;
 let isFinishedPanelMinimized = false;
@@ -487,10 +483,12 @@ let localBuildZoneSignature = '';
 const localBuildZoneCoverageCache = new Map<string, readonly number[]>();
 let edgeBannerTimeoutId: number | null = null;
 let reconnectNoticeTimeoutId: number | null = null;
+let lastStateRequestAtMs = 0;
 
 const BUILD_ERROR_TOAST_DEDUPE_MS = 800;
 const CAMERA_KEYBOARD_WORLD_STEP_CELLS = 8;
 const LOCAL_BUILD_ZONE_CACHE_MAX_ENTRIES = 512;
+const STATE_REQUEST_MIN_INTERVAL_MS = 120;
 
 function addToast(message: string, isError = false): void {
   const toast = document.createElement('div');
@@ -513,6 +511,20 @@ function addToast(message: string, isError = false): void {
 function setMessage(message: string, isError = false): void {
   messageEl.textContent = message;
   messageEl.classList.toggle('message--error', isError);
+}
+
+function requestStateSnapshot(force = false): void {
+  if (!currentRoomId || currentRoomId === '-') {
+    return;
+  }
+
+  const now = Date.now();
+  if (!force && now - lastStateRequestAtMs < STATE_REQUEST_MIN_INTERVAL_MS) {
+    return;
+  }
+
+  lastStateRequestAtMs = now;
+  socket.emit('state:request');
 }
 
 function getCanvasViewportPoint(event: MouseEvent | PointerEvent): CameraPoint {
@@ -1730,7 +1742,7 @@ function buildPreviewRequestFromSelection(): {
 function updateQueuePlacementCopy(): void {
   if (!selectedTemplatePlacement) {
     queuePlacementEl.textContent =
-      'Select a board placement while in Template Queue mode.';
+      'Select a board placement to request affordability.';
     return;
   }
 
@@ -1765,9 +1777,7 @@ function updateQueueAffordabilityUi(): void {
   let isError = false;
   let disabled = true;
 
-  if (!templateMode) {
-    feedback = 'Switch to Template Queue mode to queue build actions.';
-  } else if (!canMutateGameplay()) {
+  if (!canMutateGameplay()) {
     feedback =
       'Queue action is read-only until you are an active, non-defeated player.';
   } else if (!selectedTemplatePlacement) {
@@ -1812,7 +1822,7 @@ function refreshActionUi(nowMs = Date.now()): void {
 }
 
 function emitBuildPreviewForSelectedPlacement(): void {
-  if (!templateMode || !canMutateGameplay()) {
+  if (!canMutateGameplay()) {
     return;
   }
 
@@ -1871,16 +1881,14 @@ function applyTransformControl(
   refreshActionUi();
 }
 
-function cancelTemplateBuildMode(): void {
+function clearSelectedBuildPlacement(): void {
   if (!canMutateGameplay()) {
-    setMessage('Build mode is already read-only.', true);
+    setMessage('Build controls are already read-only.', true);
     return;
   }
 
-  templateMode = false;
-  buildModeEl.value = 'paint';
   clearSelectedTemplatePlacement();
-  setMessage('Build mode canceled. Returned to Paint Cells mode.');
+  setMessage('Cleared selected template placement.');
   requestRender();
   refreshActionUi();
 }
@@ -2229,7 +2237,6 @@ function getReadOnlyBannerCopy(): {
 function updateReadOnlyExperience(): void {
   const gameplayAllowed = canMutateGameplay();
 
-  buildModeEl.disabled = !gameplayAllowed;
   templateSelectEl.disabled = !gameplayAllowed;
   buildDelayEl.disabled = !gameplayAllowed;
   transformRotateButton.disabled = !gameplayAllowed;
@@ -2445,12 +2452,6 @@ function renderRoomList(rooms: RoomListEntry[]): void {
   }
 }
 
-function getCell(x: number, y: number): number {
-  if (!gridBytes) return 0;
-  const idx = y * gridWidth + x;
-  return gridBytes[idx] ?? 0;
-}
-
 function chooseCellSize(width: number): number {
   const viewportWidth =
     gridViewportEl.clientWidth > 0
@@ -2510,10 +2511,7 @@ function renderLocalBuildZoneOverlay(
     return;
   }
 
-  const placementEmphasis = templateMode;
-  ctx.fillStyle = placementEmphasis
-    ? 'rgba(94, 201, 255, 0.23)'
-    : 'rgba(94, 201, 255, 0.1)';
+  ctx.fillStyle = 'rgba(94, 201, 255, 0.23)';
 
   const fillInset = 0.6;
   const fillSize = Math.max(1, cellSize - fillInset * 2);
@@ -2535,9 +2533,7 @@ function renderLocalBuildZoneOverlay(
     );
   }
 
-  ctx.strokeStyle = placementEmphasis
-    ? 'rgba(94, 201, 255, 0.86)'
-    : 'rgba(94, 201, 255, 0.42)';
+  ctx.strokeStyle = 'rgba(94, 201, 255, 0.86)';
   ctx.lineWidth = 1 / cameraState.zoom;
   ctx.beginPath();
 
@@ -2580,7 +2576,7 @@ function renderLocalBuildZoneOverlay(
 function renderBuildPreviewOverlay(
   visibleBounds: VisibleGridBounds | null,
 ): void {
-  if (!visibleBounds || !templateMode || !latestBuildPreview) {
+  if (!visibleBounds || !latestBuildPreview) {
     return;
   }
   if (!previewMatchesCurrentSelection(latestBuildPreview)) {
@@ -2719,17 +2715,6 @@ function pointerToCell(event: PointerEvent): Cell | null {
       height: gridHeight,
     },
   });
-}
-
-function sendUpdate(x: number, y: number, alive: boolean): void {
-  if (!canMutateGameplay()) {
-    setMessage(
-      'Gameplay edits are disabled while you are in read-only mode.',
-      true,
-    );
-    return;
-  }
-  socket.emit('cell:update', { x, y, alive });
 }
 
 function chooseTemplatePlacement(cell: Cell): void {
@@ -3001,16 +2986,6 @@ function renderSpawnMarkers(payload: StatePayload): void {
   }
 }
 
-function handleDraw(event: PointerEvent): void {
-  const cell = pointerToCell(event);
-  if (!cell) return;
-
-  if (lastCell && lastCell.x === cell.x && lastCell.y === cell.y) return;
-
-  lastCell = cell;
-  sendUpdate(cell.x, cell.y, drawValue);
-}
-
 function getKeyboardPanDirection(key: string): CameraPanDirection | null {
   if (key === 'ArrowLeft' || key === 'a' || key === 'A') {
     return 'left';
@@ -3117,17 +3092,7 @@ canvas.addEventListener('pointerdown', (event) => {
     return;
   }
 
-  if (templateMode) {
-    chooseTemplatePlacement(cell);
-    return;
-  }
-
-  canvas.setPointerCapture(event.pointerId);
-  isDrawing = true;
-  drawingPointerId = event.pointerId;
-  drawValue = getCell(cell.x, cell.y) === 0;
-  lastCell = null;
-  handleDraw(event);
+  chooseTemplatePlacement(cell);
 });
 
 canvas.addEventListener('pointermove', (event) => {
@@ -3152,11 +3117,6 @@ canvas.addEventListener('pointermove', (event) => {
     return;
   }
 
-  if (isDrawing && drawingPointerId === event.pointerId) {
-    handleDraw(event);
-    return;
-  }
-
   updateStructureHoverStateForPointer(event);
 });
 
@@ -3176,17 +3136,6 @@ function stopPointerInteraction(event: PointerEvent): void {
         graceMs: DEFAULT_HOVER_LEAVE_GRACE_MS,
       });
     }
-    return;
-  }
-
-  if (isDrawing && drawingPointerId === event.pointerId) {
-    isDrawing = false;
-    drawingPointerId = null;
-    lastCell = null;
-    if (canvas.hasPointerCapture(event.pointerId)) {
-      canvas.releasePointerCapture(event.pointerId);
-    }
-    updateStructureHoverStateForPointer(event);
     return;
   }
 
@@ -3495,6 +3444,7 @@ socket.on('room:match-started', () => {
   applyRoomStatus('active');
   lobbyCountdownEl.textContent = 'Match active';
   addToast('Match started. Good luck.');
+  requestStateSnapshot(true);
 });
 
 socket.on('room:match-finished', (payload: MatchFinishedPayload) => {
@@ -3516,6 +3466,25 @@ socket.on('room:match-finished', (payload: MatchFinishedPayload) => {
   applyRoomStatus('finished');
   renderFinishedResults();
   updateLifecycleUi();
+  requestStateSnapshot(true);
+});
+
+socket.on('lockstep:checkpoint', (payload: LockstepCheckpointPayload) => {
+  if (payload.roomId !== currentRoomId) {
+    return;
+  }
+
+  if (payload.tick % 50 === 0) {
+    requestStateSnapshot();
+  }
+});
+
+socket.on('lockstep:fallback', (payload: LockstepFallbackPayload) => {
+  if (payload.roomId !== currentRoomId) {
+    return;
+  }
+
+  requestStateSnapshot(true);
 });
 
 socket.on('room:slot-claimed', (payload: RoomSlotClaimedPayload) => {
@@ -3565,11 +3534,13 @@ socket.on('build:preview', (payload: BuildPreview) => {
 });
 
 socket.on('build:outcome', (payload: BuildOutcome) => {
-  if (payload.roomId !== currentRoomId || currentTeamId === null) {
+  if (payload.roomId !== currentRoomId) {
     return;
   }
 
-  if (payload.teamId !== currentTeamId) {
+  requestStateSnapshot();
+
+  if (currentTeamId === null || payload.teamId !== currentTeamId) {
     return;
   }
 
@@ -3611,11 +3582,13 @@ socket.on('build:queued', (payload: BuildQueuedPayload) => {
 });
 
 socket.on('destroy:outcome', (payload: DestroyOutcome) => {
-  if (payload.roomId !== currentRoomId || currentTeamId === null) {
+  if (payload.roomId !== currentRoomId) {
     return;
   }
 
-  if (payload.teamId !== currentTeamId) {
+  requestStateSnapshot();
+
+  if (currentTeamId === null || payload.teamId !== currentTeamId) {
     return;
   }
 
@@ -3695,7 +3668,6 @@ socket.on('state', (payload: StatePayload) => {
 
   if (
     selectedTemplatePlacement &&
-    templateMode &&
     canMutateGameplay() &&
     !previewPending &&
     lastPreviewRefreshTick !== payload.tick
@@ -3710,20 +3682,6 @@ setNameButton.addEventListener('click', () => {
   socket.emit('player:set-name', {
     name,
   });
-});
-
-buildModeEl.addEventListener('change', () => {
-  templateMode = buildModeEl.value === 'template';
-  if (!templateMode) {
-    clearSelectedTemplatePlacement();
-  }
-  setMessage(
-    templateMode
-      ? 'Template mode: click on the board to select placement, then use Queue Selected Placement.'
-      : 'Paint mode: click and drag to toggle cells.',
-  );
-  requestRender();
-  refreshActionUi();
 });
 
 templateSelectEl.addEventListener('change', () => {
@@ -3750,7 +3708,7 @@ transformMirrorVerticalButton.addEventListener('click', () => {
 });
 
 cancelBuildModeButton.addEventListener('click', () => {
-  cancelTemplateBuildMode();
+  clearSelectedBuildPlacement();
 });
 
 createRoomButton.addEventListener('click', () => {

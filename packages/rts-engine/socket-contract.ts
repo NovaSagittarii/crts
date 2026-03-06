@@ -4,6 +4,7 @@ import type {
   BuildPreviewProjection,
   BuildRejectionReason,
   BuildQueuePayload,
+  RoomDeterminismCheckpoint,
   DestroyOutcome,
   DestroyQueuePayload,
   DestroyRejectionReason,
@@ -25,6 +26,39 @@ import type {
 
 export type RoomStatus = 'lobby' | 'countdown' | 'active' | 'finished';
 export type ConnectionStatus = 'connected' | 'held';
+export type LockstepMode = 'off' | 'shadow' | 'primary';
+export type LockstepStatus = 'running' | 'fallback';
+export type LockstepFallbackReason =
+  | 'hash-mismatch'
+  | 'shadow-unavailable'
+  | 'turn-buffer-overflow'
+  | 'manual';
+
+export interface LockstepStatusPayload {
+  mode: LockstepMode;
+  status: LockstepStatus;
+  turnLengthTicks: number;
+  nextTurn: number;
+  bufferedTurns: number;
+  mismatchCount: number;
+  lastFallbackReason?: LockstepFallbackReason;
+  lastPrimaryHash?: string;
+  lastShadowHash?: string;
+}
+
+export interface LockstepCheckpointPayload extends RoomDeterminismCheckpoint {
+  roomId: string;
+  mode: LockstepMode;
+  turn: number;
+}
+
+export interface LockstepFallbackPayload {
+  roomId: string;
+  fromMode: Exclude<LockstepMode, 'off'>;
+  reason: LockstepFallbackReason;
+  checkpoint?: RoomDeterminismCheckpoint;
+  mismatchCount?: number;
+}
 
 export interface BuildQueuedPayload {
   eventId: number;
@@ -111,6 +145,7 @@ export interface RoomJoinedPayload {
   teamId: number | null;
   templates: StructureTemplateSummary[];
   state: RoomStatePayload;
+  lockstep?: LockstepStatusPayload;
 }
 
 export interface RoomLeftPayload {
@@ -176,6 +211,7 @@ export interface RoomMembershipPayload {
     } | null
   >;
   countdownSecondsRemaining: number | null;
+  lockstep?: LockstepStatusPayload;
 }
 
 export interface PlayerProfilePayload {
@@ -215,15 +251,6 @@ export interface ChatSendPayload {
   message: string;
 }
 
-/**
- * @deprecated Legacy debug-only payload. Production gameplay mutations must use `build:queue`.
- */
-export interface CellUpdatePayload {
-  x: number;
-  y: number;
-  alive: boolean;
-}
-
 export interface ClientToServerEvents {
   'player:set-name': (payload: PlayerSetNamePayload) => void;
   'room:list': () => void;
@@ -235,13 +262,10 @@ export interface ClientToServerEvents {
   'room:start': (payload?: RoomStartPayload) => void;
   'room:cancel-countdown': () => void;
   'chat:send': (payload: ChatSendPayload) => void;
+  'state:request': () => void;
   'build:preview': (payload: BuildPreviewRequestPayload) => void;
   'build:queue': (payload: BuildQueuePayload) => void;
   'destroy:queue': (payload: DestroyQueuePayload) => void;
-  /**
-   * @deprecated Legacy debug-only event. Runtime handlers should reject gameplay mutation through this path.
-   */
-  'cell:update': (payload: CellUpdatePayload) => void;
 }
 
 export interface ServerToClientEvents {
@@ -261,5 +285,7 @@ export interface ServerToClientEvents {
   'build:outcome': (payload: BuildOutcomePayload) => void;
   'destroy:queued': (payload: DestroyQueuedPayload) => void;
   'destroy:outcome': (payload: DestroyOutcomePayload) => void;
+  'lockstep:checkpoint': (payload: LockstepCheckpointPayload) => void;
+  'lockstep:fallback': (payload: LockstepFallbackPayload) => void;
   'player:profile': (payload: PlayerProfilePayload) => void;
 }

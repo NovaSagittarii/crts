@@ -23,7 +23,7 @@ Lifecycle/status contract:
 - Room status is coordinator-driven and only transitions `lobby -> countdown -> active -> finished`.
 - `room:start` is host-only and serves both initial start and restart from `finished`.
 - `room:cancel-countdown` is host-only and only legal while status is `countdown`.
-- Gameplay mutations are queue-only: accepted mutations must enter through `build:queue`, and `cell:update` is an explicit rejected bypass path.
+- Gameplay mutations are queue-only: accepted mutations must enter through queue/event paths such as `build:queue` and `destroy:queue`.
 
 Common (not exhaustive) `room:error.reason` values:
 
@@ -32,7 +32,6 @@ Common (not exhaustive) `room:error.reason` values:
 - `invalid-state`: gameplay mutation attempted outside `active`.
 - `defeated`: defeated player attempted gameplay mutation.
 - `not-ready`: lobby start attempted before both slotted players are ready.
-- `queue-only-mutation-path`: direct `cell:update` gameplay bypass attempt was rejected.
 - `out-of-bounds`: `build:queue` payload coordinates exceeded room bounds.
 - `outside-territory`: `build:queue` payload targeted cells beyond the team's union build zone.
 - `invalid-coordinates`: `build:queue` payload included non-integer coordinates.
@@ -47,7 +46,7 @@ Common (not exhaustive) `room:error.reason` values:
 - `countdown-locked`: ready/slot mutation attempted while countdown is running.
 - `match-started`: lobby mutation attempted after match became active.
 - `invalid-chat`: chat payload was empty or invalid.
-- `invalid-build`: build/cell payload was malformed.
+- `invalid-build`: build payload was malformed.
 - `team-defeated` / `team-unavailable` / `build-rejected`: queue request failed deterministic placement/team checks.
 - `session-replaced`: session auth token was replaced by a newer socket connection.
 

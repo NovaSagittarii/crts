@@ -23,12 +23,15 @@ import {
   type QueueBuildResult,
   type BuildQueuePayload,
   type DestroyQueuePayload,
-  type CellUpdatePayload as SocketCellUpdatePayload,
   type ChatSendPayload,
   type ClientToServerEvents,
   type DestroyOutcomePayload,
   type DestroyQueuedPayload,
   type LifecyclePreconditions,
+  type LockstepCheckpointPayload,
+  type LockstepFallbackReason,
+  type LockstepMode,
+  type LockstepStatusPayload,
   type PlacementTransformInput,
   type PlacementTransformOperation,
   type QueueDestroyResult,
@@ -57,6 +60,11 @@ const PLAYER_SLOT_IDS = ['team-1', 'team-2'] as const;
 const COUNTDOWN_SECONDS = 3;
 const MEMBERSHIP_RESYNC_INTERVAL_MS = 300;
 const FINISHED_ROOM_RESYNC_INTERVAL_MS = 500;
+const DEFAULT_LOCKSTEP_TURN_TICKS = 1;
+const DEFAULT_LOCKSTEP_CHECKPOINT_INTERVAL_TICKS = 4;
+const DEFAULT_LOCKSTEP_MAX_BUFFERED_TURNS = 64;
+const DEFAULT_ACTIVE_STATE_SNAPSHOT_INTERVAL_TICKS = 50;
+const STATE_REQUEST_MIN_INTERVAL_MS = 100;
 
 type IntervalHandle = ReturnType<typeof setInterval>;
 type TimeoutHandle = ReturnType<typeof setTimeout>;
@@ -80,6 +88,11 @@ export interface ServerOptions {
   clientAssetsDir?: string;
   countdownSeconds?: number;
   reconnectHoldMs?: number;
+  lockstepMode?: LockstepMode;
+  lockstepTurnTicks?: number;
+  lockstepCheckpointIntervalTicks?: number;
+  lockstepMaxBufferedTurns?: number;
+  activeStateSnapshotIntervalTicks?: number;
   now?: () => number;
   setInterval?: SetIntervalHook;
   clearInterval?: ClearIntervalHook;
@@ -90,7 +103,6 @@ export interface ServerOptions {
 export type StatePayload = RoomStatePayload;
 
 type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
-export type CellUpdatePayload = SocketCellUpdatePayload;
 
 function configureStaticAssets(
   app: Express,
@@ -111,8 +123,49 @@ function configureStaticAssets(
   app.use(express.static(clientAssetsDir));
 }
 
+interface BufferedLockstepCommand {
+  sequence: number;
+  turn: number;
+  kind: 'build' | 'destroy';
+  sessionId: string;
+  socketId: string;
+  payload: BuildQueuePayload | DestroyQueuePayload;
+  expectedAccepted: boolean;
+  expectedExecuteTick: number | null;
+  expectedReason: string | null;
+}
+
+type LockstepRuntimeStatus = 'running' | 'fallback';
+
+interface LockstepRuntimeState {
+  mode: LockstepMode;
+  status: LockstepRuntimeStatus;
+  turnLengthTicks: number;
+  checkpointIntervalTicks: number;
+  maxBufferedTurns: number;
+  nextTurn: number;
+  nextSequence: number;
+  lastFlushedTurn: number;
+  bufferedCommandCount: number;
+  turnBuffer: Map<number, BufferedLockstepCommand[]>;
+  shadowRoom: RtsRoom | null;
+  mismatchCount: number;
+  lastFallbackReason: LockstepFallbackReason | null;
+  lastPrimaryHash: string | null;
+  lastShadowHash: string | null;
+  checkpoints: LockstepCheckpointPayload[];
+}
+
+interface StateRequestBudget {
+  roomId: string;
+  lastRequestedAtMs: number;
+  lastServedTick: number;
+  lastServedRevision: number;
+}
+
 interface RuntimeRoom extends RuntimeBroadcastRoom {
   countdownTimer: IntervalHandle | null;
+  lockstepRuntime: LockstepRuntimeState;
 }
 
 export interface GameServer {
@@ -156,6 +209,28 @@ function parseReconnectHoldMs(value: unknown): number {
   }
 
   return Math.floor(holdMs);
+}
+
+function parseLockstepMode(value: unknown): LockstepMode {
+  if (value === 'shadow' || value === 'primary') {
+    return value;
+  }
+
+  return 'off';
+}
+
+function parseBoundedInteger(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    return fallback;
+  }
+
+  return Math.max(min, Math.min(max, parsed));
 }
 
 function parseRoomIdentifier(value: unknown): string | null {
@@ -337,6 +412,31 @@ export function createServer(options: ServerOptions = {}): GameServer {
       ? Math.max(0, Math.floor(options.countdownSeconds))
       : COUNTDOWN_SECONDS;
   const reconnectHoldMs = parseReconnectHoldMs(options.reconnectHoldMs);
+  const lockstepMode = parseLockstepMode(options.lockstepMode);
+  const lockstepTurnTicks = parseBoundedInteger(
+    options.lockstepTurnTicks,
+    DEFAULT_LOCKSTEP_TURN_TICKS,
+    1,
+    60,
+  );
+  const lockstepCheckpointIntervalTicks = parseBoundedInteger(
+    options.lockstepCheckpointIntervalTicks,
+    DEFAULT_LOCKSTEP_CHECKPOINT_INTERVAL_TICKS,
+    1,
+    240,
+  );
+  const lockstepMaxBufferedTurns = parseBoundedInteger(
+    options.lockstepMaxBufferedTurns,
+    DEFAULT_LOCKSTEP_MAX_BUFFERED_TURNS,
+    4,
+    512,
+  );
+  const activeStateSnapshotIntervalTicks = parseBoundedInteger(
+    options.activeStateSnapshotIntervalTicks,
+    DEFAULT_ACTIVE_STATE_SNAPSHOT_INTERVAL_TICKS,
+    1,
+    1000,
+  );
   const now = options.now ?? (() => Date.now());
   const setIntervalHook =
     options.setInterval ??
@@ -363,9 +463,136 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   const roomTemplates = RtsEngine.createDefaultTemplates();
   const rooms = new Map<string, RuntimeRoom>();
+  const stateRequestBudgetBySession = new Map<string, StateRequestBudget>();
+
+  function createLockstepRuntimeState(): LockstepRuntimeState {
+    return {
+      mode: lockstepMode,
+      status: 'running',
+      turnLengthTicks: lockstepTurnTicks,
+      checkpointIntervalTicks: lockstepCheckpointIntervalTicks,
+      maxBufferedTurns: lockstepMaxBufferedTurns,
+      nextTurn: 0,
+      nextSequence: 0,
+      lastFlushedTurn: -1,
+      bufferedCommandCount: 0,
+      turnBuffer: new Map(),
+      shadowRoom: null,
+      mismatchCount: 0,
+      lastFallbackReason: null,
+      lastPrimaryHash: null,
+      lastShadowHash: null,
+      checkpoints: [],
+    };
+  }
+
+  function toLockstepStatusPayload(
+    lockstepRuntime: LockstepRuntimeState,
+  ): LockstepStatusPayload {
+    return {
+      mode: lockstepRuntime.mode,
+      status: lockstepRuntime.status,
+      turnLengthTicks: lockstepRuntime.turnLengthTicks,
+      nextTurn: lockstepRuntime.nextTurn,
+      bufferedTurns: lockstepRuntime.turnBuffer.size,
+      mismatchCount: lockstepRuntime.mismatchCount,
+      lastFallbackReason: lockstepRuntime.lastFallbackReason ?? undefined,
+      lastPrimaryHash: lockstepRuntime.lastPrimaryHash ?? undefined,
+      lastShadowHash: lockstepRuntime.lastShadowHash ?? undefined,
+    };
+  }
+
+  function resetLockstepRuntime(room: RuntimeRoom): void {
+    room.lockstepRuntime = createLockstepRuntimeState();
+    room.lockstep = toLockstepStatusPayload(room.lockstepRuntime);
+  }
+
+  function clearStateRequestBudget(sessionId: string): void {
+    stateRequestBudgetBySession.delete(sessionId);
+  }
+
+  function shouldServeStateRequest(
+    sessionId: string,
+    room: RuntimeRoom,
+  ): boolean {
+    const currentTick = room.rtsRoom.state.tick;
+    const currentRevision = room.revision;
+    const currentRoomId = room.rtsRoom.id;
+    const currentTimeMs = now();
+    const budget = stateRequestBudgetBySession.get(sessionId);
+
+    if (
+      budget &&
+      budget.roomId === currentRoomId &&
+      currentTimeMs - budget.lastRequestedAtMs < STATE_REQUEST_MIN_INTERVAL_MS
+    ) {
+      return false;
+    }
+
+    if (
+      budget &&
+      budget.roomId === currentRoomId &&
+      budget.lastServedTick === currentTick &&
+      budget.lastServedRevision === currentRevision
+    ) {
+      return false;
+    }
+
+    stateRequestBudgetBySession.set(sessionId, {
+      roomId: currentRoomId,
+      lastRequestedAtMs: currentTimeMs,
+      lastServedTick: currentTick,
+      lastServedRevision: currentRevision,
+    });
+    return true;
+  }
+
+  function cloneBuildQueuePayload(
+    payload: BuildQueuePayload,
+  ): BuildQueuePayload {
+    return {
+      ...payload,
+      transform: payload.transform
+        ? { operations: [...(payload.transform.operations ?? [])] }
+        : undefined,
+    };
+  }
+
+  function cloneDestroyQueuePayload(
+    payload: DestroyQueuePayload,
+  ): DestroyQueuePayload {
+    return { ...payload };
+  }
+
+  function createShadowRoom(room: RuntimeRoom): RtsRoom {
+    const shadowRoom = RtsEngine.createRoom({
+      id: room.rtsRoom.id,
+      name: room.rtsRoom.name,
+      width: room.rtsRoom.width,
+      height: room.rtsRoom.height,
+      templates: room.rtsRoom.state.templates,
+    });
+
+    const orderedPlayers = [...room.rtsRoom.state.players.values()].sort(
+      (left, right) => {
+        if (left.teamId !== right.teamId) {
+          return left.teamId - right.teamId;
+        }
+
+        return left.id.localeCompare(right.id);
+      },
+    );
+
+    for (const player of orderedPlayers) {
+      shadowRoom.addPlayer(player.id, player.name);
+    }
+
+    return shadowRoom;
+  }
 
   function buildRuntimeRoom(rtsRoom: RtsRoom): RuntimeRoom {
     const roomId = rtsRoom.id;
+    const lockstepRuntime = createLockstepRuntimeState();
     return {
       rtsRoom,
       lobby: LobbyRoom.create({
@@ -378,6 +605,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
       countdownSecondsRemaining: null,
       countdownTimer: null,
       matchOutcome: null,
+      lockstepRuntime,
+      lockstep: toLockstepStatusPayload(lockstepRuntime),
     };
   }
 
@@ -451,6 +680,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
     roomBroadcast.emitRoomState(room);
   }
 
+  function emitRoomStateToSocket(room: RuntimeRoom, socket: GameSocket): void {
+    socket.emit('state', room.rtsRoom.createStatePayload());
+  }
+
   function emitBuildOutcomes(
     room: RuntimeRoom,
     outcomes: BuildOutcomePayload[],
@@ -467,6 +700,463 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   function emitMembership(room: RuntimeRoom, bumpRevision = true): void {
     roomBroadcast.emitMembership(room, bumpRevision);
+  }
+
+  function syncLockstepStatus(room: RuntimeRoom): void {
+    room.lockstep = toLockstepStatusPayload(room.lockstepRuntime);
+  }
+
+  function getLockstepTurnForTick(
+    lockstepRuntime: LockstepRuntimeState,
+    tick: number,
+  ): number {
+    return Math.floor(Math.max(0, tick) / lockstepRuntime.turnLengthTicks);
+  }
+
+  function fallbackToLegacyLockstep(
+    room: RuntimeRoom,
+    reason: 'hash-mismatch' | 'shadow-unavailable' | 'turn-buffer-overflow',
+    checkpoint?: ReturnType<RtsRoom['createDeterminismCheckpoint']>,
+  ): void {
+    const lockstepRuntime = room.lockstepRuntime;
+    if (lockstepRuntime.mode === 'off') {
+      return;
+    }
+
+    const fromMode = lockstepRuntime.mode;
+    const pendingPrimaryCommands =
+      fromMode === 'primary' && reason === 'turn-buffer-overflow'
+        ? [...lockstepRuntime.turnBuffer.values()]
+            .flat()
+            .sort((left, right) => {
+              if (left.turn !== right.turn) {
+                return left.turn - right.turn;
+              }
+
+              return left.sequence - right.sequence;
+            })
+        : [];
+
+    lockstepRuntime.mode = 'off';
+    lockstepRuntime.status = 'fallback';
+    lockstepRuntime.lastFallbackReason = reason;
+    if (checkpoint) {
+      lockstepRuntime.lastPrimaryHash = checkpoint.hashHex;
+    }
+    lockstepRuntime.turnBuffer.clear();
+    lockstepRuntime.bufferedCommandCount = 0;
+    lockstepRuntime.shadowRoom = null;
+    lockstepRuntime.nextTurn =
+      fromMode === 'primary'
+        ? getLockstepTurnForTick(lockstepRuntime, room.rtsRoom.state.tick)
+        : room.rtsRoom.state.tick;
+    lockstepRuntime.lastFlushedTurn = -1;
+    syncLockstepStatus(room);
+
+    roomBroadcast.emitLockstepFallback(room, {
+      fromMode,
+      reason,
+      checkpoint,
+      mismatchCount: lockstepRuntime.mismatchCount,
+    });
+
+    if (pendingPrimaryCommands.length > 0) {
+      executeBufferedCommands(room, pendingPrimaryCommands);
+    }
+  }
+
+  function initializeLockstepForMatch(room: RuntimeRoom): void {
+    const lockstepRuntime = room.lockstepRuntime;
+    lockstepRuntime.nextTurn =
+      lockstepRuntime.mode === 'primary'
+        ? getLockstepTurnForTick(lockstepRuntime, room.rtsRoom.state.tick)
+        : room.rtsRoom.state.tick;
+    lockstepRuntime.nextSequence = 0;
+    lockstepRuntime.lastFlushedTurn = -1;
+    lockstepRuntime.turnBuffer.clear();
+    lockstepRuntime.bufferedCommandCount = 0;
+    lockstepRuntime.shadowRoom = null;
+    lockstepRuntime.mismatchCount = 0;
+    lockstepRuntime.lastFallbackReason = null;
+    lockstepRuntime.lastPrimaryHash = null;
+    lockstepRuntime.lastShadowHash = null;
+    lockstepRuntime.checkpoints = [];
+
+    if (lockstepRuntime.mode === 'shadow') {
+      try {
+        lockstepRuntime.shadowRoom = createShadowRoom(room);
+      } catch {
+        fallbackToLegacyLockstep(room, 'shadow-unavailable');
+        return;
+      }
+    }
+
+    syncLockstepStatus(room);
+  }
+
+  function bufferLockstepCommand(
+    room: RuntimeRoom,
+    command: Omit<BufferedLockstepCommand, 'sequence' | 'turn'>,
+  ): boolean {
+    const lockstepRuntime = room.lockstepRuntime;
+    if (
+      lockstepRuntime.mode === 'off' ||
+      lockstepRuntime.status !== 'running'
+    ) {
+      return false;
+    }
+
+    const turn =
+      lockstepRuntime.mode === 'primary'
+        ? getLockstepTurnForTick(lockstepRuntime, room.rtsRoom.state.tick)
+        : room.rtsRoom.state.tick;
+    const bufferedCommands = lockstepRuntime.turnBuffer.get(turn) ?? [];
+    bufferedCommands.push({
+      ...command,
+      sequence: lockstepRuntime.nextSequence,
+      turn,
+    });
+    lockstepRuntime.nextSequence += 1;
+    lockstepRuntime.turnBuffer.set(turn, bufferedCommands);
+    lockstepRuntime.bufferedCommandCount += 1;
+    lockstepRuntime.nextTurn =
+      lockstepRuntime.mode === 'primary'
+        ? Math.max(lockstepRuntime.nextTurn, turn + 1)
+        : turn;
+
+    if (
+      lockstepRuntime.bufferedCommandCount > lockstepRuntime.maxBufferedTurns
+    ) {
+      fallbackToLegacyLockstep(room, 'turn-buffer-overflow');
+      return true;
+    }
+
+    syncLockstepStatus(room);
+    return true;
+  }
+
+  function replayBufferedCommandInShadow(
+    room: RuntimeRoom,
+    command: BufferedLockstepCommand,
+  ): boolean {
+    const shadowRoom = room.lockstepRuntime.shadowRoom;
+    if (!shadowRoom) {
+      return false;
+    }
+
+    if (command.kind === 'build') {
+      const shadowResult = shadowRoom.queueBuildEvent(
+        command.sessionId,
+        command.payload as BuildQueuePayload,
+      );
+      if (shadowResult.accepted !== command.expectedAccepted) {
+        return false;
+      }
+
+      if (shadowResult.accepted && command.expectedExecuteTick !== null) {
+        return shadowResult.executeTick === command.expectedExecuteTick;
+      }
+
+      if (!shadowResult.accepted && command.expectedReason) {
+        return shadowResult.reason === command.expectedReason;
+      }
+
+      return true;
+    }
+
+    const shadowResult = shadowRoom.queueDestroyEvent(
+      command.sessionId,
+      command.payload as DestroyQueuePayload,
+    );
+    if (shadowResult.accepted !== command.expectedAccepted) {
+      return false;
+    }
+
+    if (shadowResult.accepted && command.expectedExecuteTick !== null) {
+      return shadowResult.executeTick === command.expectedExecuteTick;
+    }
+
+    if (!shadowResult.accepted && command.expectedReason) {
+      return shadowResult.reason === command.expectedReason;
+    }
+
+    return true;
+  }
+
+  function executeBufferedCommand(
+    room: RuntimeRoom,
+    command: BufferedLockstepCommand,
+  ): void {
+    const commandSocket = io.sockets.sockets.get(command.socketId);
+
+    if (command.kind === 'build') {
+      const queueResult = room.rtsRoom.queueBuildEvent(
+        command.sessionId,
+        command.payload as BuildQueuePayload,
+      );
+
+      if (!commandSocket) {
+        return;
+      }
+
+      if (!queueResult.accepted) {
+        const rejectionReason = resolveQueueBuildRejectionReason(queueResult);
+        roomError(
+          commandSocket,
+          queueResult.error ?? 'Build rejected',
+          rejectionReason,
+          rejectionReason === 'insufficient-resources'
+            ? getAffordabilityMetadata(queueResult)
+            : undefined,
+        );
+
+        const player = room.rtsRoom.state.players.get(command.sessionId);
+        if (player) {
+          const previewRequest: BuildPreviewRequestPayload = {
+            templateId: (command.payload as BuildQueuePayload).templateId,
+            x: (command.payload as BuildQueuePayload).x,
+            y: (command.payload as BuildQueuePayload).y,
+            transform: (command.payload as BuildQueuePayload).transform,
+          };
+          const refreshedPreview = runQueueBuildProbe(
+            room.rtsRoom,
+            command.sessionId,
+            previewRequest,
+          );
+          const team = room.rtsRoom.state.teams.get(player.teamId);
+          if (team) {
+            const affordability = derivePreviewAffordability(
+              team.resources,
+              refreshedPreview,
+            );
+            commandSocket.emit(
+              'build:preview',
+              createBuildPreviewPayload(
+                room.rtsRoom.id,
+                team.id,
+                previewRequest,
+                refreshedPreview,
+                affordability,
+              ),
+            );
+          }
+        }
+
+        return;
+      }
+
+      const queued: BuildQueuedPayload = {
+        eventId: queueResult.eventId ?? -1,
+        executeTick: queueResult.executeTick ?? room.rtsRoom.state.tick,
+      };
+      commandSocket.emit('build:queued', queued);
+      return;
+    }
+
+    const queueResult = room.rtsRoom.queueDestroyEvent(
+      command.sessionId,
+      command.payload as DestroyQueuePayload,
+    );
+
+    if (!commandSocket) {
+      return;
+    }
+
+    if (!queueResult.accepted) {
+      const rejectionReason = resolveQueueDestroyRejectionReason(queueResult);
+      roomError(
+        commandSocket,
+        queueResult.error ?? 'Destroy rejected',
+        rejectionReason,
+      );
+      return;
+    }
+
+    const queued: DestroyQueuedPayload = {
+      eventId: queueResult.eventId ?? -1,
+      executeTick: queueResult.executeTick ?? room.rtsRoom.state.tick,
+      structureKey: queueResult.structureKey ?? '',
+      idempotent: Boolean(queueResult.idempotent),
+    };
+    commandSocket.emit('destroy:queued', queued);
+  }
+
+  function executeBufferedCommands(
+    room: RuntimeRoom,
+    bufferedCommands: readonly BufferedLockstepCommand[],
+  ): void {
+    for (const command of bufferedCommands) {
+      executeBufferedCommand(room, command);
+    }
+  }
+
+  function rejectPendingBufferedCommandsOnFinish(room: RuntimeRoom): void {
+    const lockstepRuntime = room.lockstepRuntime;
+    if (lockstepRuntime.turnBuffer.size === 0) {
+      return;
+    }
+
+    const pendingCommands = [...lockstepRuntime.turnBuffer.values()]
+      .flat()
+      .sort((left, right) => {
+        if (left.turn !== right.turn) {
+          return left.turn - right.turn;
+        }
+
+        return left.sequence - right.sequence;
+      });
+
+    lockstepRuntime.turnBuffer.clear();
+    lockstepRuntime.bufferedCommandCount = 0;
+    lockstepRuntime.lastFlushedTurn = lockstepRuntime.nextTurn - 1;
+
+    if (lockstepRuntime.mode === 'primary') {
+      for (const command of pendingCommands) {
+        const commandSocket = io.sockets.sockets.get(command.socketId);
+        if (!commandSocket) {
+          continue;
+        }
+
+        roomError(
+          commandSocket,
+          'Match finished before buffered command resolved',
+          'match-finished',
+        );
+      }
+    }
+
+    syncLockstepStatus(room);
+  }
+
+  function flushPrimaryTurnCommands(room: RuntimeRoom): void {
+    const lockstepRuntime = room.lockstepRuntime;
+    if (
+      lockstepRuntime.mode !== 'primary' ||
+      lockstepRuntime.status !== 'running'
+    ) {
+      return;
+    }
+
+    const currentTurn = getLockstepTurnForTick(
+      lockstepRuntime,
+      room.rtsRoom.state.tick,
+    );
+    const turn = currentTurn - 1;
+    if (turn <= lockstepRuntime.lastFlushedTurn) {
+      return;
+    }
+
+    const bufferedCommands = [
+      ...(lockstepRuntime.turnBuffer.get(turn) ?? []),
+    ].sort((left, right) => left.sequence - right.sequence);
+    lockstepRuntime.turnBuffer.delete(turn);
+    lockstepRuntime.bufferedCommandCount = Math.max(
+      0,
+      lockstepRuntime.bufferedCommandCount - bufferedCommands.length,
+    );
+    lockstepRuntime.lastFlushedTurn = turn;
+    lockstepRuntime.nextTurn = currentTurn;
+
+    executeBufferedCommands(room, bufferedCommands);
+
+    syncLockstepStatus(room);
+  }
+
+  function runShadowTick(room: RuntimeRoom): void {
+    const lockstepRuntime = room.lockstepRuntime;
+    if (
+      lockstepRuntime.mode !== 'shadow' ||
+      lockstepRuntime.status !== 'running'
+    ) {
+      return;
+    }
+
+    const shadowRoom = lockstepRuntime.shadowRoom;
+    if (!shadowRoom) {
+      fallbackToLegacyLockstep(room, 'shadow-unavailable');
+      return;
+    }
+
+    const processedTurn = Math.max(0, room.rtsRoom.state.tick - 1);
+    const bufferedCommands = [
+      ...(lockstepRuntime.turnBuffer.get(processedTurn) ?? []),
+    ].sort((left, right) => left.sequence - right.sequence);
+    for (const command of bufferedCommands) {
+      if (!replayBufferedCommandInShadow(room, command)) {
+        lockstepRuntime.mismatchCount += 1;
+        fallbackToLegacyLockstep(room, 'hash-mismatch');
+        return;
+      }
+    }
+    lockstepRuntime.turnBuffer.delete(processedTurn);
+    lockstepRuntime.bufferedCommandCount = Math.max(
+      0,
+      lockstepRuntime.bufferedCommandCount - bufferedCommands.length,
+    );
+
+    shadowRoom.tick();
+    lockstepRuntime.nextTurn = room.rtsRoom.state.tick;
+    syncLockstepStatus(room);
+  }
+
+  function recordLockstepCheckpoint(
+    room: RuntimeRoom,
+    checkpoint: LockstepCheckpointPayload,
+  ): void {
+    const checkpoints = room.lockstepRuntime.checkpoints;
+    checkpoints.push(checkpoint);
+    if (checkpoints.length > 16) {
+      checkpoints.shift();
+    }
+  }
+
+  function emitLockstepCheckpointIfDue(room: RuntimeRoom): void {
+    const lockstepRuntime = room.lockstepRuntime;
+    if (
+      lockstepRuntime.mode === 'off' ||
+      lockstepRuntime.status !== 'running'
+    ) {
+      return;
+    }
+
+    if (
+      room.rtsRoom.state.tick % lockstepRuntime.checkpointIntervalTicks !==
+      0
+    ) {
+      return;
+    }
+
+    const checkpoint = room.rtsRoom.createDeterminismCheckpoint();
+    lockstepRuntime.lastPrimaryHash = checkpoint.hashHex;
+    if (lockstepRuntime.mode === 'shadow') {
+      const shadowRoom = lockstepRuntime.shadowRoom;
+      if (!shadowRoom) {
+        fallbackToLegacyLockstep(room, 'shadow-unavailable', checkpoint);
+        return;
+      }
+
+      const shadowCheckpoint = shadowRoom.createDeterminismCheckpoint();
+      lockstepRuntime.lastShadowHash = shadowCheckpoint.hashHex;
+      if (shadowCheckpoint.hashHex !== checkpoint.hashHex) {
+        lockstepRuntime.mismatchCount += 1;
+        fallbackToLegacyLockstep(room, 'hash-mismatch', checkpoint);
+        return;
+      }
+    } else {
+      lockstepRuntime.lastShadowHash = null;
+    }
+
+    const payload: Omit<LockstepCheckpointPayload, 'roomId'> = {
+      ...checkpoint,
+      mode: lockstepRuntime.mode,
+      turn: lockstepRuntime.nextTurn,
+    };
+    recordLockstepCheckpoint(room, {
+      roomId: room.rtsRoom.id,
+      ...payload,
+    });
+    syncLockstepStatus(room);
+    roomBroadcast.emitLockstepCheckpoint(room, payload);
   }
 
   function clearActiveDisconnectExpiry(sessionId: string): void {
@@ -621,6 +1311,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     options: LeaveCurrentRoomOptions,
   ): void {
     clearActiveDisconnectExpiry(session.id);
+    clearStateRequestBudget(session.id);
 
     const room = getRoomOrNull(session.roomId);
     if (!room) {
@@ -730,7 +1421,13 @@ export function createServer(options: ServerOptions = {}): GameServer {
         template.toSummary(),
       ),
       state: room.rtsRoom.createStatePayload(),
+      lockstep: room.lockstep,
     });
+
+    const latestCheckpoint = room.lockstepRuntime.checkpoints.at(-1);
+    if (latestCheckpoint) {
+      socket.emit('lockstep:checkpoint', latestCheckpoint);
+    }
 
     emitMembership(room);
     emitRoomList();
@@ -901,6 +1598,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
     room.rtsRoom = nextRoom;
     room.matchOutcome = null;
+    resetLockstepRuntime(room);
   }
 
   function emitMatchFinished(room: RuntimeRoom): void {
@@ -912,8 +1610,9 @@ export function createServer(options: ServerOptions = {}): GameServer {
       return;
     }
 
+    resetRoomStateForRestart(room);
     room.status = 'countdown';
-    room.matchOutcome = null;
+    initializeLockstepForMatch(room);
     room.countdownSecondsRemaining = countdownSeconds;
     emitMembership(room);
     emitRoomList();
@@ -1026,47 +1725,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
       allowed: true,
       team,
     };
-  }
-
-  function handleCellUpdate(
-    socket: GameSocket,
-    session: PlayerSession,
-    payload: unknown,
-  ): void {
-    const room = getRoomOrNull(session.roomId);
-    if (!room) {
-      return;
-    }
-
-    const gate = assertGameplayMutationAllowed(room, session.id);
-    if (!gate.allowed) {
-      roomError(
-        socket,
-        gate.message ?? 'Gameplay mutation rejected',
-        gate.reason,
-      );
-      return;
-    }
-
-    if (!payload || typeof payload !== 'object') {
-      roomError(socket, 'Invalid cell update payload', 'invalid-build');
-      return;
-    }
-
-    const update = payload as CellUpdatePayload;
-    if (
-      !Number.isInteger(Number(update.x)) ||
-      !Number.isInteger(Number(update.y))
-    ) {
-      roomError(socket, 'Invalid cell update payload', 'invalid-build');
-      return;
-    }
-
-    roomError(
-      socket,
-      'Direct cell updates are disabled; use build:queue',
-      'queue-only-mutation-path',
-    );
   }
 
   function mapQueueBuildErrorReason(error?: string): string {
@@ -1320,6 +1978,24 @@ export function createServer(options: ServerOptions = {}): GameServer {
       emitRoomList(socket);
     });
 
+    socket.on('state:request', () => {
+      if (!ensureCurrentSocket(socket, session)) {
+        return;
+      }
+
+      const room = getRoomOrNull(session.roomId);
+      if (!room) {
+        clearStateRequestBudget(session.id);
+        return;
+      }
+
+      if (!shouldServeStateRequest(session.id, room)) {
+        return;
+      }
+
+      emitRoomStateToSocket(room, socket);
+    });
+
     socket.on('room:create', (payload: unknown) => {
       if (!ensureCurrentSocket(socket, session)) {
         return;
@@ -1468,13 +2144,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      if (lifecycleEvent === 'restart-countdown') {
-        resetRoomStateForRestart(room);
-        emitRoomState(room);
-      }
-
       room.status = transition.nextStatus;
       startCountdown(room);
+
+      if (lifecycleEvent === 'restart-countdown') {
+        emitRoomState(room);
+      }
     });
 
     socket.on('room:cancel-countdown', () => {
@@ -1643,7 +2318,36 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
+      const lockstepRuntime = room.lockstepRuntime;
+      if (
+        lockstepRuntime.mode === 'primary' &&
+        lockstepRuntime.status === 'running'
+      ) {
+        if (
+          bufferLockstepCommand(room, {
+            kind: 'build',
+            sessionId: session.id,
+            socketId: socket.id,
+            payload: cloneBuildQueuePayload(parsedPayload),
+            expectedAccepted: false,
+            expectedExecuteTick: null,
+            expectedReason: null,
+          })
+        ) {
+          return;
+        }
+      }
+
       const result = room.rtsRoom.queueBuildEvent(session.id, parsedPayload);
+      bufferLockstepCommand(room, {
+        kind: 'build',
+        sessionId: session.id,
+        socketId: socket.id,
+        payload: cloneBuildQueuePayload(parsedPayload),
+        expectedAccepted: result.accepted,
+        expectedExecuteTick: result.executeTick ?? null,
+        expectedReason: result.accepted ? null : (result.reason ?? null),
+      });
 
       if (!result.accepted) {
         const reason = resolveQueueBuildRejectionReason(result);
@@ -1719,7 +2423,36 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
+      const lockstepRuntime = room.lockstepRuntime;
+      if (
+        lockstepRuntime.mode === 'primary' &&
+        lockstepRuntime.status === 'running'
+      ) {
+        if (
+          bufferLockstepCommand(room, {
+            kind: 'destroy',
+            sessionId: session.id,
+            socketId: socket.id,
+            payload: cloneDestroyQueuePayload(parsedPayload),
+            expectedAccepted: false,
+            expectedExecuteTick: null,
+            expectedReason: null,
+          })
+        ) {
+          return;
+        }
+      }
+
       const result = room.rtsRoom.queueDestroyEvent(session.id, parsedPayload);
+      bufferLockstepCommand(room, {
+        kind: 'destroy',
+        sessionId: session.id,
+        socketId: socket.id,
+        payload: cloneDestroyQueuePayload(parsedPayload),
+        expectedAccepted: result.accepted,
+        expectedExecuteTick: result.executeTick ?? null,
+        expectedReason: result.accepted ? null : (result.reason ?? null),
+      });
       if (!result.accepted) {
         const reason = resolveQueueDestroyRejectionReason(result);
         roomError(socket, result.error ?? 'Destroy rejected', reason);
@@ -1733,13 +2466,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
         idempotent: Boolean(result.idempotent),
       };
       socket.emit('destroy:queued', queued);
-    });
-
-    socket.on('cell:update', (payload: unknown) => {
-      if (!ensureCurrentSocket(socket, session)) {
-        return;
-      }
-      handleCellUpdate(socket, session, payload);
     });
 
     socket.on('disconnect', (reason) => {
@@ -1782,12 +2508,15 @@ export function createServer(options: ServerOptions = {}): GameServer {
       tickCounter % membershipResyncIntervalTicks === 0;
     const emitFinishedRoomResync =
       tickCounter % finishedRoomResyncIntervalTicks === 0;
+    const emitActiveStateSnapshot =
+      tickCounter % activeStateSnapshotIntervalTicks === 0;
 
     for (const room of rooms.values()) {
       if (room.status === 'active') {
         if (room.rtsRoom.state.players.size === 0) {
           const transition = transitionMatchLifecycle(room.status, 'finish');
           if (transition.allowed) {
+            rejectPendingBufferedCommandsOnFinish(room);
             room.status = transition.nextStatus;
             const outcome = room.rtsRoom.createCanonicalMatchOutcome();
             room.matchOutcome = outcome
@@ -1805,6 +2534,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           continue;
         }
 
+        flushPrimaryTurnCommands(room);
         const tickResult = room.rtsRoom.tick();
         const buildOutcomes: BuildOutcomePayload[] =
           tickResult.buildOutcomes.map((outcome) => ({
@@ -1818,10 +2548,13 @@ export function createServer(options: ServerOptions = {}): GameServer {
           }));
         emitBuildOutcomes(room, buildOutcomes);
         emitDestroyOutcomes(room, destroyOutcomes);
+        runShadowTick(room);
+        emitLockstepCheckpointIfDue(room);
 
         if (tickResult.outcome) {
           const transition = transitionMatchLifecycle(room.status, 'finish');
           if (transition.allowed) {
+            rejectPendingBufferedCommandsOnFinish(room);
             room.status = transition.nextStatus;
             room.matchOutcome = {
               roomId: room.rtsRoom.id,
@@ -1837,7 +2570,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       }
 
       if (room.lobby.participantCount() > 0) {
-        if (room.status === 'active') {
+        if (room.status === 'active' && emitActiveStateSnapshot) {
           emitRoomState(room);
         } else if (room.status === 'finished' && emitFinishedRoomResync) {
           emitRoomState(room);

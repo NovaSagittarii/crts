@@ -1,4 +1,3 @@
-import type { CellUpdate } from '#conway-core';
 import { Grid } from '#conway-core';
 import {
   determineMatchOutcome,
@@ -15,6 +14,7 @@ import {
 import {
   DEFAULT_SPAWN_CAPACITY,
   DEFAULT_STARTING_RESOURCES,
+  DEFAULT_QUEUE_DELAY_TICKS,
   DEFAULT_TEAM_TERRITORY_RADIUS,
   INTEGRITY_CHECK_INTERVAL_TICKS,
   INTEGRITY_HP_COST_PER_CELL,
@@ -305,6 +305,15 @@ export interface RoomTickResult {
   destroyOutcomes: DestroyOutcome[];
 }
 
+export type DeterminismHashAlgorithm = 'fnv1a-32';
+
+export interface RoomDeterminismCheckpoint {
+  tick: number;
+  generation: number;
+  hashAlgorithm: DeterminismHashAlgorithm;
+  hashHex: string;
+}
+
 export interface CreateRoomOptions {
   id: string;
   name: string;
@@ -356,6 +365,10 @@ export class RtsEngine {
     RtsEngine
   >();
 
+  private static readonly FNV_OFFSET_BASIS = 2166136261;
+
+  private static readonly FNV_PRIME = 16777619;
+
   private static readonly aliveIntegrityPatch = new Grid(
     1,
     1,
@@ -384,8 +397,6 @@ export class RtsEngine {
 
   private nextBuildEventId: number;
 
-  private pendingLegacyUpdates: CellUpdate[];
-
   private timelineEvents: TimelineEvent[];
 
   private constructor(options: {
@@ -404,7 +415,6 @@ export class RtsEngine {
     this.roomSpawnOrientationSeed = options.spawnOrientationSeed;
     this.nextTeamId = 1;
     this.nextBuildEventId = 1;
-    this.pendingLegacyUpdates = [];
     this.timelineEvents = [];
   }
 
@@ -467,43 +477,6 @@ export class RtsEngine {
     return eventId;
   }
 
-  private static pushPendingLegacyUpdate(
-    room: RoomState,
-    update: CellUpdate,
-  ): void {
-    RtsEngine.getRoomEngine(room).pendingLegacyUpdates.push(update);
-  }
-
-  private static drainPendingLegacyUpdates(room: RoomState): CellUpdate[] {
-    const engine = RtsEngine.getRoomEngine(room);
-    const updates = engine.pendingLegacyUpdates;
-    engine.pendingLegacyUpdates = [];
-    return updates;
-  }
-
-  private static applyLegacyUpdates(
-    room: RoomState,
-    updates: readonly CellUpdate[],
-  ): void {
-    for (const update of updates) {
-      if (!update) {
-        continue;
-      }
-
-      const x = Number(update.x);
-      const y = Number(update.y);
-      if (!Number.isInteger(x) || !Number.isInteger(y)) {
-        continue;
-      }
-
-      if (x < 0 || y < 0 || x >= room.width || y >= room.height) {
-        continue;
-      }
-
-      room.grid.setCell(x, y, update.alive);
-    }
-  }
-
   private static hashSpawnSeed(
     roomId: string,
     width: number,
@@ -516,6 +489,105 @@ export class RtsEngine {
       hash = Math.imul(hash, 16777619);
     }
     return hash >>> 0;
+  }
+
+  private static hashByte(hash: number, value: number): number {
+    return Math.imul((hash ^ (value & 0xff)) >>> 0, RtsEngine.FNV_PRIME) >>> 0;
+  }
+
+  private static hashInt32(hash: number, value: number): number {
+    const normalized = value >>> 0;
+    let next = hash;
+    next = RtsEngine.hashByte(next, normalized & 0xff);
+    next = RtsEngine.hashByte(next, (normalized >>> 8) & 0xff);
+    next = RtsEngine.hashByte(next, (normalized >>> 16) & 0xff);
+    next = RtsEngine.hashByte(next, (normalized >>> 24) & 0xff);
+    return next;
+  }
+
+  private static hashBoolean(hash: number, value: boolean): number {
+    return RtsEngine.hashByte(hash, value ? 1 : 0);
+  }
+
+  private static hashNumber(hash: number, value: number): number {
+    if (!Number.isFinite(value)) {
+      return RtsEngine.hashInt32(hash, 0x7fffffff);
+    }
+
+    if (Number.isInteger(value)) {
+      return RtsEngine.hashInt32(hash, value);
+    }
+
+    return RtsEngine.hashInt32(hash, Math.round(value * 1000));
+  }
+
+  private static hashString(hash: number, value: string): number {
+    let next = RtsEngine.hashInt32(hash, value.length);
+    for (let index = 0; index < value.length; index += 1) {
+      const code = value.charCodeAt(index);
+      next = RtsEngine.hashByte(next, code & 0xff);
+      next = RtsEngine.hashByte(next, (code >>> 8) & 0xff);
+    }
+    return next;
+  }
+
+  private static hashBytes(hash: number, values: Uint8Array): number {
+    let next = RtsEngine.hashInt32(hash, values.length);
+    for (let index = 0; index < values.length; index += 1) {
+      next = RtsEngine.hashByte(next, values[index] ?? 0);
+    }
+    return next;
+  }
+
+  private static hashTransform(
+    hash: number,
+    transform: PlacementTransformState,
+  ): number {
+    let next = RtsEngine.hashInt32(hash, transform.operations.length);
+    for (const operation of transform.operations) {
+      next = RtsEngine.hashString(next, operation);
+    }
+
+    next = RtsEngine.hashNumber(next, transform.matrix.xx);
+    next = RtsEngine.hashNumber(next, transform.matrix.xy);
+    next = RtsEngine.hashNumber(next, transform.matrix.yx);
+    next = RtsEngine.hashNumber(next, transform.matrix.yy);
+    return next;
+  }
+
+  private static hashStructure(hash: number, structure: Structure): number {
+    let next = hash;
+    next = RtsEngine.hashString(next, structure.key);
+    next = RtsEngine.hashString(next, structure.templateId);
+    next = RtsEngine.hashInt32(next, structure.x);
+    next = RtsEngine.hashInt32(next, structure.y);
+    next = RtsEngine.hashBoolean(next, structure.active);
+    next = RtsEngine.hashInt32(next, structure.hp);
+    next = RtsEngine.hashBoolean(next, structure.isCore);
+    next = RtsEngine.hashNumber(next, structure.buildRadius);
+    return RtsEngine.hashTransform(next, structure.transform);
+  }
+
+  private static hashBuildEvent(hash: number, event: BuildEvent): number {
+    let next = hash;
+    next = RtsEngine.hashInt32(next, event.id);
+    next = RtsEngine.hashInt32(next, event.teamId);
+    next = RtsEngine.hashString(next, event.playerId);
+    next = RtsEngine.hashString(next, event.templateId);
+    next = RtsEngine.hashInt32(next, event.x);
+    next = RtsEngine.hashInt32(next, event.y);
+    next = RtsEngine.hashInt32(next, event.executeTick);
+    return RtsEngine.hashTransform(next, event.transform);
+  }
+
+  private static hashDestroyEvent(hash: number, event: DestroyEvent): number {
+    let next = hash;
+    next = RtsEngine.hashInt32(next, event.id);
+    next = RtsEngine.hashInt32(next, event.teamId);
+    next = RtsEngine.hashString(next, event.playerId);
+    next = RtsEngine.hashString(next, event.structureKey);
+    next = RtsEngine.hashInt32(next, event.executeTick);
+    return next;
   }
 
   private static appendTimelineEvent(
@@ -1588,6 +1660,10 @@ export class RtsEngine {
     return 0;
   }
 
+  private static sortTeamsById(teams: Iterable<TeamState>): TeamState[] {
+    return [...teams].sort((left, right) => left.id - right.id);
+  }
+
   private static resolveIntegrityChecks(room: RoomState): Map<number, number> {
     const coreHpBeforeResolution = new Map<number, number>();
 
@@ -1900,13 +1976,6 @@ export class RtsEngine {
     room.players.delete(playerId);
   }
 
-  public static queueLegacyCellUpdate(
-    room: RoomState,
-    update: CellUpdate,
-  ): void {
-    RtsEngine.pushPendingLegacyUpdate(room, update);
-  }
-
   public static previewBuildPlacement(
     room: RoomState,
     playerId: string,
@@ -2064,7 +2133,7 @@ export class RtsEngine {
       };
     }
 
-    const delay = Number(payload.delayTicks ?? 2);
+    const delay = Number(payload.delayTicks ?? DEFAULT_QUEUE_DELAY_TICKS);
     if (!Number.isInteger(delay)) {
       RtsEngine.rejectBuild(room, team, 'invalid-delay');
       return {
@@ -2223,7 +2292,7 @@ export class RtsEngine {
       };
     }
 
-    const delay = Number(payload.delayTicks ?? 1);
+    const delay = Number(payload.delayTicks ?? DEFAULT_QUEUE_DELAY_TICKS);
     if (!Number.isInteger(delay)) {
       RtsEngine.rejectDestroy(
         room,
@@ -2270,9 +2339,124 @@ export class RtsEngine {
     };
   }
 
+  public static createDeterminismCheckpoint(
+    room: RoomState,
+  ): RoomDeterminismCheckpoint {
+    const engine = RtsEngine.getRoomEngine(room);
+    let hash = RtsEngine.FNV_OFFSET_BASIS;
+
+    hash = RtsEngine.hashString(hash, room.id);
+    hash = RtsEngine.hashInt32(hash, room.width);
+    hash = RtsEngine.hashInt32(hash, room.height);
+    hash = RtsEngine.hashInt32(hash, room.tick);
+    hash = RtsEngine.hashInt32(hash, room.generation);
+    hash = RtsEngine.hashInt32(hash, engine.nextTeamId);
+    hash = RtsEngine.hashInt32(hash, engine.nextBuildEventId);
+
+    const gridBytes = new Uint8Array(room.grid.toPacked());
+    hash = RtsEngine.hashBytes(hash, gridBytes);
+
+    const players = [...room.players.values()].sort((left, right) => {
+      return left.id.localeCompare(right.id);
+    });
+    hash = RtsEngine.hashInt32(hash, players.length);
+    for (const player of players) {
+      hash = RtsEngine.hashString(hash, player.id);
+      hash = RtsEngine.hashString(hash, player.name);
+      hash = RtsEngine.hashInt32(hash, player.teamId);
+    }
+
+    const orderedTeams = RtsEngine.sortTeamsById(room.teams.values());
+    hash = RtsEngine.hashInt32(hash, orderedTeams.length);
+    for (const team of orderedTeams) {
+      hash = RtsEngine.hashInt32(hash, team.id);
+      hash = RtsEngine.hashString(hash, team.name);
+
+      const playerIds = [...team.playerIds].sort((left, right) => {
+        return left.localeCompare(right);
+      });
+      hash = RtsEngine.hashInt32(hash, playerIds.length);
+      for (const playerId of playerIds) {
+        hash = RtsEngine.hashString(hash, playerId);
+      }
+
+      hash = RtsEngine.hashNumber(hash, team.resources);
+      hash = RtsEngine.hashNumber(hash, team.income);
+      hash = RtsEngine.hashNumber(hash, team.lastIncomeTick);
+      hash = RtsEngine.hashNumber(hash, team.territoryRadius);
+      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.x);
+      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.y);
+      hash = RtsEngine.hashBoolean(hash, team.defeated);
+
+      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.base);
+      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.structures);
+      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.total);
+      hash = RtsEngine.hashNumber(
+        hash,
+        team.incomeBreakdown.activeStructureCount,
+      );
+
+      hash = RtsEngine.hashInt32(hash, team.buildStats.queued);
+      hash = RtsEngine.hashInt32(hash, team.buildStats.applied);
+      hash = RtsEngine.hashInt32(hash, team.buildStats.rejected);
+
+      const structures = [...team.structures.values()].sort(
+        RtsEngine.compareStructuresByKey,
+      );
+      hash = RtsEngine.hashInt32(hash, structures.length);
+      for (const structure of structures) {
+        hash = RtsEngine.hashStructure(hash, structure);
+      }
+
+      const pendingBuilds = [...team.pendingBuildEvents].sort(
+        RtsEngine.compareBuildEvents,
+      );
+      hash = RtsEngine.hashInt32(hash, pendingBuilds.length);
+      for (const pendingBuild of pendingBuilds) {
+        hash = RtsEngine.hashBuildEvent(hash, pendingBuild);
+      }
+
+      const pendingDestroys = [...team.pendingDestroyEvents].sort(
+        RtsEngine.compareDestroyEvents,
+      );
+      hash = RtsEngine.hashInt32(hash, pendingDestroys.length);
+      for (const pendingDestroy of pendingDestroys) {
+        hash = RtsEngine.hashDestroyEvent(hash, pendingDestroy);
+      }
+    }
+
+    hash = RtsEngine.hashInt32(hash, engine.timelineEvents.length);
+    const lastTimelineEvent = engine.timelineEvents.at(-1);
+    if (lastTimelineEvent) {
+      hash = RtsEngine.hashInt32(hash, lastTimelineEvent.tick);
+      hash = RtsEngine.hashInt32(hash, lastTimelineEvent.teamId);
+      hash = RtsEngine.hashString(hash, lastTimelineEvent.type);
+
+      if (lastTimelineEvent.metadata) {
+        const metadataEntries = Object.entries(lastTimelineEvent.metadata).sort(
+          ([leftKey], [rightKey]) => leftKey.localeCompare(rightKey),
+        );
+        hash = RtsEngine.hashInt32(hash, metadataEntries.length);
+        for (const [key, value] of metadataEntries) {
+          hash = RtsEngine.hashString(hash, key);
+          hash = RtsEngine.hashString(hash, String(value));
+        }
+      } else {
+        hash = RtsEngine.hashInt32(hash, 0);
+      }
+    }
+
+    return {
+      tick: room.tick,
+      generation: room.generation,
+      hashAlgorithm: 'fnv1a-32',
+      hashHex: hash.toString(16).padStart(8, '0'),
+    };
+  }
+
   public static createRoomStatePayload(room: RoomState): RoomStatePayload {
     const teams: TeamPayload[] = [];
-    for (const team of room.teams.values()) {
+    for (const team of RtsEngine.sortTeamsById(room.teams.values())) {
       teams.push({
         id: team.id,
         name: team.name,
@@ -2315,7 +2499,7 @@ export class RtsEngine {
   ): TeamOutcomeSnapshot[] {
     const snapshots: TeamOutcomeSnapshot[] = [];
 
-    for (const team of room.teams.values()) {
+    for (const team of RtsEngine.sortTeamsById(room.teams.values())) {
       const core = RtsEngine.getCoreStructure(team);
       const coreHp = core?.hp ?? 0;
       snapshots.push({
@@ -2385,12 +2569,7 @@ export class RtsEngine {
     return appliedBuilds;
   }
 
-  private static applyLegacyUpdatesAndAdvanceGeneration(room: RoomState): void {
-    const pendingLegacyUpdates = RtsEngine.drainPendingLegacyUpdates(room);
-    if (pendingLegacyUpdates.length > 0) {
-      RtsEngine.applyLegacyUpdates(room, pendingLegacyUpdates);
-    }
-
+  private static advanceGeneration(room: RoomState): void {
     room.grid.step();
     room.tick += 1;
     room.generation += 1;
@@ -2403,8 +2582,9 @@ export class RtsEngine {
   ): { defeatedTeams: number[]; outcome: MatchOutcome | null } {
     const coreHpBeforeResolution = RtsEngine.resolveIntegrityChecks(room);
     const defeatedTeams: number[] = [];
+    const orderedTeams = RtsEngine.sortTeamsById(room.teams.values());
 
-    for (const team of room.teams.values()) {
+    for (const team of orderedTeams) {
       const core = RtsEngine.getCoreStructure(team);
       const defeated = !core || core.hp <= 0;
       if (defeated && !team.defeated) {
@@ -2437,7 +2617,7 @@ export class RtsEngine {
         : null;
 
     if (outcome) {
-      const teamsWithPending = [...room.teams.values()].filter(
+      const teamsWithPending = orderedTeams.filter(
         ({ pendingBuildEvents, pendingDestroyEvents }) =>
           pendingBuildEvents.length > 0 || pendingDestroyEvents.length > 0,
       );
@@ -2465,7 +2645,7 @@ export class RtsEngine {
     const buildOutcomes: BuildOutcome[] = [];
     const destroyOutcomes: DestroyOutcome[] = [];
 
-    for (const team of room.teams.values()) {
+    for (const team of RtsEngine.sortTeamsById(room.teams.values())) {
       RtsEngine.applyTeamEconomyAndQueue(
         room,
         team,
@@ -2482,7 +2662,7 @@ export class RtsEngine {
       acceptedEvents,
       buildOutcomes,
     );
-    RtsEngine.applyLegacyUpdatesAndAdvanceGeneration(room);
+    RtsEngine.advanceGeneration(room);
     const { defeatedTeams, outcome } = RtsEngine.resolveDefeatAndOutcome(
       room,
       buildOutcomes,
@@ -2571,10 +2751,6 @@ export class RtsRoom {
     RtsEngine.removePlayerFromRoom(this.state, playerId);
   }
 
-  public queueLegacyCellUpdate(update: CellUpdate): void {
-    RtsEngine.queueLegacyCellUpdate(this.state, update);
-  }
-
   public previewBuildPlacement(
     playerId: string,
     payload: BuildQueuePayload,
@@ -2598,6 +2774,10 @@ export class RtsRoom {
 
   public createStatePayload(): RoomStatePayload {
     return RtsEngine.createRoomStatePayload(this.state);
+  }
+
+  public createDeterminismCheckpoint(): RoomDeterminismCheckpoint {
+    return RtsEngine.createDeterminismCheckpoint(this.state);
   }
 
   public createTeamOutcomeSnapshots(

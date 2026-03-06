@@ -8,9 +8,13 @@ import {
   getCanonicalBaseCells,
   isCanonicalBaseCell,
 } from './geometry.js';
-import { BUILD_ZONE_RADIUS } from './gameplay-rules.js';
 import { RtsEngine, RtsRoom } from './rts.js';
 import { StructureTemplate } from './structure.js';
+import {
+  BUILD_ZONE_RADIUS,
+  DEFAULT_QUEUE_DELAY_TICKS,
+  MAX_DELAY_TICKS,
+} from './gameplay-rules.js';
 
 interface Cell {
   x: number;
@@ -159,6 +163,20 @@ function createTemplateGrid(
   }
 
   return new Grid(width, height, aliveCells, 'flat');
+}
+
+function setCellsAlive(
+  room: RoomState,
+  cells: readonly Cell[],
+  alive: number,
+): void {
+  for (const cell of cells) {
+    room.grid.setCell(cell.x, cell.y, alive);
+  }
+}
+
+function clearCells(room: RoomState, cells: readonly Cell[]): void {
+  setCellsAlive(room, cells, 0);
 }
 
 describe('rts', () => {
@@ -378,10 +396,18 @@ describe('rts', () => {
     const invalidDelayEvent = timelineEvents[timelineEvents.length - 1];
     expect(invalidDelayEvent?.metadata?.reason).toBe('invalid-delay');
 
-    const delayLow = RtsEngine.queueBuildEvent(room, 'p1', {
+    const defaultDelay = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: team.baseTopLeft.x + 6,
       y: team.baseTopLeft.y + 6,
+    });
+    expect(defaultDelay.accepted).toBe(true);
+    expect(defaultDelay.executeTick).toBe(DEFAULT_QUEUE_DELAY_TICKS);
+
+    const delayLow = RtsEngine.queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x: team.baseTopLeft.x + 10,
+      y: team.baseTopLeft.y + 10,
       delayTicks: 0,
     });
     expect(delayLow.accepted).toBe(true);
@@ -389,15 +415,19 @@ describe('rts', () => {
 
     const delayHigh = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
-      x: team.baseTopLeft.x + 8,
-      y: team.baseTopLeft.y + 8,
+      x: team.baseTopLeft.x + 14,
+      y: team.baseTopLeft.y + 14,
       delayTicks: 999,
     });
     expect(delayHigh.accepted).toBe(true);
-    expect(delayHigh.executeTick).toBe(20);
+    expect(delayHigh.executeTick).toBe(MAX_DELAY_TICKS);
 
     const queuedRows = requireTeamPayload(room, team.id).pendingBuilds;
-    expect(queuedRows.map(({ executeTick }) => executeTick)).toEqual([1, 20]);
+    expect(queuedRows.map(({ executeTick }) => executeTick)).toEqual([
+      1,
+      DEFAULT_QUEUE_DELAY_TICKS,
+      MAX_DELAY_TICKS,
+    ]);
   });
 
   test('[BUILD-02] enforces inclusive radius-15 union-zone checks', () => {
@@ -722,25 +752,26 @@ describe('rts', () => {
     });
     expect(afterExpansion.accepted).toBe(true);
 
-    const blockCells = [
-      { x: setup.contributorX, y: setup.contributorY },
-      { x: setup.contributorX + 1, y: setup.contributorY },
-      { x: setup.contributorX, y: setup.contributorY + 1 },
-      { x: setup.contributorX + 1, y: setup.contributorY + 1 },
-    ];
-    for (const cell of blockCells) {
-      RtsEngine.queueLegacyCellUpdate(room, {
-        x: cell.x,
-        y: cell.y,
-        alive: 0,
-      });
+    const builtContributor = getStructureByTemplateId(room, team.id, 'block');
+    expect(builtContributor).not.toBeNull();
+    if (!builtContributor) {
+      throw new Error('Expected contributor structure to exist before destroy');
     }
 
-    let destroyedContributor = getStructureByTemplateId(room, team.id, 'block');
-    for (let index = 0; index < 8 && destroyedContributor; index += 1) {
-      RtsEngine.tickRoom(room);
-      destroyedContributor = getStructureByTemplateId(room, team.id, 'block');
-    }
+    const queuedDestroy = RtsEngine.queueDestroyEvent(room, 'p1', {
+      structureKey: builtContributor.key,
+      delayTicks: 1,
+    });
+    expect(queuedDestroy.accepted).toBe(true);
+
+    RtsEngine.tickRoom(room);
+    RtsEngine.tickRoom(room);
+
+    const destroyedContributor = getStructureByTemplateId(
+      room,
+      team.id,
+      'block',
+    );
 
     expect(destroyedContributor).toBeNull();
 
@@ -826,10 +857,10 @@ describe('rts', () => {
 
     const first = RtsEngine.queueDestroyEvent(room, 'p1', {
       structureKey: ownStructure.key,
-      delayTicks: 3,
     });
     expect(first.accepted).toBe(true);
     expect(first.idempotent).toBe(false);
+    expect(first.executeTick).toBe(room.tick + DEFAULT_QUEUE_DELAY_TICKS);
 
     const duplicate = RtsEngine.queueDestroyEvent(room, 'p1', {
       structureKey: ownStructure.key,
@@ -857,6 +888,42 @@ describe('rts', () => {
       teamOne.id,
     ).pendingDestroys;
     expect(pendingDestroys).toHaveLength(2);
+  });
+
+  test('[QUAL-01] applies default destroy delay when delayTicks is omitted', () => {
+    const room = RtsEngine.createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 90,
+      height: 90,
+    });
+    const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+
+    const queuedBuild = RtsEngine.queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x: team.baseTopLeft.x + 8,
+      y: team.baseTopLeft.y + 8,
+      delayTicks: 1,
+    });
+    expect(queuedBuild.accepted).toBe(true);
+
+    RtsEngine.tickRoom(room);
+    RtsEngine.tickRoom(room);
+
+    const ownStructure = getStructureByTemplateId(room, team.id, 'block');
+    expect(ownStructure).not.toBeNull();
+    if (!ownStructure) {
+      throw new Error('Expected own block structure to exist');
+    }
+
+    const currentTick = room.tick;
+    const queuedDestroy = RtsEngine.queueDestroyEvent(room, 'p1', {
+      structureKey: ownStructure.key,
+    });
+    expect(queuedDestroy.accepted).toBe(true);
+    expect(queuedDestroy.executeTick).toBe(
+      currentTick + DEFAULT_QUEUE_DELAY_TICKS,
+    );
   });
 
   test('[STRUCT-02] applies queued destroy outcomes and removes contributor build zone', () => {
@@ -989,6 +1056,7 @@ describe('rts', () => {
     function runDestroySequence(): {
       destroyOutcomes: ReturnType<typeof RtsEngine.tickRoom>['destroyOutcomes'];
       payload: ReturnType<typeof RtsEngine.createRoomStatePayload>;
+      checkpoint: ReturnType<typeof RtsEngine.createDeterminismCheckpoint>;
     } {
       const room = RtsEngine.createRoomState({
         id: 'deterministic-room',
@@ -1022,10 +1090,15 @@ describe('rts', () => {
 
       RtsEngine.tickRoom(room);
       const resolved = RtsEngine.tickRoom(room);
+      const checkpoint = RtsEngine.createDeterminismCheckpoint(room);
+      expect(RtsRoom.fromState(room).createDeterminismCheckpoint()).toEqual(
+        checkpoint,
+      );
 
       return {
         destroyOutcomes: resolved.destroyOutcomes,
         payload: RtsEngine.createRoomStatePayload(room),
+        checkpoint,
       };
     }
 
@@ -1039,6 +1112,9 @@ describe('rts', () => {
     expect(firstTeam?.pendingDestroys).toEqual([]);
     expect(secondTeam?.pendingDestroys).toEqual([]);
     expect(firstTeam?.structures).toEqual(secondTeam?.structures);
+    expect(firstRun.checkpoint).toEqual(secondRun.checkpoint);
+    expect(firstRun.checkpoint.hashAlgorithm).toBe('fnv1a-32');
+    expect(firstRun.checkpoint.hashHex).toMatch(/^[0-9a-f]{8}$/);
   });
 
   test('[QUAL-01] rejects insufficient resources with numeric deficit fields', () => {
@@ -1242,13 +1318,7 @@ describe('rts', () => {
     });
 
     for (let index = 0; index < 8; index += 1) {
-      for (const cell of generatorCells) {
-        RtsEngine.queueLegacyCellUpdate(room, {
-          x: cell.x,
-          y: cell.y,
-          alive: 0,
-        });
-      }
+      clearCells(room, generatorCells);
       RtsEngine.tickRoom(room);
 
       const payload = RtsEngine.createRoomStatePayload(room);
@@ -1348,9 +1418,6 @@ describe('rts', () => {
     });
     const teamOne = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
     const teamTwo = RtsEngine.addPlayerToRoom(room, 'p2', 'Bob');
-    const base = teamOne.baseTopLeft;
-    const baseCells = getCanonicalBaseCells(base);
-
     let result = RtsEngine.tickRoom(room);
     expect(result.outcome).toBeNull();
 
@@ -1366,26 +1433,10 @@ describe('rts', () => {
     });
     expect(destroyCore.accepted).toBe(true);
 
-    for (const cell of baseCells) {
-      RtsEngine.queueLegacyCellUpdate(room, {
-        x: cell.x,
-        y: cell.y,
-        alive: 0,
-      });
-    }
-
-    for (let index = 0; index < 12; index += 1) {
+    for (let index = 0; index < 4; index += 1) {
       result = RtsEngine.tickRoom(room);
       if (result.defeatedTeams.includes(teamOne.id)) {
         break;
-      }
-
-      for (const cell of baseCells) {
-        RtsEngine.queueLegacyCellUpdate(room, {
-          x: cell.x,
-          y: cell.y,
-          alive: 0,
-        });
       }
     }
 
@@ -1500,13 +1551,7 @@ describe('rts', () => {
     expect(team.resources).toBe(postBuildResources + 2);
 
     for (let index = 0; index < 8; index += 1) {
-      for (const cell of generatorCells) {
-        RtsEngine.queueLegacyCellUpdate(room, {
-          x: cell.x,
-          y: cell.y,
-          alive: 0,
-        });
-      }
+      clearCells(room, generatorCells);
       RtsEngine.tickRoom(room);
 
       const currentGenerator = getStructureByTemplateId(
@@ -1526,7 +1571,7 @@ describe('rts', () => {
     expect(generator?.active).toBe(false);
   });
 
-  test('activates and deactivates generator based on integrity state', () => {
+  test('removes generators after unresolved integrity breaches', () => {
     const room = RtsEngine.createRoomState({
       id: '1',
       name: 'Alpha',
@@ -1568,13 +1613,7 @@ describe('rts', () => {
     expect(activeGenerator).not.toBeNull();
     expect(activeGenerator?.active).toBe(true);
 
-    for (const cell of generatorCells) {
-      RtsEngine.queueLegacyCellUpdate(room, {
-        x: cell.x,
-        y: cell.y,
-        alive: 0,
-      });
-    }
+    clearCells(room, generatorCells);
 
     RtsEngine.tickRoom(room);
     RtsEngine.tickRoom(room);
@@ -1623,11 +1662,7 @@ describe('rts', () => {
     RtsEngine.tickRoom(room);
     RtsEngine.tickRoom(room);
 
-    RtsEngine.queueLegacyCellUpdate(room, {
-      x: placement.x,
-      y: placement.y,
-      alive: 0,
-    });
+    clearCells(room, [placement]);
     RtsEngine.tickRoom(room);
     RtsEngine.tickRoom(room);
 
@@ -1646,11 +1681,7 @@ describe('rts', () => {
       ),
     ).toBe(true);
 
-    RtsEngine.queueLegacyCellUpdate(room, {
-      x: placement.x,
-      y: placement.y,
-      alive: 0,
-    });
+    clearCells(room, [placement]);
     for (let index = 0; index < 4; index += 1) {
       RtsEngine.tickRoom(room);
     }
@@ -1735,23 +1766,11 @@ describe('rts', () => {
       { x: placement.x, y: placement.y + 1 },
       { x: placement.x + 1, y: placement.y + 1 },
     ];
-    for (const cell of blockCells) {
-      RtsEngine.queueLegacyCellUpdate(room, {
-        x: cell.x,
-        y: cell.y,
-        alive: 0,
-      });
-    }
+    clearCells(room, blockCells);
 
     let destroyed = getStructureByTemplateId(room, team.id, 'block');
     for (let index = 0; index < 8 && destroyed; index += 1) {
-      for (const cell of blockCells) {
-        RtsEngine.queueLegacyCellUpdate(room, {
-          x: cell.x,
-          y: cell.y,
-          alive: 0,
-        });
-      }
+      clearCells(room, blockCells);
       RtsEngine.tickRoom(room);
       destroyed = getStructureByTemplateId(room, team.id, 'block');
     }
@@ -1791,13 +1810,7 @@ describe('rts', () => {
 
     let result = RtsEngine.tickRoom(room);
     for (let index = 0; index < 400; index += 1) {
-      for (const cell of baseCells) {
-        RtsEngine.queueLegacyCellUpdate(room, {
-          x: cell.x,
-          y: cell.y,
-          alive: 0,
-        });
-      }
+      clearCells(room, baseCells);
       result = RtsEngine.tickRoom(room);
       const currentCore = getCoreStructure(room, team.id);
       if (currentCore) {
