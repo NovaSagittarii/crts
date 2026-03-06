@@ -1,4 +1,3 @@
-import type { CellUpdate } from '#conway-core';
 import { Grid } from '#conway-core';
 import {
   determineMatchOutcome,
@@ -384,8 +383,6 @@ export class RtsEngine {
 
   private nextBuildEventId: number;
 
-  private pendingLegacyUpdates: CellUpdate[];
-
   private timelineEvents: TimelineEvent[];
 
   private constructor(options: {
@@ -404,7 +401,6 @@ export class RtsEngine {
     this.roomSpawnOrientationSeed = options.spawnOrientationSeed;
     this.nextTeamId = 1;
     this.nextBuildEventId = 1;
-    this.pendingLegacyUpdates = [];
     this.timelineEvents = [];
   }
 
@@ -465,43 +461,6 @@ export class RtsEngine {
     const eventId = engine.nextBuildEventId;
     engine.nextBuildEventId += 1;
     return eventId;
-  }
-
-  private static pushPendingLegacyUpdate(
-    room: RoomState,
-    update: CellUpdate,
-  ): void {
-    RtsEngine.getRoomEngine(room).pendingLegacyUpdates.push(update);
-  }
-
-  private static drainPendingLegacyUpdates(room: RoomState): CellUpdate[] {
-    const engine = RtsEngine.getRoomEngine(room);
-    const updates = engine.pendingLegacyUpdates;
-    engine.pendingLegacyUpdates = [];
-    return updates;
-  }
-
-  private static applyLegacyUpdates(
-    room: RoomState,
-    updates: readonly CellUpdate[],
-  ): void {
-    for (const update of updates) {
-      if (!update) {
-        continue;
-      }
-
-      const x = Number(update.x);
-      const y = Number(update.y);
-      if (!Number.isInteger(x) || !Number.isInteger(y)) {
-        continue;
-      }
-
-      if (x < 0 || y < 0 || x >= room.width || y >= room.height) {
-        continue;
-      }
-
-      room.grid.setCell(x, y, update.alive);
-    }
   }
 
   private static hashSpawnSeed(
@@ -1900,13 +1859,6 @@ export class RtsEngine {
     room.players.delete(playerId);
   }
 
-  public static queueLegacyCellUpdate(
-    room: RoomState,
-    update: CellUpdate,
-  ): void {
-    RtsEngine.pushPendingLegacyUpdate(room, update);
-  }
-
   public static previewBuildPlacement(
     room: RoomState,
     playerId: string,
@@ -2385,12 +2337,7 @@ export class RtsEngine {
     return appliedBuilds;
   }
 
-  private static applyLegacyUpdatesAndAdvanceGeneration(room: RoomState): void {
-    const pendingLegacyUpdates = RtsEngine.drainPendingLegacyUpdates(room);
-    if (pendingLegacyUpdates.length > 0) {
-      RtsEngine.applyLegacyUpdates(room, pendingLegacyUpdates);
-    }
-
+  private static advanceGeneration(room: RoomState): void {
     room.grid.step();
     room.tick += 1;
     room.generation += 1;
@@ -2482,7 +2429,7 @@ export class RtsEngine {
       acceptedEvents,
       buildOutcomes,
     );
-    RtsEngine.applyLegacyUpdatesAndAdvanceGeneration(room);
+    RtsEngine.advanceGeneration(room);
     const { defeatedTeams, outcome } = RtsEngine.resolveDefeatAndOutcome(
       room,
       buildOutcomes,
@@ -2569,10 +2516,6 @@ export class RtsRoom {
 
   public removePlayer(playerId: string): void {
     RtsEngine.removePlayerFromRoom(this.state, playerId);
-  }
-
-  public queueLegacyCellUpdate(update: CellUpdate): void {
-    RtsEngine.queueLegacyCellUpdate(this.state, update);
   }
 
   public previewBuildPlacement(
