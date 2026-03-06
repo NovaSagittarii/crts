@@ -33,7 +33,8 @@ import {
   ServerToClientEvents,
   StateRequestPayload,
   StructureTemplatePayload,
-  TeamIncomeBreakdownPayload,
+  TeamIncomeBreakdown,
+  TeamPayload,
 } from '#rts-engine';
 
 import {
@@ -150,7 +151,6 @@ import {
   resetStateHashResyncState,
 } from './state-hash-resync-view-model.js';
 
-type TeamPayload = RoomStatePayload['teams'][number];
 type BuildPreview = BuildQueuePreview & {
   footprint: Cell[];
   illegalCells: Cell[];
@@ -177,7 +177,7 @@ interface TeamEconomySnapshot {
   tick: number;
   resources: number;
   income: number;
-  incomeBreakdown: TeamIncomeBreakdownPayload;
+  incomeBreakdown: TeamIncomeBreakdown;
 }
 
 interface Cell {
@@ -1094,8 +1094,8 @@ function triggerValuePulse(...elements: HTMLElement[]): void {
 }
 
 function cloneIncomeBreakdown(
-  breakdown: TeamIncomeBreakdownPayload,
-): TeamIncomeBreakdownPayload {
+  breakdown: TeamIncomeBreakdown,
+): TeamIncomeBreakdown {
   return {
     base: breakdown.base,
     structures: breakdown.structures,

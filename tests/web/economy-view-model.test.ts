@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import type { PendingBuildStatePayload } from '#rts-engine';
+import type { PendingBuildPayload } from '#rts-engine';
 
 import {
   aggregateIncomeDelta,
@@ -11,7 +11,7 @@ import {
 
 describe('economy-view-model helpers', () => {
   test('groups pending builds by execute tick with deterministic event ordering', () => {
-    const pending: PendingBuildStatePayload[] = [
+    const pending: PendingBuildPayload[] = [
       {
         eventId: 9,
         executeTick: 18,

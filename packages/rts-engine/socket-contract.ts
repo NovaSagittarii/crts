@@ -1,5 +1,4 @@
 import type {
-  AffordabilityResult,
   BuildOutcome,
   BuildQueuePayload,
   RoomDeterminismCheckpoint,
@@ -7,18 +6,11 @@ import type {
   RoomStateHashes,
   DestroyOutcome,
   DestroyQueuePayload,
-  DestroyRejectionReason,
-  PendingBuildPayload,
-  PendingDestroyPayload,
   RoomStatePayload,
   RoomStructuresStatePayload,
-  TeamIncomeBreakdown,
 } from './rts.js';
 import type { RankedTeamOutcome } from './match-lifecycle.js';
-import type {
-  StructurePayload,
-  StructureTemplatePayload,
-} from './structure.js';
+import type { StructureTemplatePayload } from './structure.js';
 
 // Shared Socket.IO payload contracts.
 //
@@ -115,18 +107,6 @@ export interface DestroyScheduledPayload {
   structureKey: string;
   idempotent: boolean;
 }
-
-export type BuildAffordabilityPayload = Pick<
-  AffordabilityResult,
-  'affordable' | 'needed' | 'current' | 'deficit'
->;
-
-export type PendingBuildStatePayload = PendingBuildPayload;
-export type PendingDestroyStatePayload = PendingDestroyPayload;
-export type StructureStatePayload = StructurePayload;
-export type TeamIncomeBreakdownPayload = TeamIncomeBreakdown;
-
-export type DestroyOutcomeRejectionReason = DestroyRejectionReason;
 
 export interface BuildOutcomePayload extends BuildOutcome {
   roomId: string;
