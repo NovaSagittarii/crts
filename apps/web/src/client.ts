@@ -583,11 +583,12 @@ function flushPendingStateRequest(force = false): void {
   }
 
   lastStateRequestAtMs = now;
-  const requestedSections = [...pendingStateRequestSections];
+  let requestedSections: NonNullable<StateRequestPayload['sections']> = [
+    ...pendingStateRequestSections,
+  ];
   pendingStateRequestSections.clear();
   if (requestedSections.includes('full')) {
-    stateHashResyncState =
-      markAwaitingHashesAfterFullState(stateHashResyncState);
+    requestedSections = ['full'];
   }
   socket.emit('state:request', {
     sections: requestedSections,

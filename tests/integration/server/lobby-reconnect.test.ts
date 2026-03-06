@@ -380,10 +380,14 @@ describe('lobby reconnect reliability', () => {
       (payload) => payload.slots['team-1'] === 'session-newest-wins',
     );
 
-    const newestSocket = connectClient({ sessionId: 'session-newest-wins' });
-    await waitForEvent<RoomJoinedPayload>(newestSocket, 'room:joined');
-    newestSocket.emit('room:join', { roomId: created.roomId });
-
+    const newestSocket = connectClient({
+      sessionId: 'session-newest-wins',
+      connect: false,
+    });
+    const newestBootstrapJoinedPromise = waitForEvent<RoomJoinedPayload>(
+      newestSocket,
+      'room:joined',
+    );
     const staleErrorPromise = waitForEvent<RoomErrorPayload>(
       firstSocket,
       'room:error',
@@ -392,7 +396,17 @@ describe('lobby reconnect reliability', () => {
       firstSocket,
       'disconnect',
     );
-    firstSocket.emit('room:set-ready', { ready: true });
+
+    newestSocket.connect();
+    await newestBootstrapJoinedPromise;
+
+    const newestRoomJoinedPromise = waitForEvent<RoomJoinedPayload>(
+      newestSocket,
+      'room:joined',
+    );
+    newestSocket.emit('room:join', { roomId: created.roomId });
+    await newestRoomJoinedPromise;
+
     const staleError = await staleErrorPromise;
     expect(staleError.reason).toBe('session-replaced');
     expect([
