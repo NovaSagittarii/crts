@@ -10,6 +10,7 @@ import type {
   MatchStartedPayload,
   RoomErrorPayload,
   RoomJoinedPayload,
+  RoomLeftPayload,
   RoomSlotClaimedPayload,
 } from '#rts-engine';
 import {
@@ -93,6 +94,7 @@ describe('socket payload validation', () => {
     );
     socket.emit('room:claim-slot', { slotId });
     const claimed = await claimedPromise;
+    expect(claimed.roomId).toBe(roomId);
     await waitForMembership(
       socket,
       roomId,
@@ -222,6 +224,37 @@ describe('socket payload validation', () => {
       });
     },
   );
+
+  test('scopes room:error payloads for room and lobby rejections', async () => {
+    const { owner, created } = await createLobbyRoom('room-error-owner');
+
+    const roomScopedErrorPromise = waitForEvent<RoomErrorPayload>(
+      owner,
+      'room:error',
+    );
+    owner.emit('chat:send', { message: '   ' });
+
+    await expect(roomScopedErrorPromise).resolves.toMatchObject({
+      reason: 'invalid-chat',
+      roomId: created.roomId,
+    });
+
+    const outsider = connectClient({ sessionId: 'room-error-outsider' });
+    await waitForEvent<RoomJoinedPayload>(outsider, 'room:joined');
+    outsider.emit('room:leave');
+    await waitForEvent<RoomLeftPayload>(outsider, 'room:left');
+
+    const lobbyErrorPromise = waitForEvent<RoomErrorPayload>(
+      outsider,
+      'room:error',
+    );
+    outsider.emit('room:set-ready', null);
+
+    await expect(lobbyErrorPromise).resolves.toMatchObject({
+      reason: 'not-in-room',
+      roomId: null,
+    });
+  });
 
   test.each(INVALID_BUILD_CASES)(
     'rejects malformed build:queue payloads: $label',

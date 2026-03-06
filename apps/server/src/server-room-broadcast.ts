@@ -3,11 +3,13 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 import { LobbySessionCoordinator } from './lobby-session.js';
 
 import {
+  type BuildQueueRejectedPayload,
   type BuildQueuedPayload,
   type BuildScheduledPayload,
   type BuildOutcomePayload,
   type ClientToServerEvents,
   type DeterminismHashAlgorithm,
+  type DestroyQueueRejectedPayload,
   type DestroyQueuedPayload,
   type DestroyScheduledPayload,
   type DestroyOutcomePayload,
@@ -296,6 +298,15 @@ export class RoomBroadcastService {
     this.io.to(this.roomChannel(room.rtsRoom.id)).emit('build:queued', payload);
   }
 
+  public emitBuildQueueRejected(
+    room: RuntimeBroadcastRoom,
+    payload: BuildQueueRejectedPayload,
+  ): void {
+    this.io
+      .to(this.roomChannel(room.rtsRoom.id))
+      .emit('build:queue-rejected', payload);
+  }
+
   public emitBuildScheduled(
     room: RuntimeBroadcastRoom,
     payload: BuildScheduledPayload,
@@ -312,6 +323,15 @@ export class RoomBroadcastService {
     this.io
       .to(this.roomChannel(room.rtsRoom.id))
       .emit('destroy:queued', payload);
+  }
+
+  public emitDestroyQueueRejected(
+    room: RuntimeBroadcastRoom,
+    payload: DestroyQueueRejectedPayload,
+  ): void {
+    this.io
+      .to(this.roomChannel(room.rtsRoom.id))
+      .emit('destroy:queue-rejected', payload);
   }
 
   public emitDestroyScheduled(
