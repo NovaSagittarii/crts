@@ -21,6 +21,7 @@ import {
   type TestClientOptions,
   waitForDestroyOutcome,
   waitForDestroyQueueResponse,
+  waitForDestroyScheduled,
   waitForEvent,
   waitForMembership as waitForMembershipBase,
   waitForState as waitForStateBase,
@@ -200,6 +201,7 @@ async function breachGuestCore(
     15_000,
   );
 
+  const destroyScheduledPromise = waitForDestroyScheduled(match.guest, 4_000);
   const queueResponsePromise = waitForDestroyQueueResponse(match.guest);
   match.guest.emit('destroy:queue', {
     structureKey: guestCore.key,
@@ -211,10 +213,11 @@ async function breachGuestCore(
       `Expected guest core destroy queue acceptance, received ${queueResponse.error.reason}`,
     );
   }
+  const destroyScheduled = await destroyScheduledPromise;
 
   const destroyOutcome = await waitForDestroyOutcome(
     match.guest,
-    queueResponse.queued.eventId,
+    destroyScheduled.eventId,
   );
   expect(destroyOutcome.outcome).toBe('destroyed');
   expect(destroyOutcome.structureKey).toBe(guestCore.key);

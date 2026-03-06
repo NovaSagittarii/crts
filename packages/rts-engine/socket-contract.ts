@@ -5,12 +5,15 @@ import type {
   BuildRejectionReason,
   BuildQueuePayload,
   RoomDeterminismCheckpoint,
+  RoomGridStatePayload,
+  RoomStateHashes,
   DestroyOutcome,
   DestroyQueuePayload,
   DestroyRejectionReason,
   PendingBuildPayload,
   PendingDestroyPayload,
   RoomStatePayload,
+  RoomStructuresStatePayload,
   TeamIncomeBreakdown,
 } from './rts.js';
 import type { RankedTeamOutcome } from './match-lifecycle.js';
@@ -39,7 +42,7 @@ export interface LockstepStatusPayload {
   status: LockstepStatus;
   turnLengthTicks: number;
   nextTurn: number;
-  bufferedTurns: number;
+  bufferedTurnCount: number;
   mismatchCount: number;
   lastFallbackReason?: LockstepFallbackReason;
   lastPrimaryHash?: string;
@@ -60,12 +63,55 @@ export interface LockstepFallbackPayload {
   mismatchCount?: number;
 }
 
+export type StateRequestSection = 'full' | 'grid' | 'structures' | 'membership';
+
+export interface StateRequestPayload {
+  sections?: StateRequestSection[];
+}
+
+export interface RoomStateHashesPayload extends RoomStateHashes {
+  roomId: string;
+  roomMembershipHash: string;
+}
+
 export interface BuildQueuedPayload {
+  roomId: string;
+  intentId: string;
+  playerId: string;
+  teamId: number;
+  bufferedTurn: number;
+  scheduledByTurn: number;
+  templateId: string;
+  x: number;
+  y: number;
+  delayTicks: number;
+}
+
+export interface DestroyQueuedPayload {
+  roomId: string;
+  intentId: string;
+  playerId: string;
+  teamId: number;
+  bufferedTurn: number;
+  scheduledByTurn: number;
+  delayTicks: number;
+  structureKey: string;
+}
+
+export interface BuildScheduledPayload {
+  roomId: string;
+  intentId: string;
+  playerId: string;
+  teamId: number;
   eventId: number;
   executeTick: number;
 }
 
-export interface DestroyQueuedPayload {
+export interface DestroyScheduledPayload {
+  roomId: string;
+  intentId: string;
+  playerId: string;
+  teamId: number;
   eventId: number;
   executeTick: number;
   structureKey: string;
@@ -145,6 +191,7 @@ export interface RoomJoinedPayload {
   teamId: number | null;
   templates: StructureTemplateSummary[];
   state: RoomStatePayload;
+  stateHashes: RoomStateHashesPayload;
   lockstep?: LockstepStatusPayload;
 }
 
@@ -211,6 +258,8 @@ export interface RoomMembershipPayload {
     } | null
   >;
   countdownSecondsRemaining: number | null;
+  hashAlgorithm: RoomStateHashes['hashAlgorithm'];
+  membershipHash: string;
   lockstep?: LockstepStatusPayload;
 }
 
@@ -262,7 +311,7 @@ export interface ClientToServerEvents {
   'room:start': (payload?: RoomStartPayload) => void;
   'room:cancel-countdown': () => void;
   'chat:send': (payload: ChatSendPayload) => void;
-  'state:request': () => void;
+  'state:request': (payload?: StateRequestPayload) => void;
   'build:preview': (payload: BuildPreviewRequestPayload) => void;
   'build:queue': (payload: BuildQueuePayload) => void;
   'destroy:queue': (payload: DestroyQueuePayload) => void;
@@ -270,6 +319,9 @@ export interface ClientToServerEvents {
 
 export interface ServerToClientEvents {
   state: (payload: RoomStatePayload) => void;
+  'state:grid': (payload: RoomGridStatePayload) => void;
+  'state:structures': (payload: RoomStructuresStatePayload) => void;
+  'state:hashes': (payload: RoomStateHashesPayload) => void;
   'room:list': (payload: RoomListEntryPayload[]) => void;
   'room:joined': (payload: RoomJoinedPayload) => void;
   'room:left': (payload: RoomLeftPayload) => void;
@@ -282,8 +334,10 @@ export interface ServerToClientEvents {
   'chat:message': (payload: ChatMessagePayload) => void;
   'build:preview': (payload: BuildPreviewPayload) => void;
   'build:queued': (payload: BuildQueuedPayload) => void;
+  'build:scheduled': (payload: BuildScheduledPayload) => void;
   'build:outcome': (payload: BuildOutcomePayload) => void;
   'destroy:queued': (payload: DestroyQueuedPayload) => void;
+  'destroy:scheduled': (payload: DestroyScheduledPayload) => void;
   'destroy:outcome': (payload: DestroyOutcomePayload) => void;
   'lockstep:checkpoint': (payload: LockstepCheckpointPayload) => void;
   'lockstep:fallback': (payload: LockstepFallbackPayload) => void;

@@ -1117,6 +1117,41 @@ describe('rts', () => {
     expect(firstRun.checkpoint.hashHex).toMatch(/^[0-9a-f]{8}$/);
   });
 
+  test('[QUAL-04] isolates authoritative grid and structures hashes', () => {
+    const room = RtsEngine.createRoomState({
+      id: 'state-hash-room',
+      name: 'State Hashes',
+      width: 80,
+      height: 80,
+    });
+    const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+
+    const initial = RtsEngine.createStateHashes(room);
+    expect(RtsRoom.fromState(room).createStateHashes()).toEqual(initial);
+
+    RtsEngine.renamePlayerInRoom(room, 'p1', 'Alicia');
+    expect(RtsEngine.createStateHashes(room)).toEqual(initial);
+
+    const queuedBuild = RtsEngine.queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x: team.baseTopLeft.x + 4,
+      y: team.baseTopLeft.y + 4,
+      delayTicks: 5,
+    });
+    expect(queuedBuild.accepted).toBe(true);
+
+    const afterQueuedBuild = RtsEngine.createStateHashes(room);
+    expect(afterQueuedBuild.gridHash).toBe(initial.gridHash);
+    expect(afterQueuedBuild.structuresHash).not.toBe(initial.structuresHash);
+
+    room.grid.setCell(0, 0, true);
+    const afterGridMutation = RtsEngine.createStateHashes(room);
+    expect(afterGridMutation.gridHash).not.toBe(afterQueuedBuild.gridHash);
+    expect(afterGridMutation.structuresHash).toBe(
+      afterQueuedBuild.structuresHash,
+    );
+  });
+
   test('[QUAL-01] rejects insufficient resources with numeric deficit fields', () => {
     const room = RtsEngine.createRoomState({
       id: '1',

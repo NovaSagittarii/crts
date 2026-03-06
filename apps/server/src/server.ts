@@ -22,7 +22,9 @@ import {
   type BuildPreviewResult,
   type QueueBuildResult,
   type BuildQueuePayload,
+  type BuildScheduledPayload,
   type DestroyQueuePayload,
+  type DestroyScheduledPayload,
   type ChatSendPayload,
   type ClientToServerEvents,
   type DestroyOutcomePayload,
@@ -38,6 +40,7 @@ import {
   transitionMatchLifecycle,
   type PlayerProfilePayload,
   RtsEngine,
+  type RoomGridStatePayload,
   type RoomClaimSlotPayload,
   type RoomCreatePayload,
   type BuildQueuedPayload,
@@ -45,10 +48,14 @@ import {
   type RoomErrorPayload,
   type RoomJoinPayload,
   type RoomSetReadyPayload,
+  type RoomStateHashesPayload,
   type RoomStartPayload,
+  type RoomStructuresStatePayload,
   type RtsRoom,
   type RoomStatePayload,
   type ServerToClientEvents,
+  type StateRequestPayload,
+  type StateRequestSection,
   type TeamState,
 } from '#rts-engine';
 
@@ -91,6 +98,7 @@ export interface ServerOptions {
   lockstepMode?: LockstepMode;
   lockstepTurnTicks?: number;
   lockstepCheckpointIntervalTicks?: number;
+  lockstepMaxBufferedCommands?: number;
   lockstepMaxBufferedTurns?: number;
   activeStateSnapshotIntervalTicks?: number;
   now?: () => number;
@@ -126,9 +134,11 @@ function configureStaticAssets(
 interface BufferedLockstepCommand {
   sequence: number;
   turn: number;
+  intentId: string;
+  bufferedTurn: number;
+  scheduledByTurn: number;
   kind: 'build' | 'destroy';
   sessionId: string;
-  socketId: string;
   payload: BuildQueuePayload | DestroyQueuePayload;
   expectedAccepted: boolean;
   expectedExecuteTick: number | null;
@@ -142,9 +152,10 @@ interface LockstepRuntimeState {
   status: LockstepRuntimeStatus;
   turnLengthTicks: number;
   checkpointIntervalTicks: number;
-  maxBufferedTurns: number;
+  maxBufferedCommands: number;
   nextTurn: number;
   nextSequence: number;
+  nextIntentId: number;
   lastFlushedTurn: number;
   bufferedCommandCount: number;
   turnBuffer: Map<number, BufferedLockstepCommand[]>;
@@ -159,8 +170,7 @@ interface LockstepRuntimeState {
 interface StateRequestBudget {
   roomId: string;
   lastRequestedAtMs: number;
-  lastServedTick: number;
-  lastServedRevision: number;
+  lastServedHashes: Partial<Record<StateRequestSection, string>>;
 }
 
 interface RuntimeRoom extends RuntimeBroadcastRoom {
@@ -425,8 +435,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
     1,
     240,
   );
-  const lockstepMaxBufferedTurns = parseBoundedInteger(
-    options.lockstepMaxBufferedTurns,
+  const lockstepMaxBufferedCommands = parseBoundedInteger(
+    options.lockstepMaxBufferedCommands ?? options.lockstepMaxBufferedTurns,
     DEFAULT_LOCKSTEP_MAX_BUFFERED_TURNS,
     4,
     512,
@@ -471,9 +481,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
       status: 'running',
       turnLengthTicks: lockstepTurnTicks,
       checkpointIntervalTicks: lockstepCheckpointIntervalTicks,
-      maxBufferedTurns: lockstepMaxBufferedTurns,
+      maxBufferedCommands: lockstepMaxBufferedCommands,
       nextTurn: 0,
       nextSequence: 0,
+      nextIntentId: 0,
       lastFlushedTurn: -1,
       bufferedCommandCount: 0,
       turnBuffer: new Map(),
@@ -494,7 +505,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       status: lockstepRuntime.status,
       turnLengthTicks: lockstepRuntime.turnLengthTicks,
       nextTurn: lockstepRuntime.nextTurn,
-      bufferedTurns: lockstepRuntime.turnBuffer.size,
+      bufferedTurnCount: lockstepRuntime.turnBuffer.size,
       mismatchCount: lockstepRuntime.mismatchCount,
       lastFallbackReason: lockstepRuntime.lastFallbackReason ?? undefined,
       lastPrimaryHash: lockstepRuntime.lastPrimaryHash ?? undefined,
@@ -511,15 +522,60 @@ export function createServer(options: ServerOptions = {}): GameServer {
     stateRequestBudgetBySession.delete(sessionId);
   }
 
+  function normalizeStateRequestSections(
+    payload?: StateRequestPayload,
+  ): StateRequestSection[] {
+    const requested = payload?.sections ?? ['full'];
+    const unique = new Set<StateRequestSection>();
+
+    for (const section of requested) {
+      if (
+        section === 'full' ||
+        section === 'grid' ||
+        section === 'structures' ||
+        section === 'membership'
+      ) {
+        unique.add(section);
+      }
+    }
+
+    if (unique.size === 0) {
+      unique.add('full');
+    }
+
+    return [...unique];
+  }
+
+  function createStateHashesPayload(room: RuntimeRoom): RoomStateHashesPayload {
+    return roomBroadcast.buildStateHashesPayload(room);
+  }
+
+  function getRequestedSectionHash(
+    hashes: RoomStateHashesPayload,
+    section: StateRequestSection,
+  ): string {
+    switch (section) {
+      case 'grid':
+        return hashes.gridHash;
+      case 'structures':
+        return hashes.structuresHash;
+      case 'membership':
+        return hashes.roomMembershipHash;
+      case 'full':
+      default:
+        return `${hashes.gridHash}:${hashes.structuresHash}:${hashes.roomMembershipHash}`;
+    }
+  }
+
   function shouldServeStateRequest(
     sessionId: string,
     room: RuntimeRoom,
+    sections: readonly StateRequestSection[],
   ): boolean {
-    const currentTick = room.rtsRoom.state.tick;
-    const currentRevision = room.revision;
     const currentRoomId = room.rtsRoom.id;
     const currentTimeMs = now();
     const budget = stateRequestBudgetBySession.get(sessionId);
+    const hashes = createStateHashesPayload(room);
 
     if (
       budget &&
@@ -532,17 +588,27 @@ export function createServer(options: ServerOptions = {}): GameServer {
     if (
       budget &&
       budget.roomId === currentRoomId &&
-      budget.lastServedTick === currentTick &&
-      budget.lastServedRevision === currentRevision
+      sections.every(
+        (section) =>
+          budget.lastServedHashes[section] ===
+          getRequestedSectionHash(hashes, section),
+      )
     ) {
       return false;
+    }
+
+    const nextServedHashes =
+      budget && budget.roomId === currentRoomId
+        ? { ...budget.lastServedHashes }
+        : {};
+    for (const section of sections) {
+      nextServedHashes[section] = getRequestedSectionHash(hashes, section);
     }
 
     stateRequestBudgetBySession.set(sessionId, {
       roomId: currentRoomId,
       lastRequestedAtMs: currentTimeMs,
-      lastServedTick: currentTick,
-      lastServedRevision: currentRevision,
+      lastServedHashes: nextServedHashes,
     });
     return true;
   }
@@ -562,6 +628,110 @@ export function createServer(options: ServerOptions = {}): GameServer {
     payload: DestroyQueuePayload,
   ): DestroyQueuePayload {
     return { ...payload };
+  }
+
+  function allocateIntentId(lockstepRuntime: LockstepRuntimeState): string {
+    const intentId = `intent-${lockstepRuntime.nextIntentId}`;
+    lockstepRuntime.nextIntentId += 1;
+    return intentId;
+  }
+
+  function getBufferedTurn(room: RuntimeRoom): number {
+    const lockstepRuntime = room.lockstepRuntime;
+    return lockstepRuntime.mode === 'primary' &&
+      lockstepRuntime.status === 'running'
+      ? getLockstepTurnForTick(lockstepRuntime, room.rtsRoom.state.tick)
+      : room.rtsRoom.state.tick;
+  }
+
+  function getScheduledByTurn(room: RuntimeRoom, bufferedTurn: number): number {
+    const lockstepRuntime = room.lockstepRuntime;
+    return lockstepRuntime.mode === 'primary' &&
+      lockstepRuntime.status === 'running'
+      ? bufferedTurn + 1
+      : bufferedTurn;
+  }
+
+  function createBuildQueuedPayload(
+    room: RuntimeRoom,
+    teamId: number,
+    sessionId: string,
+    intentId: string,
+    payload: BuildQueuePayload,
+    bufferedTurn: number,
+    scheduledByTurn: number,
+  ): BuildQueuedPayload {
+    return {
+      roomId: room.rtsRoom.id,
+      intentId,
+      playerId: sessionId,
+      teamId,
+      bufferedTurn,
+      scheduledByTurn,
+      templateId: payload.templateId,
+      x: payload.x,
+      y: payload.y,
+      delayTicks: payload.delayTicks ?? 10,
+    };
+  }
+
+  function createDestroyQueuedPayload(
+    room: RuntimeRoom,
+    teamId: number,
+    sessionId: string,
+    intentId: string,
+    payload: DestroyQueuePayload,
+    bufferedTurn: number,
+    scheduledByTurn: number,
+  ): DestroyQueuedPayload {
+    return {
+      roomId: room.rtsRoom.id,
+      intentId,
+      playerId: sessionId,
+      teamId,
+      bufferedTurn,
+      scheduledByTurn,
+      delayTicks: payload.delayTicks ?? 10,
+      structureKey: payload.structureKey,
+    };
+  }
+
+  function createBuildScheduledPayload(
+    room: RuntimeRoom,
+    teamId: number | null,
+    sessionId: string,
+    intentId: string,
+    result: QueueBuildResult,
+  ): BuildScheduledPayload {
+    const player = room.rtsRoom.state.players.get(sessionId);
+    return {
+      roomId: room.rtsRoom.id,
+      intentId,
+      playerId: sessionId,
+      teamId: teamId ?? player?.teamId ?? -1,
+      eventId: result.eventId ?? -1,
+      executeTick: result.executeTick ?? room.rtsRoom.state.tick,
+    };
+  }
+
+  function createDestroyScheduledPayload(
+    room: RuntimeRoom,
+    teamId: number | null,
+    sessionId: string,
+    intentId: string,
+    result: QueueDestroyResult,
+  ): DestroyScheduledPayload {
+    const player = room.rtsRoom.state.players.get(sessionId);
+    return {
+      roomId: room.rtsRoom.id,
+      intentId,
+      playerId: sessionId,
+      teamId: teamId ?? player?.teamId ?? -1,
+      eventId: result.eventId ?? -1,
+      executeTick: result.executeTick ?? room.rtsRoom.state.tick,
+      structureKey: result.structureKey ?? '',
+      idempotent: Boolean(result.idempotent),
+    };
   }
 
   function createShadowRoom(room: RuntimeRoom): RtsRoom {
@@ -678,10 +848,54 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   function emitRoomState(room: RuntimeRoom): void {
     roomBroadcast.emitRoomState(room);
+    roomBroadcast.emitStateHashes(room);
   }
 
   function emitRoomStateToSocket(room: RuntimeRoom, socket: GameSocket): void {
     socket.emit('state', room.rtsRoom.createStatePayload());
+    roomBroadcast.emitStateHashes(room, socket);
+  }
+
+  function emitGridStateToSocket(room: RuntimeRoom, socket: GameSocket): void {
+    const payload: RoomGridStatePayload = room.rtsRoom.createGridStatePayload();
+    socket.emit('state:grid', payload);
+  }
+
+  function emitStructuresStateToSocket(
+    room: RuntimeRoom,
+    socket: GameSocket,
+  ): void {
+    const payload: RoomStructuresStatePayload =
+      room.rtsRoom.createStructuresStatePayload();
+    socket.emit('state:structures', payload);
+  }
+
+  function emitRequestedStateSections(
+    room: RuntimeRoom,
+    socket: GameSocket,
+    sections: readonly StateRequestSection[],
+  ): void {
+    for (const section of sections) {
+      if (section === 'full') {
+        emitRoomStateToSocket(room, socket);
+        continue;
+      }
+
+      if (section === 'grid') {
+        emitGridStateToSocket(room, socket);
+        continue;
+      }
+
+      if (section === 'structures') {
+        emitStructuresStateToSocket(room, socket);
+        continue;
+      }
+
+      socket.emit(
+        'room:membership',
+        roomBroadcast.buildMembershipPayload(room),
+      );
+    }
   }
 
   function emitBuildOutcomes(
@@ -700,6 +914,37 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   function emitMembership(room: RuntimeRoom, bumpRevision = true): void {
     roomBroadcast.emitMembership(room, bumpRevision);
+    roomBroadcast.emitStateHashes(room);
+  }
+
+  function emitBuildQueued(
+    room: RuntimeRoom,
+    payload: BuildQueuedPayload,
+  ): void {
+    roomBroadcast.emitBuildQueued(room, payload);
+  }
+
+  function emitBuildScheduled(
+    room: RuntimeRoom,
+    payload: BuildScheduledPayload,
+  ): void {
+    roomBroadcast.emitBuildScheduled(room, payload);
+    roomBroadcast.emitStateHashes(room);
+  }
+
+  function emitDestroyQueued(
+    room: RuntimeRoom,
+    payload: DestroyQueuedPayload,
+  ): void {
+    roomBroadcast.emitDestroyQueued(room, payload);
+  }
+
+  function emitDestroyScheduled(
+    room: RuntimeRoom,
+    payload: DestroyScheduledPayload,
+  ): void {
+    roomBroadcast.emitDestroyScheduled(room, payload);
+    roomBroadcast.emitStateHashes(room);
   }
 
   function syncLockstepStatus(room: RuntimeRoom): void {
@@ -825,7 +1070,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         : turn;
 
     if (
-      lockstepRuntime.bufferedCommandCount > lockstepRuntime.maxBufferedTurns
+      lockstepRuntime.bufferedCommandCount > lockstepRuntime.maxBufferedCommands
     ) {
       fallbackToLegacyLockstep(room, 'turn-buffer-overflow');
       return true;
@@ -887,69 +1132,26 @@ export function createServer(options: ServerOptions = {}): GameServer {
     room: RuntimeRoom,
     command: BufferedLockstepCommand,
   ): void {
-    const commandSocket = io.sockets.sockets.get(command.socketId);
-
     if (command.kind === 'build') {
       const queueResult = room.rtsRoom.queueBuildEvent(
         command.sessionId,
         command.payload as BuildQueuePayload,
       );
 
-      if (!commandSocket) {
-        return;
-      }
-
       if (!queueResult.accepted) {
-        const rejectionReason = resolveQueueBuildRejectionReason(queueResult);
-        roomError(
-          commandSocket,
-          queueResult.error ?? 'Build rejected',
-          rejectionReason,
-          rejectionReason === 'insufficient-resources'
-            ? getAffordabilityMetadata(queueResult)
-            : undefined,
-        );
-
-        const player = room.rtsRoom.state.players.get(command.sessionId);
-        if (player) {
-          const previewRequest: BuildPreviewRequestPayload = {
-            templateId: (command.payload as BuildQueuePayload).templateId,
-            x: (command.payload as BuildQueuePayload).x,
-            y: (command.payload as BuildQueuePayload).y,
-            transform: (command.payload as BuildQueuePayload).transform,
-          };
-          const refreshedPreview = runQueueBuildProbe(
-            room.rtsRoom,
-            command.sessionId,
-            previewRequest,
-          );
-          const team = room.rtsRoom.state.teams.get(player.teamId);
-          if (team) {
-            const affordability = derivePreviewAffordability(
-              team.resources,
-              refreshedPreview,
-            );
-            commandSocket.emit(
-              'build:preview',
-              createBuildPreviewPayload(
-                room.rtsRoom.id,
-                team.id,
-                previewRequest,
-                refreshedPreview,
-                affordability,
-              ),
-            );
-          }
-        }
-
         return;
       }
 
-      const queued: BuildQueuedPayload = {
-        eventId: queueResult.eventId ?? -1,
-        executeTick: queueResult.executeTick ?? room.rtsRoom.state.tick,
-      };
-      commandSocket.emit('build:queued', queued);
+      emitBuildScheduled(
+        room,
+        createBuildScheduledPayload(
+          room,
+          null,
+          command.sessionId,
+          command.intentId,
+          queueResult,
+        ),
+      );
       return;
     }
 
@@ -958,27 +1160,20 @@ export function createServer(options: ServerOptions = {}): GameServer {
       command.payload as DestroyQueuePayload,
     );
 
-    if (!commandSocket) {
-      return;
-    }
-
     if (!queueResult.accepted) {
-      const rejectionReason = resolveQueueDestroyRejectionReason(queueResult);
-      roomError(
-        commandSocket,
-        queueResult.error ?? 'Destroy rejected',
-        rejectionReason,
-      );
       return;
     }
 
-    const queued: DestroyQueuedPayload = {
-      eventId: queueResult.eventId ?? -1,
-      executeTick: queueResult.executeTick ?? room.rtsRoom.state.tick,
-      structureKey: queueResult.structureKey ?? '',
-      idempotent: Boolean(queueResult.idempotent),
-    };
-    commandSocket.emit('destroy:queued', queued);
+    emitDestroyScheduled(
+      room,
+      createDestroyScheduledPayload(
+        room,
+        null,
+        command.sessionId,
+        command.intentId,
+        queueResult,
+      ),
+    );
   }
 
   function executeBufferedCommands(
@@ -996,34 +1191,9 @@ export function createServer(options: ServerOptions = {}): GameServer {
       return;
     }
 
-    const pendingCommands = [...lockstepRuntime.turnBuffer.values()]
-      .flat()
-      .sort((left, right) => {
-        if (left.turn !== right.turn) {
-          return left.turn - right.turn;
-        }
-
-        return left.sequence - right.sequence;
-      });
-
     lockstepRuntime.turnBuffer.clear();
     lockstepRuntime.bufferedCommandCount = 0;
     lockstepRuntime.lastFlushedTurn = lockstepRuntime.nextTurn - 1;
-
-    if (lockstepRuntime.mode === 'primary') {
-      for (const command of pendingCommands) {
-        const commandSocket = io.sockets.sockets.get(command.socketId);
-        if (!commandSocket) {
-          continue;
-        }
-
-        roomError(
-          commandSocket,
-          'Match finished before buffered command resolved',
-          'match-finished',
-        );
-      }
-    }
 
     syncLockstepStatus(room);
   }
@@ -1421,6 +1591,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         template.toSummary(),
       ),
       state: room.rtsRoom.createStatePayload(),
+      stateHashes: createStateHashesPayload(room),
       lockstep: room.lockstep,
     });
 
@@ -1978,7 +2149,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       emitRoomList(socket);
     });
 
-    socket.on('state:request', () => {
+    socket.on('state:request', (payload?: StateRequestPayload) => {
       if (!ensureCurrentSocket(socket, session)) {
         return;
       }
@@ -1989,11 +2160,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      if (!shouldServeStateRequest(session.id, room)) {
+      const sections = normalizeStateRequestSections(payload);
+      if (!shouldServeStateRequest(session.id, room, sections)) {
         return;
       }
 
-      emitRoomStateToSocket(room, socket);
+      emitRequestedStateSections(room, socket, sections);
     });
 
     socket.on('room:create', (payload: unknown) => {
@@ -2312,6 +2484,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
+      const team = gate.team;
+
       const parsedPayload = parseBuildPayload(payload);
       if (!parsedPayload) {
         roomError(socket, 'Invalid build payload', 'invalid-build');
@@ -2319,15 +2493,32 @@ export function createServer(options: ServerOptions = {}): GameServer {
       }
 
       const lockstepRuntime = room.lockstepRuntime;
+      const intentId = allocateIntentId(lockstepRuntime);
+      const bufferedTurn = getBufferedTurn(room);
+      const scheduledByTurn = getScheduledByTurn(room, bufferedTurn);
+      emitBuildQueued(
+        room,
+        createBuildQueuedPayload(
+          room,
+          team.id,
+          session.id,
+          intentId,
+          parsedPayload,
+          bufferedTurn,
+          scheduledByTurn,
+        ),
+      );
       if (
         lockstepRuntime.mode === 'primary' &&
         lockstepRuntime.status === 'running'
       ) {
         if (
           bufferLockstepCommand(room, {
+            intentId,
+            bufferedTurn,
+            scheduledByTurn,
             kind: 'build',
             sessionId: session.id,
-            socketId: socket.id,
             payload: cloneBuildQueuePayload(parsedPayload),
             expectedAccepted: false,
             expectedExecuteTick: null,
@@ -2340,9 +2531,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
       const result = room.rtsRoom.queueBuildEvent(session.id, parsedPayload);
       bufferLockstepCommand(room, {
+        intentId,
+        bufferedTurn,
+        scheduledByTurn,
         kind: 'build',
         sessionId: session.id,
-        socketId: socket.id,
         payload: cloneBuildQueuePayload(parsedPayload),
         expectedAccepted: result.accepted,
         expectedExecuteTick: result.executeTick ?? null,
@@ -2372,14 +2565,14 @@ export function createServer(options: ServerOptions = {}): GameServer {
           previewRequest,
         );
         const refreshedAffordability = derivePreviewAffordability(
-          gate.team.resources,
+          team.resources,
           refreshedPreview,
         );
         socket.emit(
           'build:preview',
           createBuildPreviewPayload(
             room.rtsRoom.id,
-            gate.team.id,
+            team.id,
             previewRequest,
             refreshedPreview,
             refreshedAffordability,
@@ -2389,11 +2582,16 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      const queued: BuildQueuedPayload = {
-        eventId: result.eventId ?? -1,
-        executeTick: result.executeTick ?? room.rtsRoom.state.tick,
-      };
-      socket.emit('build:queued', queued);
+      emitBuildScheduled(
+        room,
+        createBuildScheduledPayload(
+          room,
+          team.id,
+          session.id,
+          intentId,
+          result,
+        ),
+      );
     });
 
     socket.on('destroy:queue', (payload: unknown) => {
@@ -2417,6 +2615,17 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
+      if (!gate.team) {
+        roomError(
+          socket,
+          'Only assigned players can issue gameplay mutations',
+          'not-player',
+        );
+        return;
+      }
+
+      const team = gate.team;
+
       const parsedPayload = parseDestroyPayload(payload);
       if (!parsedPayload) {
         roomError(socket, 'Invalid destroy payload', 'invalid-build');
@@ -2424,15 +2633,32 @@ export function createServer(options: ServerOptions = {}): GameServer {
       }
 
       const lockstepRuntime = room.lockstepRuntime;
+      const intentId = allocateIntentId(lockstepRuntime);
+      const bufferedTurn = getBufferedTurn(room);
+      const scheduledByTurn = getScheduledByTurn(room, bufferedTurn);
+      emitDestroyQueued(
+        room,
+        createDestroyQueuedPayload(
+          room,
+          team.id,
+          session.id,
+          intentId,
+          parsedPayload,
+          bufferedTurn,
+          scheduledByTurn,
+        ),
+      );
       if (
         lockstepRuntime.mode === 'primary' &&
         lockstepRuntime.status === 'running'
       ) {
         if (
           bufferLockstepCommand(room, {
+            intentId,
+            bufferedTurn,
+            scheduledByTurn,
             kind: 'destroy',
             sessionId: session.id,
-            socketId: socket.id,
             payload: cloneDestroyQueuePayload(parsedPayload),
             expectedAccepted: false,
             expectedExecuteTick: null,
@@ -2445,9 +2671,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
       const result = room.rtsRoom.queueDestroyEvent(session.id, parsedPayload);
       bufferLockstepCommand(room, {
+        intentId,
+        bufferedTurn,
+        scheduledByTurn,
         kind: 'destroy',
         sessionId: session.id,
-        socketId: socket.id,
         payload: cloneDestroyQueuePayload(parsedPayload),
         expectedAccepted: result.accepted,
         expectedExecuteTick: result.executeTick ?? null,
@@ -2459,13 +2687,16 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      const queued: DestroyQueuedPayload = {
-        eventId: result.eventId ?? -1,
-        executeTick: result.executeTick ?? room.rtsRoom.state.tick,
-        structureKey: result.structureKey ?? parsedPayload.structureKey,
-        idempotent: Boolean(result.idempotent),
-      };
-      socket.emit('destroy:queued', queued);
+      emitDestroyScheduled(
+        room,
+        createDestroyScheduledPayload(
+          room,
+          team.id,
+          session.id,
+          intentId,
+          result,
+        ),
+      );
     });
 
     socket.on('disconnect', (reason) => {

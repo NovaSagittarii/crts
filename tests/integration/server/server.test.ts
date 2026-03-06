@@ -10,10 +10,12 @@ import {
   getBaseCenter,
 } from '#rts-engine';
 import type {
+  BuildScheduledPayload,
   BuildPreviewPayload,
   BuildOutcomePayload,
   BuildQueuedPayload,
   DestroyOutcomePayload,
+  RoomGridStatePayload,
   RoomJoinedPayload,
   RoomMembershipPayload,
   RoomErrorPayload,
@@ -28,6 +30,8 @@ import {
   type ActiveMatchSetup,
   type Cell,
   waitForBuildQueueResponse,
+  waitForBuildScheduled,
+  waitForDestroyScheduled,
   waitForDestroyQueueResponse,
   waitForEvent,
   waitForEventWithPredicate,
@@ -39,6 +43,7 @@ type SlotClaimedPayload = RoomSlotClaimedPayload;
 type RoomListEntry = RoomListEntryPayload;
 type BuildPreview = BuildPreviewPayload;
 type BuildQueued = BuildQueuedPayload;
+type BuildScheduled = BuildScheduledPayload;
 type BuildOutcome = BuildOutcomePayload;
 type DestroyOutcome = DestroyOutcomePayload;
 type RoomError = RoomErrorPayload;
@@ -173,6 +178,104 @@ function collectBuildOutcomes(
 
     socket.on('build:outcome', onOutcome);
     maybeScheduleResolve();
+  });
+}
+
+function collectBuildScheduledEvents(
+  socket: Socket,
+  count: number,
+  timeoutMs = 8000,
+  settleMs = 0,
+): Promise<BuildScheduled[]> {
+  return new Promise((resolve, reject) => {
+    const scheduled: BuildScheduled[] = [];
+    let settleTimer: NodeJS.Timeout | null = null;
+
+    function cleanup(): void {
+      clearTimeout(timeout);
+      if (settleTimer) {
+        clearTimeout(settleTimer);
+      }
+      socket.off('build:scheduled', onScheduled);
+    }
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timed out collecting scheduled build events'));
+    }, timeoutMs);
+
+    function maybeResolve(): void {
+      if (scheduled.length < count || settleTimer) {
+        return;
+      }
+
+      if (settleMs <= 0) {
+        cleanup();
+        resolve(scheduled);
+        return;
+      }
+
+      settleTimer = setTimeout(() => {
+        cleanup();
+        resolve(scheduled);
+      }, settleMs);
+    }
+
+    function onScheduled(payload: BuildScheduled): void {
+      scheduled.push(payload);
+      maybeResolve();
+    }
+
+    socket.on('build:scheduled', onScheduled);
+  });
+}
+
+function collectBuildQueuedEvents(
+  socket: Socket,
+  count: number,
+  timeoutMs = 8000,
+  settleMs = 0,
+): Promise<BuildQueued[]> {
+  return new Promise((resolve, reject) => {
+    const queued: BuildQueued[] = [];
+    let settleTimer: NodeJS.Timeout | null = null;
+
+    function cleanup(): void {
+      clearTimeout(timeout);
+      if (settleTimer) {
+        clearTimeout(settleTimer);
+      }
+      socket.off('build:queued', onQueued);
+    }
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timed out collecting queued build intents'));
+    }, timeoutMs);
+
+    function maybeResolve(): void {
+      if (queued.length < count || settleTimer) {
+        return;
+      }
+
+      if (settleMs <= 0) {
+        cleanup();
+        resolve(queued);
+        return;
+      }
+
+      settleTimer = setTimeout(() => {
+        cleanup();
+        resolve(queued);
+      }, settleMs);
+    }
+
+    function onQueued(payload: BuildQueued): void {
+      queued.push(payload);
+      maybeResolve();
+    }
+
+    socket.on('build:queued', onQueued);
   });
 }
 
@@ -404,7 +507,7 @@ describe('GameServer', () => {
     await server.stop();
   }, 20_000);
 
-  test('responds to on-demand state requests only to requester', async () => {
+  test('responds to on-demand grid requests only to requester', async () => {
     const server = createServer({
       port: 0,
       width: 52,
@@ -416,47 +519,44 @@ describe('GameServer', () => {
 
     const setup = await setupActiveMatch(port);
 
-    let guestStateCount = 0;
-    function onGuestState(): void {
-      guestStateCount += 1;
+    let guestGridCount = 0;
+    function onGuestGrid(): void {
+      guestGridCount += 1;
     }
-    setup.guest.on('state', onGuestState);
+    setup.guest.on('state:grid', onGuestGrid);
 
     await new Promise((resolve) => setTimeout(resolve, 120));
 
-    setup.host.emit('state:request');
-    const requestedState = await waitForEvent<StatePayload>(
+    setup.host.emit('state:request', { sections: ['grid'] });
+    const requestedState = await waitForEvent<RoomGridStatePayload>(
       setup.host,
-      'state',
+      'state:grid',
       2500,
     );
 
     expect(requestedState.roomId).toBe(setup.roomId);
 
-    setup.host.emit('state:request');
+    setup.host.emit('state:request', { sections: ['grid'] });
     await expect(
-      waitForEvent<StatePayload>(setup.host, 'state', 80),
+      waitForEvent<RoomGridStatePayload>(setup.host, 'state:grid', 80),
     ).rejects.toThrow(/timed out/i);
 
     await new Promise((resolve) => setTimeout(resolve, 120));
-    setup.host.emit('state:request');
-    const secondRequestedState = await waitForEvent<StatePayload>(
-      setup.host,
-      'state',
-      2500,
-    );
-    expect(secondRequestedState.roomId).toBe(setup.roomId);
+    setup.host.emit('state:request', { sections: ['grid'] });
+    await expect(
+      waitForEvent<RoomGridStatePayload>(setup.host, 'state:grid', 120),
+    ).rejects.toThrow(/timed out/i);
 
     await new Promise((resolve) => setTimeout(resolve, 250));
-    expect(guestStateCount).toBe(0);
+    expect(guestGridCount).toBe(0);
 
-    setup.guest.off('state', onGuestState);
+    setup.guest.off('state:grid', onGuestGrid);
     setup.host.close();
     setup.guest.close();
     await server.stop();
   }, 20_000);
 
-  test('acknowledges queued builds and emits one terminal outcome per acknowledged event', async () => {
+  test('schedules buffered builds and emits one terminal outcome per scheduled event', async () => {
     const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
     const port = await server.start();
 
@@ -476,8 +576,12 @@ describe('GameServer', () => {
       setup.hostJoined.state.height,
     );
 
-    const queuedEvents: BuildQueued[] = [];
+    const queuedIntents: BuildQueued[] = [];
+    const scheduledEvents: BuildScheduled[] = [];
     for (const placement of candidatePlacements) {
+      const scheduledPromise = waitForBuildScheduled(setup.host, 2_000).catch(
+        () => null,
+      );
       setup.host.emit('build:queue', {
         templateId: generatorTemplate.id,
         x: placement.x,
@@ -487,27 +591,29 @@ describe('GameServer', () => {
 
       const response = await waitForBuildQueueResponse(setup.host);
       if ('queued' in response) {
-        queuedEvents.push(response.queued);
+        queuedIntents.push(response.queued);
+        const scheduled = await scheduledPromise;
+        if (scheduled) {
+          scheduledEvents.push(scheduled);
+        }
       }
 
-      if (queuedEvents.length === 8) {
+      if (scheduledEvents.length === 8) {
         break;
       }
     }
 
-    expect(queuedEvents.length).toBe(8);
+    expect(queuedIntents.length).toBeGreaterThanOrEqual(8);
+    expect(scheduledEvents.length).toBe(8);
     expect(
-      queuedEvents.every(
-        ({ eventId, executeTick }) =>
-          Number.isInteger(eventId) &&
-          eventId > 0 &&
-          Number.isInteger(executeTick) &&
-          executeTick > 0,
+      queuedIntents.every(
+        ({ intentId, scheduledByTurn, bufferedTurn }) =>
+          intentId.length > 0 && scheduledByTurn >= bufferedTurn,
       ),
     ).toBe(true);
 
     const queuedById = new Map(
-      queuedEvents.map((queued) => [queued.eventId, queued]),
+      scheduledEvents.map((scheduled) => [scheduled.eventId, scheduled]),
     );
     const outcomesById = await collectBuildOutcomes(
       setup.host,
@@ -549,7 +655,7 @@ describe('GameServer', () => {
     await server.stop();
   }, 25_000);
 
-  test('emits one terminal outcome to both clients for overlapping queued builds', async () => {
+  test('emits one terminal outcome to both clients for overlapping scheduled builds', async () => {
     const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
     const port = await server.start();
 
@@ -579,9 +685,17 @@ describe('GameServer', () => {
     expect(guestPlacements).toHaveLength(2);
 
     const queuedEvents: Array<BuildQueued & { source: 'host' | 'guest' }> = [];
+    const scheduledEvents: Array<
+      BuildScheduled & { source: 'host' | 'guest' }
+    > = [];
     for (let index = 0; index < hostPlacements.length; index += 1) {
-      const hostResponsePromise = waitForBuildQueueResponse(setup.host);
-      const guestResponsePromise = waitForBuildQueueResponse(setup.guest);
+      const queuedPromise = collectBuildQueuedEvents(setup.host, 2, 4_000, 50);
+      const scheduledPromise = collectBuildScheduledEvents(
+        setup.host,
+        2,
+        4_000,
+        50,
+      );
 
       setup.host.emit('build:queue', {
         templateId: blockTemplate.id,
@@ -596,31 +710,38 @@ describe('GameServer', () => {
         delayTicks: 40,
       });
 
-      const [hostResponse, guestResponse] = await Promise.all([
-        hostResponsePromise,
-        guestResponsePromise,
-      ]);
+      const roundQueued = await queuedPromise;
+      queuedEvents.push(
+        ...roundQueued.map((queued) => ({
+          ...queued,
+          source:
+            queued.teamId === setup.hostTeam.id
+              ? ('host' as const)
+              : ('guest' as const),
+        })),
+      );
 
-      if ('error' in hostResponse) {
-        throw new Error(
-          `Host queue request unexpectedly failed: ${hostResponse.error.reason}`,
-        );
-      }
-      if ('error' in guestResponse) {
-        throw new Error(
-          `Guest queue request unexpectedly failed: ${guestResponse.error.reason}`,
-        );
-      }
-
-      queuedEvents.push({ ...hostResponse.queued, source: 'host' });
-      queuedEvents.push({ ...guestResponse.queued, source: 'guest' });
+      const roundScheduled = await scheduledPromise;
+      scheduledEvents.push(
+        ...roundScheduled.map((scheduled) => ({
+          ...scheduled,
+          source:
+            scheduled.teamId === setup.hostTeam.id
+              ? ('host' as const)
+              : ('guest' as const),
+        })),
+      );
     }
 
-    const eventIds = queuedEvents.map(({ eventId }) => eventId);
+    expect(new Set(queuedEvents.map(({ intentId }) => intentId)).size).toBe(
+      queuedEvents.length,
+    );
+
+    const eventIds = scheduledEvents.map(({ eventId }) => eventId);
     expect(new Set(eventIds).size).toBe(eventIds.length);
 
     const queuedById = new Map(
-      queuedEvents.map((queued) => [queued.eventId, queued]),
+      scheduledEvents.map((scheduled) => [scheduled.eventId, scheduled]),
     );
     const [hostOutcomesById, guestOutcomesById] = await Promise.all([
       collectBuildOutcomes(setup.host, eventIds, 12_000, 200),
@@ -635,12 +756,12 @@ describe('GameServer', () => {
 
       const hostOutcome = hostOutcomes[0];
       const guestOutcome = guestOutcomes[0];
-      const queued = queuedById.get(eventId);
-      if (!queued) {
+      const scheduled = queuedById.get(eventId);
+      if (!scheduled) {
         throw new Error(`Missing queued payload for event ${eventId}`);
       }
 
-      expect(hostOutcome.executeTick).toBe(queued.executeTick);
+      expect(hostOutcome.executeTick).toBe(scheduled.executeTick);
       expect(hostOutcome.resolvedTick).toBeGreaterThanOrEqual(
         hostOutcome.executeTick,
       );
@@ -651,7 +772,7 @@ describe('GameServer', () => {
       }
 
       const expectedTeamId =
-        queued.source === 'host' ? setup.hostTeam.id : setup.guestTeam.id;
+        scheduled.source === 'host' ? setup.hostTeam.id : setup.guestTeam.id;
       expect(hostOutcome.teamId).toBe(expectedTeamId);
     }
 
@@ -794,7 +915,7 @@ describe('GameServer', () => {
     await server.stop();
   }, 20_000);
 
-  test('rejects unaffordable queue attempts with exact deficit metadata and no queue ack', async () => {
+  test('rejects unaffordable queue attempts with exact deficit metadata after buffering', async () => {
     const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
     const port = await server.start();
 
@@ -818,6 +939,14 @@ describe('GameServer', () => {
     let insufficient: { error: RoomError } | null = null;
     for (let attempt = 0; attempt < placements.length; attempt += 1) {
       const placement = placements[attempt];
+      const errorPromise = waitForEvent<RoomError>(
+        setup.host,
+        'room:error',
+        1_500,
+      ).catch(() => null);
+      const scheduledPromise = waitForBuildScheduled(setup.host, 1_500).catch(
+        () => null,
+      );
       setup.host.emit('build:queue', {
         templateId: expensiveTemplate.id,
         x: placement.x,
@@ -827,14 +956,20 @@ describe('GameServer', () => {
 
       const response = await waitForBuildQueueResponse(setup.host, 4_000);
       if ('error' in response) {
-        if (response.error.reason === 'insufficient-resources') {
-          insufficient = response;
-          break;
-        }
         continue;
       }
 
-      await collectBuildOutcomes(setup.host, [response.queued.eventId], 8_000);
+      const [error, scheduled] = await Promise.all([
+        errorPromise,
+        scheduledPromise,
+      ]);
+      if (error?.reason === 'insufficient-resources') {
+        insufficient = { error };
+        break;
+      }
+      if (scheduled) {
+        continue;
+      }
     }
 
     expect(insufficient).not.toBeNull();
@@ -888,11 +1023,12 @@ describe('GameServer', () => {
     ).slice(0, 3);
     expect(placements).toHaveLength(3);
 
-    const queued: BuildQueued[] = [];
+    const scheduled: BuildScheduled[] = [];
     const delays = [18, 14, 18];
 
     for (let index = 0; index < placements.length; index += 1) {
       const placement = placements[index];
+      const scheduledPromise = waitForBuildScheduled(setup.host, 4_000);
       setup.host.emit('build:queue', {
         templateId: blockTemplate.id,
         x: placement.x,
@@ -907,11 +1043,11 @@ describe('GameServer', () => {
         );
       }
 
-      queued.push(response.queued);
+      scheduled.push(await scheduledPromise);
     }
 
-    const queuedEventIds = queued.map(({ eventId }) => eventId);
-    const expectedPendingOrder = [...queued]
+    const queuedEventIds = scheduled.map(({ eventId }) => eventId);
+    const expectedPendingOrder = [...scheduled]
       .sort((a, b) => a.executeTick - b.executeTick || a.eventId - b.eventId)
       .map(({ eventId }) => eventId);
 
@@ -996,6 +1132,9 @@ describe('GameServer', () => {
     let targetStructureKey: string | null = null;
 
     for (const placement of placements) {
+      const scheduledPromise = waitForBuildScheduled(setup.host, 4_000).catch(
+        () => null,
+      );
       setup.host.emit('build:queue', {
         templateId: blockTemplate.id,
         x: placement.x,
@@ -1008,12 +1147,17 @@ describe('GameServer', () => {
         continue;
       }
 
+      const scheduled = await scheduledPromise;
+      if (!scheduled) {
+        continue;
+      }
+
       const outcomesById = await collectBuildOutcomes(
         setup.host,
-        [response.queued.eventId],
+        [scheduled.eventId],
         8_000,
       );
-      const outcome = outcomesById.get(response.queued.eventId)?.[0];
+      const outcome = outcomesById.get(scheduled.eventId)?.[0];
       if (!outcome || outcome.outcome !== 'applied') {
         continue;
       }
@@ -1058,6 +1202,10 @@ describe('GameServer', () => {
       );
     }
 
+    const firstDestroyScheduledPromise = waitForDestroyScheduled(
+      setup.host,
+      4_000,
+    );
     setup.host.emit('destroy:queue', {
       structureKey: targetStructureKey,
       delayTicks: 8,
@@ -1069,9 +1217,13 @@ describe('GameServer', () => {
       );
     }
 
-    const firstDestroyQueued = firstDestroyResponse.queued;
-    expect(firstDestroyQueued.idempotent).toBe(false);
+    const firstDestroyScheduled = await firstDestroyScheduledPromise;
+    expect(firstDestroyScheduled.idempotent).toBe(false);
 
+    const duplicateDestroyScheduledPromise = waitForDestroyScheduled(
+      setup.host,
+      4_000,
+    );
     setup.host.emit('destroy:queue', {
       structureKey: targetStructureKey,
       delayTicks: 8,
@@ -1085,52 +1237,56 @@ describe('GameServer', () => {
       );
     }
 
-    expect(duplicateDestroyResponse.queued.idempotent).toBe(true);
-    expect(duplicateDestroyResponse.queued.eventId).toBe(
-      firstDestroyQueued.eventId,
+    const duplicateDestroyScheduled = await duplicateDestroyScheduledPromise;
+    expect(duplicateDestroyScheduled.idempotent).toBe(true);
+    expect(duplicateDestroyScheduled.eventId).toBe(
+      firstDestroyScheduled.eventId,
     );
-    expect(duplicateDestroyResponse.queued.executeTick).toBe(
-      firstDestroyQueued.executeTick,
+    expect(duplicateDestroyScheduled.executeTick).toBe(
+      firstDestroyScheduled.executeTick,
     );
 
     setup.guest.emit('destroy:queue', {
       structureKey: targetStructureKey,
       delayTicks: 1,
     });
-    const wrongOwnerResponse = await waitForDestroyQueueResponse(setup.guest);
-    expect('error' in wrongOwnerResponse).toBe(true);
-    if ('error' in wrongOwnerResponse) {
-      expect(wrongOwnerResponse.error.reason).toBe('wrong-owner');
-    }
+    const wrongOwnerError = await waitForEvent<RoomError>(
+      setup.guest,
+      'room:error',
+      1_500,
+    );
+    expect(wrongOwnerError.reason).toBe('wrong-owner');
 
     setup.host.emit('destroy:queue', {
       structureKey: 'missing-target-key',
       delayTicks: 1,
     });
-    const invalidTargetResponse = await waitForDestroyQueueResponse(setup.host);
-    expect('error' in invalidTargetResponse).toBe(true);
-    if ('error' in invalidTargetResponse) {
-      expect(invalidTargetResponse.error.reason).toBe('invalid-target');
-    }
+    const invalidTargetError = await waitForEvent<RoomError>(
+      setup.host,
+      'room:error',
+      1_500,
+    );
+    expect(invalidTargetError.reason).toBe('invalid-target');
 
     const [hostOutcomesById, guestOutcomesById] = await Promise.all([
       collectDestroyOutcomes(
         setup.host,
-        [firstDestroyQueued.eventId],
+        [firstDestroyScheduled.eventId],
         12_000,
         200,
       ),
       collectDestroyOutcomes(
         setup.guest,
-        [firstDestroyQueued.eventId],
+        [firstDestroyScheduled.eventId],
         12_000,
         200,
       ),
     ]);
 
-    const hostOutcomes = hostOutcomesById.get(firstDestroyQueued.eventId) ?? [];
+    const hostOutcomes =
+      hostOutcomesById.get(firstDestroyScheduled.eventId) ?? [];
     const guestOutcomes =
-      guestOutcomesById.get(firstDestroyQueued.eventId) ?? [];
+      guestOutcomesById.get(firstDestroyScheduled.eventId) ?? [];
     expect(hostOutcomes).toHaveLength(1);
     expect(guestOutcomes).toHaveLength(1);
 
@@ -1139,7 +1295,7 @@ describe('GameServer', () => {
     expect(guestOutcome).toEqual(hostOutcome);
     expect(hostOutcome.outcome).toBe('destroyed');
     expect(hostOutcome.structureKey).toBe(targetStructureKey);
-    expect(hostOutcome.executeTick).toBe(firstDestroyQueued.executeTick);
+    expect(hostOutcome.executeTick).toBe(firstDestroyScheduled.executeTick);
     expect(hostOutcome.resolvedTick).toBeGreaterThanOrEqual(
       hostOutcome.executeTick,
     );
@@ -1148,11 +1304,12 @@ describe('GameServer', () => {
       structureKey: targetStructureKey,
       delayTicks: 1,
     });
-    const staleDestroyResponse = await waitForDestroyQueueResponse(setup.host);
-    expect('error' in staleDestroyResponse).toBe(true);
-    if ('error' in staleDestroyResponse) {
-      expect(staleDestroyResponse.error.reason).toBe('invalid-lifecycle-state');
-    }
+    const staleDestroyError = await waitForEvent<RoomError>(
+      setup.host,
+      'room:error',
+      1_500,
+    );
+    expect(staleDestroyError.reason).toBe('invalid-lifecycle-state');
 
     setup.host.close();
     setup.guest.close();
@@ -1210,9 +1367,12 @@ describe('GameServer', () => {
       delayTicks: 1,
     });
 
+    const scheduledPromise = waitForBuildScheduled(setup.host, 4_000);
     const queued = await waitForEvent<BuildQueued>(setup.host, 'build:queued');
-    expect(queued.eventId).toBeGreaterThan(0);
-    expect(queued.executeTick).toBeGreaterThan(0);
+    expect(queued.intentId).toMatch(/^intent-/);
+    const scheduled = await scheduledPromise;
+    expect(scheduled.eventId).toBeGreaterThan(0);
+    expect(scheduled.executeTick).toBeGreaterThan(0);
 
     const builtState = await waitForCondition(
       setup.host,

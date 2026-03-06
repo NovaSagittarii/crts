@@ -265,6 +265,50 @@ export interface RoomStatePayload {
   teams: TeamPayload[];
 }
 
+export interface TeamStructuresStatePayload {
+  id: number;
+  resources: number;
+  income: number;
+  incomeBreakdown: TeamIncomeBreakdown;
+  pendingBuilds: PendingBuildPayload[];
+  pendingDestroys: PendingDestroyPayload[];
+  structures: StructurePayload[];
+  defeated: boolean;
+  baseTopLeft: Vector2;
+  baseIntact: boolean;
+}
+
+export interface HashedStateSectionPayload {
+  hashAlgorithm: DeterminismHashAlgorithm;
+  hashHex: string;
+}
+
+export interface RoomGridStatePayload extends HashedStateSectionPayload {
+  roomId: string;
+  width: number;
+  height: number;
+  generation: number;
+  tick: number;
+  grid: ArrayBuffer;
+}
+
+export interface RoomStructuresStatePayload extends HashedStateSectionPayload {
+  roomId: string;
+  width: number;
+  height: number;
+  generation: number;
+  tick: number;
+  teams: TeamPayload[];
+}
+
+export interface RoomStateHashes {
+  tick: number;
+  generation: number;
+  hashAlgorithm: DeterminismHashAlgorithm;
+  gridHash: string;
+  structuresHash: string;
+}
+
 interface BuildResultBase {
   accepted: boolean;
   error?: string;
@@ -590,6 +634,10 @@ export class RtsEngine {
     return next;
   }
 
+  private static formatHashHex(hash: number): string {
+    return hash.toString(16).padStart(8, '0');
+  }
+
   private static appendTimelineEvent(
     room: RoomState,
     event: Omit<TimelineEvent, 'tick'>,
@@ -784,6 +832,107 @@ export class RtsEngine {
     }
 
     return projected;
+  }
+
+  private static createTeamStructuresStatePayload(
+    room: RoomState,
+    team: TeamState,
+  ): TeamStructuresStatePayload {
+    return {
+      id: team.id,
+      resources: team.resources,
+      income: team.income,
+      incomeBreakdown: {
+        base: team.incomeBreakdown.base,
+        structures: team.incomeBreakdown.structures,
+        total: team.incomeBreakdown.total,
+        activeStructureCount: team.incomeBreakdown.activeStructureCount,
+      },
+      pendingBuilds: RtsEngine.projectPendingBuilds(room, team),
+      pendingDestroys: RtsEngine.projectPendingDestroys(team),
+      structures: RtsEngine.projectStructures(room, team),
+      defeated: team.defeated,
+      baseTopLeft: {
+        x: team.baseTopLeft.x,
+        y: team.baseTopLeft.y,
+      },
+      baseIntact: RtsEngine.isBaseIntact(room, team),
+    };
+  }
+
+  private static createTeamStatePayload(
+    room: RoomState,
+    team: TeamState,
+  ): TeamPayload {
+    const teamStructures = RtsEngine.createTeamStructuresStatePayload(
+      room,
+      team,
+    );
+
+    return {
+      name: team.name,
+      playerIds: [...team.playerIds],
+      ...teamStructures,
+    };
+  }
+
+  private static hashStateRoomScope(hash: number, room: RoomState): number {
+    let next = hash;
+    next = RtsEngine.hashString(next, room.id);
+    next = RtsEngine.hashInt32(next, room.width);
+    next = RtsEngine.hashInt32(next, room.height);
+    return next;
+  }
+
+  private static hashStructuresSection(
+    room: RoomState,
+    orderedTeams: readonly TeamState[],
+  ): number {
+    let hash = RtsEngine.hashStateRoomScope(RtsEngine.FNV_OFFSET_BASIS, room);
+    hash = RtsEngine.hashInt32(hash, orderedTeams.length);
+
+    for (const team of orderedTeams) {
+      hash = RtsEngine.hashInt32(hash, team.id);
+      hash = RtsEngine.hashNumber(hash, team.resources);
+      hash = RtsEngine.hashNumber(hash, team.income);
+      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.base);
+      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.structures);
+      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.total);
+      hash = RtsEngine.hashNumber(
+        hash,
+        team.incomeBreakdown.activeStructureCount,
+      );
+      hash = RtsEngine.hashBoolean(hash, team.defeated);
+      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.x);
+      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.y);
+      hash = RtsEngine.hashBoolean(hash, RtsEngine.isBaseIntact(room, team));
+
+      const structures = [...team.structures.values()].sort(
+        RtsEngine.compareStructuresByKey,
+      );
+      hash = RtsEngine.hashInt32(hash, structures.length);
+      for (const structure of structures) {
+        hash = RtsEngine.hashStructure(hash, structure);
+      }
+
+      const pendingBuilds = [...team.pendingBuildEvents].sort(
+        RtsEngine.compareBuildEvents,
+      );
+      hash = RtsEngine.hashInt32(hash, pendingBuilds.length);
+      for (const pendingBuild of pendingBuilds) {
+        hash = RtsEngine.hashBuildEvent(hash, pendingBuild);
+      }
+
+      const pendingDestroys = [...team.pendingDestroyEvents].sort(
+        RtsEngine.compareDestroyEvents,
+      );
+      hash = RtsEngine.hashInt32(hash, pendingDestroys.length);
+      for (const pendingDestroy of pendingDestroys) {
+        hash = RtsEngine.hashDestroyEvent(hash, pendingDestroy);
+      }
+    }
+
+    return hash;
   }
 
   private static recordRejectedBuildOutcome(
@@ -2342,143 +2491,76 @@ export class RtsEngine {
   public static createDeterminismCheckpoint(
     room: RoomState,
   ): RoomDeterminismCheckpoint {
-    const engine = RtsEngine.getRoomEngine(room);
-    let hash = RtsEngine.FNV_OFFSET_BASIS;
-
-    hash = RtsEngine.hashString(hash, room.id);
-    hash = RtsEngine.hashInt32(hash, room.width);
-    hash = RtsEngine.hashInt32(hash, room.height);
-    hash = RtsEngine.hashInt32(hash, room.tick);
-    hash = RtsEngine.hashInt32(hash, room.generation);
-    hash = RtsEngine.hashInt32(hash, engine.nextTeamId);
-    hash = RtsEngine.hashInt32(hash, engine.nextBuildEventId);
-
-    const gridBytes = new Uint8Array(room.grid.toPacked());
-    hash = RtsEngine.hashBytes(hash, gridBytes);
-
-    const players = [...room.players.values()].sort((left, right) => {
-      return left.id.localeCompare(right.id);
-    });
-    hash = RtsEngine.hashInt32(hash, players.length);
-    for (const player of players) {
-      hash = RtsEngine.hashString(hash, player.id);
-      hash = RtsEngine.hashString(hash, player.name);
-      hash = RtsEngine.hashInt32(hash, player.teamId);
-    }
-
-    const orderedTeams = RtsEngine.sortTeamsById(room.teams.values());
-    hash = RtsEngine.hashInt32(hash, orderedTeams.length);
-    for (const team of orderedTeams) {
-      hash = RtsEngine.hashInt32(hash, team.id);
-      hash = RtsEngine.hashString(hash, team.name);
-
-      const playerIds = [...team.playerIds].sort((left, right) => {
-        return left.localeCompare(right);
-      });
-      hash = RtsEngine.hashInt32(hash, playerIds.length);
-      for (const playerId of playerIds) {
-        hash = RtsEngine.hashString(hash, playerId);
-      }
-
-      hash = RtsEngine.hashNumber(hash, team.resources);
-      hash = RtsEngine.hashNumber(hash, team.income);
-      hash = RtsEngine.hashNumber(hash, team.lastIncomeTick);
-      hash = RtsEngine.hashNumber(hash, team.territoryRadius);
-      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.x);
-      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.y);
-      hash = RtsEngine.hashBoolean(hash, team.defeated);
-
-      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.base);
-      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.structures);
-      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.total);
-      hash = RtsEngine.hashNumber(
-        hash,
-        team.incomeBreakdown.activeStructureCount,
-      );
-
-      hash = RtsEngine.hashInt32(hash, team.buildStats.queued);
-      hash = RtsEngine.hashInt32(hash, team.buildStats.applied);
-      hash = RtsEngine.hashInt32(hash, team.buildStats.rejected);
-
-      const structures = [...team.structures.values()].sort(
-        RtsEngine.compareStructuresByKey,
-      );
-      hash = RtsEngine.hashInt32(hash, structures.length);
-      for (const structure of structures) {
-        hash = RtsEngine.hashStructure(hash, structure);
-      }
-
-      const pendingBuilds = [...team.pendingBuildEvents].sort(
-        RtsEngine.compareBuildEvents,
-      );
-      hash = RtsEngine.hashInt32(hash, pendingBuilds.length);
-      for (const pendingBuild of pendingBuilds) {
-        hash = RtsEngine.hashBuildEvent(hash, pendingBuild);
-      }
-
-      const pendingDestroys = [...team.pendingDestroyEvents].sort(
-        RtsEngine.compareDestroyEvents,
-      );
-      hash = RtsEngine.hashInt32(hash, pendingDestroys.length);
-      for (const pendingDestroy of pendingDestroys) {
-        hash = RtsEngine.hashDestroyEvent(hash, pendingDestroy);
-      }
-    }
-
-    hash = RtsEngine.hashInt32(hash, engine.timelineEvents.length);
-    const lastTimelineEvent = engine.timelineEvents.at(-1);
-    if (lastTimelineEvent) {
-      hash = RtsEngine.hashInt32(hash, lastTimelineEvent.tick);
-      hash = RtsEngine.hashInt32(hash, lastTimelineEvent.teamId);
-      hash = RtsEngine.hashString(hash, lastTimelineEvent.type);
-
-      if (lastTimelineEvent.metadata) {
-        const metadataEntries = Object.entries(lastTimelineEvent.metadata).sort(
-          ([leftKey], [rightKey]) => leftKey.localeCompare(rightKey),
-        );
-        hash = RtsEngine.hashInt32(hash, metadataEntries.length);
-        for (const [key, value] of metadataEntries) {
-          hash = RtsEngine.hashString(hash, key);
-          hash = RtsEngine.hashString(hash, String(value));
-        }
-      } else {
-        hash = RtsEngine.hashInt32(hash, 0);
-      }
-    }
+    const hashes = RtsEngine.createStateHashes(room);
 
     return {
       tick: room.tick,
       generation: room.generation,
       hashAlgorithm: 'fnv1a-32',
-      hashHex: hash.toString(16).padStart(8, '0'),
+      hashHex: hashes.gridHash,
+    };
+  }
+
+  public static createGridStatePayload(room: RoomState): RoomGridStatePayload {
+    const hashes = RtsEngine.createStateHashes(room);
+    return {
+      roomId: room.id,
+      width: room.width,
+      height: room.height,
+      generation: room.generation,
+      tick: room.tick,
+      grid: room.grid.toPacked(),
+      hashAlgorithm: hashes.hashAlgorithm,
+      hashHex: hashes.gridHash,
+    };
+  }
+
+  public static createStructuresStatePayload(
+    room: RoomState,
+  ): RoomStructuresStatePayload {
+    const hashes = RtsEngine.createStateHashes(room);
+    const teams = RtsEngine.sortTeamsById(room.teams.values()).map((team) =>
+      RtsEngine.createTeamStatePayload(room, team),
+    );
+
+    return {
+      roomId: room.id,
+      width: room.width,
+      height: room.height,
+      generation: room.generation,
+      tick: room.tick,
+      teams,
+      hashAlgorithm: hashes.hashAlgorithm,
+      hashHex: hashes.structuresHash,
+    };
+  }
+
+  public static createStateHashes(room: RoomState): RoomStateHashes {
+    let gridHash = RtsEngine.hashStateRoomScope(
+      RtsEngine.FNV_OFFSET_BASIS,
+      room,
+    );
+    gridHash = RtsEngine.hashBytes(
+      gridHash,
+      new Uint8Array(room.grid.toPacked()),
+    );
+
+    const orderedTeams = RtsEngine.sortTeamsById(room.teams.values());
+    const structuresHash = RtsEngine.hashStructuresSection(room, orderedTeams);
+
+    return {
+      tick: room.tick,
+      generation: room.generation,
+      hashAlgorithm: 'fnv1a-32',
+      gridHash: RtsEngine.formatHashHex(gridHash),
+      structuresHash: RtsEngine.formatHashHex(structuresHash),
     };
   }
 
   public static createRoomStatePayload(room: RoomState): RoomStatePayload {
     const teams: TeamPayload[] = [];
     for (const team of RtsEngine.sortTeamsById(room.teams.values())) {
-      teams.push({
-        id: team.id,
-        name: team.name,
-        playerIds: [...team.playerIds],
-        resources: team.resources,
-        income: team.income,
-        incomeBreakdown: {
-          base: team.incomeBreakdown.base,
-          structures: team.incomeBreakdown.structures,
-          total: team.incomeBreakdown.total,
-          activeStructureCount: team.incomeBreakdown.activeStructureCount,
-        },
-        pendingBuilds: RtsEngine.projectPendingBuilds(room, team),
-        pendingDestroys: RtsEngine.projectPendingDestroys(team),
-        structures: RtsEngine.projectStructures(room, team),
-        defeated: team.defeated,
-        baseTopLeft: {
-          x: team.baseTopLeft.x,
-          y: team.baseTopLeft.y,
-        },
-        baseIntact: RtsEngine.isBaseIntact(room, team),
-      });
+      teams.push(RtsEngine.createTeamStatePayload(room, team));
     }
 
     return {
@@ -2774,6 +2856,18 @@ export class RtsRoom {
 
   public createStatePayload(): RoomStatePayload {
     return RtsEngine.createRoomStatePayload(this.state);
+  }
+
+  public createGridStatePayload(): RoomGridStatePayload {
+    return RtsEngine.createGridStatePayload(this.state);
+  }
+
+  public createStructuresStatePayload(): RoomStructuresStatePayload {
+    return RtsEngine.createStructuresStatePayload(this.state);
+  }
+
+  public createStateHashes(): RoomStateHashes {
+    return RtsEngine.createStateHashes(this.state);
   }
 
   public createDeterminismCheckpoint(): RoomDeterminismCheckpoint {

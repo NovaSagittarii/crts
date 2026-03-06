@@ -78,7 +78,7 @@ function createRoom(
       status: 'running',
       turnLengthTicks: 1,
       nextTurn: 0,
-      bufferedTurns: 0,
+      bufferedTurnCount: 0,
       mismatchCount: 0,
     },
   };
@@ -149,6 +149,50 @@ describe('RoomBroadcastService', () => {
       disconnectReason: 'transport close',
     });
     expect(payload.lockstep).toEqual(room.lockstep);
+  });
+
+  test('buildMembershipHash ignores revision and tracks held-session changes', () => {
+    const { io } = createFakeIo();
+    const sessionCoordinator = new LobbySessionCoordinator({
+      holdMs: 5_000,
+      now: () => 10_000,
+    });
+    const room = createRoom('1');
+
+    room.lobby.join({ sessionId: 'alpha', displayName: 'Alpha' });
+    room.lobby.claimSlot('alpha', 'team-1');
+
+    sessionCoordinator.attachSocket({
+      requestedSessionId: 'alpha',
+      fallbackSessionId: 'alpha',
+      fallbackName: 'Alpha',
+      socketId: 'socket-alpha',
+    });
+    sessionCoordinator.setRoom('alpha', '1');
+
+    const service = new RoomBroadcastService({
+      io,
+      sessionCoordinator,
+      roomChannel: (id) => `room:${id}`,
+      listRooms: () => [room],
+    });
+
+    const initialHash = service.buildMembershipHash(room);
+    room.revision += 1;
+    expect(service.buildMembershipHash(room)).toEqual(initialHash);
+
+    sessionCoordinator.holdOnDisconnect({
+      sessionId: 'alpha',
+      socketId: 'socket-alpha',
+      roomId: '1',
+      slotId: 'team-1',
+      disconnectReason: 'transport close',
+      onExpire: vi.fn(),
+    });
+
+    const heldHash = service.buildMembershipHash(room);
+    expect(heldHash.hashHex).not.toBe(initialHash.hashHex);
+    expect(heldHash.hashAlgorithm).toBe('fnv1a-32');
   });
 
   test('emitRoomList sorts rooms and reports player/spectator totals', () => {

@@ -2,11 +2,13 @@ import { io, type Socket } from 'socket.io-client';
 import { Grid } from '#conway-core';
 
 import type {
+  BuildScheduledPayload,
   BuildOutcomePayload,
   BuildPreviewPayload,
   BuildQueuedPayload,
   ChatMessagePayload,
   ClientToServerEvents,
+  DestroyScheduledPayload,
   DestroyOutcomePayload,
   DestroyQueuedPayload,
   LockstepCheckpointPayload,
@@ -20,10 +22,14 @@ import type {
   RoomLeftPayload,
   RoomListEntryPayload,
   RoomMembershipPayload,
+  RoomGridStatePayload,
+  RoomStateHashesPayload,
   RoomStatus,
   RoomSlotClaimedPayload,
   RoomStatePayload,
+  RoomStructuresStatePayload,
   ServerToClientEvents,
+  StateRequestPayload,
   StructureTemplateSummary,
   TeamIncomeBreakdownPayload,
 } from '#rts-engine';
@@ -484,6 +490,14 @@ const localBuildZoneCoverageCache = new Map<string, readonly number[]>();
 let edgeBannerTimeoutId: number | null = null;
 let reconnectNoticeTimeoutId: number | null = null;
 let lastStateRequestAtMs = 0;
+let lastGridHashHex: string | null = null;
+let lastStructuresHashHex: string | null = null;
+let lastMembershipHashHex: string | null = null;
+const pendingStateRequestSections = new Set<
+  NonNullable<StateRequestPayload['sections']>[number]
+>();
+let pendingStateRequestTimerId: number | null = null;
+let awaitingStateHashesAfterFullState = false;
 
 const BUILD_ERROR_TOAST_DEDUPE_MS = 800;
 const CAMERA_KEYBOARD_WORLD_STEP_CELLS = 8;
@@ -513,18 +527,185 @@ function setMessage(message: string, isError = false): void {
   messageEl.classList.toggle('message--error', isError);
 }
 
-function requestStateSnapshot(force = false): void {
+function clearPendingStateRequests(): void {
+  if (pendingStateRequestTimerId !== null) {
+    window.clearTimeout(pendingStateRequestTimerId);
+    pendingStateRequestTimerId = null;
+  }
+  pendingStateRequestSections.clear();
+}
+
+function flushPendingStateRequest(force = false): void {
   if (!currentRoomId || currentRoomId === '-') {
+    clearPendingStateRequests();
+    return;
+  }
+
+  if (pendingStateRequestSections.size === 0) {
     return;
   }
 
   const now = Date.now();
-  if (!force && now - lastStateRequestAtMs < STATE_REQUEST_MIN_INTERVAL_MS) {
+  const waitMs = force
+    ? 0
+    : Math.max(0, STATE_REQUEST_MIN_INTERVAL_MS - (now - lastStateRequestAtMs));
+  if (waitMs > 0) {
+    if (pendingStateRequestTimerId !== null) {
+      return;
+    }
+
+    pendingStateRequestTimerId = window.setTimeout(() => {
+      pendingStateRequestTimerId = null;
+      flushPendingStateRequest();
+    }, waitMs);
     return;
   }
 
   lastStateRequestAtMs = now;
-  socket.emit('state:request');
+  const requestedSections = [...pendingStateRequestSections];
+  pendingStateRequestSections.clear();
+  if (requestedSections.includes('full')) {
+    awaitingStateHashesAfterFullState = true;
+  }
+  socket.emit('state:request', {
+    sections: requestedSections,
+  } satisfies StateRequestPayload);
+}
+
+function requestStateSections(
+  sections: StateRequestPayload['sections'],
+  force = false,
+): void {
+  for (const section of sections ?? ['full']) {
+    pendingStateRequestSections.add(section);
+  }
+
+  if (force && pendingStateRequestTimerId !== null) {
+    window.clearTimeout(pendingStateRequestTimerId);
+    pendingStateRequestTimerId = null;
+  }
+
+  flushPendingStateRequest(force);
+}
+
+function requestStateSnapshot(force = false): void {
+  requestStateSections(['full'], force);
+}
+
+function syncAppliedStateHashes(payload: RoomStateHashesPayload): void {
+  lastGridHashHex = payload.gridHash;
+  lastStructuresHashHex = payload.structuresHash;
+  lastMembershipHashHex = payload.roomMembershipHash;
+}
+
+function createSyntheticStatePayload(
+  payload: RoomStructuresStatePayload,
+): StatePayload {
+  return {
+    roomId: payload.roomId,
+    roomName: currentRoomName,
+    width: payload.width,
+    height: payload.height,
+    generation: payload.generation,
+    tick: payload.tick,
+    grid: new ArrayBuffer(0),
+    teams: payload.teams,
+  };
+}
+
+function applyStatePayload(payload: StatePayload): void {
+  const previousGridWidth = gridWidth;
+  const previousGridHeight = gridHeight;
+
+  gridWidth = payload.width;
+  gridHeight = payload.height;
+  gridBytes = Grid.unpack(payload.grid, gridWidth, gridHeight);
+  lastAuthoritativeStateAtMs = Date.now();
+  generationEl.textContent = payload.generation.toString();
+  if (payload.roomId !== currentRoomId) {
+    currentRoomId = payload.roomId;
+  }
+  if (payload.roomName !== currentRoomName) {
+    currentRoomName = payload.roomName;
+  }
+
+  updateTeamStats(payload);
+  syncVisibleStructures(payload);
+  syncLocalBuildZoneOverlay(payload);
+  renderSpawnMarkers(payload);
+  resizeCanvas();
+  if (gridWidth !== previousGridWidth || gridHeight !== previousGridHeight) {
+    resetCameraForCurrentTeam();
+  }
+  requestRender();
+  updateLifecycleUi();
+
+  if (
+    selectedTemplatePlacement &&
+    templateMode &&
+    canMutateGameplay() &&
+    !previewPending &&
+    lastPreviewRefreshTick !== payload.tick
+  ) {
+    lastPreviewRefreshTick = payload.tick;
+    emitBuildPreviewForSelectedPlacement();
+  }
+}
+
+function applyGridStatePayload(payload: RoomGridStatePayload): void {
+  const previousGridWidth = gridWidth;
+  const previousGridHeight = gridHeight;
+
+  gridWidth = payload.width;
+  gridHeight = payload.height;
+  gridBytes = Grid.unpack(payload.grid, gridWidth, gridHeight);
+  lastAuthoritativeStateAtMs = Date.now();
+  generationEl.textContent = payload.generation.toString();
+  if (payload.roomId !== currentRoomId) {
+    currentRoomId = payload.roomId;
+  }
+
+  resizeCanvas();
+  if (gridWidth !== previousGridWidth || gridHeight !== previousGridHeight) {
+    resetCameraForCurrentTeam();
+  }
+  requestRender();
+  updateLifecycleUi();
+
+  if (
+    selectedTemplatePlacement &&
+    templateMode &&
+    canMutateGameplay() &&
+    !previewPending &&
+    lastPreviewRefreshTick !== payload.tick
+  ) {
+    lastPreviewRefreshTick = payload.tick;
+    emitBuildPreviewForSelectedPlacement();
+  }
+}
+
+function applyStructuresStatePayload(
+  payload: RoomStructuresStatePayload,
+): void {
+  const syntheticPayload = createSyntheticStatePayload(payload);
+  lastAuthoritativeStateAtMs = Date.now();
+  updateTeamStats(syntheticPayload);
+  syncVisibleStructures(syntheticPayload);
+  syncLocalBuildZoneOverlay(syntheticPayload);
+  renderSpawnMarkers(syntheticPayload);
+  requestRender();
+  updateLifecycleUi();
+
+  if (
+    selectedTemplatePlacement &&
+    templateMode &&
+    canMutateGameplay() &&
+    !previewPending &&
+    lastPreviewRefreshTick !== payload.tick
+  ) {
+    lastPreviewRefreshTick = payload.tick;
+    emitBuildPreviewForSelectedPlacement();
+  }
 }
 
 function getCanvasViewportPoint(event: MouseEvent | PointerEvent): CameraPoint {
@@ -3288,6 +3469,8 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   currentRoomCode = payload.roomCode;
   currentRoomName = payload.roomName;
   currentTeamId = payload.teamId;
+  clearPendingStateRequests();
+  awaitingStateHashesAfterFullState = false;
   resetRoomTransitionFlags();
   resetRoomTransitionViewModels();
   availableTemplates = payload.templates;
@@ -3303,15 +3486,8 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
       : `Joined ${payload.roomName} as team #${payload.teamId}.`,
   );
 
-  gridWidth = payload.state.width;
-  gridHeight = payload.state.height;
-  gridBytes = Grid.unpack(payload.state.grid, gridWidth, gridHeight);
-  lastAuthoritativeStateAtMs = Date.now();
-  generationEl.textContent = payload.state.generation.toString();
-  updateTeamStats(payload.state);
-  syncVisibleStructures(payload.state);
-  syncLocalBuildZoneOverlay(payload.state);
-  renderSpawnMarkers(payload.state);
+  syncAppliedStateHashes(payload.stateHashes);
+  applyStatePayload(payload.state);
   resizeCanvas();
   resetCameraForCurrentTeam();
   requestRender();
@@ -3326,6 +3502,11 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
   currentRoomCode = '-';
   currentRoomName = '-';
   currentTeamId = null;
+  clearPendingStateRequests();
+  awaitingStateHashesAfterFullState = false;
+  lastGridHashHex = null;
+  lastStructuresHashHex = null;
+  lastMembershipHashHex = null;
   resetRoomTransitionFlags();
   clearEdgeBannerTimeout();
   edgeBannerEl.classList.add('is-hidden');
@@ -3425,6 +3606,8 @@ socket.on('room:error', (payload: RoomErrorPayload) => {
 socket.on('room:membership', (payload: RoomMembershipPayload) => {
   clearBootstrapMembershipTimeout();
   clearConnectionIssue(true);
+  currentMembership = payload;
+  lastMembershipHashHex = payload.membershipHash;
   renderLobbyMembership(payload);
 });
 
@@ -3475,7 +3658,7 @@ socket.on('lockstep:checkpoint', (payload: LockstepCheckpointPayload) => {
   }
 
   if (payload.tick % 50 === 0) {
-    requestStateSnapshot();
+    requestStateSections(['grid']);
   }
 });
 
@@ -3538,7 +3721,7 @@ socket.on('build:outcome', (payload: BuildOutcome) => {
     return;
   }
 
-  requestStateSnapshot();
+  requestStateSections(['grid', 'structures']);
 
   if (currentTeamId === null || payload.teamId !== currentTeamId) {
     return;
@@ -3570,14 +3753,39 @@ socket.on('build:outcome', (payload: BuildOutcome) => {
 });
 
 socket.on('build:queued', (payload: BuildQueuedPayload) => {
+  if (payload.roomId !== currentRoomId) {
+    return;
+  }
+
+  if (currentTeamId === null || payload.teamId !== currentTeamId) {
+    return;
+  }
+
+  overlayBuildFeedbackPending = true;
+  overlayBuildFeedbackIsError = false;
+  overlayBuildFeedbackCopy = `Build intent buffered for turn ${payload.scheduledByTurn}.`;
+  setQueueFeedbackOverride(overlayBuildFeedbackCopy, false);
+  setMessage(overlayBuildFeedbackCopy);
+  refreshActionUi();
+});
+
+socket.on('build:scheduled', (payload: BuildScheduledPayload) => {
+  if (payload.roomId !== currentRoomId) {
+    return;
+  }
+
+  requestStateSections(['structures']);
+
+  if (currentTeamId === null || payload.teamId !== currentTeamId) {
+    return;
+  }
+
   overlayBuildFeedbackPending = false;
   overlayBuildFeedbackIsError = false;
-  overlayBuildFeedbackCopy = `Queued event #${payload.eventId} for execute tick ${payload.executeTick}.`;
+  overlayBuildFeedbackCopy = `Build scheduled (#${payload.eventId}) for tick ${payload.executeTick}.`;
   setQueueFeedbackOverride(overlayBuildFeedbackCopy, false);
-  addToast(`Queued #${payload.eventId} for tick ${payload.executeTick}.`);
-  setMessage(
-    `Build queued (#${payload.eventId}) for tick ${payload.executeTick}.`,
-  );
+  addToast(overlayBuildFeedbackCopy);
+  setMessage(overlayBuildFeedbackCopy);
   refreshActionUi();
 });
 
@@ -3586,7 +3794,7 @@ socket.on('destroy:outcome', (payload: DestroyOutcome) => {
     return;
   }
 
-  requestStateSnapshot();
+  requestStateSections(['grid', 'structures']);
 
   if (currentTeamId === null || payload.teamId !== currentTeamId) {
     return;
@@ -3619,6 +3827,35 @@ socket.on('destroy:outcome', (payload: DestroyOutcome) => {
 });
 
 socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
+  if (payload.roomId !== currentRoomId) {
+    return;
+  }
+
+  if (currentTeamId === null || payload.teamId !== currentTeamId) {
+    return;
+  }
+
+  const feedback = `Destroy intent buffered for turn ${payload.scheduledByTurn}.`;
+
+  overlayTeamFeedbackPending = true;
+  overlayTeamFeedbackCopy = feedback;
+  overlayTeamFeedbackIsError = false;
+  setDestroyFeedbackOverride(feedback, false);
+  setMessage(feedback);
+  refreshActionUi();
+});
+
+socket.on('destroy:scheduled', (payload: DestroyScheduledPayload) => {
+  if (payload.roomId !== currentRoomId) {
+    return;
+  }
+
+  requestStateSections(['structures']);
+
+  if (currentTeamId === null || payload.teamId !== currentTeamId) {
+    return;
+  }
+
   destroyViewState = registerDestroyQueued(
     destroyViewState,
     payload.structureKey,
@@ -3626,7 +3863,7 @@ socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
 
   const feedback = payload.idempotent
     ? `Destroy already pending for ${payload.structureKey}.`
-    : `Destroy queued (#${payload.eventId}) for tick ${payload.executeTick}.`;
+    : `Destroy scheduled (#${payload.eventId}) for tick ${payload.executeTick}.`;
 
   overlayTeamFeedbackPending = false;
   overlayTeamFeedbackCopy = feedback;
@@ -3639,32 +3876,10 @@ socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
   refreshActionUi();
 });
 
-socket.on('state', (payload: StatePayload) => {
-  const previousGridWidth = gridWidth;
-  const previousGridHeight = gridHeight;
-
-  gridWidth = payload.width;
-  gridHeight = payload.height;
-  gridBytes = Grid.unpack(payload.grid, gridWidth, gridHeight);
-  lastAuthoritativeStateAtMs = Date.now();
-  generationEl.textContent = payload.generation.toString();
+socket.on('state:grid', (payload: RoomGridStatePayload) => {
   if (payload.roomId !== currentRoomId) {
-    currentRoomId = payload.roomId;
+    return;
   }
-  if (payload.roomName !== currentRoomName) {
-    currentRoomName = payload.roomName;
-  }
-
-  updateTeamStats(payload);
-  syncVisibleStructures(payload);
-  syncLocalBuildZoneOverlay(payload);
-  renderSpawnMarkers(payload);
-  resizeCanvas();
-  if (gridWidth !== previousGridWidth || gridHeight !== previousGridHeight) {
-    resetCameraForCurrentTeam();
-  }
-  requestRender();
-  updateLifecycleUi();
 
   if (
     selectedTemplatePlacement &&
@@ -3675,6 +3890,50 @@ socket.on('state', (payload: StatePayload) => {
     lastPreviewRefreshTick = payload.tick;
     emitBuildPreviewForSelectedPlacement();
   }
+
+  lastGridHashHex = payload.hashHex;
+  applyGridStatePayload(payload);
+});
+
+socket.on('state:structures', (payload: RoomStructuresStatePayload) => {
+  if (payload.roomId !== currentRoomId) {
+    return;
+  }
+
+  lastStructuresHashHex = payload.hashHex;
+  applyStructuresStatePayload(payload);
+});
+
+socket.on('state:hashes', (payload: RoomStateHashesPayload) => {
+  if (payload.roomId !== currentRoomId) {
+    return;
+  }
+
+  if (awaitingStateHashesAfterFullState) {
+    syncAppliedStateHashes(payload);
+    awaitingStateHashesAfterFullState = false;
+    return;
+  }
+
+  const sections: StateRequestPayload['sections'] = [];
+  if (lastGridHashHex !== payload.gridHash) {
+    sections.push('grid');
+  }
+  if (lastStructuresHashHex !== payload.structuresHash) {
+    sections.push('structures');
+  }
+  if (lastMembershipHashHex !== payload.roomMembershipHash) {
+    sections.push('membership');
+  }
+
+  if (sections.length > 0) {
+    requestStateSections(sections);
+  }
+});
+
+socket.on('state', (payload: StatePayload) => {
+  awaitingStateHashesAfterFullState = true;
+  applyStatePayload(payload);
 });
 
 setNameButton.addEventListener('click', () => {
