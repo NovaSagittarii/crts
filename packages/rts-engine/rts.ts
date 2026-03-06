@@ -32,9 +32,11 @@ import {
   createIdentityPlacementTransform,
   normalizePlacementTransform,
   projectPlacementToWorld,
+  projectTemplateWithTransform,
   type PlacementBounds,
   type PlacementTransformInput,
   type PlacementTransformState,
+  type TransformTemplateInput,
   type TransformedTemplate,
 } from './placement-transform.js';
 import {
@@ -88,6 +90,23 @@ export interface BuildPreviewProjection {
   footprint: Vector2[];
   illegalCells: Vector2[];
   bounds: PlacementBounds;
+}
+
+export interface BuildPreviewTemplateSnapshot extends TransformTemplateInput {
+  activationCost: number;
+}
+
+export interface BuildPreviewSnapshotInput {
+  width: number;
+  height: number;
+  grid: Grid;
+  teamResources: number;
+  teamDefeated: boolean;
+  teamBuildZoneProjectionInputs: readonly BuildZoneContributorProjectionInput[];
+  template: BuildPreviewTemplateSnapshot | null;
+  x: number;
+  y: number;
+  transform?: PlacementTransformInput | null;
 }
 
 export interface BuildStats {
@@ -399,6 +418,22 @@ interface EvaluatedBuildPlacement {
   affordability?: AffordabilityResult;
   diffCells?: number;
   reason?: BuildRejectionReason;
+}
+
+interface BuildPlacementSnapshotProjectionInput {
+  width: number;
+  height: number;
+  teamBuildZoneProjectionInputs: readonly BuildZoneContributorProjectionInput[];
+  template: TransformTemplateInput;
+  x: number;
+  y: number;
+  transformInput: PlacementTransformInput | null | undefined;
+}
+
+interface BuildPlacementSnapshotEvaluationInput extends BuildPlacementSnapshotProjectionInput {
+  grid: Grid;
+  teamResources: number;
+  templateActivationCost: number;
 }
 
 type IntegrityOutcomeCategory = 'repaired' | 'destroyed-debris' | 'core-defeat';
@@ -1067,13 +1102,24 @@ export class RtsEngine {
     return null;
   }
 
+  private static transformedTemplateFitsDimensions(
+    width: number,
+    height: number,
+    transformedTemplate: Pick<TransformedTemplate, 'width' | 'height'>,
+  ): boolean {
+    return (
+      transformedTemplate.width <= width && transformedTemplate.height <= height
+    );
+  }
+
   private static transformedTemplateFitsRoom(
     room: RoomState,
     transformedTemplate: Pick<TransformedTemplate, 'width' | 'height'>,
   ): boolean {
-    return (
-      transformedTemplate.width <= room.width &&
-      transformedTemplate.height <= room.height
+    return RtsEngine.transformedTemplateFitsDimensions(
+      room.width,
+      room.height,
+      transformedTemplate,
     );
   }
 
@@ -1091,21 +1137,34 @@ export class RtsEngine {
     return remainder >= 0 ? remainder : remainder + size;
   }
 
+  private static canonicalizePlacementAnchorForDimensions(
+    width: number,
+    height: number,
+    x: number,
+    y: number,
+  ): Vector2 {
+    return {
+      x: RtsEngine.wrapAnchorCoordinate(x, width),
+      y: RtsEngine.wrapAnchorCoordinate(y, height),
+    };
+  }
+
   private static canonicalizePlacementAnchor(
     room: RoomState,
     x: number,
     y: number,
   ): Vector2 {
-    return {
-      x: RtsEngine.wrapAnchorCoordinate(x, room.width),
-      y: RtsEngine.wrapAnchorCoordinate(y, room.height),
-    };
+    return RtsEngine.canonicalizePlacementAnchorForDimensions(
+      room.width,
+      room.height,
+      x,
+      y,
+    );
   }
 
-  private static collectTeamBuildZoneContributors(
-    room: RoomState,
+  private static collectTeamBuildZoneProjectionInputs(
     team: TeamState,
-  ): BuildZoneContributor[] {
+  ): BuildZoneContributorProjectionInput[] {
     const contributorProjectionInputs: BuildZoneContributorProjectionInput[] =
       [];
     const orderedStructures = [...team.structures.values()].sort(
@@ -1128,20 +1187,56 @@ export class RtsEngine {
       });
     }
 
-    return collectBuildZoneContributors(contributorProjectionInputs);
+    return contributorProjectionInputs;
   }
 
-  private static projectBuildPlacement(
-    room: RoomState,
-    team: TeamState,
+  private static collectBuildZoneContributorsFromProjectionInputs(
+    projectionInputs: readonly BuildZoneContributorProjectionInput[],
+  ): BuildZoneContributor[] {
+    const activeProjectionInputs = projectionInputs.filter(
+      (projectionInput) => (projectionInput.hp ?? 1) > 0,
+    );
+
+    return collectBuildZoneContributors(activeProjectionInputs);
+  }
+
+  private static createTemplateProjectionInput(
     template: StructureTemplate,
-    x: number,
-    y: number,
-    transformInput: PlacementTransformInput | null | undefined,
+  ): TransformTemplateInput {
+    const projectedTemplate = template.project(
+      createIdentityPlacementTransform(),
+    );
+
+    return {
+      width: projectedTemplate.width,
+      height: projectedTemplate.height,
+      grid: projectedTemplate.grid,
+      checks: template.checks,
+    };
+  }
+
+  private static collectTeamBuildZoneContributors(
+    team: TeamState,
+  ): BuildZoneContributor[] {
+    return RtsEngine.collectBuildZoneContributorsFromProjectionInputs(
+      RtsEngine.collectTeamBuildZoneProjectionInputs(team),
+    );
+  }
+
+  private static projectBuildPlacementFromSnapshot(
+    input: BuildPlacementSnapshotProjectionInput,
   ): BuildPlacementValidationResult {
-    const transform = normalizePlacementTransform(transformInput);
-    const anchor = RtsEngine.canonicalizePlacementAnchor(room, x, y);
-    const transformedTemplate = template.project(transform);
+    const transform = normalizePlacementTransform(input.transformInput);
+    const anchor = RtsEngine.canonicalizePlacementAnchorForDimensions(
+      input.width,
+      input.height,
+      input.x,
+      input.y,
+    );
+    const transformedTemplate = projectTemplateWithTransform(
+      input.template,
+      transform,
+    );
     const templateGrid = transformedTemplate.grid;
     const bounds: PlacementBounds = {
       x: anchor.x,
@@ -1150,7 +1245,13 @@ export class RtsEngine {
       height: transformedTemplate.height,
     };
 
-    if (!RtsEngine.transformedTemplateFitsRoom(room, transformedTemplate)) {
+    if (
+      !RtsEngine.transformedTemplateFitsDimensions(
+        input.width,
+        input.height,
+        transformedTemplate,
+      )
+    ) {
       return {
         projection: {
           transform,
@@ -1170,12 +1271,14 @@ export class RtsEngine {
       transformedTemplate,
       anchor.x,
       anchor.y,
-      room.width,
-      room.height,
+      input.width,
+      input.height,
     );
     const illegalCells = collectIllegalBuildZoneCells(
       projected.areaCells,
-      RtsEngine.collectTeamBuildZoneContributors(room, team),
+      RtsEngine.collectBuildZoneContributorsFromProjectionInputs(
+        input.teamBuildZoneProjectionInputs,
+      ),
     );
 
     return {
@@ -1193,12 +1296,44 @@ export class RtsEngine {
     };
   }
 
+  private static projectBuildPlacement(
+    room: RoomState,
+    team: TeamState,
+    template: StructureTemplate,
+    x: number,
+    y: number,
+    transformInput: PlacementTransformInput | null | undefined,
+  ): BuildPlacementValidationResult {
+    return RtsEngine.projectBuildPlacementFromSnapshot({
+      width: room.width,
+      height: room.height,
+      teamBuildZoneProjectionInputs:
+        RtsEngine.collectTeamBuildZoneProjectionInputs(team),
+      template: RtsEngine.createTemplateProjectionInput(template),
+      x,
+      y,
+      transformInput,
+    });
+  }
+
+  private static compareTemplateAgainstGrid(
+    grid: Grid,
+    templateGrid: Grid,
+    bounds: PlacementBounds,
+  ): number {
+    return grid.compare(templateGrid, { x: bounds.x, y: bounds.y });
+  }
+
   private static compareTemplate(
     room: RoomState,
     templateGrid: Grid,
     bounds: PlacementBounds,
   ): number {
-    return room.grid.compare(templateGrid, { x: bounds.x, y: bounds.y });
+    return RtsEngine.compareTemplateAgainstGrid(
+      room.grid,
+      templateGrid,
+      bounds,
+    );
   }
 
   private static applyTemplate(
@@ -1504,22 +1639,18 @@ export class RtsEngine {
     };
   }
 
-  private static evaluateBuildPlacement(
-    room: RoomState,
-    team: TeamState,
-    template: StructureTemplate,
-    x: number,
-    y: number,
-    transformInput: PlacementTransformInput | null | undefined,
+  private static evaluateBuildPlacementFromSnapshot(
+    input: BuildPlacementSnapshotEvaluationInput,
   ): EvaluatedBuildPlacement {
-    const projectedPlacement = RtsEngine.projectBuildPlacement(
-      room,
-      team,
-      template,
-      x,
-      y,
-      transformInput,
-    );
+    const projectedPlacement = RtsEngine.projectBuildPlacementFromSnapshot({
+      width: input.width,
+      height: input.height,
+      teamBuildZoneProjectionInputs: input.teamBuildZoneProjectionInputs,
+      template: input.template,
+      x: input.x,
+      y: input.y,
+      transformInput: input.transformInput,
+    });
 
     if (projectedPlacement.reason) {
       return {
@@ -1530,8 +1661,8 @@ export class RtsEngine {
 
     let diffCells: number;
     try {
-      diffCells = RtsEngine.compareTemplate(
-        room,
+      diffCells = RtsEngine.compareTemplateAgainstGrid(
+        input.grid,
         projectedPlacement.projection.templateGrid,
         projectedPlacement.projection.bounds,
       );
@@ -1542,10 +1673,10 @@ export class RtsEngine {
       };
     }
 
-    const needed = diffCells + template.activationCost;
+    const needed = diffCells + input.templateActivationCost;
     const affordability = RtsEngine.evaluateAffordability(
       needed,
-      team.resources,
+      input.teamResources,
     );
 
     if (!affordability.affordable) {
@@ -1562,6 +1693,29 @@ export class RtsEngine {
       diffCells,
       affordability,
     };
+  }
+
+  private static evaluateBuildPlacement(
+    room: RoomState,
+    team: TeamState,
+    template: StructureTemplate,
+    x: number,
+    y: number,
+    transformInput: PlacementTransformInput | null | undefined,
+  ): EvaluatedBuildPlacement {
+    return RtsEngine.evaluateBuildPlacementFromSnapshot({
+      width: room.width,
+      height: room.height,
+      grid: room.grid,
+      teamResources: team.resources,
+      teamBuildZoneProjectionInputs:
+        RtsEngine.collectTeamBuildZoneProjectionInputs(team),
+      template: RtsEngine.createTemplateProjectionInput(template),
+      templateActivationCost: template.activationCost,
+      x,
+      y,
+      transformInput,
+    });
   }
 
   private static clearDefeatedTeamEconomy(team: TeamState): void {
@@ -2125,6 +2279,123 @@ export class RtsEngine {
     room.players.delete(playerId);
   }
 
+  private static getBuildPreviewErrorMessage(
+    reason: BuildRejectionReason | undefined,
+  ): string | undefined {
+    if (reason === 'outside-territory') {
+      return 'Outside build zone - build closer to your structures.';
+    }
+    if (reason === 'template-exceeds-map-size') {
+      return 'Template exceeds map size';
+    }
+    if (reason === 'insufficient-resources') {
+      return 'Insufficient resources';
+    }
+    if (reason === 'template-compare-failed') {
+      return 'Unable to compare template with current state';
+    }
+
+    return undefined;
+  }
+
+  private static createRejectedBuildPreviewResult(options: {
+    reason: BuildRejectionReason;
+    error: string;
+    currentResources: number;
+    x: number;
+    y: number;
+    transformInput: PlacementTransformInput | null | undefined;
+  }): BuildPreviewResult {
+    return {
+      accepted: false,
+      error: options.error,
+      reason: options.reason,
+      ...RtsEngine.createEmptyBuildProjection(
+        options.x,
+        options.y,
+        options.transformInput,
+      ),
+      affordable: false,
+      needed: 0,
+      current: options.currentResources,
+      deficit: 0,
+    };
+  }
+
+  private static createBuildPreviewResult(
+    evaluation: EvaluatedBuildPlacement,
+    currentResources: number,
+  ): BuildPreviewResult {
+    return {
+      accepted: evaluation.reason === undefined,
+      reason: evaluation.reason,
+      error: RtsEngine.getBuildPreviewErrorMessage(evaluation.reason),
+      transform: evaluation.projection.transform,
+      footprint: evaluation.projection.footprint,
+      illegalCells: evaluation.projection.illegalCells,
+      bounds: evaluation.projection.bounds,
+      affordable: evaluation.affordability?.affordable ?? false,
+      needed: evaluation.affordability?.needed ?? 0,
+      current: evaluation.affordability?.current ?? currentResources,
+      deficit: evaluation.affordability?.deficit ?? 0,
+    };
+  }
+
+  public static previewBuildPlacementFromSnapshot(
+    input: BuildPreviewSnapshotInput,
+  ): BuildPreviewResult {
+    const x = Number(input.x);
+    const y = Number(input.y);
+
+    if (input.teamDefeated) {
+      return RtsEngine.createRejectedBuildPreviewResult({
+        reason: 'team-defeated',
+        error: 'Team is defeated',
+        currentResources: input.teamResources,
+        x,
+        y,
+        transformInput: input.transform,
+      });
+    }
+
+    if (!input.template) {
+      return RtsEngine.createRejectedBuildPreviewResult({
+        reason: 'unknown-template',
+        error: 'Unknown template',
+        currentResources: input.teamResources,
+        x,
+        y,
+        transformInput: input.transform,
+      });
+    }
+
+    if (!Number.isInteger(x) || !Number.isInteger(y)) {
+      return RtsEngine.createRejectedBuildPreviewResult({
+        reason: 'invalid-coordinates',
+        error: 'x and y must be integers',
+        currentResources: input.teamResources,
+        x,
+        y,
+        transformInput: input.transform,
+      });
+    }
+
+    const evaluation = RtsEngine.evaluateBuildPlacementFromSnapshot({
+      width: input.width,
+      height: input.height,
+      grid: input.grid,
+      teamResources: input.teamResources,
+      teamBuildZoneProjectionInputs: input.teamBuildZoneProjectionInputs,
+      template: input.template,
+      templateActivationCost: input.template.activationCost,
+      x,
+      y,
+      transformInput: input.transform,
+    });
+
+    return RtsEngine.createBuildPreviewResult(evaluation, input.teamResources);
+  }
+
   public static previewBuildPlacement(
     room: RoomState,
     playerId: string,
@@ -2152,43 +2423,37 @@ export class RtsEngine {
     }
 
     if (team.defeated) {
-      return {
-        accepted: false,
-        error: 'Team is defeated',
+      return RtsEngine.createRejectedBuildPreviewResult({
         reason: 'team-defeated',
-        ...RtsEngine.createEmptyBuildProjection(x, y, payload.transform),
-        affordable: false,
-        needed: 0,
-        current: team.resources,
-        deficit: 0,
-      };
+        error: 'Team is defeated',
+        currentResources: team.resources,
+        x,
+        y,
+        transformInput: payload.transform,
+      });
     }
 
     const template = room.templateMap.get(payload.templateId);
     if (!template) {
-      return {
-        accepted: false,
-        error: 'Unknown template',
+      return RtsEngine.createRejectedBuildPreviewResult({
         reason: 'unknown-template',
-        ...RtsEngine.createEmptyBuildProjection(x, y, payload.transform),
-        affordable: false,
-        needed: 0,
-        current: team.resources,
-        deficit: 0,
-      };
+        error: 'Unknown template',
+        currentResources: team.resources,
+        x,
+        y,
+        transformInput: payload.transform,
+      });
     }
 
     if (!Number.isInteger(x) || !Number.isInteger(y)) {
-      return {
-        accepted: false,
-        error: 'x and y must be integers',
+      return RtsEngine.createRejectedBuildPreviewResult({
         reason: 'invalid-coordinates',
-        ...RtsEngine.createEmptyBuildProjection(x, y, payload.transform),
-        affordable: false,
-        needed: 0,
-        current: team.resources,
-        deficit: 0,
-      };
+        error: 'x and y must be integers',
+        currentResources: team.resources,
+        x,
+        y,
+        transformInput: payload.transform,
+      });
     }
 
     const evaluation = RtsEngine.evaluateBuildPlacement(
@@ -2200,30 +2465,7 @@ export class RtsEngine {
       payload.transform,
     );
 
-    const result: BuildPreviewResult = {
-      accepted: evaluation.reason === undefined,
-      reason: evaluation.reason,
-      transform: evaluation.projection.transform,
-      footprint: evaluation.projection.footprint,
-      illegalCells: evaluation.projection.illegalCells,
-      bounds: evaluation.projection.bounds,
-      affordable: evaluation.affordability?.affordable ?? false,
-      needed: evaluation.affordability?.needed ?? 0,
-      current: evaluation.affordability?.current ?? team.resources,
-      deficit: evaluation.affordability?.deficit ?? 0,
-    };
-
-    if (evaluation.reason === 'outside-territory') {
-      result.error = 'Outside build zone - build closer to your structures.';
-    } else if (evaluation.reason === 'template-exceeds-map-size') {
-      result.error = 'Template exceeds map size';
-    } else if (evaluation.reason === 'insufficient-resources') {
-      result.error = 'Insufficient resources';
-    } else if (evaluation.reason === 'template-compare-failed') {
-      result.error = 'Unable to compare template with current state';
-    }
-
-    return result;
+    return RtsEngine.createBuildPreviewResult(evaluation, team.resources);
   }
 
   public static queueBuildEvent(

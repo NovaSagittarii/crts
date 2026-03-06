@@ -8,13 +8,14 @@ import {
   getCanonicalBaseCells,
   isCanonicalBaseCell,
 } from './geometry.js';
-import { RtsEngine, RtsRoom } from './rts.js';
+import { RtsEngine, RtsRoom, type BuildPreviewSnapshotInput } from './rts.js';
 import { StructureTemplate } from './structure.js';
 import {
   BUILD_ZONE_RADIUS,
   DEFAULT_QUEUE_DELAY_TICKS,
   MAX_DELAY_TICKS,
 } from './gameplay-rules.js';
+import { createIdentityPlacementTransform } from './placement-transform.js';
 
 interface Cell {
   x: number;
@@ -96,6 +97,61 @@ function probeQueueBuild(
   payload: { templateId: string; x: number; y: number; delayTicks?: number },
 ): ReturnType<typeof RtsEngine.previewBuildPlacement> {
   return RtsEngine.previewBuildPlacement(room, playerId, payload);
+}
+
+function toPreviewSnapshotInput(
+  room: RoomState,
+  teamId: number,
+  payload: {
+    templateId: string;
+    x: number;
+    y: number;
+    transform?: BuildPreviewSnapshotInput['transform'];
+  },
+): BuildPreviewSnapshotInput {
+  const team = room.teams.get(teamId);
+  if (!team) {
+    throw new Error(`Expected team ${String(teamId)} to exist`);
+  }
+
+  const template = room.templateMap.get(payload.templateId) ?? null;
+  const identityTemplate =
+    template === null
+      ? null
+      : template.project(createIdentityPlacementTransform());
+
+  return {
+    width: room.width,
+    height: room.height,
+    grid: room.grid,
+    teamResources: team.resources,
+    teamDefeated: team.defeated,
+    teamBuildZoneProjectionInputs: [...team.structures.values()]
+      .sort((left, right) => left.key.localeCompare(right.key))
+      .map((structure) => {
+        const projectedTemplate = structure.projectTemplate();
+        return {
+          x: structure.x,
+          y: structure.y,
+          width: projectedTemplate.width,
+          height: projectedTemplate.height,
+          hp: structure.hp,
+        };
+      }),
+    template:
+      template === null || identityTemplate === null
+        ? null
+        : {
+            width: template.width,
+            height: template.height,
+            grid: identityTemplate!.grid,
+            checks: template.checks,
+            activationCost: template.activationCost,
+          },
+    x: payload.x,
+    y: payload.y,
+    transform: payload.transform,
+  };
 }
 
 function getRoomId(room: RoomState): string {
@@ -588,6 +644,90 @@ describe('rts', () => {
     expect(RtsEngine.getTimelineEvents(room).at(-1)?.metadata?.reason).toBe(
       'template-exceeds-map-size',
     );
+  });
+
+  test('matches room preview results with snapshot preview evaluator', () => {
+    const room = RtsEngine.createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 80,
+      height: 80,
+    });
+    const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+    const baseCenter = getBaseCenter(team.baseTopLeft);
+    const payload = {
+      templateId: 'block',
+      x: baseCenter.x + Math.floor(BUILD_ZONE_RADIUS),
+      y: baseCenter.y,
+      transform: {
+        operations: ['rotate' as const],
+      },
+    };
+
+    const roomPreview = RtsEngine.previewBuildPlacement(room, 'p1', payload);
+    const snapshotPreview = RtsEngine.previewBuildPlacementFromSnapshot(
+      toPreviewSnapshotInput(room, team.id, payload),
+    );
+
+    expect(snapshotPreview).toEqual(roomPreview);
+  });
+
+  test('matches room preview rejection reasons with snapshot preview evaluator', () => {
+    const room = RtsEngine.createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 80,
+      height: 80,
+    });
+    const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+
+    const outsidePayload = {
+      templateId: 'block',
+      x: 79,
+      y: 79,
+    };
+    const outsideRoomPreview = RtsEngine.previewBuildPlacement(
+      room,
+      'p1',
+      outsidePayload,
+    );
+    const outsideSnapshotPreview = RtsEngine.previewBuildPlacementFromSnapshot(
+      toPreviewSnapshotInput(room, team.id, outsidePayload),
+    );
+    expect(outsideSnapshotPreview).toEqual(outsideRoomPreview);
+
+    team.resources = 0;
+    const insufficientPayload = {
+      templateId: 'block',
+      x: team.baseTopLeft.x,
+      y: team.baseTopLeft.y,
+    };
+    const insufficientRoomPreview = RtsEngine.previewBuildPlacement(
+      room,
+      'p1',
+      insufficientPayload,
+    );
+    const insufficientSnapshotPreview =
+      RtsEngine.previewBuildPlacementFromSnapshot(
+        toPreviewSnapshotInput(room, team.id, insufficientPayload),
+      );
+    expect(insufficientSnapshotPreview).toEqual(insufficientRoomPreview);
+
+    const unknownTemplatePayload = {
+      templateId: 'missing-template',
+      x: 0,
+      y: 0,
+    };
+    const unknownRoomPreview = RtsEngine.previewBuildPlacement(
+      room,
+      'p1',
+      unknownTemplatePayload,
+    );
+    const unknownSnapshotPreview = RtsEngine.previewBuildPlacementFromSnapshot(
+      toPreviewSnapshotInput(room, team.id, unknownTemplatePayload),
+    );
+
+    expect(unknownSnapshotPreview).toEqual(unknownRoomPreview);
   });
 
   test('normalizes wrapped-equivalent anchors to one occupied site key', () => {
