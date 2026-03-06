@@ -70,6 +70,9 @@ export function describeBuildFailureReason(reason: BuildPreviewReason): string {
   if (reason === 'apply-failed') {
     return 'apply failed';
   }
+  if (reason === 'insufficient-resources') {
+    return 'insufficient resources';
+  }
   return 'validation failed';
 }
 

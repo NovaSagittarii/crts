@@ -1,6 +1,10 @@
 import { readFileSync } from 'node:fs';
 
-import type { BuildPreviewPayload } from '#rts-engine';
+import type {
+  BuildPreviewPayload,
+  PlacementBounds,
+  PlacementTransformState,
+} from '#rts-engine';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -34,19 +38,38 @@ function createPreview(
     templateId: 'turret',
     x: 4,
     y: 6,
-    transform: {
-      operations: [],
-    } as unknown as BuildPreviewPayload['transform'],
+    transform: createTransform(),
     footprint: [],
     illegalCells: [],
-    bounds: {
-      minX: 4,
-      minY: 6,
-      maxX: 5,
-      maxY: 7,
-    },
+    bounds: createBounds(),
     ...overrides,
-  } as BuildPreviewPayload;
+  };
+}
+
+function createTransform(
+  operations: PlacementTransformState['operations'] = [],
+): PlacementTransformState {
+  return {
+    operations: [...operations],
+    matrix: {
+      xx: 1,
+      xy: 0,
+      yx: 0,
+      yy: 1,
+    },
+  };
+}
+
+function createBounds(
+  overrides: Partial<PlacementBounds> = {},
+): PlacementBounds {
+  return {
+    x: 4,
+    y: 6,
+    width: 2,
+    height: 2,
+    ...overrides,
+  };
 }
 
 describe('build queue view model helpers', () => {
@@ -73,9 +96,7 @@ describe('build queue view model helpers', () => {
     expect(
       previewMatchesSelection(
         createPreview({
-          transform: {
-            operations: ['rotate'],
-          } as unknown as BuildPreviewPayload['transform'],
+          transform: createTransform(['rotate']),
         }),
         createSelection(),
         ['rotate'],
@@ -131,6 +152,7 @@ describe('build queue view model helpers', () => {
           current: 3,
           deficit: 4,
           needed: 7,
+          reason: 'insufficient-resources',
         }),
         activeTransformOperations: [],
         previewPending: false,
@@ -138,8 +160,50 @@ describe('build queue view model helpers', () => {
         queueFeedbackOverride: null,
       }),
     ).toMatchObject({
+      previewReasonCopy: 'Preview reason: insufficient resources',
       queueCostTone: 'blocked',
       queueFeedbackCopy: 'Need 7, current 3 (deficit 4).',
+      queueFeedbackIsError: true,
+      queueDisabled: true,
+    });
+  });
+
+  it('surfaces read-only feedback when gameplay mutation is disabled', () => {
+    expect(
+      deriveBuildQueueUi({
+        selectedPlacement: createSelection(),
+        latestBuildPreview: createPreview(),
+        activeTransformOperations: [],
+        previewPending: false,
+        canMutateGameplay: false,
+        queueFeedbackOverride: null,
+      }),
+    ).toMatchObject({
+      queueFeedbackCopy:
+        'Queue action is read-only until you are an active, non-defeated player.',
+      queueDisabled: true,
+    });
+  });
+
+  it('describes non-deficit placement rejections', () => {
+    expect(
+      deriveBuildQueueUi({
+        selectedPlacement: createSelection(),
+        latestBuildPreview: createPreview({
+          affordable: false,
+          current: 10,
+          deficit: 0,
+          needed: 6,
+          reason: 'outside-territory',
+        }),
+        activeTransformOperations: [],
+        previewPending: false,
+        canMutateGameplay: true,
+        queueFeedbackOverride: null,
+      }),
+    ).toMatchObject({
+      previewReasonCopy: 'Preview reason: outside build zone',
+      queueFeedbackCopy: 'Cannot queue here: outside build zone.',
       queueFeedbackIsError: true,
       queueDisabled: true,
     });
