@@ -269,6 +269,7 @@ export interface ClientToServerEvents {
   'room:start': (payload?: RoomStartPayload) => void;
   'room:cancel-countdown': () => void;
   'chat:send': (payload: ChatSendPayload) => void;
+  'state:request': () => void;
   'build:preview': (payload: BuildPreviewRequestPayload) => void;
   'build:queue': (payload: BuildQueuePayload) => void;
   'destroy:queue': (payload: DestroyQueuePayload) => void;

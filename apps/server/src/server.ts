@@ -64,6 +64,7 @@ const FINISHED_ROOM_RESYNC_INTERVAL_MS = 500;
 const DEFAULT_LOCKSTEP_TURN_TICKS = 1;
 const DEFAULT_LOCKSTEP_CHECKPOINT_INTERVAL_TICKS = 4;
 const DEFAULT_LOCKSTEP_MAX_BUFFERED_TURNS = 64;
+const DEFAULT_ACTIVE_STATE_SNAPSHOT_INTERVAL_TICKS = 50;
 
 type IntervalHandle = ReturnType<typeof setInterval>;
 type TimeoutHandle = ReturnType<typeof setTimeout>;
@@ -91,6 +92,7 @@ export interface ServerOptions {
   lockstepTurnTicks?: number;
   lockstepCheckpointIntervalTicks?: number;
   lockstepMaxBufferedTurns?: number;
+  activeStateSnapshotIntervalTicks?: number;
   now?: () => number;
   setInterval?: SetIntervalHook;
   clearInterval?: ClearIntervalHook;
@@ -423,6 +425,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
     4,
     512,
   );
+  const activeStateSnapshotIntervalTicks = parseBoundedInteger(
+    options.activeStateSnapshotIntervalTicks,
+    DEFAULT_ACTIVE_STATE_SNAPSHOT_INTERVAL_TICKS,
+    1,
+    1000,
+  );
   const now = options.now ?? (() => Date.now());
   const setIntervalHook =
     options.setInterval ??
@@ -623,6 +631,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   function emitRoomState(room: RuntimeRoom): void {
     roomBroadcast.emitRoomState(room);
+  }
+
+  function emitRoomStateToSocket(room: RuntimeRoom, socket: GameSocket): void {
+    socket.emit('state', room.rtsRoom.createStatePayload());
   }
 
   function emitBuildOutcomes(
@@ -1959,6 +1971,19 @@ export function createServer(options: ServerOptions = {}): GameServer {
       emitRoomList(socket);
     });
 
+    socket.on('state:request', () => {
+      if (!ensureCurrentSocket(socket, session)) {
+        return;
+      }
+
+      const room = getRoomOrNull(session.roomId);
+      if (!room) {
+        return;
+      }
+
+      emitRoomStateToSocket(room, socket);
+    });
+
     socket.on('room:create', (payload: unknown) => {
       if (!ensureCurrentSocket(socket, session)) {
         return;
@@ -2478,6 +2503,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
       tickCounter % membershipResyncIntervalTicks === 0;
     const emitFinishedRoomResync =
       tickCounter % finishedRoomResyncIntervalTicks === 0;
+    const emitActiveStateSnapshot =
+      tickCounter % activeStateSnapshotIntervalTicks === 0;
 
     for (const room of rooms.values()) {
       if (room.status === 'active') {
@@ -2538,7 +2565,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       }
 
       if (room.lobby.participantCount() > 0) {
-        if (room.status === 'active') {
+        if (room.status === 'active' && emitActiveStateSnapshot) {
           emitRoomState(room);
         } else if (room.status === 'finished' && emitFinishedRoomResync) {
           emitRoomState(room);
