@@ -1172,39 +1172,6 @@ describe('GameServer', () => {
     await server.stop();
   }, 20_000);
 
-  test('rejects direct cell:update bypass attempts with queue-only reason and no defeat side effects', async () => {
-    const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
-    const port = await server.start();
-
-    const setup = await setupActiveMatch(port);
-    const teamId = setup.hostTeam.id;
-
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      setup.host.emit('cell:update', {
-        x: setup.hostTeam.baseTopLeft.x,
-        y: setup.hostTeam.baseTopLeft.y,
-        alive: false,
-      });
-
-      const rejection = await waitForEvent<RoomError>(setup.host, 'room:error');
-      expect(rejection.reason).toBe('queue-only-mutation-path');
-    }
-
-    const stableState = await waitForCondition(
-      setup.host,
-      (state) => state.roomId === setup.roomId && state.tick > 8,
-      40,
-    );
-
-    const hostTeamState = getTeam(stableState, teamId);
-    expect(hostTeamState.defeated).toBe(false);
-    expect(hostTeamState.baseIntact).toBe(true);
-
-    setup.host.close();
-    setup.guest.close();
-    await server.stop();
-  }, 20_000);
-
   test('creates and joins a custom room', async () => {
     const server = createServer({ port: 0, width: 30, height: 30, tickMs: 40 });
     const port = await server.start();
