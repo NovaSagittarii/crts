@@ -19,7 +19,7 @@ import type {
 import type { RankedTeamOutcome } from './match-lifecycle.js';
 import type {
   StructurePayload,
-  StructureTemplateSummary,
+  StructureTemplatePayload,
 } from './structure.js';
 
 // Shared Socket.IO payload contracts.
@@ -189,7 +189,7 @@ export interface RoomJoinedPayload {
   playerId: string;
   playerName: string;
   teamId: number | null;
-  templates: StructureTemplateSummary[];
+  templates: StructureTemplatePayload[];
   state: RoomStatePayload;
   stateHashes: RoomStateHashesPayload;
   lockstep?: LockstepStatusPayload;

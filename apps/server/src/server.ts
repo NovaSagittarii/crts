@@ -1588,7 +1588,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       playerName: session.name,
       teamId,
       templates: room.rtsRoom.state.templates.map((template) =>
-        template.toSummary(),
+        template.toPayload(),
       ),
       state: room.rtsRoom.createStatePayload(),
       stateHashes: createStateHashesPayload(room),

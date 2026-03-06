@@ -159,7 +159,7 @@ export function deriveBuildQueueUi(
   }
 
   let queueFeedbackCopy =
-    'Queue action is disabled until placement preview returns.';
+    'Queue action is disabled until local placement preview is available.';
   let queueFeedbackIsError = false;
   let queueDisabled = true;
 
@@ -167,10 +167,9 @@ export function deriveBuildQueueUi(
     queueFeedbackCopy =
       'Queue action is read-only until you are an active, non-defeated player.';
   } else if (!input.selectedPlacement) {
-    queueFeedbackCopy =
-      'Select a build placement to request affordability preview.';
+    queueFeedbackCopy = 'Select a build placement to calculate affordability.';
   } else if (input.previewPending) {
-    queueFeedbackCopy = 'Checking affordability...';
+    queueFeedbackCopy = 'Recalculating affordability...';
   } else if (!activePreview) {
     queueFeedbackCopy = 'Preview unavailable. Select the placement again.';
   } else if (!activePreview.affordable) {
@@ -196,10 +195,10 @@ export function deriveBuildQueueUi(
   return {
     placementCopy: input.selectedPlacement
       ? `Placement: (${input.selectedPlacement.x}, ${input.selectedPlacement.y}) for ${input.selectedPlacement.templateId}.`
-      : 'Select a build placement to request affordability.',
+      : 'Select a build placement to calculate affordability.',
     previewReasonCopy: activePreview
       ? describePreviewReason(activePreview.reason)
-      : 'Preview reason: awaiting lockstep preview.',
+      : 'Preview reason: awaiting local preview.',
     previewReasonIsError: Boolean(activePreview?.reason),
     queueCostCopy,
     queueCostTone,

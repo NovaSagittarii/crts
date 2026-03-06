@@ -115,13 +115,12 @@ describe('build queue view model helpers', () => {
         queueFeedbackOverride: null,
       }),
     ).toEqual({
-      placementCopy: 'Select a build placement to request affordability.',
-      previewReasonCopy: 'Preview reason: awaiting lockstep preview.',
+      placementCopy: 'Select a build placement to calculate affordability.',
+      previewReasonCopy: 'Preview reason: awaiting local preview.',
       previewReasonIsError: false,
       queueCostCopy: 'Cost: --',
       queueCostTone: 'neutral',
-      queueFeedbackCopy:
-        'Select a build placement to request affordability preview.',
+      queueFeedbackCopy: 'Select a build placement to calculate affordability.',
       queueFeedbackIsError: false,
       queueDisabled: true,
     });
@@ -138,7 +137,7 @@ describe('build queue view model helpers', () => {
         queueFeedbackOverride: null,
       }),
     ).toMatchObject({
-      queueFeedbackCopy: 'Checking affordability...',
+      queueFeedbackCopy: 'Recalculating affordability...',
       queueDisabled: true,
     });
   });
@@ -220,7 +219,7 @@ describe('build queue view model helpers', () => {
         queueFeedbackOverride: null,
       }),
     ).toMatchObject({
-      previewReasonCopy: 'Preview reason: awaiting lockstep preview.',
+      previewReasonCopy: 'Preview reason: awaiting local preview.',
       queueCostCopy: 'Cost: --',
       queueFeedbackCopy: 'Preview unavailable. Select the placement again.',
       queueDisabled: true,

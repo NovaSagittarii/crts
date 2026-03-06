@@ -236,6 +236,38 @@ function clearCells(room: RoomState, cells: readonly Cell[]): void {
 }
 
 describe('rts', () => {
+  test('serializes template payloads with packed cells and checks', () => {
+    const blockTemplate = RtsEngine.createDefaultTemplates().find(
+      (template) => template.id === 'block',
+    );
+
+    if (!blockTemplate) {
+      throw new Error('Expected default block template to exist');
+    }
+
+    const payload = blockTemplate.toPayload();
+
+    expect(payload.id).toBe(blockTemplate.id);
+    expect(payload.width).toBe(blockTemplate.width);
+    expect(payload.height).toBe(blockTemplate.height);
+    expect(payload.activationCost).toBe(blockTemplate.activationCost);
+    expect(payload.checks).toEqual(blockTemplate.checks);
+
+    const unpackedCells = Grid.unpack(
+      Uint8Array.from(payload.cells),
+      payload.width,
+      payload.height,
+    );
+
+    for (let y = 0; y < payload.height; y += 1) {
+      for (let x = 0; x < payload.width; x += 1) {
+        expect(unpackedCells[y * payload.width + x]).toBe(
+          blockTemplate.isCellAlive(x, y) ? 1 : 0,
+        );
+      }
+    }
+  });
+
   test('provides a cached room instance API while preserving static parity', () => {
     const room = RtsEngine.createRoom({
       id: 'instance-room',
