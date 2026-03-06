@@ -6,7 +6,6 @@ import type {
   RoomGridStatePayload,
   RoomStateHashesPayload,
   RoomStructuresStatePayload,
-  RoomStatePayload,
 } from '#rts-engine';
 import { setupActiveMatch } from './match-support.js';
 import {

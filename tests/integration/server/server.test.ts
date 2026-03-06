@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import type { Socket } from 'socket.io-client';
 
 import { createServer } from '../../../apps/server/src/server.js';

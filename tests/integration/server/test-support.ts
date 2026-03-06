@@ -46,9 +46,9 @@ export interface WaitForRequestedStateOptions extends WaitForPredicateOptions {
   requestIntervalMs?: number;
 }
 
-export interface WaitForStateOptions extends WaitForRequestedStateOptions {}
+export type WaitForStateOptions = WaitForRequestedStateOptions;
 
-export interface WaitForStateSectionOptions extends WaitForRequestedStateOptions {}
+export type WaitForStateSectionOptions = WaitForRequestedStateOptions;
 
 export interface CandidatePlacementOptions {
   transform?: PlacementTransformInput;

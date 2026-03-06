@@ -21,7 +21,6 @@ import {
 import {
   createClient,
   type TestClientOptions,
-  getTeamByPlayerId,
   waitForDestroyOutcome,
   waitForDestroyQueueResponse,
   waitForDestroyScheduled,
