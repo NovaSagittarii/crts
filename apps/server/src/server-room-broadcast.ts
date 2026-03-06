@@ -5,6 +5,7 @@ import { LobbySessionCoordinator } from './lobby-session.js';
 import {
   type BuildOutcomePayload,
   type ClientToServerEvents,
+  type DeterminismHashAlgorithm,
   type DestroyOutcomePayload,
   type LockstepCheckpointPayload,
   type LockstepFallbackPayload,
@@ -36,6 +37,30 @@ interface RoomBroadcastServiceOptions {
   sessionCoordinator: LobbySessionCoordinator;
   roomChannel: (roomId: string) => string;
   listRooms: () => Iterable<RuntimeBroadcastRoom>;
+}
+
+export interface RoomMembershipHash {
+  hashAlgorithm: DeterminismHashAlgorithm;
+  hashHex: string;
+}
+
+const FNV_OFFSET_BASIS = 2166136261;
+const FNV_PRIME = 16777619;
+
+function hashMembershipString(value: string): string {
+  let hash = FNV_OFFSET_BASIS;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    hash = Math.imul((hash ^ (code & 0xff)) >>> 0, FNV_PRIME) >>> 0;
+    hash = Math.imul((hash ^ ((code >>> 8) & 0xff)) >>> 0, FNV_PRIME) >>> 0;
+  }
+
+  return hash.toString(16).padStart(8, '0');
+}
+
+function compareKeys(left: string, right: string): number {
+  return left.localeCompare(right);
 }
 
 export class RoomBroadcastService {
@@ -119,6 +144,58 @@ export class RoomBroadcastService {
       heldSlots,
       countdownSecondsRemaining: room.countdownSecondsRemaining,
       lockstep: room.lockstep,
+    };
+  }
+
+  public buildMembershipHash(room: RuntimeBroadcastRoom): RoomMembershipHash {
+    const payload = this.buildMembershipPayload(room);
+    const normalized = {
+      roomId: payload.roomId,
+      roomCode: payload.roomCode,
+      roomName: payload.roomName,
+      status: payload.status,
+      hostSessionId: payload.hostSessionId,
+      slots: Object.fromEntries(
+        Object.entries(payload.slots).sort(([left], [right]) =>
+          compareKeys(left, right),
+        ),
+      ),
+      participants: [...payload.participants]
+        .sort((left, right) => compareKeys(left.sessionId, right.sessionId))
+        .map((participant) => ({
+          sessionId: participant.sessionId,
+          displayName: participant.displayName,
+          role: participant.role,
+          slotId: participant.slotId,
+          ready: participant.ready,
+          connectionStatus: participant.connectionStatus,
+          holdExpiresAt: participant.holdExpiresAt,
+          disconnectReason: participant.disconnectReason,
+        })),
+      heldSlots: Object.fromEntries(
+        Object.entries(payload.heldSlots).sort(([left], [right]) =>
+          compareKeys(left, right),
+        ),
+      ),
+      countdownSecondsRemaining: payload.countdownSecondsRemaining,
+      lockstep: payload.lockstep
+        ? {
+            mode: payload.lockstep.mode,
+            status: payload.lockstep.status,
+            turnLengthTicks: payload.lockstep.turnLengthTicks,
+            nextTurn: payload.lockstep.nextTurn,
+            bufferedTurns: payload.lockstep.bufferedTurns,
+            mismatchCount: payload.lockstep.mismatchCount,
+            lastFallbackReason: payload.lockstep.lastFallbackReason ?? null,
+            lastPrimaryHash: payload.lockstep.lastPrimaryHash ?? null,
+            lastShadowHash: payload.lockstep.lastShadowHash ?? null,
+          }
+        : null,
+    };
+
+    return {
+      hashAlgorithm: 'fnv1a-32',
+      hashHex: hashMembershipString(JSON.stringify(normalized)),
     };
   }
 
