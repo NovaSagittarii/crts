@@ -111,6 +111,31 @@ export function waitForEvent<T>(
   });
 }
 
+export function waitForNoEvent(
+  socket: Socket,
+  event: string,
+  timeoutMs = 250,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, timeoutMs);
+
+    function cleanup(): void {
+      clearTimeout(timer);
+      socket.off(event, onEvent);
+    }
+
+    function onEvent(): void {
+      cleanup();
+      reject(new Error(`Unexpected ${event} during quiet window`));
+    }
+
+    socket.on(event, onEvent);
+  });
+}
+
 export function waitForEventWithPredicate<T>(
   socket: Socket,
   event: string,
@@ -448,6 +473,178 @@ export function collectCandidatePlacements(
   }
 
   return placements;
+}
+
+function collectEventsByCount<T>(
+  socket: Socket,
+  event: string,
+  count: number,
+  timeoutMs = 8000,
+  settleMs = 0,
+): Promise<T[]> {
+  return new Promise((resolve, reject) => {
+    const collected: T[] = [];
+    let settleTimer: NodeJS.Timeout | null = null;
+
+    function cleanup(): void {
+      clearTimeout(timeout);
+      if (settleTimer) {
+        clearTimeout(settleTimer);
+      }
+      socket.off(event, onEvent);
+    }
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timed out collecting ${event} events`));
+    }, timeoutMs);
+
+    function maybeResolve(): void {
+      if (collected.length < count || settleTimer) {
+        return;
+      }
+
+      if (settleMs <= 0) {
+        cleanup();
+        resolve(collected);
+        return;
+      }
+
+      settleTimer = setTimeout(() => {
+        cleanup();
+        resolve(collected);
+      }, settleMs);
+    }
+
+    function onEvent(payload: T): void {
+      collected.push(payload);
+      maybeResolve();
+    }
+
+    socket.on(event, onEvent);
+  });
+}
+
+function collectOutcomesByEventId<T extends { eventId: number }>(
+  socket: Socket,
+  event: string,
+  eventIds: number[],
+  timeoutMs = 8000,
+  settleMs = 0,
+): Promise<Map<number, T[]>> {
+  return new Promise((resolve, reject) => {
+    const expected = new Set(eventIds);
+    const outcomesById = new Map<number, T[]>();
+    let settleTimer: NodeJS.Timeout | null = null;
+
+    function cleanup(): void {
+      clearTimeout(timeout);
+      if (settleTimer) {
+        clearTimeout(settleTimer);
+      }
+      socket.off(event, onEvent);
+    }
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timed out collecting ${event} events`));
+    }, timeoutMs);
+
+    function maybeResolve(): void {
+      if (expected.size > 0 || settleTimer) {
+        return;
+      }
+
+      if (settleMs <= 0) {
+        cleanup();
+        resolve(outcomesById);
+        return;
+      }
+
+      settleTimer = setTimeout(() => {
+        cleanup();
+        resolve(outcomesById);
+      }, settleMs);
+    }
+
+    function onEvent(payload: T): void {
+      if (
+        !expected.has(payload.eventId) &&
+        !outcomesById.has(payload.eventId)
+      ) {
+        return;
+      }
+
+      const current = outcomesById.get(payload.eventId) ?? [];
+      current.push(payload);
+      outcomesById.set(payload.eventId, current);
+      expected.delete(payload.eventId);
+      maybeResolve();
+    }
+
+    socket.on(event, onEvent);
+    maybeResolve();
+  });
+}
+
+export function collectBuildQueuedEvents(
+  socket: Socket,
+  count: number,
+  timeoutMs = 8000,
+  settleMs = 0,
+): Promise<BuildQueuedPayload[]> {
+  return collectEventsByCount<BuildQueuedPayload>(
+    socket,
+    'build:queued',
+    count,
+    timeoutMs,
+    settleMs,
+  );
+}
+
+export function collectBuildScheduledEvents(
+  socket: Socket,
+  count: number,
+  timeoutMs = 8000,
+  settleMs = 0,
+): Promise<BuildScheduledPayload[]> {
+  return collectEventsByCount<BuildScheduledPayload>(
+    socket,
+    'build:scheduled',
+    count,
+    timeoutMs,
+    settleMs,
+  );
+}
+
+export function collectBuildOutcomes(
+  socket: Socket,
+  eventIds: number[],
+  timeoutMs = 8000,
+  settleMs = 0,
+): Promise<Map<number, BuildOutcomePayload[]>> {
+  return collectOutcomesByEventId<BuildOutcomePayload>(
+    socket,
+    'build:outcome',
+    eventIds,
+    timeoutMs,
+    settleMs,
+  );
+}
+
+export function collectDestroyOutcomes(
+  socket: Socket,
+  eventIds: number[],
+  timeoutMs = 8000,
+  settleMs = 0,
+): Promise<Map<number, DestroyOutcomePayload[]>> {
+  return collectOutcomesByEventId<DestroyOutcomePayload>(
+    socket,
+    'destroy:outcome',
+    eventIds,
+    timeoutMs,
+    settleMs,
+  );
 }
 
 function waitForQueueResponse<TQueued>(

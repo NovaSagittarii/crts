@@ -5,25 +5,18 @@ import {
   createServer,
   type GameServer,
 } from '../../../apps/server/src/server.js';
-import {
-  BASE_FOOTPRINT_HEIGHT,
-  BASE_FOOTPRINT_WIDTH,
-  BUILD_ZONE_RADIUS,
-  getBaseCenter,
-} from '#rts-engine';
 
 import type {
   BuildScheduledPayload,
   BuildOutcomePayload,
   RoomJoinedPayload,
-  TeamPayload,
 } from '#rts-engine';
 import { setupActiveMatch } from './match-support.js';
 import {
   createClient,
   type ActiveMatchSetup,
-  type Cell,
   type TestClientOptions,
+  collectCandidatePlacements,
   getTeamByPlayerId,
   waitForBuildOutcome,
   waitForBuildQueueResponse,
@@ -34,68 +27,6 @@ import {
   waitForEvent,
   waitForRoomState,
 } from './test-support.js';
-
-function collectCandidatePlacements(
-  team: TeamPayload,
-  template: RoomJoinedPayload['templates'][number],
-  roomWidth: number,
-  roomHeight: number,
-): Cell[] {
-  const placements: Cell[] = [];
-  const baseCenter = getBaseCenter(team.baseTopLeft);
-  const baseLeft = team.baseTopLeft.x;
-  const baseTop = team.baseTopLeft.y;
-  const baseRight = baseLeft + BASE_FOOTPRINT_WIDTH;
-  const baseBottom = baseTop + BASE_FOOTPRINT_HEIGHT;
-
-  for (let y = -10; y <= 10; y += 2) {
-    for (let x = -10; x <= 10; x += 2) {
-      const buildX = team.baseTopLeft.x + x;
-      const buildY = team.baseTopLeft.y + y;
-      if (buildX < 0 || buildY < 0) {
-        continue;
-      }
-      if (
-        buildX + template.width > roomWidth ||
-        buildY + template.height > roomHeight
-      ) {
-        continue;
-      }
-
-      const intersectsBase =
-        buildX < baseRight &&
-        buildX + template.width > baseLeft &&
-        buildY < baseBottom &&
-        buildY + template.height > baseTop;
-      if (intersectsBase) {
-        continue;
-      }
-
-      let fullyInsideBuildZone = true;
-      for (let ty = 0; ty < template.height; ty += 1) {
-        for (let tx = 0; tx < template.width; tx += 1) {
-          const dx = buildX + tx - baseCenter.x;
-          const dy = buildY + ty - baseCenter.y;
-          if (dx * dx + dy * dy > BUILD_ZONE_RADIUS * BUILD_ZONE_RADIUS) {
-            fullyInsideBuildZone = false;
-            break;
-          }
-        }
-        if (!fullyInsideBuildZone) {
-          break;
-        }
-      }
-
-      if (!fullyInsideBuildZone) {
-        continue;
-      }
-
-      placements.push({ x: buildX, y: buildY });
-    }
-  }
-
-  return placements;
-}
 
 async function queueAppliedHostBlock(match: ActiveMatchSetup): Promise<{
   scheduled: BuildScheduledPayload;

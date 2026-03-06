@@ -5,12 +5,6 @@ import {
   createServer,
   type GameServer,
 } from '../../../apps/server/src/server.js';
-import {
-  BASE_FOOTPRINT_HEIGHT,
-  BASE_FOOTPRINT_WIDTH,
-  BUILD_ZONE_RADIUS,
-  getBaseCenter,
-} from '#rts-engine';
 
 import type {
   BuildScheduledPayload,
@@ -19,14 +13,13 @@ import type {
   PlacementTransformInput,
   RoomErrorPayload,
   RoomJoinedPayload,
-  TeamPayload,
 } from '#rts-engine';
 import { setupActiveMatch } from './match-support.js';
 import {
   createClient,
   type ActiveMatchSetup,
-  type Cell,
   type TestClientOptions,
+  collectCandidatePlacements,
   getTeamByPlayerId,
   waitForBuildOutcome,
   waitForBuildQueueResponse,
@@ -37,95 +30,6 @@ import {
   waitForEvent,
   waitForRoomState,
 } from './test-support.js';
-
-function collectCandidatePlacements(
-  team: TeamPayload,
-  template: RoomJoinedPayload['templates'][number],
-  roomWidth: number,
-  roomHeight: number,
-  transform?: PlacementTransformInput,
-): Cell[] {
-  const placements: Cell[] = [];
-  const baseCenter = getBaseCenter(team.baseTopLeft);
-  const baseLeft = team.baseTopLeft.x;
-  const baseTop = team.baseTopLeft.y;
-  const baseRight = baseLeft + BASE_FOOTPRINT_WIDTH;
-  const baseBottom = baseTop + BASE_FOOTPRINT_HEIGHT;
-  const transformedSize = estimateTransformedTemplateSize(template, transform);
-
-  for (let y = -10; y <= 10; y += 2) {
-    for (let x = -10; x <= 10; x += 2) {
-      const buildX = team.baseTopLeft.x + x;
-      const buildY = team.baseTopLeft.y + y;
-      if (buildX < 0 || buildY < 0) {
-        continue;
-      }
-      if (
-        buildX + transformedSize.width > roomWidth ||
-        buildY + transformedSize.height > roomHeight
-      ) {
-        continue;
-      }
-
-      const intersectsBase =
-        buildX < baseRight &&
-        buildX + transformedSize.width > baseLeft &&
-        buildY < baseBottom &&
-        buildY + transformedSize.height > baseTop;
-      if (intersectsBase) {
-        continue;
-      }
-
-      let fullyInsideBuildZone = true;
-      for (let ty = 0; ty < transformedSize.height; ty += 1) {
-        for (let tx = 0; tx < transformedSize.width; tx += 1) {
-          const dx = buildX + tx - baseCenter.x;
-          const dy = buildY + ty - baseCenter.y;
-          if (dx * dx + dy * dy > BUILD_ZONE_RADIUS * BUILD_ZONE_RADIUS) {
-            fullyInsideBuildZone = false;
-            break;
-          }
-        }
-        if (!fullyInsideBuildZone) {
-          break;
-        }
-      }
-
-      if (!fullyInsideBuildZone) {
-        continue;
-      }
-
-      placements.push({ x: buildX, y: buildY });
-    }
-  }
-
-  return placements;
-}
-
-function estimateTransformedTemplateSize(
-  template: RoomJoinedPayload['templates'][number],
-  transform: PlacementTransformInput | undefined,
-): { width: number; height: number } {
-  const operations = transform?.operations ?? [];
-  let quarterTurns = 0;
-  for (const operation of operations) {
-    if (operation === 'rotate') {
-      quarterTurns = (quarterTurns + 1) % 4;
-    }
-  }
-
-  if (quarterTurns % 2 === 1) {
-    return {
-      width: template.height,
-      height: template.width,
-    };
-  }
-
-  return {
-    width: template.width,
-    height: template.height,
-  };
-}
 
 interface QueueBuildAttempt {
   transform?: PlacementTransformInput;
@@ -149,7 +53,7 @@ async function queueValidHostBuild(
       blockTemplate,
       match.hostJoined.state.width,
       match.hostJoined.state.height,
-      attempt.transform,
+      { transform: attempt.transform },
     );
 
     for (const placement of placements) {

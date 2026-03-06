@@ -15,6 +15,7 @@ import {
   waitForBuildQueueResponse,
   waitForBuildScheduled,
   waitForEvent,
+  waitForNoEvent,
   waitForStateGrid,
   waitForStateHashes,
   waitForStateStructures,
@@ -39,15 +40,6 @@ describe('section sync and queued scheduling', () => {
         roomName: 'State Sections Room',
         hostSessionId: 'sections-host',
         guestSessionId: 'sections-guest',
-      });
-
-      let guestGridCount = 0;
-      let guestStructuresCount = 0;
-      setup.guest.on('state:grid', () => {
-        guestGridCount += 1;
-      });
-      setup.guest.on('state:structures', () => {
-        guestStructuresCount += 1;
       });
 
       const initialGrid = await waitForStateGrid(
@@ -111,9 +103,10 @@ describe('section sync and queued scheduling', () => {
       );
       expect(updatedStructures.hashHex).toBe(hashes.structuresHash);
 
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      expect(guestGridCount).toBe(0);
-      expect(guestStructuresCount).toBe(0);
+      await Promise.all([
+        waitForNoEvent(setup.guest, 'state:grid', 250),
+        waitForNoEvent(setup.guest, 'state:structures', 250),
+      ]);
     } finally {
       setup?.host.close();
       setup?.guest.close();

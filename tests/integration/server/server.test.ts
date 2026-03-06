@@ -3,18 +3,11 @@ import type { Socket } from 'socket.io-client';
 
 import { createServer } from '../../../apps/server/src/server.js';
 import { Grid } from '#conway-core';
-import {
-  BASE_FOOTPRINT_HEIGHT,
-  BASE_FOOTPRINT_WIDTH,
-  BUILD_ZONE_RADIUS,
-  getBaseCenter,
-} from '#rts-engine';
 import type {
-  BuildScheduledPayload,
-  BuildPreviewPayload,
   BuildOutcomePayload,
+  BuildPreviewPayload,
   BuildQueuedPayload,
-  DestroyOutcomePayload,
+  BuildScheduledPayload,
   RoomGridStatePayload,
   RoomJoinedPayload,
   RoomErrorPayload,
@@ -28,21 +21,27 @@ import {
   type Cell,
   type TestClientOptions,
   claimSlot,
+  collectBuildOutcomes,
+  collectBuildQueuedEvents,
+  collectBuildScheduledEvents,
+  collectCandidatePlacements,
+  collectDestroyOutcomes,
+  getTeamByPlayerId,
   waitForBuildQueueResponse,
   waitForBuildScheduled,
   waitForDestroyScheduled,
   waitForDestroyQueueResponse,
   waitForEvent,
+  waitForNoEvent,
   waitForRoomList,
   waitForRoomState,
 } from './test-support.js';
 
 type StatePayload = RoomStatePayload;
+type BuildOutcome = BuildOutcomePayload;
 type BuildPreview = BuildPreviewPayload;
 type BuildQueued = BuildQueuedPayload;
 type BuildScheduled = BuildScheduledPayload;
-type BuildOutcome = BuildOutcomePayload;
-type DestroyOutcome = DestroyOutcomePayload;
 type RoomError = RoomErrorPayload;
 
 function blockAlive(state: StatePayload, coords: Cell[]): boolean {
@@ -70,294 +69,6 @@ function setupActiveMatch(port: number) {
     roomName: 'Build Queue Contract Room',
     startMode: 'fake-timers',
   });
-}
-
-function collectBuildOutcomes(
-  socket: Socket,
-  eventIds: number[],
-  timeoutMs = 8000,
-  settleMs = 0,
-): Promise<Map<number, BuildOutcome[]>> {
-  return new Promise((resolve, reject) => {
-    const expected = new Set(eventIds);
-    const outcomesById = new Map<number, BuildOutcome[]>();
-    let settleTimer: NodeJS.Timeout | null = null;
-
-    function cleanup(): void {
-      clearTimeout(timeout);
-      if (settleTimer) {
-        clearTimeout(settleTimer);
-      }
-      socket.off('build:outcome', onOutcome);
-    }
-
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error('Timed out collecting expected build outcomes'));
-    }, timeoutMs);
-
-    function maybeScheduleResolve(): void {
-      if (expected.size === 0 && !settleTimer) {
-        if (settleMs <= 0) {
-          cleanup();
-          resolve(outcomesById);
-          return;
-        }
-
-        settleTimer = setTimeout(() => {
-          cleanup();
-          resolve(outcomesById);
-        }, settleMs);
-      }
-    }
-
-    function onOutcome(payload: BuildOutcome): void {
-      if (
-        !expected.has(payload.eventId) &&
-        !outcomesById.has(payload.eventId)
-      ) {
-        return;
-      }
-
-      const current = outcomesById.get(payload.eventId) ?? [];
-      current.push(payload);
-      outcomesById.set(payload.eventId, current);
-      expected.delete(payload.eventId);
-      maybeScheduleResolve();
-    }
-
-    socket.on('build:outcome', onOutcome);
-    maybeScheduleResolve();
-  });
-}
-
-function collectBuildScheduledEvents(
-  socket: Socket,
-  count: number,
-  timeoutMs = 8000,
-  settleMs = 0,
-): Promise<BuildScheduled[]> {
-  return new Promise((resolve, reject) => {
-    const scheduled: BuildScheduled[] = [];
-    let settleTimer: NodeJS.Timeout | null = null;
-
-    function cleanup(): void {
-      clearTimeout(timeout);
-      if (settleTimer) {
-        clearTimeout(settleTimer);
-      }
-      socket.off('build:scheduled', onScheduled);
-    }
-
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error('Timed out collecting scheduled build events'));
-    }, timeoutMs);
-
-    function maybeResolve(): void {
-      if (scheduled.length < count || settleTimer) {
-        return;
-      }
-
-      if (settleMs <= 0) {
-        cleanup();
-        resolve(scheduled);
-        return;
-      }
-
-      settleTimer = setTimeout(() => {
-        cleanup();
-        resolve(scheduled);
-      }, settleMs);
-    }
-
-    function onScheduled(payload: BuildScheduled): void {
-      scheduled.push(payload);
-      maybeResolve();
-    }
-
-    socket.on('build:scheduled', onScheduled);
-  });
-}
-
-function collectBuildQueuedEvents(
-  socket: Socket,
-  count: number,
-  timeoutMs = 8000,
-  settleMs = 0,
-): Promise<BuildQueued[]> {
-  return new Promise((resolve, reject) => {
-    const queued: BuildQueued[] = [];
-    let settleTimer: NodeJS.Timeout | null = null;
-
-    function cleanup(): void {
-      clearTimeout(timeout);
-      if (settleTimer) {
-        clearTimeout(settleTimer);
-      }
-      socket.off('build:queued', onQueued);
-    }
-
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error('Timed out collecting queued build intents'));
-    }, timeoutMs);
-
-    function maybeResolve(): void {
-      if (queued.length < count || settleTimer) {
-        return;
-      }
-
-      if (settleMs <= 0) {
-        cleanup();
-        resolve(queued);
-        return;
-      }
-
-      settleTimer = setTimeout(() => {
-        cleanup();
-        resolve(queued);
-      }, settleMs);
-    }
-
-    function onQueued(payload: BuildQueued): void {
-      queued.push(payload);
-      maybeResolve();
-    }
-
-    socket.on('build:queued', onQueued);
-  });
-}
-
-function collectDestroyOutcomes(
-  socket: Socket,
-  eventIds: number[],
-  timeoutMs = 8000,
-  settleMs = 0,
-): Promise<Map<number, DestroyOutcome[]>> {
-  return new Promise((resolve, reject) => {
-    const expected = new Set(eventIds);
-    const outcomesById = new Map<number, DestroyOutcome[]>();
-    let settleTimer: NodeJS.Timeout | null = null;
-
-    function cleanup(): void {
-      clearTimeout(timeout);
-      if (settleTimer) {
-        clearTimeout(settleTimer);
-      }
-      socket.off('destroy:outcome', onOutcome);
-    }
-
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error('Timed out collecting expected destroy outcomes'));
-    }, timeoutMs);
-
-    function maybeScheduleResolve(): void {
-      if (expected.size === 0 && !settleTimer) {
-        if (settleMs <= 0) {
-          cleanup();
-          resolve(outcomesById);
-          return;
-        }
-
-        settleTimer = setTimeout(() => {
-          cleanup();
-          resolve(outcomesById);
-        }, settleMs);
-      }
-    }
-
-    function onOutcome(payload: DestroyOutcome): void {
-      if (
-        !expected.has(payload.eventId) &&
-        !outcomesById.has(payload.eventId)
-      ) {
-        return;
-      }
-
-      const current = outcomesById.get(payload.eventId) ?? [];
-      current.push(payload);
-      outcomesById.set(payload.eventId, current);
-      expected.delete(payload.eventId);
-      maybeScheduleResolve();
-    }
-
-    socket.on('destroy:outcome', onOutcome);
-    maybeScheduleResolve();
-  });
-}
-
-function getTeamByPlayerId(state: StatePayload, playerId: string): TeamPayload {
-  const team = state.teams.find(({ playerIds }) =>
-    playerIds.includes(playerId),
-  );
-  if (!team) {
-    throw new Error(`Unable to resolve team for player ${playerId}`);
-  }
-  return team;
-}
-
-function collectCandidatePlacements(
-  team: TeamPayload,
-  template: RoomJoinedPayload['templates'][number],
-  roomWidth: number,
-  roomHeight: number,
-): Cell[] {
-  const placements: Cell[] = [];
-  const baseCenter = getBaseCenter(team.baseTopLeft);
-  const baseLeft = team.baseTopLeft.x;
-  const baseTop = team.baseTopLeft.y;
-  const baseRight = baseLeft + BASE_FOOTPRINT_WIDTH;
-  const baseBottom = baseTop + BASE_FOOTPRINT_HEIGHT;
-
-  for (let y = -10; y <= 10; y += 2) {
-    for (let x = -10; x <= 10; x += 2) {
-      const buildX = team.baseTopLeft.x + x;
-      const buildY = team.baseTopLeft.y + y;
-      if (buildX < 0 || buildY < 0) {
-        continue;
-      }
-      if (
-        buildX + template.width > roomWidth ||
-        buildY + template.height > roomHeight
-      ) {
-        continue;
-      }
-
-      const intersectsBase =
-        buildX < baseRight &&
-        buildX + template.width > baseLeft &&
-        buildY < baseBottom &&
-        buildY + template.height > baseTop;
-      if (intersectsBase) {
-        continue;
-      }
-
-      let fullyInsideBuildZone = true;
-      for (let ty = 0; ty < template.height; ty += 1) {
-        for (let tx = 0; tx < template.width; tx += 1) {
-          const dx = buildX + tx - baseCenter.x;
-          const dy = buildY + ty - baseCenter.y;
-          if (dx * dx + dy * dy > BUILD_ZONE_RADIUS * BUILD_ZONE_RADIUS) {
-            fullyInsideBuildZone = false;
-            break;
-          }
-        }
-        if (!fullyInsideBuildZone) {
-          break;
-        }
-      }
-
-      if (!fullyInsideBuildZone) {
-        continue;
-      }
-
-      placements.push({ x: buildX, y: buildY });
-    }
-  }
-
-  return placements;
 }
 
 describe('GameServer', () => {
@@ -397,13 +108,7 @@ describe('GameServer', () => {
 
     const setup = await setupActiveMatch(port);
 
-    let guestGridCount = 0;
-    function onGuestGrid(): void {
-      guestGridCount += 1;
-    }
-    setup.guest.on('state:grid', onGuestGrid);
-
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    await waitForNoEvent(setup.guest, 'state:grid', 120);
 
     setup.host.emit('state:request', { sections: ['grid'] });
     const requestedState = await waitForEvent<RoomGridStatePayload>(
@@ -419,16 +124,13 @@ describe('GameServer', () => {
       waitForEvent<RoomGridStatePayload>(setup.host, 'state:grid', 80),
     ).rejects.toThrow(/timed out/i);
 
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    await waitForNoEvent(setup.host, 'state:grid', 120);
     setup.host.emit('state:request', { sections: ['grid'] });
     await expect(
       waitForEvent<RoomGridStatePayload>(setup.host, 'state:grid', 120),
     ).rejects.toThrow(/timed out/i);
 
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    expect(guestGridCount).toBe(0);
-
-    setup.guest.off('state:grid', onGuestGrid);
+    await waitForNoEvent(setup.guest, 'state:grid', 250);
     setup.host.close();
     setup.guest.close();
     await server.stop();
