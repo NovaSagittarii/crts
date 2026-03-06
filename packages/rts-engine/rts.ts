@@ -520,7 +520,12 @@ export interface TeamStructuresStatePayload {
   baseIntact: boolean;
 }
 
-export interface RoomGridStatePayload {
+export interface HashedStateSectionPayload {
+  hashAlgorithm: DeterminismHashAlgorithm;
+  hashHex: string;
+}
+
+export interface RoomGridStatePayload extends HashedStateSectionPayload {
   roomId: string;
   width: number;
   height: number;
@@ -529,13 +534,13 @@ export interface RoomGridStatePayload {
   grid: ArrayBuffer;
 }
 
-export interface RoomStructuresStatePayload {
+export interface RoomStructuresStatePayload extends HashedStateSectionPayload {
   roomId: string;
   width: number;
   height: number;
   generation: number;
   tick: number;
-  teams: TeamStructuresStatePayload[];
+  teams: TeamPayload[];
 }
 
 export interface RoomStateHashes {
@@ -1184,6 +1189,22 @@ export class RtsEngine {
         y: team.baseTopLeft.y,
       },
       baseIntact: RtsEngine.isBaseIntact(room, team),
+    };
+  }
+
+  private static createTeamStatePayload(
+    room: RoomState,
+    team: TeamState,
+  ): TeamPayload {
+    const teamStructures = RtsEngine.createTeamStructuresStatePayload(
+      room,
+      team,
+    );
+
+    return {
+      name: team.name,
+      playerIds: [...team.playerIds],
+      ...teamStructures,
     };
   }
 
@@ -2867,6 +2888,7 @@ export class RtsEngine {
   }
 
   public static createGridStatePayload(room: RoomState): RoomGridStatePayload {
+    const hashes = RtsEngine.createStateHashes(room);
     return {
       roomId: room.id,
       width: room.width,
@@ -2874,14 +2896,17 @@ export class RtsEngine {
       generation: room.generation,
       tick: room.tick,
       grid: room.grid.toPacked(),
+      hashAlgorithm: hashes.hashAlgorithm,
+      hashHex: hashes.gridHash,
     };
   }
 
   public static createStructuresStatePayload(
     room: RoomState,
   ): RoomStructuresStatePayload {
+    const hashes = RtsEngine.createStateHashes(room);
     const teams = RtsEngine.sortTeamsById(room.teams.values()).map((team) =>
-      RtsEngine.createTeamStructuresStatePayload(room, team),
+      RtsEngine.createTeamStatePayload(room, team),
     );
 
     return {
@@ -2891,6 +2916,8 @@ export class RtsEngine {
       generation: room.generation,
       tick: room.tick,
       teams,
+      hashAlgorithm: hashes.hashAlgorithm,
+      hashHex: hashes.structuresHash,
     };
   }
 
@@ -2919,15 +2946,7 @@ export class RtsEngine {
   public static createRoomStatePayload(room: RoomState): RoomStatePayload {
     const teams: TeamPayload[] = [];
     for (const team of RtsEngine.sortTeamsById(room.teams.values())) {
-      const teamStructures = RtsEngine.createTeamStructuresStatePayload(
-        room,
-        team,
-      );
-      teams.push({
-        name: team.name,
-        playerIds: [...team.playerIds],
-        ...teamStructures,
-      });
+      teams.push(RtsEngine.createTeamStatePayload(room, team));
     }
 
     return {

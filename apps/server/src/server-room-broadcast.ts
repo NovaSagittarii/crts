@@ -3,15 +3,20 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 import { LobbySessionCoordinator } from './lobby-session.js';
 
 import {
+  type BuildQueuedPayload,
+  type BuildScheduledPayload,
   type BuildOutcomePayload,
   type ClientToServerEvents,
   type DeterminismHashAlgorithm,
+  type DestroyQueuedPayload,
+  type DestroyScheduledPayload,
   type DestroyOutcomePayload,
   type LockstepCheckpointPayload,
   type LockstepFallbackPayload,
   type LockstepStatusPayload,
   type LobbyRoom,
   type MatchFinishedPayload,
+  type RoomStateHashesPayload,
   type RoomListEntryPayload,
   type RoomMembershipPayload,
   type RtsRoom,
@@ -82,9 +87,9 @@ export class RoomBroadcastService {
     this.listRooms = options.listRooms;
   }
 
-  public buildMembershipPayload(
+  private buildMembershipPayloadBase(
     room: RuntimeBroadcastRoom,
-  ): RoomMembershipPayload {
+  ): Omit<RoomMembershipPayload, 'hashAlgorithm' | 'membershipHash'> {
     const roomId = room.rtsRoom.id;
     const snapshot = room.lobby.snapshot();
     const slotIds = room.lobby.slotIds();
@@ -147,8 +152,9 @@ export class RoomBroadcastService {
     };
   }
 
-  public buildMembershipHash(room: RuntimeBroadcastRoom): RoomMembershipHash {
-    const payload = this.buildMembershipPayload(room);
+  private buildMembershipHashFromPayload(
+    payload: Omit<RoomMembershipPayload, 'hashAlgorithm' | 'membershipHash'>,
+  ): RoomMembershipHash {
     const normalized = {
       roomId: payload.roomId,
       roomCode: payload.roomCode,
@@ -199,6 +205,38 @@ export class RoomBroadcastService {
     };
   }
 
+  public buildMembershipPayload(
+    room: RuntimeBroadcastRoom,
+  ): RoomMembershipPayload {
+    const payload = this.buildMembershipPayloadBase(room);
+    const membershipHash = this.buildMembershipHashFromPayload(payload);
+
+    return {
+      ...payload,
+      hashAlgorithm: membershipHash.hashAlgorithm,
+      membershipHash: membershipHash.hashHex,
+    };
+  }
+
+  public buildMembershipHash(room: RuntimeBroadcastRoom): RoomMembershipHash {
+    return this.buildMembershipHashFromPayload(
+      this.buildMembershipPayloadBase(room),
+    );
+  }
+
+  public buildStateHashesPayload(
+    room: RuntimeBroadcastRoom,
+  ): RoomStateHashesPayload {
+    const stateHashes = room.rtsRoom.createStateHashes();
+    const membershipHash = this.buildMembershipHash(room);
+
+    return {
+      roomId: room.rtsRoom.id,
+      ...stateHashes,
+      roomMembershipHash: membershipHash.hashHex,
+    };
+  }
+
   public emitRoomList(target?: GameSocket): void {
     const payload = [...this.listRooms()]
       .map((room): RoomListEntryPayload => {
@@ -235,6 +273,54 @@ export class RoomBroadcastService {
     this.io
       .to(this.roomChannel(room.rtsRoom.id))
       .emit('state', room.rtsRoom.createStatePayload());
+  }
+
+  public emitStateHashes(
+    room: RuntimeBroadcastRoom,
+    target?: GameSocket,
+  ): void {
+    const payload = this.buildStateHashesPayload(room);
+
+    if (target) {
+      target.emit('state:hashes', payload);
+      return;
+    }
+
+    this.io.to(this.roomChannel(room.rtsRoom.id)).emit('state:hashes', payload);
+  }
+
+  public emitBuildQueued(
+    room: RuntimeBroadcastRoom,
+    payload: BuildQueuedPayload,
+  ): void {
+    this.io.to(this.roomChannel(room.rtsRoom.id)).emit('build:queued', payload);
+  }
+
+  public emitBuildScheduled(
+    room: RuntimeBroadcastRoom,
+    payload: BuildScheduledPayload,
+  ): void {
+    this.io
+      .to(this.roomChannel(room.rtsRoom.id))
+      .emit('build:scheduled', payload);
+  }
+
+  public emitDestroyQueued(
+    room: RuntimeBroadcastRoom,
+    payload: DestroyQueuedPayload,
+  ): void {
+    this.io
+      .to(this.roomChannel(room.rtsRoom.id))
+      .emit('destroy:queued', payload);
+  }
+
+  public emitDestroyScheduled(
+    room: RuntimeBroadcastRoom,
+    payload: DestroyScheduledPayload,
+  ): void {
+    this.io
+      .to(this.roomChannel(room.rtsRoom.id))
+      .emit('destroy:scheduled', payload);
   }
 
   public emitBuildOutcomes(

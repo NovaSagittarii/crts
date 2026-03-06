@@ -15,6 +15,7 @@ import type {
 import {
   createClient,
   waitForBuildQueueResponse,
+  waitForBuildScheduled,
   waitForEvent,
   waitForMembership,
   waitForState,
@@ -303,6 +304,7 @@ describe('lockstep primary mode', () => {
         },
       );
       const team = resolveTeamForPlayer(state.teams, hostJoined.playerId);
+      const scheduledPromise = waitForBuildScheduled(host, 5_000);
 
       host.emit('build:queue', {
         templateId: 'block',
@@ -310,16 +312,19 @@ describe('lockstep primary mode', () => {
         y: team.baseTopLeft.y + 8,
       });
 
-      await expect(waitForBuildQueueResponse(host, 250)).rejects.toThrow(
-        /timed out/i,
-      );
-
-      const queued = await waitForBuildQueueResponse(host, 5_000);
+      const queued = await waitForBuildQueueResponse(host, 250);
       if ('error' in queued) {
         throw new Error(
           `Build queue rejected: ${queued.error.reason ?? queued.error.message}`,
         );
       }
+
+      await expect(waitForBuildScheduled(host, 250)).rejects.toThrow(
+        /timed out/i,
+      );
+
+      const scheduled = await scheduledPromise;
+      expect(scheduled.intentId).toBe(queued.queued.intentId);
     } finally {
       host?.close();
       guest?.close();
@@ -516,6 +521,7 @@ describe('lockstep primary mode', () => {
         },
       );
       const team = resolveTeamForPlayer(state.teams, hostJoined.playerId);
+      const scheduledPromise = waitForBuildScheduled(host, 2_000);
 
       host.emit('build:queue', {
         templateId: 'block',
@@ -523,21 +529,17 @@ describe('lockstep primary mode', () => {
         y: team.baseTopLeft.y + 8,
       });
 
-      await expect(waitForBuildQueueResponse(host, 250)).rejects.toThrow(
-        /timed out/i,
-      );
+      const queued = await waitForBuildQueueResponse(host, 500);
+      if ('error' in queued) {
+        throw new Error(
+          `Expected buffered queued intent, received ${queued.error.reason ?? queued.error.message}`,
+        );
+      }
 
-      const bufferedResponsePromise = waitForBuildQueueResponse(host, 6_000);
       host.emit('room:leave');
       guest.emit('room:leave');
 
-      const bufferedResponse = await bufferedResponsePromise;
-      if (!('error' in bufferedResponse)) {
-        throw new Error(
-          'Expected match-finished rejection for buffered command',
-        );
-      }
-      expect(bufferedResponse.error.reason).toBe('match-finished');
+      await expect(scheduledPromise).rejects.toThrow(/timed out/i);
     } finally {
       host?.close();
       guest?.close();

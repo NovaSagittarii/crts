@@ -3,12 +3,18 @@ import { io, type Socket } from 'socket.io-client';
 import type {
   BuildOutcomePayload,
   BuildQueuedPayload,
+  BuildScheduledPayload,
   DestroyOutcomePayload,
   DestroyQueuedPayload,
+  DestroyScheduledPayload,
   RoomErrorPayload,
+  RoomGridStatePayload,
   RoomJoinedPayload,
   RoomMembershipPayload,
+  RoomStateHashesPayload,
   RoomStatePayload,
+  RoomStructuresStatePayload,
+  StateRequestPayload,
   TeamPayload,
 } from '#rts-engine';
 
@@ -25,6 +31,12 @@ export interface WaitForPredicateOptions {
 }
 
 export interface WaitForStateOptions extends WaitForPredicateOptions {
+  roomId?: string;
+  autoRequest?: boolean;
+  requestIntervalMs?: number;
+}
+
+export interface WaitForStateSectionOptions extends WaitForPredicateOptions {
   roomId?: string;
   autoRequest?: boolean;
   requestIntervalMs?: number;
@@ -191,14 +203,101 @@ export function waitForState(
   }
 
   const intervalMs = Math.max(20, Math.floor(requestIntervalMs));
-  socket.emit('state:request');
+  socket.emit('state:request', {
+    sections: ['full'],
+  } satisfies StateRequestPayload);
   const requestTimer = setInterval(() => {
-    socket.emit('state:request');
+    socket.emit('state:request', {
+      sections: ['full'],
+    } satisfies StateRequestPayload);
   }, intervalMs);
 
   return waitPromise.finally(() => {
     clearInterval(requestTimer);
   });
+}
+
+function waitForStateSection<T>(
+  socket: Socket,
+  event: 'state:grid' | 'state:structures',
+  section: 'grid' | 'structures',
+  predicate: (payload: T) => boolean,
+  options: WaitForStateSectionOptions = {},
+): Promise<T> {
+  const {
+    roomId,
+    autoRequest = true,
+    requestIntervalMs = 120,
+    ...waitOptions
+  } = options;
+
+  const waitPromise = waitForEventWithPredicate<T>(
+    socket,
+    event,
+    (payload) => {
+      if (!roomId) {
+        return predicate(payload);
+      }
+
+      const roomPayload = payload as { roomId?: string };
+      return roomPayload.roomId === roomId && predicate(payload);
+    },
+    waitOptions,
+  );
+
+  if (!autoRequest) {
+    return waitPromise;
+  }
+
+  const intervalMs = Math.max(20, Math.floor(requestIntervalMs));
+  socket.emit('state:request', {
+    sections: [section],
+  } satisfies StateRequestPayload);
+  const requestTimer = setInterval(() => {
+    socket.emit('state:request', {
+      sections: [section],
+    } satisfies StateRequestPayload);
+  }, intervalMs);
+
+  return waitPromise.finally(() => {
+    clearInterval(requestTimer);
+  });
+}
+
+export function waitForStateGrid(
+  socket: Socket,
+  predicate: (payload: RoomGridStatePayload) => boolean,
+  options: WaitForStateSectionOptions = {},
+): Promise<RoomGridStatePayload> {
+  return waitForStateSection<RoomGridStatePayload>(
+    socket,
+    'state:grid',
+    'grid',
+    predicate,
+    options,
+  );
+}
+
+export function waitForStateStructures(
+  socket: Socket,
+  predicate: (payload: RoomStructuresStatePayload) => boolean,
+  options: WaitForStateSectionOptions = {},
+): Promise<RoomStructuresStatePayload> {
+  return waitForStateSection<RoomStructuresStatePayload>(
+    socket,
+    'state:structures',
+    'structures',
+    predicate,
+    options,
+  );
+}
+
+export function waitForStateHashes(
+  socket: Socket,
+  predicate: (payload: RoomStateHashesPayload) => boolean,
+  options: WaitForPredicateOptions = {},
+): Promise<RoomStateHashesPayload> {
+  return waitForEventWithPredicate(socket, 'state:hashes', predicate, options);
 }
 
 function waitForQueueResponse<TQueued>(
@@ -246,6 +345,13 @@ export function waitForBuildQueueResponse(
   );
 }
 
+export function waitForBuildScheduled(
+  socket: Socket,
+  timeoutMs = 2500,
+): Promise<BuildScheduledPayload> {
+  return waitForEvent(socket, 'build:scheduled', timeoutMs);
+}
+
 export function waitForDestroyQueueResponse(
   socket: Socket,
   timeoutMs = 2500,
@@ -256,6 +362,13 @@ export function waitForDestroyQueueResponse(
     timeoutMs,
     'Timed out waiting for destroy queue response',
   );
+}
+
+export function waitForDestroyScheduled(
+  socket: Socket,
+  timeoutMs = 2500,
+): Promise<DestroyScheduledPayload> {
+  return waitForEvent(socket, 'destroy:scheduled', timeoutMs);
 }
 
 function waitForOutcomeByEventId<T extends { eventId: number }>(
