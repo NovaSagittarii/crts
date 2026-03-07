@@ -54,10 +54,11 @@ import {
   deriveBuildQueueUi,
   formatDeficitCopy,
   previewMatchesSelection,
-  type BuildPlacementSelection,
   type BuildQueueFeedbackOverride,
   type BuildQueuePreview,
 } from './build-queue-view-model.js';
+import { BuildModeController } from './build-mode-controller.js';
+import { TemplateButtonMenuElement } from './template-button-menu.js';
 import {
   applyPlacementTransformOperation,
   createPlacementTransformViewState,
@@ -196,6 +197,14 @@ interface Cell {
   y: number;
 }
 
+interface TeamBuildZoneProjectionInput {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  hp: number;
+}
+
 function getRequiredElement<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
   if (!el) {
@@ -266,7 +275,6 @@ const queuePlacementEl = getRequiredElement<HTMLElement>('queue-placement');
 const previewReasonEl = getRequiredElement<HTMLElement>('preview-reason');
 const queueCostEl = getRequiredElement<HTMLElement>('queue-cost');
 const queueFeedbackEl = getRequiredElement<HTMLElement>('queue-feedback');
-const queueBuildButton = getRequiredElement<HTMLButtonElement>('queue-build');
 const destroySelectionEl = getRequiredElement<HTMLElement>('destroy-selection');
 const destroyFeedbackEl = getRequiredElement<HTMLElement>('destroy-feedback');
 const destroyQueueButton =
@@ -387,8 +395,9 @@ const restartMatchButton =
 const playerNameEl = getRequiredElement<HTMLInputElement>('player-name');
 const setNameButton = getRequiredElement<HTMLButtonElement>('set-name');
 
-const templateSelectEl =
-  getRequiredElement<HTMLSelectElement>('template-select');
+const templateButtonMenuEl = getRequiredElement<HTMLDivElement>(
+  'template-button-menu',
+);
 const buildDelayEl = getRequiredElement<HTMLInputElement>('build-delay');
 const transformRotateButton =
   getRequiredElement<HTMLButtonElement>('transform-rotate');
@@ -398,11 +407,17 @@ const transformMirrorHorizontalButton = getRequiredElement<HTMLButtonElement>(
 const transformMirrorVerticalButton = getRequiredElement<HTMLButtonElement>(
   'transform-mirror-vertical',
 );
-const clearBuildPlacementButton = getRequiredElement<HTMLButtonElement>(
-  'clear-build-placement',
-);
+const exitBuildModeButton =
+  getRequiredElement<HTMLButtonElement>('exit-build-mode');
 const transformIndicatorEl = getRequiredElement<HTMLElement>(
   'transform-indicator',
+);
+
+const templateButtonMenu = new TemplateButtonMenuElement(
+  templateButtonMenuEl,
+  (templateId) => {
+    activateBuildModeForTemplate(templateId);
+  },
 );
 
 const newRoomNameEl = getRequiredElement<HTMLInputElement>('new-room-name');
@@ -494,7 +509,7 @@ let isFinishedPanelMinimized = false;
 let currentTeamDefeated = false;
 let persistentDefeatReason: string | null = null;
 let latestOutcomeTimelineMetadata: unknown = null;
-let selectedTemplatePlacement: BuildPlacementSelection | null = null;
+const buildModeController = new BuildModeController();
 let latestBuildPreview: BuildPreview | null = null;
 let previewPending = false;
 let authoritativePreviewRefreshState: AuthoritativePreviewRefreshState =
@@ -527,6 +542,10 @@ let overlayTeamFeedbackPending = false;
 let overlayTeamFeedbackIsError = false;
 let visibleStructures: VisibleStructure[] = [];
 let structureCellIndex = new Map<string, VisibleStructure>();
+let teamBuildZoneProjectionInputsByTeamId = new Map<
+  number,
+  TeamBuildZoneProjectionInput[]
+>();
 let localBuildZoneCells: Cell[] = [];
 let localBuildZoneCellKeys = new Set<number>();
 let localBuildZoneSignature = '';
@@ -681,7 +700,9 @@ function refreshPreviewAfterAuthoritativeUpdate(
     !shouldRefreshAuthoritativePreview({
       section,
       tick,
-      hasSelectedPlacement: selectedTemplatePlacement !== null,
+      hasSelectedPlacement:
+        buildModeController.active &&
+        buildModeController.candidatePlacement !== null,
       canMutateGameplay: canMutateGameplay(),
       previewPending,
       state: authoritativePreviewRefreshState,
@@ -696,6 +717,8 @@ function refreshPreviewAfterAuthoritativeUpdate(
     tick,
   );
   emitBuildPreviewForSelectedPlacement();
+  refreshBuildPlacementUi();
+  requestRender();
 }
 
 function applyStatePayload(payload: RoomStatePayload): void {
@@ -1170,7 +1193,7 @@ function shouldDeduplicateBuildErrorToast(
 }
 
 function clearSelectedTemplatePlacement(): void {
-  selectedTemplatePlacement = null;
+  buildModeController.clearCandidate();
   latestBuildPreview = null;
   previewPending = false;
   authoritativePreviewRefreshState = createAuthoritativePreviewRefreshState();
@@ -1317,10 +1340,18 @@ function applyStructureInteraction(
   action: StructureInteractionAction,
   nowMs = Date.now(),
 ): void {
-  structureInteractionState = reduceStructureInteraction(
-    structureInteractionState,
-    action,
-  );
+  const previousState = structureInteractionState;
+  const nextState = reduceStructureInteraction(previousState, action);
+  const interactionChanged =
+    previousState.hoverKey !== nextState.hoverKey ||
+    previousState.pinnedKey !== nextState.pinnedKey ||
+    previousState.hoverLeaveExpiresAtMs !== nextState.hoverLeaveExpiresAtMs;
+
+  structureInteractionState = nextState;
+  if (!interactionChanged) {
+    return;
+  }
+
   syncDestroySelectionFromInteraction(nowMs);
   scheduleStructureHoverTick(nowMs);
   renderStructureInspector(nowMs);
@@ -1651,6 +1682,10 @@ function resetRoomTransitionViewModels(): void {
 function syncVisibleStructures(payload: RoomStatePayload): void {
   const nextStructures: VisibleStructure[] = [];
   const nextIndex = new Map<string, VisibleStructure>();
+  const nextTeamBuildZoneProjectionInputs = new Map<
+    number,
+    TeamBuildZoneProjectionInput[]
+  >();
 
   const sortedTeams = [...payload.teams].sort(
     (left, right) => left.id - right.id,
@@ -1674,6 +1709,22 @@ function syncVisibleStructures(payload: RoomStatePayload): void {
       };
       nextStructures.push(visible);
 
+      const teamBuildZoneProjectionInputs =
+        nextTeamBuildZoneProjectionInputs.get(team.id) ?? [];
+      teamBuildZoneProjectionInputs.push({
+        x: visible.x,
+        y: visible.y,
+        width: visible.width,
+        height: visible.height,
+        hp: visible.hp,
+      });
+      if (!nextTeamBuildZoneProjectionInputs.has(team.id)) {
+        nextTeamBuildZoneProjectionInputs.set(
+          team.id,
+          teamBuildZoneProjectionInputs,
+        );
+      }
+
       for (const footprintCell of visible.footprint) {
         const indexKey = `${footprintCell.x},${footprintCell.y}`;
         if (!nextIndex.has(indexKey)) {
@@ -1685,6 +1736,7 @@ function syncVisibleStructures(payload: RoomStatePayload): void {
 
   visibleStructures = nextStructures;
   structureCellIndex = nextIndex;
+  teamBuildZoneProjectionInputsByTeamId = nextTeamBuildZoneProjectionInputs;
 
   structureInteractionState = reduceStructureInteraction(
     structureInteractionState,
@@ -1917,7 +1969,9 @@ function updateTransformIndicator(): void {
 
 function updateQueueAffordabilityUi(): void {
   const queueUi = deriveBuildQueueUi({
-    selectedPlacement: selectedTemplatePlacement,
+    selectedTemplateId: selectedTemplateId || null,
+    buildModeActive: buildModeController.active,
+    selectedPlacement: buildModeController.candidatePlacement,
     latestBuildPreview,
     activeTransformOperations: placementTransformState.operations,
     previewPending,
@@ -1942,7 +1996,6 @@ function updateQueueAffordabilityUi(): void {
     );
   }
 
-  queueBuildButton.disabled = queueUi.queueDisabled;
   queueFeedbackEl.textContent = queueUi.queueFeedbackCopy;
   queueFeedbackEl.classList.toggle(
     'queue-feedback--error',
@@ -1957,6 +2010,11 @@ function refreshActionUi(nowMs = Date.now()): void {
   updateDestroyUi(nowMs);
   renderOverlayFeedbackRows();
   renderTacticalOverlay(nowMs);
+}
+
+function refreshBuildPlacementUi(): void {
+  updateQueueAffordabilityUi();
+  renderOverlayFeedbackRows();
 }
 
 function syncPreviewTemplateSnapshots(
@@ -1994,21 +2052,16 @@ function deriveLocalBuildPreview(
     return null;
   }
 
+  const teamBuildZoneProjectionInputs =
+    teamBuildZoneProjectionInputsByTeamId.get(currentTeamId) ?? [];
+
   const previewResult = RtsEngine.previewBuildPlacementFromSnapshot({
     width: gridWidth,
     height: gridHeight,
     grid: authoritativeGrid,
     teamResources: currentTeam.resources,
     teamDefeated: currentTeam.defeated,
-    teamBuildZoneProjectionInputs: visibleStructures
-      .filter((structure) => structure.teamId === currentTeamId)
-      .map((structure) => ({
-        x: structure.x,
-        y: structure.y,
-        width: structure.width,
-        height: structure.height,
-        hp: structure.hp,
-      })),
+    teamBuildZoneProjectionInputs,
     template:
       previewTemplateSnapshotsById.get(previewRequest.templateId) ?? null,
     x: previewRequest.x,
@@ -2038,7 +2091,7 @@ function emitBuildPreviewForSelectedPlacement(): void {
   }
 
   const previewRequest = buildPreviewRequestFromSelection(
-    selectedTemplatePlacement,
+    buildModeController.candidatePlacement,
     toPlacementTransformInput(placementTransformState),
   );
   if (!previewRequest) {
@@ -2048,8 +2101,6 @@ function emitBuildPreviewForSelectedPlacement(): void {
   resetQueueFeedbackOverride();
   previewPending = false;
   latestBuildPreview = deriveLocalBuildPreview(previewRequest);
-  refreshActionUi();
-  requestRender();
 }
 
 function emitDestroyQueueForSelection(): void {
@@ -2084,6 +2135,11 @@ function applyTransformControl(
     return;
   }
 
+  if (!buildModeController.active) {
+    setMessage('Enter build mode before applying placement transforms.', true);
+    return;
+  }
+
   placementTransformState = applyPlacementTransformOperation(
     placementTransformState,
     operation,
@@ -2091,18 +2147,6 @@ function applyTransformControl(
   updateTransformIndicator();
   setMessage(`${label} applied. Preview updated locally.`);
   emitBuildPreviewForSelectedPlacement();
-  requestRender();
-  refreshActionUi();
-}
-
-function clearSelectedBuildPlacement(): void {
-  if (!canMutateGameplay()) {
-    setMessage('Build controls are already read-only.', true);
-    return;
-  }
-
-  clearSelectedTemplatePlacement();
-  setMessage('Cleared selected build placement.');
   requestRender();
   refreshActionUi();
 }
@@ -2302,54 +2346,112 @@ function syncEconomyHud(team: TeamPayload | null, tick: number): void {
   renderEconomyDeltaChip(team);
 }
 
-function selectTemplatePlacementAt(cell: Cell): void {
-  const template = getSelectedTemplate();
-  if (!template) {
-    setMessage('No template selected.', true);
-    return;
-  }
-
-  const x = cell.x - Math.floor(template.width / 2);
-  const y = cell.y - Math.floor(template.height / 2);
-  selectedTemplatePlacement = {
-    templateId: template.id,
-    x,
-    y,
-  };
-  authoritativePreviewRefreshState = createAuthoritativePreviewRefreshState();
-  resetQueueFeedbackOverride();
-  setMessage(`Build placement selected at (${x}, ${y}).`);
-  emitBuildPreviewForSelectedPlacement();
-  refreshActionUi();
-}
-
-function updateTemplateOptions(): void {
-  templateSelectEl.innerHTML = '';
-
+function updateTemplateButtonMenu(): void {
   if (availableTemplates.length === 0) {
-    clearSelectedTemplatePlacement();
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = 'No templates';
-    templateSelectEl.append(option);
     selectedTemplateId = '';
-    refreshActionUi();
+    buildModeController.deactivate();
+    clearSelectedTemplatePlacement();
+    templateButtonMenu.update({
+      templates: [],
+      selectedTemplateId: null,
+      buildModeActive: false,
+      enabled: false,
+    });
     return;
-  }
-
-  for (const template of availableTemplates) {
-    const option = document.createElement('option');
-    option.value = template.id;
-    option.textContent = `${template.name} (${template.width}x${template.height}) | base ${template.activationCost}`;
-    templateSelectEl.append(option);
   }
 
   if (!selectedTemplateId || !getSelectedTemplate()) {
-    selectedTemplateId = availableTemplates[0].id;
+    selectedTemplateId = availableTemplates[0]?.id ?? '';
     clearSelectedTemplatePlacement();
   }
-  templateSelectEl.value = selectedTemplateId;
+
+  templateButtonMenu.update({
+    templates: availableTemplates,
+    selectedTemplateId,
+    buildModeActive: buildModeController.active,
+    enabled: canMutateGameplay(),
+  });
+}
+
+function setBuildCandidateFromCell(cell: Cell): boolean {
+  const template = getSelectedTemplate();
+  if (!template || !buildModeController.active) {
+    return false;
+  }
+
+  const candidateUpdate = buildModeController.updateCandidateForCell(
+    template,
+    cell,
+  );
+  if (!candidateUpdate.changed) {
+    return false;
+  }
+
+  authoritativePreviewRefreshState = createAuthoritativePreviewRefreshState();
+  resetQueueFeedbackOverride();
+  emitBuildPreviewForSelectedPlacement();
+  refreshBuildPlacementUi();
+  requestRender();
+  return true;
+}
+
+function exitBuildMode(announce = true): void {
+  if (!buildModeController.active) {
+    if (announce) {
+      setMessage('Build mode is already inactive.');
+    }
+    return;
+  }
+
+  buildModeController.deactivate();
+  clearSelectedTemplatePlacement();
+  updateTemplateButtonMenu();
+  requestRender();
   refreshActionUi();
+  if (announce) {
+    setMessage('Build mode exited.');
+  }
+}
+
+function activateBuildModeForTemplate(templateId: string): void {
+  if (!canMutateGameplay()) {
+    setMessage('Build controls are read-only until the match is active.', true);
+    return;
+  }
+
+  if (!currentRoomId || currentRoomId === '-') {
+    setMessage('Join a room before entering build mode.', true);
+    return;
+  }
+
+  const template = availableTemplates.find((entry) => entry.id === templateId);
+  if (!template) {
+    setMessage('Selected template is no longer available.', true);
+    return;
+  }
+
+  const switchedTemplate = selectedTemplateId !== templateId;
+  selectedTemplateId = templateId;
+  buildModeController.activate();
+  if (switchedTemplate) {
+    clearSelectedTemplatePlacement();
+  }
+
+  const hasCandidate =
+    buildModeController.lastHoveredCell !== null &&
+    setBuildCandidateFromCell(buildModeController.lastHoveredCell);
+
+  updateTemplateButtonMenu();
+  requestRender();
+  refreshActionUi();
+  if (hasCandidate) {
+    setMessage(
+      `Build mode active for ${template.name}. Click the grid to queue placement.`,
+    );
+    return;
+  }
+
+  setMessage(`Build mode active for ${template.name}. Move cursor to preview.`);
 }
 
 function getSelfParticipant(): MembershipParticipant | null {
@@ -2444,17 +2546,26 @@ function getReadOnlyBannerCopy(): {
 function updateReadOnlyExperience(): void {
   const gameplayAllowed = canMutateGameplay();
 
-  templateSelectEl.disabled = !gameplayAllowed;
+  if (!gameplayAllowed && buildModeController.active) {
+    buildModeController.deactivate();
+    clearSelectedTemplatePlacement();
+  }
+
   buildDelayEl.disabled = !gameplayAllowed;
-  transformRotateButton.disabled = !gameplayAllowed;
-  transformMirrorHorizontalButton.disabled = !gameplayAllowed;
-  transformMirrorVerticalButton.disabled = !gameplayAllowed;
-  clearBuildPlacementButton.disabled = !gameplayAllowed;
+  transformRotateButton.disabled =
+    !gameplayAllowed || !buildModeController.active;
+  transformMirrorHorizontalButton.disabled =
+    !gameplayAllowed || !buildModeController.active;
+  transformMirrorVerticalButton.disabled =
+    !gameplayAllowed || !buildModeController.active;
+  exitBuildModeButton.disabled =
+    !gameplayAllowed || !buildModeController.active;
   destroyQueueButton.disabled = !gameplayAllowed;
   destroyConfirmButton.disabled = !gameplayAllowed;
   destroyCancelButton.disabled = !gameplayAllowed;
   canvas.classList.toggle('canvas--locked', !gameplayAllowed);
   canvas.setAttribute('aria-disabled', gameplayAllowed ? 'false' : 'true');
+  updateTemplateButtonMenu();
 
   const bannerCopy = getReadOnlyBannerCopy();
   spectatorBannerEl.classList.toggle('is-hidden', bannerCopy === null);
@@ -2677,10 +2788,13 @@ function resizeCanvas(): void {
 }
 
 function previewMatchesCurrentSelection(preview: BuildPreview): boolean {
-  return previewMatchesSelection(
-    preview,
-    selectedTemplatePlacement,
-    placementTransformState.operations,
+  return (
+    buildModeController.active &&
+    previewMatchesSelection(
+      preview,
+      buildModeController.candidatePlacement,
+      placementTransformState.operations,
+    )
   );
 }
 
@@ -2691,20 +2805,31 @@ function renderLocalBuildZoneOverlay(
     return;
   }
 
+  const visibleCells: Cell[] = [];
+  for (let y = visibleBounds.minY; y <= visibleBounds.maxY; y += 1) {
+    for (let x = visibleBounds.minX; x <= visibleBounds.maxX; x += 1) {
+      if (localBuildZoneCellKeys.has(cellKey(x, y))) {
+        visibleCells.push({ x, y });
+      }
+    }
+  }
+
+  if (visibleCells.length === 0) {
+    return;
+  }
+
+  const hasBuildZoneCell = (x: number, y: number): boolean => {
+    if (x < 0 || x >= gridWidth || y < 0 || y >= gridHeight) {
+      return false;
+    }
+    return localBuildZoneCellKeys.has(cellKey(x, y));
+  };
+
   ctx.fillStyle = 'rgba(94, 201, 255, 0.23)';
 
   const fillInset = 0.6;
   const fillSize = Math.max(1, cellSize - fillInset * 2);
-  for (const cell of localBuildZoneCells) {
-    if (
-      cell.x < visibleBounds.minX ||
-      cell.x > visibleBounds.maxX ||
-      cell.y < visibleBounds.minY ||
-      cell.y > visibleBounds.maxY
-    ) {
-      continue;
-    }
-
+  for (const cell of visibleCells) {
     ctx.fillRect(
       cell.x * cellSize + fillInset,
       cell.y * cellSize + fillInset,
@@ -2717,34 +2842,25 @@ function renderLocalBuildZoneOverlay(
   ctx.lineWidth = 1 / cameraState.zoom;
   ctx.beginPath();
 
-  for (const cell of localBuildZoneCells) {
-    if (
-      cell.x < visibleBounds.minX ||
-      cell.x > visibleBounds.maxX ||
-      cell.y < visibleBounds.minY ||
-      cell.y > visibleBounds.maxY
-    ) {
-      continue;
-    }
-
+  for (const cell of visibleCells) {
     const left = cell.x * cellSize;
     const top = cell.y * cellSize;
     const right = left + cellSize;
     const bottom = top + cellSize;
 
-    if (!localBuildZoneCellKeys.has(cellKey(cell.x, cell.y - 1))) {
+    if (!hasBuildZoneCell(cell.x, cell.y - 1)) {
       ctx.moveTo(left, top);
       ctx.lineTo(right, top);
     }
-    if (!localBuildZoneCellKeys.has(cellKey(cell.x + 1, cell.y))) {
+    if (!hasBuildZoneCell(cell.x + 1, cell.y)) {
       ctx.moveTo(right, top);
       ctx.lineTo(right, bottom);
     }
-    if (!localBuildZoneCellKeys.has(cellKey(cell.x, cell.y + 1))) {
+    if (!hasBuildZoneCell(cell.x, cell.y + 1)) {
       ctx.moveTo(left, bottom);
       ctx.lineTo(right, bottom);
     }
-    if (!localBuildZoneCellKeys.has(cellKey(cell.x - 1, cell.y))) {
+    if (!hasBuildZoneCell(cell.x - 1, cell.y)) {
       ctx.moveTo(left, top);
       ctx.lineTo(left, bottom);
     }
@@ -2897,21 +3013,57 @@ function pointerToCell(event: PointerEvent): Cell | null {
   });
 }
 
-function chooseTemplatePlacement(cell: Cell): void {
+function queueBuildAtCell(cell: Cell): void {
+  if (!buildModeController.active) {
+    setMessage('Select a template button to enter build mode.', true);
+    return;
+  }
+
   if (!canMutateGameplay()) {
     setMessage(
-      'Build placement is unavailable while you are spectating.',
+      'Build placement is read-only until you are an active, non-defeated player.',
       true,
     );
     return;
   }
 
   if (!currentRoomId || currentRoomId === '-') {
-    setMessage('Join a room before selecting a build placement.', true);
+    setMessage('Join a room before queueing builds.', true);
     return;
   }
 
-  selectTemplatePlacementAt(cell);
+  setBuildCandidateFromCell(cell);
+  const queueRequest = buildPreviewRequestFromSelection(
+    buildModeController.candidatePlacement,
+    toPlacementTransformInput(placementTransformState),
+  );
+  if (
+    !queueRequest ||
+    !latestBuildPreview ||
+    !previewMatchesSelection(
+      latestBuildPreview,
+      buildModeController.candidatePlacement,
+      placementTransformState.operations,
+    ) ||
+    !latestBuildPreview.affordable
+  ) {
+    refreshActionUi();
+    return;
+  }
+
+  resetQueueFeedbackOverride();
+  setQueueFeedbackOverride('Submitting build queue request...', false);
+  overlayBuildFeedbackPending = true;
+  overlayBuildFeedbackIsError = false;
+  overlayBuildFeedbackCopy = 'Submitting build queue request...';
+  socket.emit('build:queue', {
+    templateId: queueRequest.templateId,
+    x: queueRequest.x,
+    y: queueRequest.y,
+    transform: queueRequest.transform,
+    delayTicks: readDelayTicks(),
+  });
+  refreshActionUi();
 }
 
 function updateTeamStats(payload: RoomStatePayload): void {
@@ -3258,6 +3410,13 @@ canvas.addEventListener('pointerdown', (event) => {
     return;
   }
 
+  buildModeController.recordHover(cell);
+
+  if (buildModeController.active) {
+    queueBuildAtCell(cell);
+    return;
+  }
+
   if (selectDestroyStructureAtCell(cell)) {
     return;
   }
@@ -3275,7 +3434,7 @@ canvas.addEventListener('pointerdown', (event) => {
     return;
   }
 
-  chooseTemplatePlacement(cell);
+  setMessage('Click a template button to enter build mode.');
 });
 
 canvas.addEventListener('pointermove', (event) => {
@@ -3297,6 +3456,16 @@ canvas.addEventListener('pointermove', (event) => {
     cameraState = applyPanDelta(cameraState, deltaX, deltaY);
     updateCameraStatus();
     requestRender();
+    return;
+  }
+
+  const cell = pointerToCell(event);
+  if (cell) {
+    buildModeController.recordHover(cell);
+  }
+
+  if (buildModeController.active && cell) {
+    setBuildCandidateFromCell(cell);
     return;
   }
 
@@ -3341,6 +3510,32 @@ window.addEventListener('keydown', (event) => {
   }
   if (event.metaKey || event.ctrlKey || event.altKey) {
     return;
+  }
+
+  if (buildModeController.active) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      exitBuildMode();
+      return;
+    }
+
+    if (event.key === 'r' || event.key === 'R') {
+      event.preventDefault();
+      applyTransformControl('rotate', 'Rotate 90deg');
+      return;
+    }
+
+    if (event.key === 'h' || event.key === 'H') {
+      event.preventDefault();
+      applyTransformControl('mirror-horizontal', 'Horizontal mirror');
+      return;
+    }
+
+    if (event.key === 'v' || event.key === 'V') {
+      event.preventDefault();
+      applyTransformControl('mirror-vertical', 'Vertical mirror');
+      return;
+    }
   }
 
   if (event.key === 'f' || event.key === 'F') {
@@ -3481,7 +3676,10 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   availableTemplates = payload.templates;
   syncPreviewTemplateSnapshots(payload.templates);
   selectedTemplateId = payload.templates[0]?.id ?? '';
-  updateTemplateOptions();
+  buildModeController.deactivate();
+  clearSelectedTemplatePlacement();
+  buildModeController.recordHover(null);
+  updateTemplateButtonMenu();
   applyAuthoritativePlayerIdentity({
     sessionId: payload.playerId,
     name: payload.playerName,
@@ -3517,8 +3715,10 @@ socket.on('room:left', (payload: RoomLeftPayload) => {
   availableTemplates = [];
   previewTemplateSnapshotsById.clear();
   selectedTemplateId = '';
-  updateTemplateOptions();
+  buildModeController.deactivate();
+  updateTemplateButtonMenu();
   clearSelectedTemplatePlacement();
+  buildModeController.recordHover(null);
   gridWidth = 0;
   gridHeight = 0;
   gridBytes = null;
@@ -3998,13 +4198,6 @@ setNameButton.addEventListener('click', () => {
   });
 });
 
-templateSelectEl.addEventListener('change', () => {
-  selectedTemplateId = templateSelectEl.value;
-  clearSelectedTemplatePlacement();
-  requestRender();
-  refreshActionUi();
-});
-
 buildDelayEl.addEventListener('change', () => {
   readDelayTicks();
 });
@@ -4021,8 +4214,8 @@ transformMirrorVerticalButton.addEventListener('click', () => {
   applyTransformControl('mirror-vertical', 'Vertical mirror');
 });
 
-clearBuildPlacementButton.addEventListener('click', () => {
-  clearSelectedBuildPlacement();
+exitBuildModeButton.addEventListener('click', () => {
+  exitBuildMode();
 });
 
 createRoomButton.addEventListener('click', () => {
@@ -4075,31 +4268,6 @@ toggleReadyButton.addEventListener('click', () => {
 
 startMatchButton.addEventListener('click', () => {
   socket.emit('room:start');
-});
-
-queueBuildButton.addEventListener('click', () => {
-  const queueRequest = buildPreviewRequestFromSelection(
-    selectedTemplatePlacement,
-    toPlacementTransformInput(placementTransformState),
-  );
-  if (!queueRequest || !latestBuildPreview || !latestBuildPreview.affordable) {
-    refreshActionUi();
-    return;
-  }
-
-  resetQueueFeedbackOverride();
-  setQueueFeedbackOverride('Submitting build queue request...', false);
-  overlayBuildFeedbackPending = true;
-  overlayBuildFeedbackIsError = false;
-  overlayBuildFeedbackCopy = 'Submitting build queue request...';
-  socket.emit('build:queue', {
-    templateId: queueRequest.templateId,
-    x: queueRequest.x,
-    y: queueRequest.y,
-    transform: queueRequest.transform,
-    delayTicks: readDelayTicks(),
-  });
-  refreshActionUi();
 });
 
 destroyQueueButton.addEventListener('click', () => {
@@ -4171,7 +4339,7 @@ overlayTabTeamButton.addEventListener('click', () => {
 });
 
 updateTransformIndicator();
-updateTemplateOptions();
+updateTemplateButtonMenu();
 resetEconomyTracking();
 resetDestroyInteractionState();
 setActiveOverlayTab(activeOverlayTab);

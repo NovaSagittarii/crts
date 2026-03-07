@@ -31,6 +31,8 @@ export interface BuildQueueFeedbackOverride {
 }
 
 export interface BuildQueueUiInput {
+  selectedTemplateId: string | null;
+  buildModeActive: boolean;
   selectedPlacement: BuildPlacementSelection | null;
   latestBuildPreview: BuildQueuePreview | null;
   activeTransformOperations: readonly PlacementTransformOperation[];
@@ -176,15 +178,39 @@ export function deriveBuildQueueUi(
   let queueFeedbackIsError = false;
   let queueDisabled = true;
 
+  const placementCopy = !input.selectedTemplateId
+    ? 'Template: no selection. Click a template button to enter build mode.'
+    : !input.buildModeActive
+      ? `Template: ${input.selectedTemplateId}. Build mode inactive.`
+      : input.selectedPlacement
+        ? `Placement: (${input.selectedPlacement.x}, ${input.selectedPlacement.y}) for ${input.selectedPlacement.templateId}. Click grid to queue build.`
+        : `Template: ${input.selectedTemplateId}. Move cursor to preview placement.`;
+
+  const previewReasonCopy = activePreview
+    ? describePreviewReason(activePreview.reason)
+    : !input.buildModeActive
+      ? 'Preview reason: build mode inactive.'
+      : input.selectedPlacement
+        ? 'Preview reason: awaiting local preview.'
+        : 'Preview reason: move cursor to project template.';
+
+  const previewReasonIsError = Boolean(activePreview?.reason);
+
   if (!input.canMutateGameplay) {
     queueFeedbackCopy =
       'Queue action is read-only until you are an active, non-defeated player.';
+  } else if (!input.selectedTemplateId) {
+    queueFeedbackCopy = 'Click a template button to enter build mode.';
+  } else if (!input.buildModeActive) {
+    queueFeedbackCopy =
+      'Build mode inactive. Click the selected template button to enter build mode.';
   } else if (!input.selectedPlacement) {
-    queueFeedbackCopy = 'Select a build placement to calculate affordability.';
+    queueFeedbackCopy =
+      'Move cursor over the grid to choose a build candidate.';
   } else if (input.previewPending) {
     queueFeedbackCopy = 'Recalculating affordability...';
   } else if (!activePreview) {
-    queueFeedbackCopy = 'Preview unavailable. Select the placement again.';
+    queueFeedbackCopy = 'Preview unavailable. Move cursor to refresh.';
   } else if (!activePreview.affordable) {
     queueFeedbackCopy =
       activePreview.deficit > 0
@@ -196,7 +222,7 @@ export function deriveBuildQueueUi(
         : `Cannot queue here: ${describeBuildFailureReason(activePreview.reason)}.`;
     queueFeedbackIsError = true;
   } else {
-    queueFeedbackCopy = `Affordable: need ${activePreview.needed}, current ${activePreview.current}.`;
+    queueFeedbackCopy = `Ready: click grid to queue build (need ${activePreview.needed}, current ${activePreview.current}).`;
     queueDisabled = false;
   }
 
@@ -206,13 +232,9 @@ export function deriveBuildQueueUi(
   }
 
   return {
-    placementCopy: input.selectedPlacement
-      ? `Placement: (${input.selectedPlacement.x}, ${input.selectedPlacement.y}) for ${input.selectedPlacement.templateId}.`
-      : 'Select a build placement to calculate affordability.',
-    previewReasonCopy: activePreview
-      ? describePreviewReason(activePreview.reason)
-      : 'Preview reason: awaiting local preview.',
-    previewReasonIsError: Boolean(activePreview?.reason),
+    placementCopy,
+    previewReasonCopy,
+    previewReasonIsError,
     queueCostCopy,
     queueCostTone,
     queueFeedbackCopy,

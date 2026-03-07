@@ -372,6 +372,39 @@
         margin-top: 8px;
       }
 
+      .template-button-menu-field {
+        margin-top: 8px;
+        display: grid;
+        gap: 6px;
+      }
+
+      .template-button-menu-field__label {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .template-button-menu {
+        display: grid;
+        gap: 8px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .template-button-menu__button {
+        text-align: left;
+      }
+
+      .template-button-menu__button--active {
+        border-color: rgba(70, 213, 182, 0.66);
+        background: rgba(70, 213, 182, 0.24);
+        color: var(--accent);
+      }
+
+      .template-button-menu__empty {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
       .transform-controls__row {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1700,10 +1733,15 @@
                               class="tactical-detail-list"
                             ></div>
 
-                            <label>
-                              Template
-                              <select id="template-select"></select>
-                            </label>
+                            <div class="template-button-menu-field">
+                              <p class="template-button-menu-field__label">
+                                Template
+                              </p>
+                              <div
+                                id="template-button-menu"
+                                class="template-button-menu"
+                              ></div>
+                            </div>
                             <label>
                               Delay (ticks)
                               <input
@@ -1734,11 +1772,8 @@
                                 >
                                   Mirror Vertical
                                 </button>
-                                <button
-                                  id="clear-build-placement"
-                                  type="button"
-                                >
-                                  Clear Placement
+                                <button id="exit-build-mode" type="button">
+                                  Exit Build Mode
                                 </button>
                               </div>
                               <p
@@ -1750,18 +1785,15 @@
                             </div>
 
                             <p id="queue-placement" class="queue-placement">
-                              Select a build placement to request affordability.
+                              Template: no selection. Click a template button to
+                              enter build mode.
                             </p>
                             <p id="preview-reason" class="queue-feedback">
-                              Preview reason: awaiting lockstep preview.
+                              Preview reason: build mode inactive.
                             </p>
                             <p id="queue-cost" class="queue-cost">Cost: --</p>
-                            <button id="queue-build" type="button" disabled>
-                              Queue Selected Placement
-                            </button>
                             <p id="queue-feedback" class="queue-feedback">
-                              Select a build placement to request affordability
-                              preview.
+                              Click a template button to enter build mode.
                             </p>
                             <p
                               id="overlay-feedback-build"
