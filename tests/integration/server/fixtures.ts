@@ -42,6 +42,8 @@ export function createIntegrationTest(
   defaultServerOptions: ServerOptions = DEFAULT_SERVER_OPTIONS,
 ) {
   return base.extend<IntegrationFixtures>({
+    // Vitest requires object destructuring for fixture contexts even with no deps.
+    // eslint-disable-next-line no-empty-pattern
     integration: async ({}, use) => {
       const trackedSockets: Socket[] = [];
       let server = createServer(defaultServerOptions);
@@ -84,7 +86,7 @@ export function createIntegrationTest(
       await use(integration.connectClient);
     },
     restartServer: async ({ integration }, use) => {
-      await use(integration.restartServer);
+      await use((options) => integration.restartServer(options));
     },
   });
 }

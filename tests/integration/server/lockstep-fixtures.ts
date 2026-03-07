@@ -29,6 +29,8 @@ export function createLockstepTest(
     },
     defaultRoomOptions,
   ).extend<LockstepFixtures>({
+    // Vitest requires object destructuring for fixture contexts even with no deps.
+    // eslint-disable-next-line no-empty-pattern
     startLockstepMatch: async ({}, use) => {
       await use(
         async (
