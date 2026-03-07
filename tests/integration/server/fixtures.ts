@@ -2,12 +2,11 @@ import type { Socket } from 'socket.io-client';
 import { test as base } from 'vitest';
 
 import {
-  createServer,
   type GameServer,
   type ServerOptions,
+  createServer,
 } from '../../../apps/server/src/server.js';
-
-import { createClient, type TestClientOptions } from './test-support.js';
+import { type TestClientOptions, createClient } from './test-support.js';
 
 export type ConnectClient = (options?: TestClientOptions) => Socket;
 

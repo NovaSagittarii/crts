@@ -7,6 +7,9 @@ import type {
   RoomStateHashesPayload,
   RoomStructuresStatePayload,
 } from '#rts-engine';
+
+import { createLockstepTest } from './lockstep-fixtures.js';
+import { createMatchTest } from './match-fixtures.js';
 import {
   waitForBuildQueueResponse,
   waitForBuildScheduled,
@@ -16,8 +19,6 @@ import {
   waitForStateHashes,
   waitForStateStructures,
 } from './test-support.js';
-import { createMatchTest } from './match-fixtures.js';
-import { createLockstepTest } from './lockstep-fixtures.js';
 
 const sectionsMatchTest = createMatchTest(
   {

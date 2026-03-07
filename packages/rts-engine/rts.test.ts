@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'vitest';
+
 import { Grid } from '#conway-core';
 
+import {
+  BUILD_ZONE_RADIUS,
+  DEFAULT_QUEUE_DELAY_TICKS,
+  MAX_DELAY_TICKS,
+} from './gameplay-rules.js';
 import {
   BASE_FOOTPRINT_HEIGHT,
   BASE_FOOTPRINT_WIDTH,
@@ -8,14 +14,12 @@ import {
   getCanonicalBaseCells,
   isCanonicalBaseCell,
 } from './geometry.js';
-import { RtsEngine, RtsRoom, type BuildPreviewSnapshotInput } from './rts.js';
-import { StructureTemplate } from './structure.js';
 import {
-  BUILD_ZONE_RADIUS,
-  DEFAULT_QUEUE_DELAY_TICKS,
-  MAX_DELAY_TICKS,
-} from './gameplay-rules.js';
+  createIdentityPlacementTransform,
+  normalizePlacementTransform,
+} from './placement-transform.js';
 import {
+  type Cell,
   clearCells,
   countStructuresByTemplateId,
   createTemplateGrid,
@@ -27,12 +31,9 @@ import {
   getStructureByTemplateId,
   probeQueueBuild,
   requireTeamPayload,
-  type Cell,
 } from './rts-test-support.js';
-import {
-  createIdentityPlacementTransform,
-  normalizePlacementTransform,
-} from './placement-transform.js';
+import { type BuildPreviewSnapshotInput, RtsEngine, RtsRoom } from './rts.js';
+import { StructureTemplate } from './structure.js';
 
 type RoomState = ReturnType<typeof RtsEngine.createRoomState>;
 

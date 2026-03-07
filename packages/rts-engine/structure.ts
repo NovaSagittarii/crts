@@ -1,10 +1,11 @@
 import { Grid } from '#conway-core';
+
 import type { Vector2 } from './geometry.js';
 import {
-  projectPlacementToWorld,
-  projectTemplateWithTransform,
   type PlacementTransformState,
   type TransformedTemplate,
+  projectPlacementToWorld,
+  projectTemplateWithTransform,
 } from './placement-transform.js';
 
 export interface PackedTemplateGrid {

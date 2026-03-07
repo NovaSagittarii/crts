@@ -1,4 +1,5 @@
 import { describe, expect } from 'vitest';
+
 import type {
   LockstepCheckpointPayload,
   LockstepFallbackPayload,
@@ -6,6 +7,8 @@ import type {
   RoomMembershipPayload,
   TeamPayload,
 } from '#rts-engine';
+
+import { createLockstepTest } from './lockstep-fixtures.js';
 import {
   claimSlot,
   waitForBuildQueueResponse,
@@ -13,7 +16,6 @@ import {
   waitForMembership,
   waitForState,
 } from './test-support.js';
-import { createLockstepTest } from './lockstep-fixtures.js';
 
 const test = createLockstepTest(
   {

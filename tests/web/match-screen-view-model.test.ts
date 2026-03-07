@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  RECONNECT_SYNCED_COPY,
+  RECONNECT_SYNCING_COPY,
   applyAuthoritativeStatus,
   clearReconnectNotice,
   createMatchScreenViewState,
@@ -8,8 +10,6 @@ import {
   hasVisibleReconnectNotice,
   isReconnectSyncing,
   markReconnectPending,
-  RECONNECT_SYNCED_COPY,
-  RECONNECT_SYNCING_COPY,
   resolveScreenForStatus,
 } from '../../apps/web/src/match-screen-view-model.js';
 

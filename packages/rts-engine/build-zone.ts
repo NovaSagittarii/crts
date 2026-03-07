@@ -1,8 +1,8 @@
-import { type Vector2 } from './geometry.js';
 import {
   BUILD_ZONE_DISTANCE_SHAPE,
   BUILD_ZONE_RADIUS,
 } from './gameplay-rules.js';
+import { type Vector2 } from './geometry.js';
 
 export interface BuildZoneContributor {
   centerX: number;

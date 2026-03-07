@@ -1,20 +1,20 @@
+import type { Socket, Server as SocketIOServer } from 'socket.io';
 import { describe, expect, test, vi } from 'vitest';
+
+import {
+  type ClientToServerEvents,
+  LobbyRoom,
+  OUTCOME_COMPARATOR_DESCRIPTION,
+  type RoomStatus,
+  RtsEngine,
+  type ServerToClientEvents,
+} from '#rts-engine';
 
 import { LobbySessionCoordinator } from './lobby-session.js';
 import {
   RoomBroadcastService,
   type RuntimeBroadcastRoom,
 } from './server-room-broadcast.js';
-
-import {
-  type ClientToServerEvents,
-  LobbyRoom,
-  OUTCOME_COMPARATOR_DESCRIPTION,
-  RtsEngine,
-  type RoomStatus,
-  type ServerToClientEvents,
-} from '#rts-engine';
-import type { Server as SocketIOServer, Socket } from 'socket.io';
 
 interface EmittedEvent {
   channel: 'global' | 'room' | 'socket';

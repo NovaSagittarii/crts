@@ -1,8 +1,9 @@
-import { describe, expect, test } from 'vitest';
 import type { Socket } from 'socket.io-client';
+import { describe, expect, test } from 'vitest';
+
+import type { RoomJoinedPayload, RoomMembershipPayload } from '#rts-engine';
 
 import { createServer } from '../../../apps/server/src/server.js';
-import type { RoomJoinedPayload, RoomMembershipPayload } from '#rts-engine';
 import { createClient, waitForEvent } from './test-support.js';
 
 function extractModuleEntryPath(html: string): string {

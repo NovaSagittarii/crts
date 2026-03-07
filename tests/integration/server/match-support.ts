@@ -1,12 +1,13 @@
-import { vi } from 'vitest';
 import type { Socket } from 'socket.io-client';
+import { vi } from 'vitest';
 
 import type { MatchStartedPayload, RoomJoinedPayload } from '#rts-engine';
+
 import {
-  claimSlot,
-  getTeamByPlayerId,
   type ActiveMatchSetup,
   type TestClientOptions,
+  claimSlot,
+  getTeamByPlayerId,
   waitForEvent,
   waitForMembership,
   waitForRoomState,

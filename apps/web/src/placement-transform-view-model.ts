@@ -1,8 +1,8 @@
 import {
-  normalizePlacementTransform,
   type PlacementTransformInput,
   type PlacementTransformOperation,
   type PlacementTransformState,
+  normalizePlacementTransform,
 } from '#rts-engine';
 
 export interface PlacementTransformViewState {

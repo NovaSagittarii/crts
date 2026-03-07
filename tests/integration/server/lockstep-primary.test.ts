@@ -10,6 +10,8 @@ import type {
   RoomJoinedPayload,
   TeamPayload,
 } from '#rts-engine';
+
+import { createLockstepTest } from './lockstep-fixtures.js';
 import {
   waitForBuildQueueResponse,
   waitForBuildScheduled,
@@ -19,7 +21,6 @@ import {
   waitForState,
   waitForStateStructures,
 } from './test-support.js';
-import { createLockstepTest } from './lockstep-fixtures.js';
 
 const primaryTest = createLockstepTest(
   {

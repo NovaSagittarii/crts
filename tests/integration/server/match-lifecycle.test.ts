@@ -1,18 +1,20 @@
-import { describe, expect, vi } from 'vitest';
 import type { Socket } from 'socket.io-client';
+import { describe, expect, vi } from 'vitest';
 
 import type {
   ChatMessagePayload,
   MatchFinishedPayload,
-  RoomCountdownPayload,
   MatchStartedPayload,
+  RoomCountdownPayload,
   RoomErrorPayload,
   RoomJoinedPayload,
 } from '#rts-engine';
+
 import {
-  startMatchAndWaitForActive,
   type ConnectedRoomSetup,
+  startMatchAndWaitForActive,
 } from './match-support.js';
+import { createRoomTest } from './room-fixtures.js';
 import {
   waitForDestroyOutcome,
   waitForDestroyQueueResponse,
@@ -21,7 +23,6 @@ import {
   waitForMembership,
   waitForRoomState,
 } from './test-support.js';
-import { createRoomTest } from './room-fixtures.js';
 
 const test = createRoomTest(
   { port: 0, width: 52, height: 52, tickMs: 40 },
