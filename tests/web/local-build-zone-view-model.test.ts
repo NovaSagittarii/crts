@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  isBuildZoneCoveredByContributor,
+  projectBuildZoneContributor,
+} from '#rts-engine';
+
+import {
   computeLocalBuildZoneOverlay,
   computeLocalBuildZoneSignature,
 } from '../../apps/web/src/local-build-zone-view-model.js';
@@ -80,6 +85,40 @@ describe('computeLocalBuildZoneOverlay', () => {
       expect(key).toBeGreaterThanOrEqual(0);
       expect(key).toBeLessThan(25);
     }
+  });
+
+  test('returns integer-aligned cell keys while preserving float-radius coverage', () => {
+    const gridWidth = 80;
+    const gridHeight = 80;
+    const structure = {
+      key: 'alpha',
+      x: 30,
+      y: 30,
+      width: 1,
+      height: 1,
+      hp: 5,
+    };
+    const contributor = projectBuildZoneContributor(structure);
+    const result = computeLocalBuildZoneOverlay({
+      structures: [structure],
+      gridWidth,
+      gridHeight,
+      previousSignature: '',
+      coverageCache: new Map<string, readonly number[]>(),
+      maxCoverageCacheEntries: 32,
+    });
+
+    const expectedCellKeys: number[] = [];
+    for (let y = 0; y < gridHeight; y += 1) {
+      for (let x = 0; x < gridWidth; x += 1) {
+        if (isBuildZoneCoveredByContributor(contributor, x, y)) {
+          expectedCellKeys.push(y * gridWidth + x);
+        }
+      }
+    }
+
+    expect(result.cellKeys).toEqual(expectedCellKeys);
+    expect(result.cellKeys.every(Number.isInteger)).toBe(true);
   });
 
   test('caps cache growth when cache limit is reached', () => {
