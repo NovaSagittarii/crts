@@ -1,10 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { describe, expect, vi } from 'vitest';
 import type { Socket } from 'socket.io-client';
-
-import {
-  createServer,
-  type GameServer,
-} from '../../../apps/server/src/server.js';
 
 import type {
   ChatMessagePayload,
@@ -14,14 +9,16 @@ import type {
   RoomListEntryPayload,
   RoomMembershipPayload,
 } from '#rts-engine';
-import {
-  createClient,
-  type TestClientOptions,
-  waitForEvent,
-  waitForMembership,
-} from './test-support.js';
+import { waitForEvent, waitForMembership } from './test-support.js';
+import { createIntegrationTest } from './fixtures.js';
 
 const HOLD_EXPIRY_ADVANCE_MS = 31_000;
+const test = createIntegrationTest({
+  port: 0,
+  width: 58,
+  height: 58,
+  tickMs: 40,
+});
 
 function normalizeMembership(payload: RoomMembershipPayload): object {
   const sortedSlots: Record<string, string | null> = {};
@@ -91,29 +88,9 @@ async function waitForConsistentMembership(
 }
 
 describe('lobby reliability regression', () => {
-  let server: GameServer;
-  let port = 0;
-  const sockets: Socket[] = [];
-
-  beforeEach(async () => {
-    server = createServer({ port: 0, width: 58, height: 58, tickMs: 40 });
-    port = await server.start();
-  });
-
-  afterEach(async () => {
-    for (const socket of sockets) {
-      socket.close();
-    }
-    await server.stop();
-  });
-
-  function connectClient(options: TestClientOptions = {}): Socket {
-    const socket = createClient(port, options);
-    sockets.push(socket);
-    return socket;
-  }
-
-  test('keeps room state deterministic across host transfer, countdown guards, spectator chat, and reconnect reclaim races', async () => {
+  test('keeps room state deterministic across host transfer, countdown guards, spectator chat, and reconnect reclaim races', async ({
+    connectClient,
+  }) => {
     const host = connectClient({ sessionId: 'host-main' });
     await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
 

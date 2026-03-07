@@ -68,4 +68,156 @@ describe('template button menu element', () => {
 
     expect(states.map((state) => state.disabled)).toEqual([true, true]);
   });
+
+  it('emits insert operations for initial render state', () => {
+    const nextStates = TemplateButtonMenuElement.deriveButtonStates({
+      templates,
+      selectedTemplateId: 'block',
+      buildModeActive: true,
+      enabled: true,
+    });
+
+    expect(TemplateButtonMenuElement.diffButtonStates([], nextStates)).toEqual([
+      {
+        type: 'insert',
+        templateId: 'block',
+        at: 0,
+        next: nextStates[0],
+      },
+      {
+        type: 'insert',
+        templateId: 'glider',
+        at: 1,
+        next: nextStates[1],
+      },
+    ]);
+  });
+
+  it('emits highlight-only updates when active template changes', () => {
+    const previousStates = TemplateButtonMenuElement.deriveButtonStates({
+      templates,
+      selectedTemplateId: 'block',
+      buildModeActive: true,
+      enabled: true,
+    });
+    const nextStates = TemplateButtonMenuElement.deriveButtonStates({
+      templates,
+      selectedTemplateId: 'glider',
+      buildModeActive: true,
+      enabled: true,
+    });
+
+    expect(
+      TemplateButtonMenuElement.diffButtonStates(previousStates, nextStates),
+    ).toEqual([
+      {
+        type: 'update',
+        templateId: 'block',
+        changes: ['highlighted'],
+        next: nextStates[0],
+      },
+      {
+        type: 'update',
+        templateId: 'glider',
+        changes: ['highlighted'],
+        next: nextStates[1],
+      },
+    ]);
+  });
+
+  it('emits disabled-only updates when controls become read-only', () => {
+    const previousStates = TemplateButtonMenuElement.deriveButtonStates({
+      templates,
+      selectedTemplateId: 'block',
+      buildModeActive: true,
+      enabled: true,
+    });
+    const nextStates = TemplateButtonMenuElement.deriveButtonStates({
+      templates,
+      selectedTemplateId: 'block',
+      buildModeActive: true,
+      enabled: false,
+    });
+
+    expect(
+      TemplateButtonMenuElement.diffButtonStates(previousStates, nextStates),
+    ).toEqual([
+      {
+        type: 'update',
+        templateId: 'block',
+        changes: ['disabled'],
+        next: nextStates[0],
+      },
+      {
+        type: 'update',
+        templateId: 'glider',
+        changes: ['disabled'],
+        next: nextStates[1],
+      },
+    ]);
+  });
+
+  it('emits no operations when derived button states are unchanged', () => {
+    const previousStates = TemplateButtonMenuElement.deriveButtonStates({
+      templates,
+      selectedTemplateId: 'block',
+      buildModeActive: true,
+      enabled: true,
+    });
+    const nextStates = TemplateButtonMenuElement.deriveButtonStates({
+      templates,
+      selectedTemplateId: 'block',
+      buildModeActive: true,
+      enabled: true,
+    });
+
+    expect(
+      TemplateButtonMenuElement.diffButtonStates(previousStates, nextStates),
+    ).toEqual([]);
+  });
+
+  it('reorders templates with remove/insert operations instead of move ops', () => {
+    const [blockTemplate, gliderTemplate] = templates;
+    if (!blockTemplate || !gliderTemplate) {
+      throw new Error('Expected template fixtures.');
+    }
+
+    const previousStates = TemplateButtonMenuElement.deriveButtonStates({
+      templates,
+      selectedTemplateId: 'block',
+      buildModeActive: true,
+      enabled: true,
+    });
+    const nextStates = TemplateButtonMenuElement.deriveButtonStates({
+      templates: [gliderTemplate, blockTemplate],
+      selectedTemplateId: 'block',
+      buildModeActive: true,
+      enabled: true,
+    });
+
+    expect(
+      TemplateButtonMenuElement.diffButtonStates(previousStates, nextStates),
+    ).toEqual([
+      {
+        type: 'remove',
+        templateId: 'glider',
+      },
+      {
+        type: 'insert',
+        templateId: 'glider',
+        at: 0,
+        next: nextStates[0],
+      },
+      {
+        type: 'remove',
+        templateId: 'block',
+      },
+      {
+        type: 'insert',
+        templateId: 'block',
+        at: 1,
+        next: nextStates[1],
+      },
+    ]);
+  });
 });

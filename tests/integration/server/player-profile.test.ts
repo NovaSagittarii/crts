@@ -1,44 +1,24 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import type { Socket } from 'socket.io-client';
-
-import {
-  createServer,
-  type GameServer,
-} from '../../../apps/server/src/server.js';
+import { describe, expect } from 'vitest';
 
 import type { PlayerProfilePayload, RoomJoinedPayload } from '#rts-engine';
 import {
-  createClient,
-  type TestClientOptions,
   waitForEvent,
   waitForMembership,
   waitForState,
 } from './test-support.js';
+import { createIntegrationTest } from './fixtures.js';
+
+const test = createIntegrationTest({
+  port: 0,
+  width: 50,
+  height: 50,
+  tickMs: 40,
+});
 
 describe('player profile contract', () => {
-  let server: GameServer;
-  let port = 0;
-  const sockets: Socket[] = [];
-
-  beforeEach(async () => {
-    server = createServer({ port: 0, width: 50, height: 50, tickMs: 40 });
-    port = await server.start();
-  });
-
-  afterEach(async () => {
-    for (const socket of sockets) {
-      socket.close();
-    }
-    await server.stop();
-  });
-
-  function connectClient(options: TestClientOptions = {}): Socket {
-    const socket = createClient(port, options);
-    sockets.push(socket);
-    return socket;
-  }
-
-  test('emits authoritative profiles and propagates renamed player state', async () => {
+  test('emits authoritative profiles and propagates renamed player state', async ({
+    connectClient,
+  }) => {
     const owner = connectClient({
       sessionId: 'player-profile-owner',
       connect: false,

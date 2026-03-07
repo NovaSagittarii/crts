@@ -288,4 +288,14 @@ describe('match ui build controls', () => {
     expect(markup).toContain('id="exit-build-mode"');
     expect(markup).not.toContain('id="template-select"');
   });
+
+  it('loads styles from external stylesheet instead of inline style block', () => {
+    const markup = readFileSync(
+      new URL('../../apps/web/index.html', import.meta.url),
+      'utf8',
+    );
+
+    expect(markup).toContain('<link rel="stylesheet" href="./styles.css" />');
+    expect(markup).not.toContain('<style>');
+  });
 });

@@ -7,8 +7,9 @@ This is a TypeScript multiplayer Conway's Game of Life + RTS prototype using Soc
 ```text
 apps/
   server/src/server.ts
-  server/src/lobby-session.ts
+  server/src/server-room-broadcast.ts
   web/index.html
+  web/src/build-mode-controller.ts
   web/src/client.ts
   web/src/economy-view-model.ts
 
@@ -24,12 +25,20 @@ packages/
   rts-engine/rts.test.ts
   rts-engine/socket-contract.ts
   rts-engine/spawn.ts
+  rts-engine/structure.ts
   rts-engine/index.ts
 
 tests/
   integration/server/*.test.ts
-  web/economy-view-model.test.ts
+  integration/server/fixtures.ts
+  web/*.test.ts
 ```
+
+## Active Source Trees
+
+- Active source trees are `apps/`, `packages/`, and `tests/`.
+- Generated output lives under `dist/` and `coverage/`; do not edit generated files.
+- `conway-rts/` is a legacy/reference-only subtree that is excluded from the active build/lint/test configuration unless the user explicitly asks you to work there.
 
 ## Nested AGENTS.md Layout
 
@@ -41,8 +50,9 @@ This repository uses nested AGENTS files for local rules.
 - `packages/AGENTS.md`: shared package boundaries
 - `packages/conway-core/AGENTS.md`: Conway grid logic constraints
 - `packages/rts-engine/AGENTS.md`: RTS room/team/economy invariants
-- `tests/AGENTS.md`: placement rules for cross-runtime and end-to-end suites
+- `tests/AGENTS.md`: placement rules for integration and app-layer test suites
 - `tests/integration/AGENTS.md`: stricter integration-specific test rules
+- `tests/web/AGENTS.md`: Node-run app/web test placement and style rules
 
 When editing a file, follow the nearest AGENTS.md plus this root file.
 
@@ -65,7 +75,7 @@ These rules apply to every `*.test.ts` and `*.spec.ts` file in the repo.
 - Always tear down sockets, servers, and other long-lived resources in tests.
 - Use ephemeral ports (`port: 0`) for runtime/integration tests.
 - Keep deterministic package/unit tests co-located with their source package when practical.
-- Keep cross-runtime, cross-layer, and end-to-end behavior checks under `tests/`.
+- Keep cross-runtime integration tests and Node-run app/web tests under `tests/`.
 
 Nested `AGENTS.md` files should only add test guidance when a subtree needs stricter rules than this baseline.
 
@@ -88,10 +98,16 @@ npm run start
 
 npm test
 npm run test:unit
+npm run test:web
+npm run test:fast
 npm run test:integration
+npm run test:integration:light
+npm run test:integration:heavy
+npm run test:integration:split
 npm run test:integration:serial
 npm run test:quality
 npm run test:watch
+npm run coverage
 
 npm run format
 npm run format:check
