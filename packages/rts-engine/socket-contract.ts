@@ -219,6 +219,17 @@ export interface MembershipParticipant {
   disconnectReason: string | null;
 }
 
+export interface RoomSlotDefinitionPayload {
+  slotId: string;
+  capacity: number;
+}
+
+export interface HeldSlotMemberPayload {
+  sessionId: string;
+  holdExpiresAt: number;
+  disconnectReason: string | null;
+}
+
 export interface RoomMembershipPayload {
   roomId: string;
   roomCode: string;
@@ -226,16 +237,12 @@ export interface RoomMembershipPayload {
   revision: number;
   status: RoomStatus;
   hostSessionId: string | null;
+  slotDefinitions: RoomSlotDefinitionPayload[];
   slots: Record<string, string | null>;
+  slotMembers: Record<string, string[]>;
   participants: MembershipParticipant[];
-  heldSlots: Record<
-    string,
-    {
-      sessionId: string;
-      holdExpiresAt: number;
-      disconnectReason: string | null;
-    } | null
-  >;
+  heldSlots: Record<string, HeldSlotMemberPayload | null>;
+  heldSlotMembers: Record<string, HeldSlotMemberPayload[]>;
   countdownSecondsRemaining: number | null;
   hashAlgorithm: RoomStateHashes['hashAlgorithm'];
   membershipHash: string;
@@ -255,6 +262,7 @@ export interface RoomCreatePayload {
   name?: string;
   width?: number;
   height?: number;
+  slots?: RoomSlotDefinitionPayload[];
 }
 
 export interface RoomJoinPayload {

@@ -266,8 +266,6 @@ class ReconnectHoldRegistry {
 
   private readonly holdsBySession = new Map<string, ActiveHold>();
 
-  private readonly heldSlots = new Map<string, string>();
-
   public constructor(options: HoldRegistryOptions) {
     this.holdMs = options.holdMs;
     this.setTimeoutHook = options.setTimeout;
@@ -280,7 +278,6 @@ class ReconnectHoldRegistry {
   ): void {
     this.clearHold(hold.sessionId);
 
-    const slotKey = this.slotKey(hold.roomId, hold.slotId);
     const timer = this.setTimeoutHook(() => {
       const active = this.holdsBySession.get(hold.sessionId);
       if (!active || active.hold.expiresAt !== hold.expiresAt) {
@@ -288,12 +285,10 @@ class ReconnectHoldRegistry {
       }
 
       this.holdsBySession.delete(hold.sessionId);
-      this.heldSlots.delete(slotKey);
       onExpire(hold);
     }, this.holdMs);
 
     this.holdsBySession.set(hold.sessionId, { hold, timer });
-    this.heldSlots.set(slotKey, hold.sessionId);
   }
 
   public clearHold(sessionId: string): SessionHold | null {
@@ -304,7 +299,6 @@ class ReconnectHoldRegistry {
 
     this.clearTimeoutHook(active.timer);
     this.holdsBySession.delete(sessionId);
-    this.heldSlots.delete(this.slotKey(active.hold.roomId, active.hold.slotId));
     return active.hold;
   }
 
@@ -316,8 +310,20 @@ class ReconnectHoldRegistry {
     return this.holdsBySession.has(sessionId);
   }
 
+  public getHeldSessionsForSlot(roomId: string, slotId: string): string[] {
+    const heldSessions: string[] = [];
+    for (const { hold } of this.holdsBySession.values()) {
+      if (hold.roomId === roomId && hold.slotId === slotId) {
+        heldSessions.push(hold.sessionId);
+      }
+    }
+
+    heldSessions.sort();
+    return heldSessions;
+  }
+
   public getHeldSessionForSlot(roomId: string, slotId: string): string | null {
-    return this.heldSlots.get(this.slotKey(roomId, slotId)) ?? null;
+    return this.getHeldSessionsForSlot(roomId, slotId)[0] ?? null;
   }
 
   public hasPendingHoldForRoom(roomId: string): boolean {
@@ -336,11 +342,6 @@ class ReconnectHoldRegistry {
     }
 
     this.holdsBySession.clear();
-    this.heldSlots.clear();
-  }
-
-  private slotKey(roomId: string, slotId: string): string {
-    return `${roomId}:${slotId}`;
   }
 }
 
@@ -468,6 +469,10 @@ export class LobbySessionCoordinator {
 
   public getHeldSessionForSlot(roomId: string, slotId: string): string | null {
     return this.holds.getHeldSessionForSlot(roomId, slotId);
+  }
+
+  public getHeldSessionsForSlot(roomId: string, slotId: string): string[] {
+    return this.holds.getHeldSessionsForSlot(roomId, slotId);
   }
 
   public hasPendingHoldForRoom(roomId: string): boolean {
