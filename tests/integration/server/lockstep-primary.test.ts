@@ -1,5 +1,4 @@
 import { describe, expect } from 'vitest';
-import type { Socket } from 'socket.io-client';
 
 import type {
   BuildQueueRejectedPayload,
@@ -14,7 +13,6 @@ import type {
 import {
   waitForBuildQueueResponse,
   waitForBuildScheduled,
-  waitForDestroyQueueResponse,
   waitForDestroyScheduled,
   waitForEvent,
   waitForMembership,
@@ -359,12 +357,11 @@ describe('lockstep primary mode', () => {
       match.guest.emit('room:leave');
 
       await expect(queuedPromise).resolves.toBeInstanceOf(Error);
-      await expect(rejectedPromise).resolves.toMatchObject({
-        roomId: match.roomId,
-        intentId: expect.stringMatching(/^intent-/),
-        teamId: team.id,
-        reason: 'match-finished',
-      });
+      const rejected = await rejectedPromise;
+      expect(rejected.roomId).toBe(match.roomId);
+      expect(rejected.intentId).toMatch(/^intent-/);
+      expect(rejected.teamId).toBe(team.id);
+      expect(rejected.reason).toBe('match-finished');
       await expect(matchFinishedPromise).resolves.toBeInstanceOf(Error);
       await expect(scheduledPromise).resolves.toBeInstanceOf(Error);
     },
@@ -444,13 +441,12 @@ describe('lockstep primary mode', () => {
       match.guest.emit('room:leave');
 
       await expect(queuedPromise).resolves.toBeInstanceOf(Error);
-      await expect(rejectedPromise).resolves.toMatchObject({
-        roomId: match.roomId,
-        intentId: expect.stringMatching(/^intent-/),
-        teamId: team.id,
-        structureKey: ownStructure.key,
-        reason: 'match-finished',
-      });
+      const rejected = await rejectedPromise;
+      expect(rejected.roomId).toBe(match.roomId);
+      expect(rejected.intentId).toMatch(/^intent-/);
+      expect(rejected.teamId).toBe(team.id);
+      expect(rejected.structureKey).toBe(ownStructure.key);
+      expect(rejected.reason).toBe('match-finished');
       await expect(matchFinishedPromise).resolves.toBeInstanceOf(Error);
       await expect(scheduledPromise).resolves.toBeInstanceOf(Error);
     },
@@ -501,12 +497,11 @@ describe('lockstep primary mode', () => {
         /timed out/i,
       );
 
-      await expect(rejectedPromise).resolves.toMatchObject({
-        roomId: match.roomId,
-        intentId: expect.stringMatching(/^intent-/),
-        teamId: team.id,
-        reason: 'outside-territory',
-      });
+      const rejected = await rejectedPromise;
+      expect(rejected.roomId).toBe(match.roomId);
+      expect(rejected.intentId).toMatch(/^intent-/);
+      expect(rejected.teamId).toBe(team.id);
+      expect(rejected.reason).toBe('outside-territory');
       await expect(scheduledPromise).resolves.toBeInstanceOf(Error);
     },
     30_000,

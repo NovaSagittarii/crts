@@ -991,7 +991,7 @@ describe('GameServer', () => {
 
   matchTest.fails(
     'detects missing authoritative queue events and requests a resync',
-    async () => {
+    () => {
       // TODO: Replace with queue-gap coverage once the resync path exists.
       expect(true).toBe(false);
     },
