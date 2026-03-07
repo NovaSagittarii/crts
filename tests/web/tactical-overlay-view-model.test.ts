@@ -24,7 +24,7 @@ function buildTemplate(id: string, name: string): StructureTemplateSummary {
     height: 2,
     activationCost: 4,
     income: 1,
-    buildArea: 25,
+    buildRadius: 25,
   };
 }
 

@@ -175,6 +175,7 @@ interface VisibleStructure {
   width: number;
   height: number;
   hp: number;
+  buildRadius: number;
   active: boolean;
   isCore: boolean;
   requiresDestroyConfirm: boolean;
@@ -191,7 +192,7 @@ interface TeamBuildZoneProjectionInput {
   y: number;
   width: number;
   height: number;
-  hp: number;
+  buildRadius: number;
 }
 
 function getRequiredElement<T extends HTMLElement>(id: string): T {
@@ -1672,6 +1673,7 @@ function syncVisibleStructures(
         width: structure.width,
         height: structure.height,
         hp: structure.hp,
+        buildRadius: structure.buildRadius,
         active: structure.active,
         isCore: structure.isCore,
         requiresDestroyConfirm: structure.requiresDestroyConfirm,
@@ -1686,7 +1688,7 @@ function syncVisibleStructures(
         y: visible.y,
         width: visible.width,
         height: visible.height,
-        hp: visible.hp,
+        buildRadius: visible.buildRadius,
       });
       if (!nextTeamBuildZoneProjectionInputs.has(team.id)) {
         nextTeamBuildZoneProjectionInputs.set(
