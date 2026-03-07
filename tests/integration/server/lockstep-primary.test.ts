@@ -22,6 +22,11 @@ import {
   waitForStateStructures,
 } from './test-support.js';
 
+const PRIMARY_BOUNDARY_TICK_MS = 30;
+const PRIMARY_BOUNDARY_TURN_TICKS = 20;
+const PRIMARY_BOUNDARY_QUIET_WINDOW_MS =
+  PRIMARY_BOUNDARY_TICK_MS * (PRIMARY_BOUNDARY_TURN_TICKS - 2);
+
 const primaryTest = createLockstepTest(
   {
     port: 0,
@@ -42,9 +47,9 @@ const boundaryTest = createLockstepTest(
     port: 0,
     width: 52,
     height: 52,
-    tickMs: 30,
+    tickMs: PRIMARY_BOUNDARY_TICK_MS,
     lockstepMode: 'primary',
-    lockstepTurnTicks: 20,
+    lockstepTurnTicks: PRIMARY_BOUNDARY_TURN_TICKS,
     lockstepCheckpointIntervalTicks: 1,
   },
   {
@@ -219,9 +224,12 @@ describe('lockstep primary mode', () => {
       const earlyQueuedPromise = waitForEvent<BuildQueuedPayload>(
         match.host,
         'build:queued',
-        250,
+        PRIMARY_BOUNDARY_QUIET_WINDOW_MS,
       );
-      const earlyScheduledPromise = waitForBuildScheduled(match.host, 250);
+      const earlyScheduledPromise = waitForBuildScheduled(
+        match.host,
+        PRIMARY_BOUNDARY_QUIET_WINDOW_MS,
+      );
 
       match.host.emit('build:queue', {
         templateId: 'block',
