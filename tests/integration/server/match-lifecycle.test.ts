@@ -1,10 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { describe, expect, vi } from 'vitest';
 import type { Socket } from 'socket.io-client';
-
-import {
-  createServer,
-  type GameServer,
-} from '../../../apps/server/src/server.js';
 
 import type {
   ChatMessagePayload,
@@ -15,12 +10,10 @@ import type {
   RoomJoinedPayload,
 } from '#rts-engine';
 import {
-  setupConnectedRoom,
   startMatchAndWaitForActive,
+  type ConnectedRoomSetup,
 } from './match-support.js';
 import {
-  createClient,
-  type TestClientOptions,
   waitForDestroyOutcome,
   waitForDestroyQueueResponse,
   waitForDestroyScheduled,
@@ -28,6 +21,12 @@ import {
   waitForMembership,
   waitForRoomState,
 } from './test-support.js';
+import { createRoomTest } from './room-fixtures.js';
+
+const test = createRoomTest(
+  { port: 0, width: 52, height: 52, tickMs: 40 },
+  { roomName: 'Lifecycle Room' },
+);
 
 interface ConnectedPair {
   host: Socket;
@@ -44,14 +43,7 @@ interface ActiveMatch extends ConnectedPair {
   initialGrid: ArrayBuffer;
 }
 
-async function setupConnectedPair(
-  connect: (options?: TestClientOptions) => Socket,
-): Promise<ConnectedPair> {
-  const setup = await setupConnectedRoom({
-    connectClient: connect,
-    roomName: 'Lifecycle Room',
-  });
-
+function setupConnectedPair(setup: ConnectedRoomSetup): ConnectedPair {
   return {
     host: setup.host,
     guest: setup.guest,
@@ -151,30 +143,11 @@ async function breachGuestCore(
 }
 
 describe('server match lifecycle contract', () => {
-  let server: GameServer;
-  let port = 0;
-  const sockets: Socket[] = [];
-
-  beforeEach(async () => {
-    server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
-    port = await server.start();
-  });
-
-  afterEach(async () => {
-    for (const socket of sockets) {
-      socket.close();
-    }
-    await server.stop();
-  });
-
-  function connectClient(options: TestClientOptions = {}): Socket {
-    const socket = createClient(port, options);
-    sockets.push(socket);
-    return socket;
-  }
-
-  test('enforces start preconditions and allows host countdown cancel', async () => {
-    const setup = await setupConnectedPair(() => connectClient());
+  test('enforces start preconditions and allows host countdown cancel', async ({
+    connectedRoom,
+    connectClient,
+  }) => {
+    const setup = setupConnectedPair(connectedRoom);
 
     setup.host.emit('room:claim-slot', { slotId: 'team-1' });
     await waitForMembership(
@@ -284,8 +257,11 @@ describe('server match lifecycle contract', () => {
     expect(backToLobby.countdownSecondsRemaining).toBeNull();
   });
 
-  test('keeps countdown running through disconnect and finishes through breach-only outcomes', async () => {
-    const setup = await setupConnectedPair(() => connectClient());
+  test('keeps countdown running through disconnect and finishes through breach-only outcomes', async ({
+    connectedRoom,
+    connectClient,
+  }) => {
+    const setup = setupConnectedPair(connectedRoom);
 
     setup.host.emit('room:claim-slot', { slotId: 'team-1' });
     setup.guest.emit('room:claim-slot', { slotId: 'team-2' });
@@ -434,8 +410,11 @@ describe('server match lifecycle contract', () => {
     expect(finishedChat.message).toBe('still chatting while defeated');
   }, 35_000);
 
-  test('supports host-only restart from finished and resets prior match state', async () => {
-    const setup = await setupConnectedPair(() => connectClient());
+  test('supports host-only restart from finished and resets prior match state', async ({
+    connectedRoom,
+    connectClient,
+  }) => {
+    const setup = setupConnectedPair(connectedRoom);
     const match = await moveToActive(setup);
 
     match.host.emit('room:start');

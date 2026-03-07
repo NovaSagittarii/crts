@@ -1,7 +1,6 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect } from 'vitest';
 import type { Socket } from 'socket.io-client';
 
-import { createServer } from '../../../apps/server/src/server.js';
 import type {
   BuildQueueRejectedPayload,
   BuildQueuedPayload,
@@ -10,12 +9,9 @@ import type {
   LockstepFallbackPayload,
   RoomErrorPayload,
   RoomJoinedPayload,
-  RoomMembershipPayload,
-  RoomSlotClaimedPayload,
   TeamPayload,
 } from '#rts-engine';
 import {
-  createClient,
   waitForBuildQueueResponse,
   waitForBuildScheduled,
   waitForDestroyQueueResponse,
@@ -25,6 +21,104 @@ import {
   waitForState,
   waitForStateStructures,
 } from './test-support.js';
+import { createLockstepTest } from './lockstep-fixtures.js';
+
+const primaryTest = createLockstepTest(
+  {
+    port: 0,
+    width: 52,
+    height: 52,
+    tickMs: 40,
+    lockstepMode: 'primary',
+    lockstepCheckpointIntervalTicks: 1,
+  },
+  {
+    roomName: 'Primary Lockstep Room',
+    hostSessionId: 'primary-host',
+    guestSessionId: 'primary-guest',
+  },
+);
+const boundaryTest = createLockstepTest(
+  {
+    port: 0,
+    width: 52,
+    height: 52,
+    tickMs: 30,
+    lockstepMode: 'primary',
+    lockstepTurnTicks: 20,
+    lockstepCheckpointIntervalTicks: 1,
+  },
+  {
+    roomName: 'Primary Turn Boundary Room',
+    hostSessionId: 'primary-boundary-host',
+    guestSessionId: 'primary-boundary-guest',
+  },
+);
+const overflowTest = createLockstepTest(
+  {
+    port: 0,
+    width: 52,
+    height: 52,
+    tickMs: 30,
+    lockstepMode: 'primary',
+    lockstepTurnTicks: 20,
+    lockstepMaxBufferedCommands: 4,
+    lockstepCheckpointIntervalTicks: 1,
+  },
+  {
+    roomName: 'Primary Overflow Room',
+    hostSessionId: 'primary-overflow-host',
+    guestSessionId: 'primary-overflow-guest',
+  },
+);
+const finishTest = createLockstepTest(
+  {
+    port: 0,
+    width: 52,
+    height: 52,
+    tickMs: 30,
+    lockstepMode: 'primary',
+    lockstepTurnTicks: 50,
+    lockstepCheckpointIntervalTicks: 1,
+  },
+  {
+    roomName: 'Primary Finish Room',
+    hostSessionId: 'primary-finish-host',
+    guestSessionId: 'primary-finish-guest',
+  },
+);
+const finishDestroyTest = createLockstepTest(
+  {
+    port: 0,
+    width: 52,
+    height: 52,
+    tickMs: 30,
+    lockstepMode: 'primary',
+    lockstepTurnTicks: 50,
+    lockstepCheckpointIntervalTicks: 1,
+  },
+  {
+    roomName: 'Primary Finish Destroy Room',
+    hostSessionId: 'primary-finish-destroy-host',
+    guestSessionId: 'primary-finish-destroy-guest',
+  },
+);
+const rejectTest = createLockstepTest(
+  {
+    port: 0,
+    width: 52,
+    height: 52,
+    tickMs: 30,
+    lockstepMode: 'primary',
+    lockstepTurnTicks: 50,
+    lockstepCheckpointIntervalTicks: 1,
+  },
+  {
+    roomName: 'Primary Reject Room',
+    hostSessionId: 'primary-reject-host',
+    guestSessionId: 'primary-reject-guest',
+  },
+);
 
 function resolveTeamForPlayer(
   teams: TeamPayload[],
@@ -35,19 +129,6 @@ function resolveTeamForPlayer(
     throw new Error(`Failed to find team for player ${playerId}`);
   }
   return team;
-}
-
-async function claimSlot(socket: Socket, slotId: string): Promise<number> {
-  const claimedPromise = waitForEvent<RoomSlotClaimedPayload>(
-    socket,
-    'room:slot-claimed',
-  );
-  socket.emit('room:claim-slot', { slotId });
-  const claimed = await claimedPromise;
-  if (claimed.teamId === null) {
-    throw new Error(`Expected ${slotId} claim to assign a team`);
-  }
-  return claimed.teamId;
 }
 
 function waitForBuildResponses(
@@ -98,111 +179,49 @@ function waitForBuildResponses(
 }
 
 describe('lockstep primary mode', () => {
-  test('buffers queue commands and emits checkpoints without fallback', async () => {
-    const server = createServer({
-      port: 0,
-      width: 52,
-      height: 52,
-      tickMs: 40,
-      countdownSeconds: 0,
-      lockstepMode: 'primary',
-      lockstepCheckpointIntervalTicks: 1,
-    });
-    const port = await server.start();
+  primaryTest(
+    'buffers queue commands and emits checkpoints without fallback',
+    async ({ connectedRoom, startLockstepMatch }) => {
+      expect(connectedRoom.hostJoined.lockstep?.mode).toBe('primary');
+      expect(connectedRoom.hostJoined.lockstep?.status).toBe('running');
 
-    let host: Socket | null = null;
-    let guest: Socket | null = null;
-
-    try {
-      host = createClient(port, { sessionId: 'primary-host' });
-      await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
-
-      const createdPromise = waitForEvent<RoomJoinedPayload>(
-        host,
-        'room:joined',
-      );
-      host.emit('room:create', {
-        name: 'Primary Lockstep Room',
-        width: 52,
-        height: 52,
-      });
-      const hostJoined = await createdPromise;
-
-      expect(hostJoined.lockstep?.mode).toBe('primary');
-      expect(hostJoined.lockstep?.status).toBe('running');
-
-      guest = createClient(port, { sessionId: 'primary-guest' });
-      await waitForEvent<RoomJoinedPayload>(guest, 'room:joined');
-
-      const guestJoinedPromise = waitForEvent<RoomJoinedPayload>(
-        guest,
-        'room:joined',
-      );
-      guest.emit('room:join', { roomId: hostJoined.roomId });
-      const guestJoined = await guestJoinedPromise;
-
-      await claimSlot(host, 'team-1');
-      await claimSlot(guest, 'team-2');
-
-      await waitForMembership(
-        host,
-        hostJoined.roomId,
-        (payload: RoomMembershipPayload) =>
-          payload.slots['team-1'] === hostJoined.playerId &&
-          payload.slots['team-2'] === guestJoined.playerId,
-      );
-
+      const match = await startLockstepMatch(connectedRoom);
       const fallbackEvents: LockstepFallbackPayload[] = [];
-      host.on('lockstep:fallback', (payload: LockstepFallbackPayload) => {
+      match.host.on('lockstep:fallback', (payload: LockstepFallbackPayload) => {
         fallbackEvents.push(payload);
       });
 
-      const readyMembershipPromise = waitForMembership(
-        host,
-        hostJoined.roomId,
-        (payload: RoomMembershipPayload) =>
-          payload.participants.filter(
-            ({ role, ready }) => role === 'player' && ready,
-          ).length === 2,
-      );
-      host.emit('room:set-ready', { ready: true });
-      guest.emit('room:set-ready', { ready: true });
-      await readyMembershipPromise;
-
-      host.emit('room:start');
-      await waitForEvent(host, 'room:match-started', 7_000);
-
       const firstCheckpoint = await waitForEvent<LockstepCheckpointPayload>(
-        host,
+        match.host,
         'lockstep:checkpoint',
         4_000,
       );
-      expect(firstCheckpoint.roomId).toBe(hostJoined.roomId);
+      expect(firstCheckpoint.roomId).toBe(match.roomId);
       expect(firstCheckpoint.mode).toBe('primary');
       expect(firstCheckpoint.hashHex).toMatch(/^[0-9a-f]{8}$/);
 
       const state = await waitForState(
-        host,
+        match.host,
         (payload) =>
-          payload.roomId === hostJoined.roomId &&
+          payload.roomId === match.roomId &&
           payload.teams.some(({ playerIds }) =>
-            playerIds.includes(hostJoined.playerId),
+            playerIds.includes(match.hostJoined.playerId),
           ),
         {
-          roomId: hostJoined.roomId,
+          roomId: match.roomId,
           attempts: 40,
           timeoutMs: 2_000,
         },
       );
-      const team = resolveTeamForPlayer(state.teams, hostJoined.playerId);
+      const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
 
-      host.emit('build:queue', {
+      match.host.emit('build:queue', {
         templateId: 'block',
         x: team.baseTopLeft.x + 8,
         y: team.baseTopLeft.y + 8,
       });
 
-      const queued = await waitForBuildQueueResponse(host, 4_000);
+      const queued = await waitForBuildQueueResponse(match.host, 4_000);
       if ('error' in queued) {
         throw new Error(
           `Build queue rejected: ${queued.error.reason ?? queued.error.message}`,
@@ -210,7 +229,7 @@ describe('lockstep primary mode', () => {
       }
 
       const secondCheckpoint = await waitForEvent<LockstepCheckpointPayload>(
-        host,
+        match.host,
         'lockstep:checkpoint',
         4_000,
       );
@@ -221,213 +240,82 @@ describe('lockstep primary mode', () => {
 
       expect(fallbackEvents).toEqual([]);
 
-      host.off('lockstep:fallback');
-    } finally {
-      host?.close();
-      guest?.close();
-      await server.stop();
-    }
-  }, 25_000);
+      match.host.off('lockstep:fallback');
+    },
+    25_000,
+  );
 
-  test('uses turn boundaries for primary queue flush when turn ticks > 1', async () => {
-    const server = createServer({
-      port: 0,
-      width: 52,
-      height: 52,
-      tickMs: 30,
-      countdownSeconds: 0,
-      lockstepMode: 'primary',
-      lockstepTurnTicks: 20,
-      lockstepCheckpointIntervalTicks: 1,
-    });
-    const port = await server.start();
-
-    let host: Socket | null = null;
-    let guest: Socket | null = null;
-
-    try {
-      host = createClient(port, { sessionId: 'primary-boundary-host' });
-      await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
-
-      const createdPromise = waitForEvent<RoomJoinedPayload>(
-        host,
-        'room:joined',
-      );
-      host.emit('room:create', {
-        name: 'Primary Turn Boundary Room',
-        width: 52,
-        height: 52,
-      });
-      const hostJoined = await createdPromise;
-
-      guest = createClient(port, { sessionId: 'primary-boundary-guest' });
-      await waitForEvent<RoomJoinedPayload>(guest, 'room:joined');
-
-      const guestJoinedPromise = waitForEvent<RoomJoinedPayload>(
-        guest,
-        'room:joined',
-      );
-      guest.emit('room:join', { roomId: hostJoined.roomId });
-      const guestJoined = await guestJoinedPromise;
-
-      await claimSlot(host, 'team-1');
-      await claimSlot(guest, 'team-2');
-      await waitForMembership(
-        host,
-        hostJoined.roomId,
-        (payload: RoomMembershipPayload) =>
-          payload.slots['team-1'] === hostJoined.playerId &&
-          payload.slots['team-2'] === guestJoined.playerId,
-      );
-
-      const readyMembershipPromise = waitForMembership(
-        host,
-        hostJoined.roomId,
-        (payload: RoomMembershipPayload) =>
-          payload.participants.filter(
-            ({ role, ready }) => role === 'player' && ready,
-          ).length === 2,
-      );
-      host.emit('room:set-ready', { ready: true });
-      guest.emit('room:set-ready', { ready: true });
-      await readyMembershipPromise;
-
-      host.emit('room:start');
-      await waitForEvent(host, 'room:match-started', 7_000);
-
+  boundaryTest(
+    'uses turn boundaries for primary queue flush when turn ticks > 1',
+    async ({ connectedRoom, startLockstepMatch }) => {
+      const match = await startLockstepMatch(connectedRoom);
       const state = await waitForState(
-        host,
+        match.host,
         (payload) =>
-          payload.roomId === hostJoined.roomId &&
+          payload.roomId === match.roomId &&
           payload.teams.some(({ playerIds }) =>
-            playerIds.includes(hostJoined.playerId),
+            playerIds.includes(match.hostJoined.playerId),
           ),
         {
-          roomId: hostJoined.roomId,
+          roomId: match.roomId,
           attempts: 40,
           timeoutMs: 2_000,
         },
       );
-      const team = resolveTeamForPlayer(state.teams, hostJoined.playerId);
-      const scheduledPromise = waitForBuildScheduled(host, 5_000);
+      const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
+      const scheduledPromise = waitForBuildScheduled(match.host, 5_000);
 
-      host.emit('build:queue', {
+      match.host.emit('build:queue', {
         templateId: 'block',
         x: team.baseTopLeft.x + 8,
         y: team.baseTopLeft.y + 8,
       });
 
-      const queued = await waitForBuildQueueResponse(host, 250);
+      const queued = await waitForBuildQueueResponse(match.host, 250);
       if ('error' in queued) {
         throw new Error(
           `Build queue rejected: ${queued.error.reason ?? queued.error.message}`,
         );
       }
 
-      await expect(waitForBuildScheduled(host, 250)).rejects.toThrow(
+      await expect(waitForBuildScheduled(match.host, 250)).rejects.toThrow(
         /timed out/i,
       );
 
       const scheduled = await scheduledPromise;
       expect(scheduled.intentId).toBe(queued.queued.intentId);
-    } finally {
-      host?.close();
-      guest?.close();
-      await server.stop();
-    }
-  }, 30_000);
+    },
+    30_000,
+  );
 
-  test('falls back on turn-buffer-overflow and still responds to queued commands', async () => {
-    const server = createServer({
-      port: 0,
-      width: 52,
-      height: 52,
-      tickMs: 30,
-      countdownSeconds: 0,
-      lockstepMode: 'primary',
-      lockstepTurnTicks: 20,
-      lockstepMaxBufferedCommands: 4,
-      lockstepCheckpointIntervalTicks: 1,
-    });
-    const port = await server.start();
-
-    let host: Socket | null = null;
-    let guest: Socket | null = null;
-
-    try {
-      host = createClient(port, { sessionId: 'primary-overflow-host' });
-      await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
-
-      const createdPromise = waitForEvent<RoomJoinedPayload>(
-        host,
-        'room:joined',
-      );
-      host.emit('room:create', {
-        name: 'Primary Overflow Room',
-        width: 52,
-        height: 52,
-      });
-      const hostJoined = await createdPromise;
-
-      guest = createClient(port, { sessionId: 'primary-overflow-guest' });
-      await waitForEvent<RoomJoinedPayload>(guest, 'room:joined');
-
-      const guestJoinedPromise = waitForEvent<RoomJoinedPayload>(
-        guest,
-        'room:joined',
-      );
-      guest.emit('room:join', { roomId: hostJoined.roomId });
-      const guestJoined = await guestJoinedPromise;
-
-      await claimSlot(host, 'team-1');
-      await claimSlot(guest, 'team-2');
-      await waitForMembership(
-        host,
-        hostJoined.roomId,
-        (payload: RoomMembershipPayload) =>
-          payload.slots['team-1'] === hostJoined.playerId &&
-          payload.slots['team-2'] === guestJoined.playerId,
-      );
-
-      const readyMembershipPromise = waitForMembership(
-        host,
-        hostJoined.roomId,
-        (payload: RoomMembershipPayload) =>
-          payload.participants.filter(
-            ({ role, ready }) => role === 'player' && ready,
-          ).length === 2,
-      );
-      host.emit('room:set-ready', { ready: true });
-      guest.emit('room:set-ready', { ready: true });
-      await readyMembershipPromise;
-
-      host.emit('room:start');
-      await waitForEvent(host, 'room:match-started', 7_000);
-
+  overflowTest(
+    'falls back on turn-buffer-overflow and still responds to queued commands',
+    async ({ connectedRoom, startLockstepMatch }) => {
+      const match = await startLockstepMatch(connectedRoom);
       const state = await waitForState(
-        host,
+        match.host,
         (payload) =>
-          payload.roomId === hostJoined.roomId &&
+          payload.roomId === match.roomId &&
           payload.teams.some(({ playerIds }) =>
-            playerIds.includes(hostJoined.playerId),
+            playerIds.includes(match.hostJoined.playerId),
           ),
         {
-          roomId: hostJoined.roomId,
+          roomId: match.roomId,
           attempts: 40,
           timeoutMs: 2_000,
         },
       );
-      const team = resolveTeamForPlayer(state.teams, hostJoined.playerId);
+      const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
 
-      const responsesPromise = waitForBuildResponses(host, 5, 6_000);
+      const responsesPromise = waitForBuildResponses(match.host, 5, 6_000);
       const fallbackPromise = waitForEvent<LockstepFallbackPayload>(
-        host,
+        match.host,
         'lockstep:fallback',
         6_000,
       );
 
       for (const offset of [8, 10, 12, 14, 16]) {
-        host.emit('build:queue', {
+        match.host.emit('build:queue', {
           templateId: 'block',
           x: team.baseTopLeft.x + offset,
           y: team.baseTopLeft.y + offset,
@@ -445,95 +333,41 @@ describe('lockstep primary mode', () => {
       expect(fallback.reason).toBe('turn-buffer-overflow');
 
       await waitForMembership(
-        host,
-        hostJoined.roomId,
-        (payload: RoomMembershipPayload) =>
+        match.host,
+        match.roomId,
+        (payload) =>
           payload.lockstep?.status === 'fallback' &&
           payload.lockstep.lastFallbackReason === 'turn-buffer-overflow',
       );
-    } finally {
-      host?.close();
-      guest?.close();
-      await server.stop();
-    }
-  }, 30_000);
+    },
+    30_000,
+  );
 
-  test('rejects buffered primary commands if match finishes before turn flush', async () => {
-    const server = createServer({
-      port: 0,
-      width: 52,
-      height: 52,
-      tickMs: 30,
-      countdownSeconds: 0,
-      lockstepMode: 'primary',
-      lockstepTurnTicks: 50,
-      lockstepCheckpointIntervalTicks: 1,
-    });
-    const port = await server.start();
-
-    let host: Socket | null = null;
-    let guest: Socket | null = null;
-    let spectator: Socket | null = null;
-
-    try {
-      host = createClient(port, { sessionId: 'primary-finish-host' });
-      const hostJoined = await waitForEvent<RoomJoinedPayload>(
-        host,
-        'room:joined',
-      );
-
-      guest = createClient(port, { sessionId: 'primary-finish-guest' });
-      await waitForEvent<RoomJoinedPayload>(guest, 'room:joined');
-      guest.emit('room:join', { roomId: hostJoined.roomId });
-      const guestJoined = await waitForEvent<RoomJoinedPayload>(
-        guest,
-        'room:joined',
-      );
-
-      spectator = createClient(port, { sessionId: 'primary-finish-spectator' });
+  finishTest(
+    'rejects buffered primary commands if match finishes before turn flush',
+    async ({ connectedRoom, startLockstepMatch, connectClient }) => {
+      const spectator = connectClient({
+        sessionId: 'primary-finish-spectator',
+      });
       await waitForEvent<RoomJoinedPayload>(spectator, 'room:joined');
-      spectator.emit('room:join', { roomId: hostJoined.roomId });
+      spectator.emit('room:join', { roomId: connectedRoom.roomId });
       await waitForEvent<RoomJoinedPayload>(spectator, 'room:joined');
 
-      await claimSlot(host, 'team-1');
-      await claimSlot(guest, 'team-2');
-      await waitForMembership(
-        host,
-        hostJoined.roomId,
-        (payload: RoomMembershipPayload) =>
-          payload.slots['team-1'] === hostJoined.playerId &&
-          payload.slots['team-2'] === guestJoined.playerId,
-      );
-
-      const readyMembershipPromise = waitForMembership(
-        host,
-        hostJoined.roomId,
-        (payload: RoomMembershipPayload) =>
-          payload.participants.filter(
-            ({ role, ready }) => role === 'player' && ready,
-          ).length === 2,
-      );
-      host.emit('room:set-ready', { ready: true });
-      guest.emit('room:set-ready', { ready: true });
-      await readyMembershipPromise;
-
-      host.emit('room:start');
-      await waitForEvent(host, 'room:match-started', 7_000);
-
+      const match = await startLockstepMatch(connectedRoom);
       const state = await waitForState(
-        host,
+        match.host,
         (payload) =>
-          payload.roomId === hostJoined.roomId &&
+          payload.roomId === match.roomId &&
           payload.teams.some(({ playerIds }) =>
-            playerIds.includes(hostJoined.playerId),
+            playerIds.includes(match.hostJoined.playerId),
           ),
         {
-          roomId: hostJoined.roomId,
+          roomId: match.roomId,
           attempts: 40,
           timeoutMs: 2_000,
         },
       );
-      const team = resolveTeamForPlayer(state.teams, hostJoined.playerId);
+      const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
       const scheduledPromise = waitForBuildScheduled(spectator, 2_000).catch(
         (error: unknown) => error,
       );
@@ -543,125 +377,68 @@ describe('lockstep primary mode', () => {
         2_000,
       );
 
-      host.emit('build:queue', {
+      match.host.emit('build:queue', {
         templateId: 'block',
         x: team.baseTopLeft.x + 8,
         y: team.baseTopLeft.y + 8,
       });
 
-      const queued = await waitForBuildQueueResponse(host, 500);
+      const queued = await waitForBuildQueueResponse(match.host, 500);
       if ('error' in queued) {
         throw new Error(
           `Expected buffered queued intent, received ${queued.error.reason ?? queued.error.message}`,
         );
       }
 
-      host.emit('room:leave');
-      guest.emit('room:leave');
+      match.host.emit('room:leave');
+      match.guest.emit('room:leave');
 
       await expect(rejectedPromise).resolves.toMatchObject({
-        roomId: hostJoined.roomId,
+        roomId: match.roomId,
         intentId: queued.queued.intentId,
         teamId: team.id,
         reason: 'match-finished',
       });
       await expect(scheduledPromise).resolves.toBeInstanceOf(Error);
-    } finally {
-      host?.close();
-      guest?.close();
-      spectator?.close();
-      await server.stop();
-    }
-  }, 30_000);
+    },
+    30_000,
+  );
 
-  test('rejects buffered primary destroy intents if match finishes before turn flush', async () => {
-    const server = createServer({
-      port: 0,
-      width: 52,
-      height: 52,
-      tickMs: 30,
-      countdownSeconds: 0,
-      lockstepMode: 'primary',
-      lockstepTurnTicks: 50,
-      lockstepCheckpointIntervalTicks: 1,
-    });
-    const port = await server.start();
-
-    let host: Socket | null = null;
-    let guest: Socket | null = null;
-    let spectator: Socket | null = null;
-
-    try {
-      host = createClient(port, { sessionId: 'primary-finish-destroy-host' });
-      const hostJoined = await waitForEvent<RoomJoinedPayload>(
-        host,
-        'room:joined',
-      );
-
-      guest = createClient(port, { sessionId: 'primary-finish-destroy-guest' });
-      await waitForEvent<RoomJoinedPayload>(guest, 'room:joined');
-      guest.emit('room:join', { roomId: hostJoined.roomId });
-      const guestJoined = await waitForEvent<RoomJoinedPayload>(
-        guest,
-        'room:joined',
-      );
-
-      spectator = createClient(port, {
+  finishDestroyTest(
+    'rejects buffered primary destroy intents if match finishes before turn flush',
+    async ({ connectedRoom, startLockstepMatch, connectClient }) => {
+      const spectator = connectClient({
         sessionId: 'primary-finish-destroy-spectator',
       });
       await waitForEvent<RoomJoinedPayload>(spectator, 'room:joined');
-      spectator.emit('room:join', { roomId: hostJoined.roomId });
+      spectator.emit('room:join', { roomId: connectedRoom.roomId });
       await waitForEvent<RoomJoinedPayload>(spectator, 'room:joined');
 
-      await claimSlot(host, 'team-1');
-      await claimSlot(guest, 'team-2');
-      await waitForMembership(
-        host,
-        hostJoined.roomId,
-        (payload: RoomMembershipPayload) =>
-          payload.slots['team-1'] === hostJoined.playerId &&
-          payload.slots['team-2'] === guestJoined.playerId,
-      );
-
-      const readyMembershipPromise = waitForMembership(
-        host,
-        hostJoined.roomId,
-        (payload: RoomMembershipPayload) =>
-          payload.participants.filter(
-            ({ role, ready }) => role === 'player' && ready,
-          ).length === 2,
-      );
-      host.emit('room:set-ready', { ready: true });
-      guest.emit('room:set-ready', { ready: true });
-      await readyMembershipPromise;
-
-      host.emit('room:start');
-      await waitForEvent(host, 'room:match-started', 7_000);
-
+      const match = await startLockstepMatch(connectedRoom);
       const state = await waitForState(
-        host,
+        match.host,
         (payload) =>
-          payload.roomId === hostJoined.roomId &&
+          payload.roomId === match.roomId &&
           payload.teams.some(({ playerIds }) =>
-            playerIds.includes(hostJoined.playerId),
+            playerIds.includes(match.hostJoined.playerId),
           ),
         {
-          roomId: hostJoined.roomId,
+          roomId: match.roomId,
           attempts: 40,
           timeoutMs: 2_000,
         },
       );
-      const team = resolveTeamForPlayer(state.teams, hostJoined.playerId);
+      const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
       const structures = await waitForStateStructures(
-        host,
+        match.host,
         (payload) =>
-          payload.roomId === hostJoined.roomId &&
+          payload.roomId === match.roomId &&
           payload.teams.some(
             (teamState) =>
               teamState.id === team.id && teamState.structures.length > 0,
           ),
         {
-          roomId: hostJoined.roomId,
+          roomId: match.roomId,
           attempts: 40,
           timeoutMs: 2_000,
         },
@@ -682,104 +459,50 @@ describe('lockstep primary mode', () => {
         2_000,
       );
 
-      host.emit('destroy:queue', {
+      match.host.emit('destroy:queue', {
         structureKey: ownStructure.key,
       });
 
-      const queued = await waitForDestroyQueueResponse(host, 500);
+      const queued = await waitForDestroyQueueResponse(match.host, 500);
       if ('error' in queued) {
         throw new Error(
           `Expected buffered queued destroy intent, received ${queued.error.reason ?? queued.error.message}`,
         );
       }
 
-      host.emit('room:leave');
-      guest.emit('room:leave');
+      match.host.emit('room:leave');
+      match.guest.emit('room:leave');
 
       await expect(rejectedPromise).resolves.toMatchObject({
-        roomId: hostJoined.roomId,
+        roomId: match.roomId,
         intentId: queued.queued.intentId,
         teamId: team.id,
         structureKey: ownStructure.key,
         reason: 'match-finished',
       });
       await expect(scheduledPromise).resolves.toBeInstanceOf(Error);
-    } finally {
-      host?.close();
-      guest?.close();
-      spectator?.close();
-      await server.stop();
-    }
-  }, 30_000);
+    },
+    30_000,
+  );
 
-  test('emits buffered build rejection when primary replay validation fails', async () => {
-    const server = createServer({
-      port: 0,
-      width: 52,
-      height: 52,
-      tickMs: 30,
-      countdownSeconds: 0,
-      lockstepMode: 'primary',
-      lockstepTurnTicks: 50,
-      lockstepCheckpointIntervalTicks: 1,
-    });
-    const port = await server.start();
-
-    let host: Socket | null = null;
-    let guest: Socket | null = null;
-
-    try {
-      host = createClient(port, { sessionId: 'primary-reject-host' });
-      const hostJoined = await waitForEvent<RoomJoinedPayload>(
-        host,
-        'room:joined',
-      );
-
-      guest = createClient(port, { sessionId: 'primary-reject-guest' });
-      const guestJoined = await waitForEvent<RoomJoinedPayload>(
-        guest,
-        'room:joined',
-      );
-
-      await claimSlot(host, 'team-1');
-      await claimSlot(guest, 'team-2');
-      await waitForMembership(
-        host,
-        hostJoined.roomId,
-        (payload: RoomMembershipPayload) =>
-          payload.slots['team-1'] === hostJoined.playerId &&
-          payload.slots['team-2'] === guestJoined.playerId,
-      );
-
-      const readyMembershipPromise = waitForMembership(
-        host,
-        hostJoined.roomId,
-        (payload: RoomMembershipPayload) =>
-          payload.participants.filter(
-            ({ role, ready }) => role === 'player' && ready,
-          ).length === 2,
-      );
-      host.emit('room:set-ready', { ready: true });
-      guest.emit('room:set-ready', { ready: true });
-      await readyMembershipPromise;
-
-      host.emit('room:start');
-      await waitForEvent(host, 'room:match-started', 7_000);
-
+  rejectTest(
+    'emits buffered build rejection when primary replay validation fails',
+    async ({ connectedRoom, startLockstepMatch }) => {
+      const match = await startLockstepMatch(connectedRoom);
       const state = await waitForState(
-        host,
+        match.host,
         (payload) =>
-          payload.roomId === hostJoined.roomId &&
+          payload.roomId === match.roomId &&
           payload.teams.some(({ playerIds }) =>
-            playerIds.includes(hostJoined.playerId),
+            playerIds.includes(match.hostJoined.playerId),
           ),
         {
-          roomId: hostJoined.roomId,
+          roomId: match.roomId,
           attempts: 40,
           timeoutMs: 2_000,
         },
       );
-      const team = resolveTeamForPlayer(state.teams, hostJoined.playerId);
+      const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
       const opposingTeam = state.teams.find(({ id }) => id !== team.id);
       if (!opposingTeam) {
         throw new Error(
@@ -787,22 +510,22 @@ describe('lockstep primary mode', () => {
         );
       }
 
-      const scheduledPromise = waitForBuildScheduled(host, 2_000).catch(
+      const scheduledPromise = waitForBuildScheduled(match.host, 2_000).catch(
         (error: unknown) => error,
       );
       const rejectedPromise = waitForEvent<BuildQueueRejectedPayload>(
-        host,
+        match.host,
         'build:queue-rejected',
         2_000,
       );
 
-      host.emit('build:queue', {
+      match.host.emit('build:queue', {
         templateId: 'block',
         x: opposingTeam.baseTopLeft.x + 1,
         y: opposingTeam.baseTopLeft.y + 1,
       });
 
-      const queued = await waitForBuildQueueResponse(host, 500);
+      const queued = await waitForBuildQueueResponse(match.host, 500);
       if ('error' in queued) {
         throw new Error(
           `Expected buffered queued intent, received ${queued.error.reason ?? queued.error.message}`,
@@ -810,16 +533,13 @@ describe('lockstep primary mode', () => {
       }
 
       await expect(rejectedPromise).resolves.toMatchObject({
-        roomId: hostJoined.roomId,
+        roomId: match.roomId,
         intentId: queued.queued.intentId,
         teamId: team.id,
         reason: 'outside-territory',
       });
       await expect(scheduledPromise).resolves.toBeInstanceOf(Error);
-    } finally {
-      host?.close();
-      guest?.close();
-      await server.stop();
-    }
-  }, 30_000);
+    },
+    30_000,
+  );
 });

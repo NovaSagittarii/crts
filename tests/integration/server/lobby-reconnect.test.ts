@@ -1,23 +1,14 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import type { Socket } from 'socket.io-client';
+import { describe, expect, vi } from 'vitest';
 
-import {
-  createServer,
-  type GameServer,
-  type ServerOptions,
-} from '../../../apps/server/src/server.js';
+import type { ServerOptions } from '../../../apps/server/src/server.js';
 
 import type {
   RoomErrorPayload,
   RoomJoinedPayload,
   RoomSlotClaimedPayload,
 } from '#rts-engine';
-import {
-  createClient,
-  type TestClientOptions,
-  waitForEvent,
-  waitForMembership,
-} from './test-support.js';
+import { waitForEvent, waitForMembership } from './test-support.js';
+import { createIntegrationTest } from './fixtures.js';
 
 const HOLD_EXPIRY_ADVANCE_MS = 31_000;
 const DEFAULT_RECONNECT_HOLD_MS = 30_000;
@@ -44,36 +35,12 @@ const INVALID_RECONNECT_HOLD_MS_CASES = [
   },
 ] as const;
 
+const test = createIntegrationTest(DEFAULT_SERVER_OPTIONS);
+
 describe('lobby reconnect reliability', () => {
-  let server: GameServer;
-  let port = 0;
-  const sockets: Socket[] = [];
-
-  async function restartServer(options: ServerOptions): Promise<void> {
-    await server.stop();
-    server = createServer(options);
-    port = await server.start();
-  }
-
-  beforeEach(async () => {
-    server = createServer(DEFAULT_SERVER_OPTIONS);
-    port = await server.start();
-  });
-
-  afterEach(async () => {
-    for (const socket of sockets) {
-      socket.close();
-    }
-    await server.stop();
-  });
-
-  function connectClient(options: TestClientOptions = {}): Socket {
-    const socket = createClient(port, options);
-    sockets.push(socket);
-    return socket;
-  }
-
-  test('holds disconnected slot for reclaim, releases it after timeout, and keeps late return as spectator', async () => {
+  test('holds disconnected slot for reclaim, releases it after timeout, and keeps late return as spectator', async ({
+    connectClient,
+  }) => {
     const host = connectClient({ sessionId: 'host-hold-timeout' });
     await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
 
@@ -192,9 +159,11 @@ describe('lobby reconnect reliability', () => {
     expect(finalMembership.slots['team-1']).toBe('replacement-player');
   }, 50_000);
 
-  test.each(INVALID_RECONNECT_HOLD_MS_CASES)(
-    'falls back to default hold window when reconnectHoldMs is $label',
-    async ({ reconnectHoldMs }) => {
+  for (const { label, reconnectHoldMs } of INVALID_RECONNECT_HOLD_MS_CASES) {
+    test(`falls back to default hold window when reconnectHoldMs is ${label}`, async ({
+      connectClient,
+      restartServer,
+    }) => {
       const scheduledHoldDelays: number[] = [];
       await restartServer({
         ...DEFAULT_SERVER_OPTIONS,
@@ -241,10 +210,12 @@ describe('lobby reconnect reliability', () => {
 
       expect(scheduledHoldDelays).toHaveLength(1);
       expect(scheduledHoldDelays[0]).toBe(DEFAULT_RECONNECT_HOLD_MS);
-    },
-  );
+    });
+  }
 
-  test('rejects third-party claims while a disconnected player slot is held', async () => {
+  test('rejects third-party claims while a disconnected player slot is held', async ({
+    connectClient,
+  }) => {
     const host = connectClient({ sessionId: 'host-slot-held' });
     await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
 
@@ -303,7 +274,9 @@ describe('lobby reconnect reliability', () => {
     );
   });
 
-  test('allows claims into a partially open team while another commander is held', async () => {
+  test('allows claims into a partially open team while another commander is held', async ({
+    connectClient,
+  }) => {
     const host = connectClient({ sessionId: 'host-shared-hold' });
     await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
 
@@ -386,7 +359,9 @@ describe('lobby reconnect reliability', () => {
     );
   });
 
-  test('gives reconnecting session priority over spectator slot claim races', async () => {
+  test('gives reconnecting session priority over spectator slot claim races', async ({
+    connectClient,
+  }) => {
     const host = connectClient({ sessionId: 'host-race' });
     await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
 
@@ -447,7 +422,9 @@ describe('lobby reconnect reliability', () => {
     expect(finalMembership.slots['team-1']).toBe('session-race-player');
   });
 
-  test('keeps newest socket authoritative when the same session reconnects twice', async () => {
+  test('keeps newest socket authoritative when the same session reconnects twice', async ({
+    connectClient,
+  }) => {
     const host = connectClient({ sessionId: 'host-newest' });
     await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
 
@@ -520,7 +497,10 @@ describe('lobby reconnect reliability', () => {
     ).toHaveLength(1);
   });
 
-  test('expires active disconnects after reconnect grace period', async () => {
+  test('expires active disconnects after reconnect grace period', async ({
+    connectClient,
+    restartServer,
+  }) => {
     await restartServer({
       ...DEFAULT_SERVER_OPTIONS,
       reconnectHoldMs: 250,

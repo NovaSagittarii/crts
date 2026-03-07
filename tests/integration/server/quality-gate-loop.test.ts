@@ -1,10 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import type { Socket } from 'socket.io-client';
-
-import {
-  createServer,
-  type GameServer,
-} from '../../../apps/server/src/server.js';
+import { describe, expect } from 'vitest';
 
 import type {
   BuildScheduledPayload,
@@ -14,11 +8,8 @@ import type {
   RoomErrorPayload,
   RoomJoinedPayload,
 } from '#rts-engine';
-import { setupActiveMatch } from './match-support.js';
 import {
-  createClient,
   type ActiveMatchSetup,
-  type TestClientOptions,
   collectCandidatePlacements,
   getTeamByPlayerId,
   waitForBuildOutcome,
@@ -30,6 +21,13 @@ import {
   waitForEvent,
   waitForRoomState,
 } from './test-support.js';
+import { createMatchTest } from './match-fixtures.js';
+
+const test = createMatchTest(
+  { port: 0, width: 52, height: 52, tickMs: 40 },
+  { roomName: 'QUAL-02 Loop Room' },
+  { waitForActiveMembership: true },
+);
 
 interface QueueBuildAttempt {
   transform?: PlacementTransformInput;
@@ -178,34 +176,10 @@ async function queueAppliedHostBuild(match: ActiveMatchSetup): Promise<{
 }
 
 describe('QUAL-02 quality gate integration loop', () => {
-  let server: GameServer;
-  let port = 0;
-  const sockets: Socket[] = [];
-
-  beforeEach(async () => {
-    server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
-    port = await server.start();
-  });
-
-  afterEach(async () => {
-    for (const socket of sockets) {
-      socket.close();
-    }
-    await server.stop();
-  });
-
-  function connectClientForTest(options: TestClientOptions = {}): Socket {
-    const socket = createClient(port, options);
-    sockets.push(socket);
-    return socket;
-  }
-
-  test('QUAL-02: join -> build -> tick -> breach -> defeat with defeated build rejection', async () => {
-    const match = await setupActiveMatch({
-      connectClient: () => connectClientForTest(),
-      roomName: 'QUAL-02 Loop Room',
-      waitForActiveMembership: true,
-    });
+  test('QUAL-02: join -> build -> tick -> breach -> defeat with defeated build rejection', async ({
+    activeMatch,
+  }) => {
+    const match = activeMatch;
 
     // QUAL-02 requires one explicit build queue + terminal outcome in the loop.
     const { scheduled, outcome } = await queueValidHostBuild(match);
@@ -286,12 +260,11 @@ describe('QUAL-02 quality gate integration loop', () => {
     expect(defeatedError.reason).toBe('defeated');
   }, 45_000);
 
-  test('QUAL-04: build plus destroy stays deterministic across reconnect checkpoints', async () => {
-    const match = await setupActiveMatch({
-      connectClient: () => connectClientForTest(),
-      roomName: 'QUAL-02 Loop Room',
-      waitForActiveMembership: true,
-    });
+  test('QUAL-04: build plus destroy stays deterministic across reconnect checkpoints', async ({
+    activeMatch,
+    connectClient,
+  }) => {
+    const match = activeMatch;
 
     const appliedBuild = await queueAppliedHostBuild(match);
     expect(appliedBuild.outcome.outcome).toBe('applied');
@@ -313,7 +286,7 @@ describe('QUAL-02 quality gate integration loop', () => {
     expect(destroyScheduled.idempotent).toBe(false);
 
     match.guest.disconnect();
-    const reconnectGuest = connectClientForTest({
+    const reconnectGuest = connectClient({
       sessionId: match.guestJoined.playerId,
     });
     const rejoined = await waitForEvent<RoomJoinedPayload>(

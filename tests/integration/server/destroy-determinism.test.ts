@@ -1,21 +1,12 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import type { Socket } from 'socket.io-client';
-
-import {
-  createServer,
-  type GameServer,
-} from '../../../apps/server/src/server.js';
+import { describe, expect } from 'vitest';
 
 import type {
   BuildScheduledPayload,
   BuildOutcomePayload,
   RoomJoinedPayload,
 } from '#rts-engine';
-import { setupActiveMatch } from './match-support.js';
 import {
-  createClient,
   type ActiveMatchSetup,
-  type TestClientOptions,
   collectCandidatePlacements,
   getTeamByPlayerId,
   waitForBuildOutcome,
@@ -27,6 +18,16 @@ import {
   waitForEvent,
   waitForRoomState,
 } from './test-support.js';
+import { createMatchTest } from './match-fixtures.js';
+
+const test = createMatchTest(
+  { port: 0, width: 52, height: 52, tickMs: 40 },
+  {
+    roomName: 'Destroy Determinism Room',
+    hostSessionId: 'destroy-determinism-host',
+    guestSessionId: 'destroy-determinism-guest',
+  },
+);
 
 async function queueAppliedHostBlock(match: ActiveMatchSetup): Promise<{
   scheduled: BuildScheduledPayload;
@@ -111,35 +112,11 @@ async function queueAppliedHostBlock(match: ActiveMatchSetup): Promise<{
 }
 
 describe('destroy reconnect determinism', () => {
-  let server: GameServer;
-  let port = 0;
-  const sockets: Socket[] = [];
-
-  beforeEach(async () => {
-    server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
-    port = await server.start();
-  });
-
-  afterEach(async () => {
-    for (const socket of sockets) {
-      socket.close();
-    }
-    await server.stop();
-  });
-
-  function connectClientForTest(options: TestClientOptions = {}): Socket {
-    const socket = createClient(port, options);
-    sockets.push(socket);
-    return socket;
-  }
-
-  test('reconnects during pending destroy and converges on one authoritative terminal outcome', async () => {
-    const match = await setupActiveMatch({
-      connectClient: (options) => connectClientForTest(options),
-      roomName: 'Destroy Determinism Room',
-      hostSessionId: 'destroy-determinism-host',
-      guestSessionId: 'destroy-determinism-guest',
-    });
+  test('reconnects during pending destroy and converges on one authoritative terminal outcome', async ({
+    activeMatch,
+    connectClient,
+  }) => {
+    const match = activeMatch;
     const appliedBuild = await queueAppliedHostBlock(match);
     expect(appliedBuild.outcome.outcome).toBe('applied');
 
@@ -161,7 +138,7 @@ describe('destroy reconnect determinism', () => {
 
     match.guest.disconnect();
 
-    const reconnectGuest = connectClientForTest({
+    const reconnectGuest = connectClient({
       sessionId: match.guestJoined.playerId,
     });
     const rejoined = await waitForEvent<RoomJoinedPayload>(
@@ -242,13 +219,11 @@ describe('destroy reconnect determinism', () => {
     expect(reconnectTeam.structures).toEqual(hostTeam.structures);
   }, 60_000);
 
-  test('reconnects after resolved destroy and receives converged authoritative state', async () => {
-    const match = await setupActiveMatch({
-      connectClient: (options) => connectClientForTest(options),
-      roomName: 'Destroy Determinism Room',
-      hostSessionId: 'destroy-determinism-host',
-      guestSessionId: 'destroy-determinism-guest',
-    });
+  test('reconnects after resolved destroy and receives converged authoritative state', async ({
+    activeMatch,
+    connectClient,
+  }) => {
+    const match = activeMatch;
     const appliedBuild = await queueAppliedHostBlock(match);
     expect(appliedBuild.outcome.outcome).toBe('applied');
 
@@ -292,7 +267,7 @@ describe('destroy reconnect determinism', () => {
 
     match.guest.disconnect();
 
-    const reconnectGuest = connectClientForTest({
+    const reconnectGuest = connectClient({
       sessionId: match.guestJoined.playerId,
     });
     const rejoined = await waitForEvent<RoomJoinedPayload>(

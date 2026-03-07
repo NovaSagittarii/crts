@@ -1,27 +1,18 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { describe, expect } from 'vitest';
 import type { Socket } from 'socket.io-client';
 
-import {
-  createServer,
-  type GameServer,
-} from '../../../apps/server/src/server.js';
-
 import type {
-  MatchStartedPayload,
   RoomErrorPayload,
   RoomJoinedPayload,
   RoomLeftPayload,
-  RoomSlotClaimedPayload,
 } from '#rts-engine';
 import {
-  createClient,
-  type TestClientOptions,
   waitForBuildQueueResponse,
   waitForDestroyQueueResponse,
   waitForEvent,
-  waitForMembership,
-  waitForState,
 } from './test-support.js';
+import { createIntegrationTest, type ConnectClient } from './fixtures.js';
+import { createMatchTest } from './match-fixtures.js';
 
 const INVALID_READY_CASES = [
   { label: 'null payload', payload: null },
@@ -54,56 +45,24 @@ const INVALID_DESTROY_CASES = [
   { label: 'blank structure key', payload: { structureKey: '   ' } },
 ] as const;
 
+const serverOptions = {
+  port: 0,
+  width: 52,
+  height: 52,
+  tickMs: 40,
+  countdownSeconds: 0,
+};
+
+const integrationTest = createIntegrationTest(serverOptions);
+const matchTest = createMatchTest(serverOptions, {
+  roomName: 'Validation Match Room',
+  hostSessionId: 'validation-host',
+  guestSessionId: 'validation-guest',
+});
+
 describe('socket payload validation', () => {
-  let server: GameServer;
-  let port = 0;
-  const sockets: Socket[] = [];
-
-  beforeEach(async () => {
-    server = createServer({
-      port: 0,
-      width: 52,
-      height: 52,
-      tickMs: 40,
-      countdownSeconds: 0,
-    });
-    port = await server.start();
-  });
-
-  afterEach(async () => {
-    for (const socket of sockets) {
-      socket.close();
-    }
-    await server.stop();
-  });
-
-  function connectClient(options: TestClientOptions = {}): Socket {
-    const socket = createClient(port, options);
-    sockets.push(socket);
-    return socket;
-  }
-
-  async function claimSlot(
-    socket: Socket,
-    roomId: string,
-    slotId: string,
-  ): Promise<RoomSlotClaimedPayload> {
-    const claimedPromise = waitForEvent<RoomSlotClaimedPayload>(
-      socket,
-      'room:slot-claimed',
-    );
-    socket.emit('room:claim-slot', { slotId });
-    const claimed = await claimedPromise;
-    expect(claimed.roomId).toBe(roomId);
-    await waitForMembership(
-      socket,
-      roomId,
-      (payload) => payload.slots[slotId] !== null,
-    );
-    return claimed;
-  }
-
   async function createLobbyRoom(
+    connectClient: ConnectClient,
     sessionId: string,
   ): Promise<{ owner: Socket; created: RoomJoinedPayload }> {
     const owner = connectClient({ sessionId });
@@ -119,174 +78,128 @@ describe('socket payload validation', () => {
     return { owner, created };
   }
 
-  async function setupActiveMatch(): Promise<{
-    host: Socket;
-    guest: Socket;
-    roomId: string;
-    hostJoined: RoomJoinedPayload;
-    guestJoined: RoomJoinedPayload;
-  }> {
-    const host = connectClient({ sessionId: 'validation-host' });
-    await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
+  for (const { label, payload } of INVALID_READY_CASES) {
+    integrationTest(
+      `rejects malformed room:set-ready payloads: ${label}`,
+      async ({ connectClient }) => {
+        const { owner } = await createLobbyRoom(
+          connectClient,
+          'ready-validation-owner',
+        );
+        const errorPromise = waitForEvent<RoomErrorPayload>(
+          owner,
+          'room:error',
+        );
 
-    host.emit('room:create', {
-      name: 'Validation Match Room',
-      width: 52,
-      height: 52,
-    });
-    const hostJoined = await waitForEvent<RoomJoinedPayload>(
-      host,
-      'room:joined',
-    );
+        owner.emit('room:set-ready', payload);
 
-    const guest = connectClient({ sessionId: 'validation-guest' });
-    await waitForEvent<RoomJoinedPayload>(guest, 'room:joined');
-    guest.emit('room:join', { roomId: hostJoined.roomId });
-    const guestJoined = await waitForEvent<RoomJoinedPayload>(
-      guest,
-      'room:joined',
-    );
-
-    await claimSlot(host, hostJoined.roomId, 'team-1');
-    await claimSlot(guest, hostJoined.roomId, 'team-2');
-
-    host.emit('room:set-ready', { ready: true });
-    guest.emit('room:set-ready', { ready: true });
-    await waitForMembership(
-      host,
-      hostJoined.roomId,
-      (payload) =>
-        payload.participants.filter(
-          ({ role, ready }) => role === 'player' && ready,
-        ).length === 2,
-      { overallTimeoutMs: 8_000 },
-    );
-
-    const matchStartedPromise = waitForEvent<MatchStartedPayload>(
-      host,
-      'room:match-started',
-      8_000,
-    );
-    host.emit('room:start');
-    await matchStartedPromise;
-
-    await waitForState(
-      host,
-      (payload) =>
-        payload.roomId === hostJoined.roomId &&
-        payload.teams.some(({ playerIds }) =>
-          playerIds.includes(hostJoined.playerId),
-        ) &&
-        payload.teams.some(({ playerIds }) =>
-          playerIds.includes(guestJoined.playerId),
-        ),
-      {
-        roomId: hostJoined.roomId,
-        overallTimeoutMs: 8_000,
+        await expect(errorPromise).resolves.toMatchObject({
+          reason: 'invalid-ready',
+          message: 'Invalid ready payload',
+        });
       },
     );
-
-    return {
-      host,
-      guest,
-      roomId: hostJoined.roomId,
-      hostJoined,
-      guestJoined,
-    };
   }
 
-  test.each(INVALID_READY_CASES)(
-    'rejects malformed room:set-ready payloads: $label',
-    async ({ payload }) => {
-      const { owner } = await createLobbyRoom('ready-validation-owner');
-      const errorPromise = waitForEvent<RoomErrorPayload>(owner, 'room:error');
+  for (const { label, payload } of INVALID_CHAT_CASES) {
+    integrationTest(
+      `rejects malformed chat:send payloads: ${label}`,
+      async ({ connectClient }) => {
+        const { owner } = await createLobbyRoom(
+          connectClient,
+          'chat-validation-owner',
+        );
+        const errorPromise = waitForEvent<RoomErrorPayload>(
+          owner,
+          'room:error',
+        );
 
-      owner.emit('room:set-ready', payload);
+        owner.emit('chat:send', payload);
 
-      await expect(errorPromise).resolves.toMatchObject({
-        reason: 'invalid-ready',
-        message: 'Invalid ready payload',
-      });
-    },
-  );
+        await expect(errorPromise).resolves.toMatchObject({
+          reason: 'invalid-chat',
+          message: 'Chat message cannot be empty',
+        });
+      },
+    );
+  }
 
-  test.each(INVALID_CHAT_CASES)(
-    'rejects malformed chat:send payloads: $label',
-    async ({ payload }) => {
-      const { owner } = await createLobbyRoom('chat-validation-owner');
-      const errorPromise = waitForEvent<RoomErrorPayload>(owner, 'room:error');
+  integrationTest(
+    'scopes room:error payloads for room and lobby rejections',
+    async ({ connectClient }) => {
+      const { owner, created } = await createLobbyRoom(
+        connectClient,
+        'room-error-owner',
+      );
 
-      owner.emit('chat:send', payload);
+      const roomScopedErrorPromise = waitForEvent<RoomErrorPayload>(
+        owner,
+        'room:error',
+      );
+      owner.emit('chat:send', { message: '   ' });
 
-      await expect(errorPromise).resolves.toMatchObject({
+      await expect(roomScopedErrorPromise).resolves.toMatchObject({
         reason: 'invalid-chat',
-        message: 'Chat message cannot be empty',
+        roomId: created.roomId,
+      });
+
+      const outsider = connectClient({ sessionId: 'room-error-outsider' });
+      await waitForEvent<RoomJoinedPayload>(outsider, 'room:joined');
+      outsider.emit('room:leave');
+      await waitForEvent<RoomLeftPayload>(outsider, 'room:left');
+
+      const lobbyErrorPromise = waitForEvent<RoomErrorPayload>(
+        outsider,
+        'room:error',
+      );
+      outsider.emit('room:set-ready', null);
+
+      await expect(lobbyErrorPromise).resolves.toMatchObject({
+        reason: 'not-in-room',
+        roomId: null,
       });
     },
   );
 
-  test('scopes room:error payloads for room and lobby rejections', async () => {
-    const { owner, created } = await createLobbyRoom('room-error-owner');
+  for (const { label, payload } of INVALID_BUILD_CASES) {
+    matchTest(
+      `rejects malformed build:queue payloads: ${label}`,
+      async ({ activeMatch }) => {
+        const responsePromise = waitForBuildQueueResponse(
+          activeMatch.host,
+          4_000,
+        );
 
-    const roomScopedErrorPromise = waitForEvent<RoomErrorPayload>(
-      owner,
-      'room:error',
+        activeMatch.host.emit('build:queue', payload);
+
+        const response = await responsePromise;
+        expect('error' in response).toBe(true);
+        if ('error' in response) {
+          expect(response.error.reason).toBe('invalid-build');
+          expect(response.error.message).toBe('Invalid build payload');
+        }
+      },
     );
-    owner.emit('chat:send', { message: '   ' });
+  }
 
-    await expect(roomScopedErrorPromise).resolves.toMatchObject({
-      reason: 'invalid-chat',
-      roomId: created.roomId,
-    });
+  for (const { label, payload } of INVALID_DESTROY_CASES) {
+    matchTest(
+      `rejects malformed destroy:queue payloads: ${label}`,
+      async ({ activeMatch }) => {
+        const responsePromise = waitForDestroyQueueResponse(
+          activeMatch.host,
+          4_000,
+        );
 
-    const outsider = connectClient({ sessionId: 'room-error-outsider' });
-    await waitForEvent<RoomJoinedPayload>(outsider, 'room:joined');
-    outsider.emit('room:leave');
-    await waitForEvent<RoomLeftPayload>(outsider, 'room:left');
+        activeMatch.host.emit('destroy:queue', payload);
 
-    const lobbyErrorPromise = waitForEvent<RoomErrorPayload>(
-      outsider,
-      'room:error',
+        const response = await responsePromise;
+        expect('error' in response).toBe(true);
+        if ('error' in response) {
+          expect(response.error.reason).toBe('invalid-build');
+          expect(response.error.message).toBe('Invalid destroy payload');
+        }
+      },
     );
-    outsider.emit('room:set-ready', null);
-
-    await expect(lobbyErrorPromise).resolves.toMatchObject({
-      reason: 'not-in-room',
-      roomId: null,
-    });
-  });
-
-  test.each(INVALID_BUILD_CASES)(
-    'rejects malformed build:queue payloads: $label',
-    async ({ payload }) => {
-      const { host } = await setupActiveMatch();
-      const responsePromise = waitForBuildQueueResponse(host, 4_000);
-
-      host.emit('build:queue', payload);
-
-      const response = await responsePromise;
-      expect('error' in response).toBe(true);
-      if ('error' in response) {
-        expect(response.error.reason).toBe('invalid-build');
-        expect(response.error.message).toBe('Invalid build payload');
-      }
-    },
-  );
-
-  test.each(INVALID_DESTROY_CASES)(
-    'rejects malformed destroy:queue payloads: $label',
-    async ({ payload }) => {
-      const { host } = await setupActiveMatch();
-      const responsePromise = waitForDestroyQueueResponse(host, 4_000);
-
-      host.emit('destroy:queue', payload);
-
-      const response = await responsePromise;
-      expect('error' in response).toBe(true);
-      if ('error' in response) {
-        expect(response.error.reason).toBe('invalid-build');
-        expect(response.error.message).toBe('Invalid destroy payload');
-      }
-    },
-  );
+  }
 });

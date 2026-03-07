@@ -1,16 +1,12 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect } from 'vitest';
 
-import { createServer } from '../../../apps/server/src/server.js';
 import type {
   BuildQueuedPayload,
   RoomGridStatePayload,
   RoomStateHashesPayload,
   RoomStructuresStatePayload,
 } from '#rts-engine';
-import { setupActiveMatch } from './match-support.js';
 import {
-  type ActiveMatchSetup,
-  createClient,
   waitForBuildQueueResponse,
   waitForBuildScheduled,
   waitForEvent,
@@ -19,27 +15,46 @@ import {
   waitForStateHashes,
   waitForStateStructures,
 } from './test-support.js';
+import { createMatchTest } from './match-fixtures.js';
+import { createLockstepTest } from './lockstep-fixtures.js';
+
+const sectionsMatchTest = createMatchTest(
+  {
+    port: 0,
+    width: 52,
+    height: 52,
+    tickMs: 40,
+    activeStateSnapshotIntervalTicks: 1000,
+  },
+  {
+    roomName: 'State Sections Room',
+    hostSessionId: 'sections-host',
+    guestSessionId: 'sections-guest',
+  },
+);
+
+const lockstepSectionsTest = createLockstepTest(
+  {
+    port: 0,
+    width: 52,
+    height: 52,
+    tickMs: 30,
+    lockstepMode: 'primary',
+    lockstepTurnTicks: 20,
+    lockstepCheckpointIntervalTicks: 1,
+  },
+  {
+    roomName: 'State Sections Room',
+    hostSessionId: 'sections-host',
+    guestSessionId: 'sections-guest',
+  },
+);
 
 describe('section sync and queued scheduling', () => {
-  test('serves grid and structures sections only to the requester', async () => {
-    const server = createServer({
-      port: 0,
-      width: 52,
-      height: 52,
-      tickMs: 40,
-      activeStateSnapshotIntervalTicks: 1000,
-    });
-    const port = await server.start();
-
-    let setup: ActiveMatchSetup | null = null;
-
-    try {
-      setup = await setupActiveMatch({
-        connectClient: (options) => createClient(port, options),
-        roomName: 'State Sections Room',
-        hostSessionId: 'sections-host',
-        guestSessionId: 'sections-guest',
-      });
+  sectionsMatchTest(
+    'serves grid and structures sections only to the requester',
+    async ({ activeMatch }) => {
+      const setup = activeMatch;
 
       const initialGrid = await waitForStateGrid(
         setup.host,
@@ -106,34 +121,15 @@ describe('section sync and queued scheduling', () => {
         waitForNoEvent(setup.guest, 'state:grid', 250),
         waitForNoEvent(setup.guest, 'state:structures', 250),
       ]);
-    } finally {
-      setup?.host.close();
-      setup?.guest.close();
-      await server.stop();
-    }
-  }, 25_000);
+    },
+    25_000,
+  );
 
-  test('broadcasts queued intents immediately and scheduled builds on turn flush', async () => {
-    const server = createServer({
-      port: 0,
-      width: 52,
-      height: 52,
-      tickMs: 30,
-      countdownSeconds: 0,
-      lockstepMode: 'primary',
-      lockstepTurnTicks: 20,
-      lockstepCheckpointIntervalTicks: 1,
-    });
-    const port = await server.start();
-
-    let setup: ActiveMatchSetup | null = null;
-
-    try {
-      setup = await setupActiveMatch({
-        connectClient: (options) => createClient(port, options),
-        roomName: 'State Sections Room',
-        hostSessionId: 'sections-host',
-        guestSessionId: 'sections-guest',
+  lockstepSectionsTest(
+    'broadcasts queued intents immediately and scheduled builds on turn flush',
+    async ({ connectedRoom, startLockstepMatch }) => {
+      const setup = await startLockstepMatch(connectedRoom, {
+        waitForActiveMembership: false,
       });
 
       const hostQueuedPromise = waitForBuildQueueResponse(setup.host, 4_000);
@@ -178,10 +174,7 @@ describe('section sync and queued scheduling', () => {
       expect(hostScheduled.eventId).toBeGreaterThan(0);
       expect(hostScheduled.executeTick).toBeGreaterThan(0);
       expect(hostScheduled.teamId).toBe(setup.hostTeam.id);
-    } finally {
-      setup?.host.close();
-      setup?.guest.close();
-      await server.stop();
-    }
-  }, 25_000);
+    },
+    25_000,
+  );
 });
