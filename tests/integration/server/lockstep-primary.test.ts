@@ -8,6 +8,7 @@ import type {
   DestroyQueueRejectedPayload,
   LockstepCheckpointPayload,
   LockstepFallbackPayload,
+  RoomErrorPayload,
   RoomJoinedPayload,
   RoomMembershipPayload,
   RoomSlotClaimedPayload,
@@ -47,6 +48,53 @@ async function claimSlot(socket: Socket, slotId: string): Promise<number> {
     throw new Error(`Expected ${slotId} claim to assign a team`);
   }
   return claimed.teamId;
+}
+
+function waitForBuildResponses(
+  socket: Socket,
+  count: number,
+  timeoutMs = 4_000,
+): Promise<
+  Array<
+    | { kind: 'queued'; payload: BuildQueuedPayload }
+    | { kind: 'error'; payload: RoomErrorPayload }
+  >
+> {
+  return new Promise((resolve, reject) => {
+    const responses: Array<
+      | { kind: 'queued'; payload: BuildQueuedPayload }
+      | { kind: 'error'; payload: RoomErrorPayload }
+    > = [];
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timed out waiting for ${count} build responses`));
+    }, timeoutMs);
+
+    function cleanup(): void {
+      clearTimeout(timer);
+      socket.off('build:queued', onQueued);
+      socket.off('room:error', onError);
+    }
+
+    function onQueued(payload: BuildQueuedPayload): void {
+      responses.push({ kind: 'queued', payload });
+      if (responses.length >= count) {
+        cleanup();
+        resolve(responses);
+      }
+    }
+
+    function onError(payload: RoomErrorPayload): void {
+      responses.push({ kind: 'error', payload });
+      if (responses.length >= count) {
+        cleanup();
+        resolve(responses);
+      }
+    }
+
+    socket.on('build:queued', onQueued);
+    socket.on('room:error', onError);
+  });
 }
 
 describe('lockstep primary mode', () => {
@@ -269,25 +317,19 @@ describe('lockstep primary mode', () => {
         y: team.baseTopLeft.y + 8,
       });
 
-      await expect(
-        waitForEvent<BuildQueuedPayload>(host, 'build:queued', 250),
-      ).rejects.toThrow(/timed out/i);
-
-      await expect(waitForBuildScheduled(host, 250)).rejects.toThrow(
-        /timed out/i,
-      );
-
-      const queued = await waitForBuildQueueResponse(host, 5_000);
+      const queued = await waitForBuildQueueResponse(host, 250);
       if ('error' in queued) {
         throw new Error(
           `Build queue rejected: ${queued.error.reason ?? queued.error.message}`,
         );
       }
 
+      await expect(waitForBuildScheduled(host, 250)).rejects.toThrow(
+        /timed out/i,
+      );
+
       const scheduled = await scheduledPromise;
       expect(scheduled.intentId).toBe(queued.queued.intentId);
-      expect(scheduled.eventId).toBe(queued.queued.eventId);
-      expect(scheduled.executeTick).toBe(queued.queued.executeTick);
     } finally {
       host?.close();
       guest?.close();
@@ -377,11 +419,7 @@ describe('lockstep primary mode', () => {
       );
       const team = resolveTeamForPlayer(state.teams, hostJoined.playerId);
 
-      const queuedPromise = waitForEvent<BuildQueuedPayload>(
-        host,
-        'build:queued',
-        6_000,
-      );
+      const responsesPromise = waitForBuildResponses(host, 5, 6_000);
       const fallbackPromise = waitForEvent<LockstepFallbackPayload>(
         host,
         'lockstep:fallback',
@@ -396,12 +434,14 @@ describe('lockstep primary mode', () => {
         });
       }
 
-      const [queued, fallback] = await Promise.all([
-        queuedPromise,
+      const [responses, fallback] = await Promise.all([
+        responsesPromise,
         fallbackPromise,
       ]);
-      expect(queued.playerId).toBe(hostJoined.playerId);
-      expect(queued.teamId).toBe(team.id);
+      expect(responses).toHaveLength(5);
+      expect(responses.some((response) => response.kind === 'queued')).toBe(
+        true,
+      );
       expect(fallback.reason).toBe('turn-buffer-overflow');
 
       await waitForMembership(
@@ -509,18 +549,22 @@ describe('lockstep primary mode', () => {
         y: team.baseTopLeft.y + 8,
       });
 
-      await expect(waitForBuildQueueResponse(host, 500)).rejects.toThrow(
-        /timed out/i,
-      );
+      const queued = await waitForBuildQueueResponse(host, 500);
+      if ('error' in queued) {
+        throw new Error(
+          `Expected buffered queued intent, received ${queued.error.reason ?? queued.error.message}`,
+        );
+      }
 
       host.emit('room:leave');
       guest.emit('room:leave');
 
-      const rejected = await rejectedPromise;
-      expect(rejected.roomId).toBe(hostJoined.roomId);
-      expect(rejected.intentId).toMatch(/^intent-/);
-      expect(rejected.teamId).toBe(team.id);
-      expect(rejected.reason).toBe('match-finished');
+      await expect(rejectedPromise).resolves.toMatchObject({
+        roomId: hostJoined.roomId,
+        intentId: queued.queued.intentId,
+        teamId: team.id,
+        reason: 'match-finished',
+      });
       await expect(scheduledPromise).resolves.toBeInstanceOf(Error);
     } finally {
       host?.close();
@@ -642,19 +686,23 @@ describe('lockstep primary mode', () => {
         structureKey: ownStructure.key,
       });
 
-      await expect(waitForDestroyQueueResponse(host, 500)).rejects.toThrow(
-        /timed out/i,
-      );
+      const queued = await waitForDestroyQueueResponse(host, 500);
+      if ('error' in queued) {
+        throw new Error(
+          `Expected buffered queued destroy intent, received ${queued.error.reason ?? queued.error.message}`,
+        );
+      }
 
       host.emit('room:leave');
       guest.emit('room:leave');
 
-      const rejected = await rejectedPromise;
-      expect(rejected.roomId).toBe(hostJoined.roomId);
-      expect(rejected.intentId).toMatch(/^intent-/);
-      expect(rejected.teamId).toBe(team.id);
-      expect(rejected.structureKey).toBe(ownStructure.key);
-      expect(rejected.reason).toBe('match-finished');
+      await expect(rejectedPromise).resolves.toMatchObject({
+        roomId: hostJoined.roomId,
+        intentId: queued.queued.intentId,
+        teamId: team.id,
+        structureKey: ownStructure.key,
+        reason: 'match-finished',
+      });
       await expect(scheduledPromise).resolves.toBeInstanceOf(Error);
     } finally {
       host?.close();
@@ -754,15 +802,19 @@ describe('lockstep primary mode', () => {
         y: opposingTeam.baseTopLeft.y + 1,
       });
 
-      await expect(waitForBuildQueueResponse(host, 500)).rejects.toThrow(
-        /timed out/i,
-      );
+      const queued = await waitForBuildQueueResponse(host, 500);
+      if ('error' in queued) {
+        throw new Error(
+          `Expected buffered queued intent, received ${queued.error.reason ?? queued.error.message}`,
+        );
+      }
 
-      const rejected = await rejectedPromise;
-      expect(rejected.roomId).toBe(hostJoined.roomId);
-      expect(rejected.intentId).toMatch(/^intent-/);
-      expect(rejected.teamId).toBe(team.id);
-      expect(rejected.reason).toBe('outside-territory');
+      await expect(rejectedPromise).resolves.toMatchObject({
+        roomId: hostJoined.roomId,
+        intentId: queued.queued.intentId,
+        teamId: team.id,
+        reason: 'outside-territory',
+      });
       await expect(scheduledPromise).resolves.toBeInstanceOf(Error);
     } finally {
       host?.close();

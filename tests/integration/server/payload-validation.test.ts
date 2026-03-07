@@ -271,7 +271,6 @@ describe('socket payload validation', () => {
         expect(response.error.message).toBe('Invalid build payload');
       }
     },
-    10_000,
   );
 
   test.each(INVALID_DESTROY_CASES)(

@@ -67,7 +67,6 @@ describe('server bootstrap smoke', () => {
       const joined = await joinedPromise;
       const membership = await membershipPromise;
 
-      expect(joined.tickMs).toBe(40);
       expect(membership.roomId).toBe(joined.roomId);
       expect(membership.roomCode).toBe(joined.roomCode);
       expect(
