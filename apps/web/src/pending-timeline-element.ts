@@ -270,8 +270,7 @@ export class PendingTimelineElement {
             itemsEl.append(itemEl);
           }
 
-          const existingGroups = [...this.#groupEls.values()];
-          const before = existingGroups[operation.at] ?? null;
+          const before = this.#container.children.item(operation.at);
           this.#container.insertBefore(groupEl, before);
           this.#groupEls.set(operation.groupKey, groupEl);
           this.#groupTitleEls.set(operation.groupKey, titleEl);
@@ -309,8 +308,7 @@ export class PendingTimelineElement {
           }
 
           const itemEl = this.#createItemElement(operation.item);
-          const existingItems = [...itemEls.values()];
-          const before = existingItems[operation.at] ?? null;
+          const before = itemsEl.children.item(operation.at);
           itemsEl.insertBefore(itemEl, before);
           itemEls.set(operation.itemKey, itemEl);
           break;

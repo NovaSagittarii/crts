@@ -729,8 +729,8 @@ function applyStatePayload(payload: RoomStatePayload): void {
     currentRoomName = payload.roomName;
   }
 
-  updateTeamStats(payload);
-  syncVisibleStructures(payload);
+  updateTeamStats(payload, false);
+  syncVisibleStructures(payload, false);
   syncLocalBuildZoneOverlay(payload);
   renderSpawnMarkers(payload);
   resizeCanvas();
@@ -763,7 +763,6 @@ function applyGridStatePayload(payload: RoomGridStatePayload): void {
     resetCameraForCurrentTeam();
   }
   requestRender();
-  updateLifecycleUi();
 
   refreshPreviewAfterAuthoritativeUpdate('grid', payload.tick);
 }
@@ -772,13 +771,22 @@ function applyStructuresStatePayload(
   payload: RoomStructuresStatePayload,
 ): void {
   const syntheticPayload = createSyntheticStatePayload(payload);
+  const previousCanMutate = canMutateGameplay();
+  const previousDefeatReason = persistentDefeatReason;
+
   lastAuthoritativeStateAtMs = Date.now();
-  updateTeamStats(syntheticPayload);
-  syncVisibleStructures(syntheticPayload);
+  updateTeamStats(syntheticPayload, false);
+  syncVisibleStructures(syntheticPayload, false);
   syncLocalBuildZoneOverlay(syntheticPayload);
   renderSpawnMarkers(syntheticPayload);
   requestRender();
-  updateLifecycleUi();
+
+  if (
+    canMutateGameplay() !== previousCanMutate ||
+    persistentDefeatReason !== previousDefeatReason
+  ) {
+    updateLifecycleUi();
+  }
 
   refreshPreviewAfterAuthoritativeUpdate('structures', payload.tick);
 }
@@ -1638,7 +1646,10 @@ function resetRoomTransitionViewModels(): void {
   resetTacticalOverlayState();
 }
 
-function syncVisibleStructures(payload: RoomStatePayload): void {
+function syncVisibleStructures(
+  payload: RoomStatePayload,
+  refreshUi = true,
+): void {
   const nextStructures: VisibleStructure[] = [];
   const nextIndex = new Map<string, VisibleStructure>();
   const nextTeamBuildZoneProjectionInputs = new Map<
@@ -1716,7 +1727,9 @@ function syncVisibleStructures(payload: RoomStatePayload): void {
   syncDestroySelectionFromInteraction(nowMs);
   scheduleStructureHoverTick(nowMs);
   renderStructureInspector(nowMs);
-  refreshActionUi(nowMs);
+  if (refreshUi) {
+    refreshActionUi(nowMs);
+  }
 }
 
 function cellKey(x: number, y: number): number {
@@ -2838,7 +2851,7 @@ function queueBuildAtCell(cell: Cell): void {
   refreshActionUi();
 }
 
-function updateTeamStats(payload: RoomStatePayload): void {
+function updateTeamStats(payload: RoomStatePayload, refreshUi = true): void {
   syncCurrentTeamIdFromState(payload);
 
   roomEl.textContent = `${payload.roomName} (#${payload.roomId})`;
@@ -2851,7 +2864,9 @@ function updateTeamStats(payload: RoomStatePayload): void {
     teamEl.textContent = 'Spectator';
     baseEl.textContent = 'Unknown';
     syncEconomyHud(null, payload.tick);
-    refreshActionUi();
+    if (refreshUi) {
+      refreshActionUi();
+    }
     return;
   }
 
@@ -2863,7 +2878,9 @@ function updateTeamStats(payload: RoomStatePayload): void {
     teamEl.textContent = '#?';
     baseEl.textContent = 'Unknown';
     syncEconomyHud(null, payload.tick);
-    refreshActionUi();
+    if (refreshUi) {
+      refreshActionUi();
+    }
     return;
   }
 
@@ -2888,7 +2905,9 @@ function updateTeamStats(payload: RoomStatePayload): void {
   }
 
   syncEconomyHud(team, payload.tick);
-  refreshActionUi();
+  if (refreshUi) {
+    refreshActionUi();
+  }
 }
 
 function renderLobbyMembership(payload: RoomMembershipPayload): void {

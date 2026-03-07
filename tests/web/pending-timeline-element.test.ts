@@ -95,4 +95,35 @@ describe('pending timeline element', () => {
       },
     ]);
   });
+
+  it('preserves insertion index metadata for new groups and items', () => {
+    const previous = PendingTimelineElement.deriveSnapshot({
+      pendingBuilds: [pendingRows[0]],
+      currentTick: 16,
+    });
+    const next = PendingTimelineElement.deriveSnapshot({
+      pendingBuilds: pendingRows,
+      currentTick: 16,
+    });
+    const insertedItem = next.groups[1]?.items[0];
+    if (!insertedItem) {
+      throw new Error('Expected inserted item for tick:18 group.');
+    }
+
+    expect(PendingTimelineElement.diffSnapshots(previous, next)).toEqual([
+      {
+        type: 'insert-group',
+        groupKey: 'tick:16',
+        at: 0,
+        group: next.groups[0],
+      },
+      {
+        type: 'insert-item',
+        groupKey: 'tick:18',
+        itemKey: 'event:4',
+        at: 0,
+        item: insertedItem,
+      },
+    ]);
+  });
 });
