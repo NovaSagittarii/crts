@@ -1528,6 +1528,103 @@ describe('rts', () => {
     expect(canonical?.winner.teamId).toBe(teamTwo.id);
   });
 
+  test('keeps a three-team match active until only one team remains', () => {
+    const room = RtsEngine.createRoomState({
+      id: 'multi-outcome-room',
+      name: 'Multi Outcome Room',
+      width: 56,
+      height: 56,
+    });
+    const teamOne = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+    const teamTwo = RtsEngine.addPlayerToRoom(room, 'p2', 'Bob');
+    const teamThree = RtsEngine.addPlayerToRoom(room, 'p3', 'Cara');
+
+    const teamOneCore = getCoreStructure(room, teamOne.id);
+    expect(teamOneCore).not.toBeNull();
+    if (!teamOneCore) {
+      throw new Error('Expected team one core structure in room payload');
+    }
+
+    expect(
+      RtsEngine.queueDestroyEvent(room, 'p1', {
+        structureKey: teamOneCore.key,
+        delayTicks: 0,
+      }).accepted,
+    ).toBe(true);
+
+    let result = RtsEngine.tickRoom(room);
+    for (let index = 0; index < 4; index += 1) {
+      if (result.defeatedTeams.includes(teamOne.id)) {
+        break;
+      }
+      result = RtsEngine.tickRoom(room);
+    }
+
+    expect(result.defeatedTeams).toEqual([teamOne.id]);
+    expect(result.outcome).toBeNull();
+
+    const teamTwoCore = getCoreStructure(room, teamTwo.id);
+    expect(teamTwoCore).not.toBeNull();
+    if (!teamTwoCore) {
+      throw new Error('Expected team two core structure in room payload');
+    }
+
+    expect(
+      RtsEngine.queueDestroyEvent(room, 'p2', {
+        structureKey: teamTwoCore.key,
+        delayTicks: 0,
+      }).accepted,
+    ).toBe(true);
+
+    for (let index = 0; index < 4; index += 1) {
+      result = RtsEngine.tickRoom(room);
+      if (result.defeatedTeams.includes(teamTwo.id)) {
+        break;
+      }
+    }
+
+    expect(result.defeatedTeams).toEqual([teamTwo.id]);
+    expect(result.outcome?.winner.teamId).toBe(teamThree.id);
+  });
+
+  test('lets multiple commanders issue commands against shared team resources', () => {
+    const room = RtsEngine.createRoomState({
+      id: 'shared-team-room',
+      name: 'Shared Team Room',
+      width: 52,
+      height: 52,
+    });
+    const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice', {
+      teamName: 'Team 1',
+    });
+    const teammate = RtsEngine.addPlayerToRoom(room, 'p2', 'Bob', {
+      teamId: team.id,
+    });
+
+    expect(teammate.id).toBe(team.id);
+
+    const queued = RtsEngine.queueBuildEvent(room, 'p2', {
+      templateId: 'block',
+      x: team.baseTopLeft.x + 6,
+      y: team.baseTopLeft.y + 6,
+      delayTicks: 1,
+    });
+    expect(queued.accepted).toBe(true);
+
+    RtsEngine.tickRoom(room);
+    const resolved = RtsEngine.tickRoom(room);
+
+    expect(getBuildOutcomes(resolved)).toContainEqual({
+      eventId: queued.eventId,
+      teamId: team.id,
+      outcome: 'applied',
+      executeTick: queued.executeTick,
+      resolvedTick: queued.executeTick,
+    });
+    expect(room.players.get('p2')?.teamId).toBe(team.id);
+    expect(room.teams.get(team.id)?.playerIds).toEqual(new Set(['p1', 'p2']));
+  });
+
   test('applies queued builds and charges build costs', () => {
     const room = RtsEngine.createRoomState({
       id: '1',
