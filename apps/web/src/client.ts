@@ -36,16 +36,9 @@ import {
   ServerToClientEvents,
   StateRequestPayload,
   StructureTemplatePayload,
-  TeamIncomeBreakdown,
   TeamPayload,
 } from '#rts-engine';
 
-import {
-  aggregateIncomeDelta,
-  deriveIncomeDeltaSamples,
-  type AggregatedIncomeDelta,
-  type IncomeDeltaSample,
-} from './economy-view-model.js';
 import {
   buildPreviewRequestFromSelection,
   describeBuildFailureReason,
@@ -56,8 +49,8 @@ import {
   type BuildQueuePreview,
 } from './build-queue-view-model.js';
 import { BuildModeController } from './build-mode-controller.js';
+import { EconomyHudController } from './economy-hud-controller.js';
 import { TemplateButtonMenuElement } from './template-button-menu.js';
-import { PendingTimelineElement } from './pending-timeline-element.js';
 import {
   applyPlacementTransformOperation,
   createPlacementTransformViewState,
@@ -186,13 +179,6 @@ interface VisibleStructure {
   isCore: boolean;
   requiresDestroyConfirm: boolean;
   footprint: Cell[];
-}
-
-interface TeamEconomySnapshot {
-  tick: number;
-  resources: number;
-  income: number;
-  incomeBreakdown: TeamIncomeBreakdown;
 }
 
 interface Cell {
@@ -406,7 +392,17 @@ const templateButtonMenu = new TemplateButtonMenuElement(
     activateBuildModeForTemplate(templateId);
   },
 );
-const pendingTimeline = new PendingTimelineElement(pendingTimelineEl);
+const economyHudController = new EconomyHudController({
+  resourcesEl,
+  incomeEl,
+  hudResourcesEl,
+  hudIncomeEl,
+  hudDeltaChipEl,
+  incomeBreakdownBaseEl,
+  incomeBreakdownStructuresEl,
+  incomeBreakdownActiveEl,
+  pendingTimelineEl,
+});
 
 const newRoomNameEl = getRequiredElement<HTMLInputElement>('new-room-name');
 const newRoomSizeEl = getRequiredElement<HTMLInputElement>('new-room-size');
@@ -512,10 +508,6 @@ let latestBuildPreview: BuildPreview | null = null;
 let previewPending = false;
 let authoritativePreviewRefreshState: AuthoritativePreviewRefreshState =
   createAuthoritativePreviewRefreshState();
-let lastTeamEconomySnapshot: TeamEconomySnapshot | null = null;
-let latestEconomyDeltaCue: AggregatedIncomeDelta | null = null;
-let latestEconomyDeltaTick: number | null = null;
-let latestEconomyDeltaSamples: IncomeDeltaSample[] = [];
 let queueFeedbackOverride: BuildQueueFeedbackOverride | null = null;
 let destroyFeedbackOverride: { text: string; isError: boolean } | null = null;
 let lifecycleConnectionNotice: string | null = null;
@@ -1077,10 +1069,6 @@ function getSelectedTemplate(): StructureTemplatePayload | null {
   return availableTemplates.find(({ id }) => id === selectedTemplateId) ?? null;
 }
 
-function formatSigned(value: number): string {
-  return value > 0 ? `+${value}` : `${value}`;
-}
-
 function readDelayTicks(): number {
   const parsed = Number.parseInt(buildDelayEl.value, 10);
   if (!Number.isFinite(parsed)) {
@@ -1113,25 +1101,6 @@ function describeDestroyFailureReason(reason: string | undefined): string {
     return 'match finished';
   }
   return 'destroy rejected';
-}
-
-function triggerValuePulse(...elements: HTMLElement[]): void {
-  for (const element of elements) {
-    element.classList.remove('economy-value--pulse');
-    void element.offsetWidth;
-    element.classList.add('economy-value--pulse');
-  }
-}
-
-function cloneIncomeBreakdown(
-  breakdown: TeamIncomeBreakdown,
-): TeamIncomeBreakdown {
-  return {
-    base: breakdown.base,
-    structures: breakdown.structures,
-    total: breakdown.total,
-    activeStructureCount: breakdown.activeStructureCount,
-  };
 }
 
 function resetQueueFeedbackOverride(): void {
@@ -2141,161 +2110,12 @@ function applyTransformControl(
   refreshActionUi();
 }
 
-function renderIncomeBreakdown(team: TeamPayload | null): void {
-  if (!team) {
-    incomeBreakdownBaseEl.textContent = '-';
-    incomeBreakdownStructuresEl.textContent = '-';
-    incomeBreakdownActiveEl.textContent = '-';
-    return;
-  }
-
-  incomeBreakdownBaseEl.textContent = formatSigned(team.incomeBreakdown.base);
-  incomeBreakdownStructuresEl.textContent = formatSigned(
-    team.incomeBreakdown.structures,
-  );
-  incomeBreakdownActiveEl.textContent = `${team.incomeBreakdown.activeStructureCount}`;
-}
-
-function renderPendingTimeline(
-  team: TeamPayload | null,
-  currentTick: number,
-): void {
-  pendingTimeline.update({
-    pendingBuilds: team?.pendingBuilds ?? [],
-    currentTick,
-  });
-}
-
-function renderEconomyDeltaChip(team: TeamPayload | null): void {
-  if (!team || !latestEconomyDeltaCue) {
-    hudDeltaChipEl.classList.add('is-hidden');
-    return;
-  }
-
-  const parts: string[] = [];
-  if (latestEconomyDeltaCue.netDelta !== 0) {
-    parts.push(`net ${formatSigned(latestEconomyDeltaCue.netDelta)}/tick`);
-  }
-  if (latestEconomyDeltaCue.resourceDelta !== 0) {
-    parts.push(`res ${formatSigned(latestEconomyDeltaCue.resourceDelta)}`);
-  }
-
-  if (parts.length === 0) {
-    hudDeltaChipEl.classList.add('is-hidden');
-    return;
-  }
-
-  hudDeltaChipEl.classList.remove('is-hidden');
-  hudDeltaChipEl.classList.toggle(
-    'economy-delta-chip--negative',
-    team.income < 0 || latestEconomyDeltaCue.isNegativeNet,
-  );
-  hudDeltaChipEl.textContent = `${parts.join(' | ')} • ${latestEconomyDeltaCue.causeLabel}`;
-}
-
 function resetEconomyTracking(): void {
-  lastTeamEconomySnapshot = null;
-  latestEconomyDeltaCue = null;
-  latestEconomyDeltaTick = null;
-  latestEconomyDeltaSamples = [];
-  resourcesEl.classList.remove(
-    'economy-value--negative',
-    'economy-value--pulse',
-  );
-  incomeEl.classList.remove('economy-value--negative', 'economy-value--pulse');
-  hudResourcesEl.classList.remove(
-    'economy-value--negative',
-    'economy-value--pulse',
-  );
-  hudIncomeEl.classList.remove(
-    'economy-value--negative',
-    'economy-value--pulse',
-  );
-  renderEconomyDeltaChip(null);
-  renderIncomeBreakdown(null);
-  renderPendingTimeline(null, 0);
+  economyHudController.reset();
 }
 
 function syncEconomyHud(team: TeamPayload | null, tick: number): void {
-  if (!team) {
-    hudResourcesEl.textContent = '-';
-    hudIncomeEl.textContent = '-';
-    incomeEl.classList.remove('economy-value--negative');
-    hudIncomeEl.classList.remove('economy-value--negative');
-    renderIncomeBreakdown(null);
-    renderPendingTimeline(null, tick);
-    latestEconomyDeltaCue = null;
-    renderEconomyDeltaChip(null);
-    lastTeamEconomySnapshot = null;
-    latestEconomyDeltaTick = null;
-    latestEconomyDeltaSamples = [];
-    return;
-  }
-
-  hudResourcesEl.textContent = `${team.resources}`;
-  hudIncomeEl.textContent = `${team.income}/tick`;
-  const netNegative = team.income < 0;
-  incomeEl.classList.toggle('economy-value--negative', netNegative);
-  hudIncomeEl.classList.toggle('economy-value--negative', netNegative);
-
-  renderIncomeBreakdown(team);
-  renderPendingTimeline(team, tick);
-
-  const nextSnapshot: TeamEconomySnapshot = {
-    tick,
-    resources: team.resources,
-    income: team.income,
-    incomeBreakdown: cloneIncomeBreakdown(team.incomeBreakdown),
-  };
-
-  const previousSnapshot = lastTeamEconomySnapshot;
-  if (previousSnapshot) {
-    const resourceDelta = nextSnapshot.resources - previousSnapshot.resources;
-    const incomeDelta = nextSnapshot.income - previousSnapshot.income;
-    const resourceChanged = resourceDelta !== 0;
-    const incomeChanged = incomeDelta !== 0;
-
-    if (resourceChanged) {
-      triggerValuePulse(resourcesEl, hudResourcesEl);
-    }
-    if (incomeChanged) {
-      triggerValuePulse(incomeEl, hudIncomeEl);
-    }
-
-    if (resourceChanged || incomeChanged) {
-      if (latestEconomyDeltaTick !== nextSnapshot.tick) {
-        latestEconomyDeltaTick = nextSnapshot.tick;
-        latestEconomyDeltaSamples = [];
-      }
-
-      latestEconomyDeltaSamples.push(
-        ...deriveIncomeDeltaSamples(
-          nextSnapshot.tick,
-          previousSnapshot.incomeBreakdown,
-          nextSnapshot.incomeBreakdown,
-        ),
-      );
-
-      if (resourceDelta !== 0) {
-        latestEconomyDeltaSamples.push({
-          tick: nextSnapshot.tick,
-          netDelta: 0,
-          resourceDelta,
-          cause: resourceDelta > 0 ? 'income tick' : 'queue spend',
-        });
-      }
-
-      const tickCue = aggregateIncomeDelta(latestEconomyDeltaSamples).find(
-        ({ tick: cueTick }) => cueTick === nextSnapshot.tick,
-      );
-      latestEconomyDeltaCue = tickCue ?? null;
-    } else if (latestEconomyDeltaTick !== nextSnapshot.tick) {
-      latestEconomyDeltaCue = null;
-    }
-  }
-
-  lastTeamEconomySnapshot = nextSnapshot;
-  renderEconomyDeltaChip(team);
+  economyHudController.sync(team, tick);
 }
 
 function updateTemplateButtonMenu(): void {
@@ -3029,8 +2849,6 @@ function updateTeamStats(payload: RoomStatePayload): void {
     latestTacticalTeamSnapshot = null;
     currentTeamDefeated = false;
     teamEl.textContent = 'Spectator';
-    resourcesEl.textContent = '-';
-    incomeEl.textContent = '-';
     baseEl.textContent = 'Unknown';
     syncEconomyHud(null, payload.tick);
     refreshActionUi();
@@ -3043,8 +2861,6 @@ function updateTeamStats(payload: RoomStatePayload): void {
     latestTacticalTeamSnapshot = null;
     currentTeamDefeated = false;
     teamEl.textContent = '#?';
-    resourcesEl.textContent = '-';
-    incomeEl.textContent = '-';
     baseEl.textContent = 'Unknown';
     syncEconomyHud(null, payload.tick);
     refreshActionUi();
@@ -3063,8 +2879,6 @@ function updateTeamStats(payload: RoomStatePayload): void {
   }
 
   teamEl.textContent = `#${team.id}`;
-  resourcesEl.textContent = `${team.resources}`;
-  incomeEl.textContent = `${team.income}/tick`;
   if (team.defeated) {
     baseEl.textContent = 'Breached';
   } else if (team.baseIntact) {
@@ -3512,8 +3326,6 @@ socket.on('room:left', (payload: RoomLeftPayload) => {
   roomEl.textContent = '-';
   roomCodeEl.textContent = '-';
   teamEl.textContent = '-';
-  resourcesEl.textContent = '-';
-  incomeEl.textContent = '-';
   baseEl.textContent = 'Unknown';
 
   lobbyScreenUi.reset();
