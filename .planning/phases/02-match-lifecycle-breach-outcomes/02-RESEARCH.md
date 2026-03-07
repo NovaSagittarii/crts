@@ -330,7 +330,7 @@ io.on('connection', (socket) => {
 
 ```typescript
 // Source: https://v1.vitest.dev/api/vi#vi-usefaketimers
-import { vi, expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 test('countdown reaches active at 3s', () => {
   vi.useFakeTimers();

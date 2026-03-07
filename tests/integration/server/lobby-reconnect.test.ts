@@ -1,14 +1,14 @@
 import { describe, expect, vi } from 'vitest';
 
-import type { ServerOptions } from '../../../apps/server/src/server.js';
-
 import type {
   RoomErrorPayload,
   RoomJoinedPayload,
   RoomSlotClaimedPayload,
 } from '#rts-engine';
-import { waitForEvent, waitForMembership } from './test-support.js';
+
+import type { ServerOptions } from '../../../apps/server/src/server.js';
 import { createIntegrationTest } from './fixtures.js';
+import { waitForEvent, waitForMembership } from './test-support.js';
 
 const HOLD_EXPIRY_ADVANCE_MS = 31_000;
 const DEFAULT_RECONNECT_HOLD_MS = 30_000;

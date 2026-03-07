@@ -1,10 +1,11 @@
 import { Grid } from '#conway-core';
+
 import type { Vector2 } from './geometry.js';
 import {
-  projectPlacementToWorld,
-  projectTemplateWithTransform,
   type PlacementTransformState,
   type TransformedTemplate,
+  projectPlacementToWorld,
+  projectTemplateWithTransform,
 } from './placement-transform.js';
 
 export interface PackedTemplateGrid {
@@ -150,6 +151,7 @@ export interface StructurePayload {
   active: boolean;
   isCore: boolean;
   requiresDestroyConfirm: boolean;
+  transform: PlacementTransformState;
   footprint: Vector2[];
 }
 
@@ -394,6 +396,7 @@ export class Structure {
       active: this.active,
       isCore: this.isCore,
       requiresDestroyConfirm: this.template.requiresDestroyConfirm,
+      transform: this.transform,
       footprint: projection.occupiedCells,
     };
   }

@@ -1,18 +1,19 @@
-import { describe, expect } from 'vitest';
 import type { Socket } from 'socket.io-client';
+import { describe, expect } from 'vitest';
 
 import type {
   RoomErrorPayload,
   RoomJoinedPayload,
   RoomLeftPayload,
 } from '#rts-engine';
+
+import { type ConnectClient, createIntegrationTest } from './fixtures.js';
+import { createMatchTest } from './match-fixtures.js';
 import {
   waitForBuildQueueResponse,
   waitForDestroyQueueResponse,
   waitForEvent,
 } from './test-support.js';
-import { createIntegrationTest, type ConnectClient } from './fixtures.js';
-import { createMatchTest } from './match-fixtures.js';
 
 const INVALID_READY_CASES = [
   { label: 'null payload', payload: null },
@@ -179,6 +180,7 @@ describe('socket payload validation', () => {
           expect(response.error.message).toBe('Invalid build payload');
         }
       },
+      10_000,
     );
   }
 

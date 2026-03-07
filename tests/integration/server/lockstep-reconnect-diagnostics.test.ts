@@ -1,7 +1,9 @@
 import { describe, expect } from 'vitest';
+
 import type { LockstepCheckpointPayload, RoomJoinedPayload } from '#rts-engine';
-import { waitForEvent } from './test-support.js';
+
 import { createLockstepTest } from './lockstep-fixtures.js';
+import { waitForEvent } from './test-support.js';
 
 const test = createLockstepTest(
   {

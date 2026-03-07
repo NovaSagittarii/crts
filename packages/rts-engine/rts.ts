@@ -1,20 +1,15 @@
 import { Grid } from '#conway-core';
+
 import {
-  determineMatchOutcome,
-  type MatchOutcome,
-  type TeamOutcomeSnapshot,
-} from './match-lifecycle.js';
+  type BuildZoneContributor,
+  type BuildZoneContributorProjectionInput,
+  collectBuildZoneContributors,
+  collectIllegalBuildZoneCells,
+} from './build-zone.js';
 import {
-  BASE_FOOTPRINT_HEIGHT,
-  BASE_FOOTPRINT_WIDTH,
-  getBaseCenter,
-  isCanonicalBaseCell,
-  type Vector2,
-} from './geometry.js';
-import {
+  DEFAULT_QUEUE_DELAY_TICKS,
   DEFAULT_SPAWN_CAPACITY,
   DEFAULT_STARTING_RESOURCES,
-  DEFAULT_QUEUE_DELAY_TICKS,
   DEFAULT_TEAM_TERRITORY_RADIUS,
   INTEGRITY_CHECK_INTERVAL_TICKS,
   INTEGRITY_HP_COST_PER_CELL,
@@ -22,30 +17,48 @@ import {
   SPAWN_MIN_WRAPPED_DISTANCE,
 } from './gameplay-rules.js';
 import {
-  collectBuildZoneContributors,
-  collectIllegalBuildZoneCells,
-  type BuildZoneContributor,
-  type BuildZoneContributorProjectionInput,
-} from './build-zone.js';
-import { createTorusSpawnLayout, wrappedDelta } from './spawn.js';
+  BASE_FOOTPRINT_HEIGHT,
+  BASE_FOOTPRINT_WIDTH,
+  type Vector2,
+  getBaseCenter,
+  isCanonicalBaseCell,
+} from './geometry.js';
 import {
-  createIdentityPlacementTransform,
-  normalizePlacementTransform,
-  projectPlacementToWorld,
-  projectTemplateWithTransform,
+  type MatchOutcome,
+  type TeamOutcomeSnapshot,
+  determineMatchOutcome,
+} from './match-lifecycle.js';
+import {
   type PlacementBounds,
   type PlacementTransformInput,
   type PlacementTransformState,
   type TransformTemplateInput,
   type TransformedTemplate,
+  createIdentityPlacementTransform,
+  normalizePlacementTransform,
+  projectPlacementToWorld,
+  projectTemplateWithTransform,
 } from './placement-transform.js';
 import {
+  INVALID_ROOM_STATE_ERROR_MESSAGE,
+  allocateBuildEventId,
+  allocateTeamId as allocateRoomTeamId,
+  appendTimelineEvent as appendRoomTimelineEvent,
+  attachRoomRuntime,
+  createRoomRuntime,
+  defineRoomRuntimeProperties,
+  getTimelineEvents as getRoomTimelineEvents,
+  hasRoomRuntime,
+  reserveTeamId as reserveRoomTeamId,
+} from './room-runtime.js';
+import { createTorusSpawnLayout, wrappedDelta } from './spawn.js';
+import {
   CORE_STRUCTURE_TEMPLATE as DEFAULT_CORE_STRUCTURE_TEMPLATE,
-  createDefaultStructureTemplates,
   Structure,
-  StructureTemplate,
   type StructurePayload,
+  StructureTemplate,
   type StructureTemplateInput,
+  createDefaultStructureTemplates,
 } from './structure.js';
 
 export interface BuildQueuePayload {
@@ -194,15 +207,18 @@ export interface TeamIncomeBreakdown {
 export interface PendingBuildPayload {
   eventId: number;
   executeTick: number;
+  playerId: string;
   templateId: string;
   templateName: string;
   x: number;
   y: number;
+  transform: PlacementTransformState;
 }
 
 export interface PendingDestroyPayload {
   eventId: number;
   executeTick: number;
+  playerId: string;
   structureKey: string;
   templateId: string;
   templateName: string;
@@ -326,6 +342,7 @@ export interface RoomStateHashes {
   hashAlgorithm: DeterminismHashAlgorithm;
   gridHash: string;
   structuresHash: string;
+  economyHash: string;
 }
 
 interface BuildResultBase {
@@ -444,11 +461,6 @@ interface BuildPlacementSnapshotEvaluationInput extends BuildPlacementSnapshotPr
 type IntegrityOutcomeCategory = 'repaired' | 'destroyed-debris' | 'core-defeat';
 
 export class RtsEngine {
-  private static readonly roomEngineByState = new WeakMap<
-    RoomState,
-    RtsEngine
-  >();
-
   private static readonly FNV_OFFSET_BASIS = 2166136261;
 
   private static readonly FNV_PRIME = 16777619;
@@ -465,110 +477,37 @@ export class RtsEngine {
   public static readonly CORE_STRUCTURE_TEMPLATE =
     DEFAULT_CORE_STRUCTURE_TEMPLATE;
 
-  private readonly roomId: string;
-
-  private readonly roomName: string;
-
-  private readonly roomWidth: number;
-
-  private readonly roomHeight: number;
-
-  private readonly roomTemplateMap: Map<string, StructureTemplate>;
-
-  private readonly roomSpawnOrientationSeed: number;
-
-  private nextTeamId: number;
-
-  private nextBuildEventId: number;
-
-  private timelineEvents: TimelineEvent[];
-
-  private constructor(options: {
-    id: string;
-    name: string;
-    width: number;
-    height: number;
-    templateMap: Map<string, StructureTemplate>;
-    spawnOrientationSeed: number;
-  }) {
-    this.roomId = options.id;
-    this.roomName = options.name;
-    this.roomWidth = options.width;
-    this.roomHeight = options.height;
-    this.roomTemplateMap = options.templateMap;
-    this.roomSpawnOrientationSeed = options.spawnOrientationSeed;
-    this.nextTeamId = 1;
-    this.nextBuildEventId = 1;
-    this.timelineEvents = [];
-  }
-
-  private static getRoomEngine(room: RoomState): RtsEngine {
-    const engine = RtsEngine.roomEngineByState.get(room);
-    if (!engine) {
-      throw new Error(
-        'RoomState must come from RtsEngine.createRoomState or RtsEngine.createRoom',
-      );
-    }
-    return engine;
-  }
-
   public static hasRoomEngine(room: RoomState): boolean {
-    return RtsEngine.roomEngineByState.has(room);
+    return hasRoomRuntime(room);
   }
 
   public static getRoomId(room: RoomState): string {
-    return RtsEngine.getRoomEngine(room).roomId;
+    return room.id;
   }
 
   public static getRoomName(room: RoomState): string {
-    return RtsEngine.getRoomEngine(room).roomName;
+    return room.name;
   }
 
   public static getRoomWidth(room: RoomState): number {
-    return RtsEngine.getRoomEngine(room).roomWidth;
+    return room.width;
   }
 
   public static getRoomHeight(room: RoomState): number {
-    return RtsEngine.getRoomEngine(room).roomHeight;
+    return room.height;
   }
 
   public static getRoomTemplate(
     room: RoomState,
     templateId: string,
   ): StructureTemplate | null {
-    return (
-      RtsEngine.getRoomEngine(room).roomTemplateMap.get(templateId) ?? null
-    );
+    return room.templateMap.get(templateId) ?? null;
   }
 
   public static getTimelineEvents(
     room: RoomState,
   ): ReadonlyArray<TimelineEvent> {
-    return [...RtsEngine.getRoomEngine(room).timelineEvents];
-  }
-
-  private static allocateTeamId(room: RoomState): number {
-    const engine = RtsEngine.getRoomEngine(room);
-    while (room.teams.has(engine.nextTeamId)) {
-      engine.nextTeamId += 1;
-    }
-    const teamId = engine.nextTeamId;
-    engine.nextTeamId += 1;
-    return teamId;
-  }
-
-  private static reserveTeamId(room: RoomState, teamId: number): void {
-    const engine = RtsEngine.getRoomEngine(room);
-    if (teamId >= engine.nextTeamId) {
-      engine.nextTeamId = teamId + 1;
-    }
-  }
-
-  private static allocateEventId(room: RoomState): number {
-    const engine = RtsEngine.getRoomEngine(room);
-    const eventId = engine.nextBuildEventId;
-    engine.nextBuildEventId += 1;
-    return eventId;
+    return getRoomTimelineEvents(room);
   }
 
   private static hashSpawnSeed(
@@ -688,16 +627,6 @@ export class RtsEngine {
     return hash.toString(16).padStart(8, '0');
   }
 
-  private static appendTimelineEvent(
-    room: RoomState,
-    event: Omit<TimelineEvent, 'tick'>,
-  ): void {
-    RtsEngine.getRoomEngine(room).timelineEvents.push({
-      ...event,
-      tick: room.tick,
-    });
-  }
-
   private static evaluateAffordability(
     needed: number,
     current: number,
@@ -730,7 +659,7 @@ export class RtsEngine {
     }
 
     team.buildStats.rejected += 1;
-    RtsEngine.appendTimelineEvent(room, {
+    appendRoomTimelineEvent(room, {
       teamId: team.id,
       type: 'build-rejected',
       metadata,
@@ -752,7 +681,7 @@ export class RtsEngine {
       metadata.structureKey = structureKey;
     }
 
-    RtsEngine.appendTimelineEvent(room, {
+    appendRoomTimelineEvent(room, {
       teamId: team.id,
       type: 'destroy-rejected',
       metadata,
@@ -834,10 +763,12 @@ export class RtsEngine {
       return {
         eventId: event.id,
         executeTick: event.executeTick,
+        playerId: event.playerId,
         templateId: event.templateId,
         templateName: templateName ?? event.templateId,
         x: event.x,
         y: event.y,
+        transform: event.transform,
       };
     });
   }
@@ -854,6 +785,7 @@ export class RtsEngine {
       return {
         eventId: event.id,
         executeTick: event.executeTick,
+        playerId: event.playerId,
         structureKey: event.structureKey,
         templateId: structure?.templateId ?? 'unknown',
         templateName: template?.name ?? structure?.templateId ?? 'Unknown',
@@ -964,6 +896,49 @@ export class RtsEngine {
       for (const structure of structures) {
         hash = RtsEngine.hashStructure(hash, structure);
       }
+
+      const pendingBuilds = [...team.pendingBuildEvents].sort(
+        RtsEngine.compareBuildEvents,
+      );
+      hash = RtsEngine.hashInt32(hash, pendingBuilds.length);
+      for (const pendingBuild of pendingBuilds) {
+        hash = RtsEngine.hashBuildEvent(hash, pendingBuild);
+      }
+
+      const pendingDestroys = [...team.pendingDestroyEvents].sort(
+        RtsEngine.compareDestroyEvents,
+      );
+      hash = RtsEngine.hashInt32(hash, pendingDestroys.length);
+      for (const pendingDestroy of pendingDestroys) {
+        hash = RtsEngine.hashDestroyEvent(hash, pendingDestroy);
+      }
+    }
+
+    return hash;
+  }
+
+  private static hashEconomySection(
+    room: RoomState,
+    orderedTeams: readonly TeamState[],
+  ): number {
+    let hash = RtsEngine.hashStateRoomScope(RtsEngine.FNV_OFFSET_BASIS, room);
+    hash = RtsEngine.hashInt32(hash, orderedTeams.length);
+
+    for (const team of orderedTeams) {
+      hash = RtsEngine.hashInt32(hash, team.id);
+      hash = RtsEngine.hashNumber(hash, team.resources);
+      hash = RtsEngine.hashNumber(hash, team.income);
+      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.base);
+      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.structures);
+      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.total);
+      hash = RtsEngine.hashNumber(
+        hash,
+        team.incomeBreakdown.activeStructureCount,
+      );
+      hash = RtsEngine.hashBoolean(hash, team.defeated);
+      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.x);
+      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.y);
+      hash = RtsEngine.hashBoolean(hash, RtsEngine.isBaseIntact(room, team));
 
       const pendingBuilds = [...team.pendingBuildEvents].sort(
         RtsEngine.compareBuildEvents,
@@ -1827,7 +1802,7 @@ export class RtsEngine {
       }
 
       structure.destroy();
-      RtsEngine.appendTimelineEvent(room, {
+      appendRoomTimelineEvent(room, {
         teamId: team.id,
         type: 'destroy-applied',
         metadata: {
@@ -2030,7 +2005,7 @@ export class RtsEngine {
 
         structure.applyIntegrityDamage(restoreCost);
         if (structure.isCore) {
-          RtsEngine.appendTimelineEvent(room, {
+          appendRoomTimelineEvent(room, {
             teamId: team.id,
             type: 'core-damaged',
             metadata: {
@@ -2045,7 +2020,7 @@ export class RtsEngine {
           RtsEngine.restoreIntegrityMismatches(room, mismatches);
           structure.setActive(true);
 
-          RtsEngine.appendTimelineEvent(room, {
+          appendRoomTimelineEvent(room, {
             teamId: team.id,
             type: 'integrity-resolved',
             metadata: {
@@ -2066,7 +2041,7 @@ export class RtsEngine {
           ? 'core-defeat'
           : 'destroyed-debris';
 
-        RtsEngine.appendTimelineEvent(room, {
+        appendRoomTimelineEvent(room, {
           teamId: team.id,
           type: 'integrity-resolved',
           metadata: {
@@ -2080,7 +2055,7 @@ export class RtsEngine {
         });
 
         if (structure.isCore) {
-          RtsEngine.appendTimelineEvent(room, {
+          appendRoomTimelineEvent(room, {
             teamId: team.id,
             type: 'core-destroyed',
             metadata: {
@@ -2119,7 +2094,7 @@ export class RtsEngine {
       templateMap.set(template.id, template);
     }
 
-    const engine = new RtsEngine({
+    const runtime = createRoomRuntime({
       id: options.id,
       name: options.name,
       width: options.width,
@@ -2141,34 +2116,8 @@ export class RtsEngine {
       players: new Map<string, RoomPlayerState>(),
     } as unknown as RoomState;
 
-    Object.defineProperties(room, {
-      id: {
-        enumerable: true,
-        get: () => engine.roomId,
-      },
-      name: {
-        enumerable: true,
-        get: () => engine.roomName,
-      },
-      width: {
-        enumerable: true,
-        get: () => engine.roomWidth,
-      },
-      height: {
-        enumerable: true,
-        get: () => engine.roomHeight,
-      },
-      templateMap: {
-        enumerable: true,
-        get: () => engine.roomTemplateMap,
-      },
-      spawnOrientationSeed: {
-        enumerable: true,
-        get: () => engine.roomSpawnOrientationSeed,
-      },
-    });
-
-    RtsEngine.roomEngineByState.set(room, engine);
+    defineRoomRuntimeProperties(room, runtime);
+    attachRoomRuntime(room, runtime);
 
     return room;
   }
@@ -2219,9 +2168,9 @@ export class RtsEngine {
       return requestedTeam;
     }
 
-    const teamId = options.teamId ?? RtsEngine.allocateTeamId(room);
+    const teamId = options.teamId ?? allocateRoomTeamId(room);
     if (options.teamId !== undefined) {
-      RtsEngine.reserveTeamId(room, teamId);
+      reserveRoomTeamId(room, teamId);
     }
 
     const baseTopLeft = RtsEngine.pickSpawnPosition(room, teamId);
@@ -2577,7 +2526,7 @@ export class RtsEngine {
     const clampedDelay = Math.max(1, Math.min(MAX_DELAY_TICKS, delay));
     const x = preview.bounds?.x ?? Number(payload.x);
     const y = preview.bounds?.y ?? Number(payload.y);
-    const eventId = RtsEngine.allocateEventId(room);
+    const eventId = allocateBuildEventId(room);
     const event: BuildEvent = {
       id: eventId,
       teamId: team.id,
@@ -2591,7 +2540,7 @@ export class RtsEngine {
 
     RtsEngine.insertBuildEventSorted(team.pendingBuildEvents, event);
     team.buildStats.queued += 1;
-    RtsEngine.appendTimelineEvent(room, {
+    appendRoomTimelineEvent(room, {
       teamId: team.id,
       type: 'build-queued',
       metadata: {
@@ -2737,7 +2686,7 @@ export class RtsEngine {
     }
 
     const clampedDelay = Math.max(1, Math.min(MAX_DELAY_TICKS, delay));
-    const eventId = RtsEngine.allocateEventId(room);
+    const eventId = allocateBuildEventId(room);
     const event: DestroyEvent = {
       id: eventId,
       teamId: team.id,
@@ -2747,7 +2696,7 @@ export class RtsEngine {
     };
 
     RtsEngine.insertDestroyEventSorted(team.pendingDestroyEvents, event);
-    RtsEngine.appendTimelineEvent(room, {
+    appendRoomTimelineEvent(room, {
       teamId: team.id,
       type: 'destroy-queued',
       metadata: {
@@ -2825,6 +2774,7 @@ export class RtsEngine {
 
     const orderedTeams = RtsEngine.sortTeamsById(room.teams.values());
     const structuresHash = RtsEngine.hashStructuresSection(room, orderedTeams);
+    const economyHash = RtsEngine.hashEconomySection(room, orderedTeams);
 
     return {
       tick: room.tick,
@@ -2832,6 +2782,7 @@ export class RtsEngine {
       hashAlgorithm: 'fnv1a-32',
       gridHash: RtsEngine.formatHashHex(gridHash),
       structuresHash: RtsEngine.formatHashHex(structuresHash),
+      economyHash: RtsEngine.formatHashHex(economyHash),
     };
   }
 
@@ -2902,7 +2853,7 @@ export class RtsEngine {
       if (RtsEngine.createStructure(room, team, template, event)) {
         appliedBuilds += 1;
         team.buildStats.applied += 1;
-        RtsEngine.appendTimelineEvent(room, {
+        appendRoomTimelineEvent(room, {
           teamId: team.id,
           type: 'build-applied',
           metadata: { eventId: event.id },
@@ -2964,7 +2915,7 @@ export class RtsEngine {
           destroyOutcomes,
         );
         defeatedTeams.push(team.id);
-        RtsEngine.appendTimelineEvent(room, {
+        appendRoomTimelineEvent(room, {
           teamId: team.id,
           type: 'team-defeated',
         });
@@ -3060,10 +3011,8 @@ export class RtsRoom {
   }
 
   public static fromState(state: RoomState): RtsRoom {
-    if (!RtsEngine.hasRoomEngine(state)) {
-      throw new Error(
-        'RoomState must come from RtsEngine.createRoomState or RtsEngine.createRoom',
-      );
+    if (!hasRoomRuntime(state)) {
+      throw new Error(INVALID_ROOM_STATE_ERROR_MESSAGE);
     }
 
     const existing = RtsRoom.roomWrapperByState.get(state);

@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'vitest';
 
-import { RtsEngine, RtsRoom } from './rts.js';
 import {
   BASE_FOOTPRINT_HEIGHT,
   BASE_FOOTPRINT_WIDTH,
@@ -13,6 +12,7 @@ import {
   getRoomId,
   getRoomWidth,
 } from './rts-test-support.js';
+import { RtsEngine, RtsRoom } from './rts.js';
 
 describe('rts room state', () => {
   test('provides a cached room instance API while preserving static parity', () => {

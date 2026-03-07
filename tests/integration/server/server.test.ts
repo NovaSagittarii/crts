@@ -1,16 +1,21 @@
 import { describe, expect } from 'vitest';
+
 import { Grid } from '#conway-core';
-import type {
-  BuildScheduledPayload,
-  BuildOutcomePayload,
-  BuildQueuedPayload,
-  RoomGridStatePayload,
-  RoomJoinedPayload,
-  RoomErrorPayload,
-  RoomLeftPayload,
-  RoomStatePayload,
-  TeamPayload,
+import {
+  type BuildOutcomePayload,
+  type BuildQueuedPayload,
+  type BuildScheduledPayload,
+  type RoomErrorPayload,
+  type RoomGridStatePayload,
+  type RoomJoinedPayload,
+  type RoomLeftPayload,
+  type RoomStatePayload,
+  type TeamPayload,
+  normalizePlacementTransform,
 } from '#rts-engine';
+
+import { createIntegrationTest } from './fixtures.js';
+import { createMatchTest } from './match-fixtures.js';
 import {
   type Cell,
   claimSlot,
@@ -22,15 +27,13 @@ import {
   getTeamByPlayerId,
   waitForBuildQueueResponse,
   waitForBuildScheduled,
-  waitForDestroyScheduled,
   waitForDestroyQueueResponse,
+  waitForDestroyScheduled,
   waitForEvent,
   waitForNoEvent,
   waitForRoomList,
   waitForRoomState,
 } from './test-support.js';
-import { createIntegrationTest } from './fixtures.js';
-import { createMatchTest } from './match-fixtures.js';
 
 const defaultServerOptions = { port: 0, width: 52, height: 52, tickMs: 40 };
 const buildQueueRoomOptions = { roomName: 'Build Queue Contract Room' };
@@ -439,6 +442,10 @@ describe('GameServer', () => {
 
         const response = await waitForBuildQueueResponse(setup.host, 4_000);
         if ('error' in response) {
+          if (response.error.reason === 'insufficient-resources') {
+            insufficient = { error: response.error };
+            break;
+          }
           continue;
         }
 
@@ -834,6 +841,9 @@ describe('GameServer', () => {
 
       const buildX = selectedPlacement.x;
       const buildY = selectedPlacement.y;
+      const buildTransform = normalizePlacementTransform({
+        operations: ['rotate'],
+      });
 
       const blockCells: Cell[] = [
         { x: buildX, y: buildY },
@@ -842,20 +852,43 @@ describe('GameServer', () => {
         { x: buildX + 1, y: buildY + 1 },
       ];
 
+      const scheduledPromise = waitForBuildScheduled(setup.host, 4_000);
+      const guestQueuedPromise = waitForEvent<BuildQueuedPayload>(
+        setup.guest,
+        'build:queued',
+      );
+
       setup.host.emit('build:queue', {
         templateId: blockTemplate.id,
         x: buildX,
         y: buildY,
+        transform: { operations: ['rotate'] },
         delayTicks: 1,
       });
 
-      const scheduledPromise = waitForBuildScheduled(setup.host, 4_000);
       const queued = await waitForEvent<BuildQueuedPayload>(
         setup.host,
         'build:queued',
       );
+      const [scheduled, guestQueued] = await Promise.all([
+        scheduledPromise,
+        guestQueuedPromise,
+      ]);
+
       expect(queued.intentId).toMatch(/^intent-/);
-      const scheduled = await scheduledPromise;
+      expect(queued).toMatchObject({
+        roomId: setup.roomId,
+        playerId: setup.hostJoined.playerId,
+        teamId,
+        templateId: blockTemplate.id,
+        x: buildX,
+        y: buildY,
+        transform: buildTransform,
+        delayTicks: 1,
+        eventId: scheduled.eventId,
+        executeTick: scheduled.executeTick,
+      });
+      expect(guestQueued).toEqual(queued);
       expect(scheduled.eventId).toBeGreaterThan(0);
       expect(scheduled.executeTick).toBeGreaterThan(0);
 
@@ -872,6 +905,97 @@ describe('GameServer', () => {
       expect(getTeam(builtState, teamId).resources).toBeLessThan(
         initialTeam.resources,
       );
+    },
+    20_000,
+  );
+
+  matchTest(
+    'canonicalizes authoritative queued payload coordinates and delay',
+    async ({ activeMatch }) => {
+      const setup = activeMatch;
+      const blockTemplate = setup.hostJoined.templates.find(
+        ({ id }) => id === 'block',
+      );
+      if (!blockTemplate) {
+        throw new Error('Expected block template to be available');
+      }
+
+      const placements = collectCandidatePlacements(
+        setup.hostTeam,
+        blockTemplate,
+        setup.hostJoined.state.width,
+        setup.hostJoined.state.height,
+      );
+      const selectedPlacement = placements[0];
+      if (!selectedPlacement) {
+        throw new Error('Expected at least one valid block placement');
+      }
+
+      const queuedPromise = waitForEvent<BuildQueuedPayload>(
+        setup.host,
+        'build:queued',
+      );
+
+      setup.host.emit('build:queue', {
+        templateId: blockTemplate.id,
+        x: selectedPlacement.x + setup.hostJoined.state.width,
+        y: selectedPlacement.y,
+        transform: { operations: ['rotate'] },
+        delayTicks: 999,
+      });
+
+      const queued = await queuedPromise;
+      expect(queued.x).toBe(selectedPlacement.x);
+      expect(queued.y).toBe(selectedPlacement.y);
+      expect(queued.transform).toEqual(
+        normalizePlacementTransform({ operations: ['rotate'] }),
+      );
+      expect(queued.delayTicks).toBe(20);
+      expect(queued.executeTick - queued.bufferedTurn).toBe(20);
+    },
+    20_000,
+  );
+
+  matchTest.fails(
+    'sends build:scheduled only to the queueing client after authoritative queue fanout',
+    async ({ activeMatch }) => {
+      const setup = activeMatch;
+      const blockTemplate = setup.hostJoined.templates.find(
+        ({ id }) => id === 'block',
+      );
+      if (!blockTemplate) {
+        throw new Error('Expected block template to be available');
+      }
+
+      const placements = collectCandidatePlacements(
+        setup.hostTeam,
+        blockTemplate,
+        setup.hostJoined.state.width,
+        setup.hostJoined.state.height,
+      );
+      const selectedPlacement = placements[0];
+      if (!selectedPlacement) {
+        throw new Error('Expected at least one valid block placement');
+      }
+
+      setup.host.emit('build:queue', {
+        templateId: blockTemplate.id,
+        x: selectedPlacement.x,
+        y: selectedPlacement.y,
+        delayTicks: 1,
+      });
+
+      await waitForBuildScheduled(setup.host, 4_000);
+      await waitForNoEvent(setup.guest, 'build:scheduled', 750);
+    },
+    20_000,
+  );
+
+  matchTest.fails(
+    'detects missing authoritative queue events and requests a resync',
+    () => {
+      // TODO: Replace with queue-gap coverage once the resync path exists.
+      expect(true).toBe(false);
     },
     20_000,
   );

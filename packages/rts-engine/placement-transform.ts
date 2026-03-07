@@ -1,4 +1,5 @@
 import { Grid } from '#conway-core';
+
 import type { Vector2 } from './geometry.js';
 
 export type PlacementTransformOperation =

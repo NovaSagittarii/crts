@@ -1,39 +1,29 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-
 import express, { Express } from 'express';
-import { Server as SocketIOServer, Socket } from 'socket.io';
+import { Socket, Server as SocketIOServer } from 'socket.io';
 
 import {
-  LobbySessionCoordinator,
-  RECONNECT_HOLD_MS,
-  type PlayerSession,
-} from './lobby-session.js';
-import {
-  RoomBroadcastService,
-  type RuntimeBroadcastRoom,
-} from './server-room-broadcast.js';
-
-import {
-  LobbyRoom,
   type LobbyRejectionReason,
+  LobbyRoom,
   type LobbySlotDefinition,
 } from '#rts-engine';
 import {
-  type QueueBuildResult,
+  type BuildOutcomePayload,
   type BuildQueuePayload,
-  type BuildQueueRejectedReason,
   type BuildQueueRejectedPayload,
+  type BuildQueueRejectedReason,
+  type BuildQueuedPayload,
   type BuildScheduledPayload,
-  type DestroyQueuePayload,
-  type DestroyScheduledPayload,
   type ChatSendPayload,
   type ClientToServerEvents,
   type DestroyOutcomePayload,
-  type DestroyQueuedPayload,
-  type DestroyQueueRejectedReason,
+  type DestroyQueuePayload,
   type DestroyQueueRejectedPayload,
+  type DestroyQueueRejectedReason,
+  type DestroyQueuedPayload,
+  type DestroyScheduledPayload,
   type LifecyclePreconditions,
   type LockstepCheckpointPayload,
   type LockstepFallbackReason,
@@ -41,29 +31,38 @@ import {
   type LockstepStatusPayload,
   type PlacementTransformInput,
   type PlacementTransformOperation,
-  type QueueDestroyResult,
-  transitionMatchLifecycle,
   type PlayerProfilePayload,
-  RtsEngine,
-  type RoomGridStatePayload,
+  type QueueBuildResult,
+  type QueueDestroyResult,
   type RoomClaimSlotPayload,
   type RoomCreatePayload,
-  type BuildQueuedPayload,
-  type BuildOutcomePayload,
   type RoomErrorPayload,
+  type RoomGridStatePayload,
   type RoomJoinPayload,
-  type RoomSlotDefinitionPayload,
   type RoomSetReadyPayload,
-  type RoomStateHashesPayload,
+  type RoomSlotDefinitionPayload,
   type RoomStartPayload,
-  type RoomStructuresStatePayload,
-  type RtsRoom,
+  type RoomStateHashesPayload,
   type RoomStatePayload,
+  type RoomStructuresStatePayload,
+  RtsEngine,
+  type RtsRoom,
   type ServerToClientEvents,
   type StateRequestPayload,
   type StateRequestSection,
   type TeamState,
+  transitionMatchLifecycle,
 } from '#rts-engine';
+
+import {
+  LobbySessionCoordinator,
+  type PlayerSession,
+  RECONNECT_HOLD_MS,
+} from './lobby-session.js';
+import {
+  RoomBroadcastService,
+  type RuntimeBroadcastRoom,
+} from './server-room-broadcast.js';
 
 const DEFAULT_DIST_CLIENT_DIR = path.resolve(
   import.meta.dirname,
@@ -718,47 +717,101 @@ export function createServer(options: ServerOptions = {}): GameServer {
       : bufferedTurn;
   }
 
+  function requirePendingBuildEvent(
+    room: RuntimeRoom,
+    teamId: number,
+    eventId: number,
+  ) {
+    const team = room.rtsRoom.state.teams.get(teamId);
+    const event = team?.pendingBuildEvents.find(
+      (candidate) => candidate.id === eventId,
+    );
+    if (!event) {
+      throw new Error(
+        `Missing pending build event ${eventId} for team ${teamId}`,
+      );
+    }
+    return event;
+  }
+
+  function requirePendingDestroyEvent(
+    room: RuntimeRoom,
+    teamId: number,
+    eventId: number,
+  ) {
+    const team = room.rtsRoom.state.teams.get(teamId);
+    const event = team?.pendingDestroyEvents.find(
+      (candidate) => candidate.id === eventId,
+    );
+    if (!event) {
+      throw new Error(
+        `Missing pending destroy event ${eventId} for team ${teamId}`,
+      );
+    }
+    return event;
+  }
+
   function createBuildQueuedPayload(
     room: RuntimeRoom,
     teamId: number,
-    sessionId: string,
     intentId: string,
-    payload: BuildQueuePayload,
     bufferedTurn: number,
     scheduledByTurn: number,
+    result: QueueBuildResult,
   ): BuildQueuedPayload {
+    if (result.eventId === undefined || result.executeTick === undefined) {
+      throw new Error(
+        'Accepted build queue result is missing canonical event metadata',
+      );
+    }
+
+    const event = requirePendingBuildEvent(room, teamId, result.eventId);
+
     return {
       roomId: room.rtsRoom.id,
       intentId,
-      playerId: sessionId,
-      teamId,
+      playerId: event.playerId,
+      teamId: event.teamId,
       bufferedTurn,
       scheduledByTurn,
-      templateId: payload.templateId,
-      x: payload.x,
-      y: payload.y,
-      delayTicks: payload.delayTicks ?? 10,
+      templateId: event.templateId,
+      x: event.x,
+      y: event.y,
+      transform: event.transform,
+      delayTicks: Math.max(1, event.executeTick - room.rtsRoom.state.tick),
+      eventId: event.id,
+      executeTick: event.executeTick,
     };
   }
 
   function createDestroyQueuedPayload(
     room: RuntimeRoom,
     teamId: number,
-    sessionId: string,
     intentId: string,
-    payload: DestroyQueuePayload,
     bufferedTurn: number,
     scheduledByTurn: number,
+    result: QueueDestroyResult,
   ): DestroyQueuedPayload {
+    if (result.eventId === undefined || result.executeTick === undefined) {
+      throw new Error(
+        'Accepted destroy queue result is missing canonical event metadata',
+      );
+    }
+
+    const event = requirePendingDestroyEvent(room, teamId, result.eventId);
+
     return {
       roomId: room.rtsRoom.id,
       intentId,
-      playerId: sessionId,
-      teamId,
+      playerId: event.playerId,
+      teamId: event.teamId,
       bufferedTurn,
       scheduledByTurn,
-      delayTicks: payload.delayTicks ?? 10,
-      structureKey: payload.structureKey,
+      delayTicks: Math.max(1, event.executeTick - room.rtsRoom.state.tick),
+      structureKey: event.structureKey,
+      eventId: event.id,
+      executeTick: event.executeTick,
+      idempotent: Boolean(result.idempotent),
     };
   }
 
@@ -1282,6 +1335,17 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
+      emitBuildQueued(
+        room,
+        createBuildQueuedPayload(
+          room,
+          command.teamId,
+          command.intentId,
+          command.bufferedTurn,
+          command.scheduledByTurn,
+          queueResult,
+        ),
+      );
       emitBuildScheduled(
         room,
         createBuildScheduledPayload(
@@ -1315,6 +1379,17 @@ export function createServer(options: ServerOptions = {}): GameServer {
       return;
     }
 
+    emitDestroyQueued(
+      room,
+      createDestroyQueuedPayload(
+        room,
+        command.teamId,
+        command.intentId,
+        command.bufferedTurn,
+        command.scheduledByTurn,
+        queueResult,
+      ),
+    );
     emitDestroyScheduled(
       room,
       createDestroyScheduledPayload(
@@ -1789,6 +1864,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       roomId: room.rtsRoom.id,
       roomCode: room.roomCode,
       roomName: room.rtsRoom.name,
+      tickMs,
       playerId: session.id,
       playerName: session.name,
       teamId,
@@ -2653,18 +2729,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
       const intentId = allocateIntentId(lockstepRuntime);
       const bufferedTurn = getBufferedTurn(room);
       const scheduledByTurn = getScheduledByTurn(room, bufferedTurn);
-      emitBuildQueued(
-        room,
-        createBuildQueuedPayload(
-          room,
-          team.id,
-          session.id,
-          intentId,
-          parsedPayload,
-          bufferedTurn,
-          scheduledByTurn,
-        ),
-      );
       if (
         lockstepRuntime.mode === 'primary' &&
         lockstepRuntime.status === 'running'
@@ -2716,6 +2780,17 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
+      emitBuildQueued(
+        room,
+        createBuildQueuedPayload(
+          room,
+          team.id,
+          intentId,
+          bufferedTurn,
+          scheduledByTurn,
+          result,
+        ),
+      );
       emitBuildScheduled(
         room,
         createBuildScheduledPayload(
@@ -2777,18 +2852,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
       const intentId = allocateIntentId(lockstepRuntime);
       const bufferedTurn = getBufferedTurn(room);
       const scheduledByTurn = getScheduledByTurn(room, bufferedTurn);
-      emitDestroyQueued(
-        room,
-        createDestroyQueuedPayload(
-          room,
-          team.id,
-          session.id,
-          intentId,
-          parsedPayload,
-          bufferedTurn,
-          scheduledByTurn,
-        ),
-      );
       if (
         lockstepRuntime.mode === 'primary' &&
         lockstepRuntime.status === 'running'
@@ -2835,6 +2898,17 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
+      emitDestroyQueued(
+        room,
+        createDestroyQueuedPayload(
+          room,
+          team.id,
+          intentId,
+          bufferedTurn,
+          scheduledByTurn,
+          result,
+        ),
+      );
       emitDestroyScheduled(
         room,
         createDestroyScheduledPayload(

@@ -9,12 +9,13 @@ import type {
   RoomMembershipPayload,
   RoomSlotClaimedPayload,
 } from '#rts-engine';
+
+import { createIntegrationTest } from './fixtures.js';
 import {
   waitForEvent,
   waitForMembership,
   waitForRoomState,
 } from './test-support.js';
-import { createIntegrationTest } from './fixtures.js';
 
 const test = createIntegrationTest({
   port: 0,

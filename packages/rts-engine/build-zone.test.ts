@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'vitest';
 
-import { BUILD_ZONE_RADIUS } from './gameplay-rules.js';
 import {
   collectBuildZoneContributors,
   collectCoveredBuildZoneCells,
   collectIllegalBuildZoneCells,
   isBuildZoneCoveredByContributor,
 } from './build-zone.js';
+import { BUILD_ZONE_RADIUS } from './gameplay-rules.js';
 
 interface Cell {
   x: number;

@@ -1,8 +1,9 @@
-import { describe, expect, test } from 'vitest';
 import type { Socket } from 'socket.io-client';
+import { describe, expect, test } from 'vitest';
+
+import type { RoomJoinedPayload, RoomMembershipPayload } from '#rts-engine';
 
 import { createServer } from '../../../apps/server/src/server.js';
-import type { RoomJoinedPayload, RoomMembershipPayload } from '#rts-engine';
 import { createClient, waitForEvent } from './test-support.js';
 
 function extractModuleEntryPath(html: string): string {
@@ -67,6 +68,7 @@ describe('server bootstrap smoke', () => {
       const joined = await joinedPromise;
       const membership = await membershipPromise;
 
+      expect(joined.tickMs).toBe(40);
       expect(membership.roomId).toBe(joined.roomId);
       expect(membership.roomCode).toBe(joined.roomCode);
       expect(

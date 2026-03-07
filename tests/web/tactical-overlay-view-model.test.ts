@@ -11,6 +11,11 @@ import {
   deriveTacticalOverlayState,
 } from '../../apps/web/src/tactical-overlay-view-model.js';
 
+const identityTransform = {
+  operations: [],
+  matrix: { xx: 1, xy: 0, yx: 0, yy: 1 },
+};
+
 function buildTemplate(id: string, name: string): StructureTemplateSummary {
   return {
     id,
@@ -29,16 +34,19 @@ describe('tactical-overlay-view-model helpers', () => {
       {
         eventId: 17,
         executeTick: 55,
+        playerId: 'p-build',
         templateId: 'beacon',
         templateName: 'Beacon',
         x: 8,
         y: 8,
+        transform: identityTransform,
       },
     ];
     const pendingDestroys: PendingDestroyPayload[] = [
       {
         eventId: 91,
         executeTick: 60,
+        playerId: 'p-destroy',
         structureKey: 'tower-1',
         templateId: 'tower',
         templateName: 'Tower',

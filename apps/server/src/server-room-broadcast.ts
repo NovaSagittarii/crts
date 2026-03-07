@@ -1,30 +1,30 @@
-import { Server as SocketIOServer, Socket } from 'socket.io';
-
-import { LobbySessionCoordinator } from './lobby-session.js';
+import { Socket, Server as SocketIOServer } from 'socket.io';
 
 import {
+  type BuildOutcomePayload,
   type BuildQueueRejectedPayload,
   type BuildQueuedPayload,
   type BuildScheduledPayload,
-  type BuildOutcomePayload,
   type ClientToServerEvents,
-  type DeterminismHashAlgorithm,
+  type DestroyOutcomePayload,
   type DestroyQueueRejectedPayload,
   type DestroyQueuedPayload,
   type DestroyScheduledPayload,
-  type DestroyOutcomePayload,
+  type DeterminismHashAlgorithm,
+  type LobbyRoom,
   type LockstepCheckpointPayload,
   type LockstepFallbackPayload,
   type LockstepStatusPayload,
-  type LobbyRoom,
   type MatchFinishedPayload,
-  type RoomStateHashesPayload,
   type RoomListEntryPayload,
   type RoomMembershipPayload,
-  type RtsRoom,
+  type RoomStateHashesPayload,
   type RoomStatus,
+  type RtsRoom,
   type ServerToClientEvents,
 } from '#rts-engine';
+
+import { LobbySessionCoordinator } from './lobby-session.js';
 
 type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 

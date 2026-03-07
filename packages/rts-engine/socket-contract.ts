@@ -1,15 +1,16 @@
+import type { RankedTeamOutcome } from './match-lifecycle.js';
+import type { PlacementTransformState } from './placement-transform.js';
 import type {
   BuildOutcome,
   BuildQueuePayload,
+  DestroyOutcome,
+  DestroyQueuePayload,
   RoomDeterminismCheckpoint,
   RoomGridStatePayload,
   RoomStateHashes,
-  DestroyOutcome,
-  DestroyQueuePayload,
   RoomStatePayload,
   RoomStructuresStatePayload,
 } from './rts.js';
-import type { RankedTeamOutcome } from './match-lifecycle.js';
 import type { StructureTemplatePayload } from './structure.js';
 
 // Shared Socket.IO payload contracts.
@@ -74,7 +75,10 @@ export interface BuildQueuedPayload {
   templateId: string;
   x: number;
   y: number;
+  transform: PlacementTransformState;
   delayTicks: number;
+  eventId: number;
+  executeTick: number;
 }
 
 export interface DestroyQueuedPayload {
@@ -86,6 +90,9 @@ export interface DestroyQueuedPayload {
   scheduledByTurn: number;
   delayTicks: number;
   structureKey: string;
+  eventId: number;
+  executeTick: number;
+  idempotent: boolean;
 }
 
 export interface BuildScheduledPayload {
@@ -165,6 +172,7 @@ export interface RoomJoinedPayload {
   roomId: string;
   roomCode: string;
   roomName: string;
+  tickMs: number;
   playerId: string;
   playerName: string;
   teamId: number | null;
