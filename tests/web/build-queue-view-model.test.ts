@@ -9,6 +9,7 @@ import {
   previewMatchesSelection,
   type BuildPlacementSelection,
   type BuildQueuePreview,
+  type BuildQueueUiInput,
 } from '../../apps/web/src/build-queue-view-model.js';
 
 function createSelection(
@@ -52,6 +53,22 @@ function createTransform(
   };
 }
 
+function createUiInput(
+  overrides: Partial<BuildQueueUiInput> = {},
+): BuildQueueUiInput {
+  return {
+    selectedTemplateId: 'turret',
+    buildModeActive: true,
+    selectedPlacement: createSelection(),
+    latestBuildPreview: createPreview(),
+    activeTransformOperations: [],
+    previewPending: false,
+    canMutateGameplay: true,
+    queueFeedbackOverride: null,
+    ...overrides,
+  };
+}
+
 describe('build queue view model helpers', () => {
   it('builds preview requests from the selected placement', () => {
     expect(
@@ -86,36 +103,70 @@ describe('build queue view model helpers', () => {
 
   it('prompts for a placement when nothing is selected', () => {
     expect(
-      deriveBuildQueueUi({
-        selectedPlacement: null,
-        latestBuildPreview: null,
-        activeTransformOperations: [],
-        previewPending: false,
-        canMutateGameplay: true,
-        queueFeedbackOverride: null,
-      }),
+      deriveBuildQueueUi(
+        createUiInput({
+          selectedPlacement: null,
+          latestBuildPreview: null,
+        }),
+      ),
     ).toEqual({
-      placementCopy: 'Select a build placement to calculate affordability.',
-      previewReasonCopy: 'Preview reason: awaiting local preview.',
+      placementCopy: 'Template: turret. Move cursor to preview placement.',
+      previewReasonCopy: 'Preview reason: move cursor to project template.',
       previewReasonIsError: false,
       queueCostCopy: 'Cost: --',
       queueCostTone: 'neutral',
-      queueFeedbackCopy: 'Select a build placement to calculate affordability.',
+      queueFeedbackCopy:
+        'Move cursor over the grid to choose a build candidate.',
       queueFeedbackIsError: false,
+      queueDisabled: true,
+    });
+  });
+
+  it('requests template-button selection when no template is active', () => {
+    expect(
+      deriveBuildQueueUi(
+        createUiInput({
+          selectedTemplateId: null,
+          buildModeActive: false,
+          selectedPlacement: null,
+          latestBuildPreview: null,
+        }),
+      ),
+    ).toMatchObject({
+      placementCopy:
+        'Template: no selection. Click a template button to enter build mode.',
+      previewReasonCopy: 'Preview reason: build mode inactive.',
+      queueFeedbackCopy: 'Click a template button to enter build mode.',
+      queueDisabled: true,
+    });
+  });
+
+  it('shows inactive build mode copy when a template is selected but mode is off', () => {
+    expect(
+      deriveBuildQueueUi(
+        createUiInput({
+          buildModeActive: false,
+          selectedPlacement: null,
+          latestBuildPreview: null,
+        }),
+      ),
+    ).toMatchObject({
+      placementCopy: 'Template: turret. Build mode inactive.',
+      previewReasonCopy: 'Preview reason: build mode inactive.',
+      queueFeedbackCopy:
+        'Build mode inactive. Click the selected template button to enter build mode.',
       queueDisabled: true,
     });
   });
 
   it('keeps queueing disabled while affordability preview is pending', () => {
     expect(
-      deriveBuildQueueUi({
-        selectedPlacement: createSelection(),
-        latestBuildPreview: null,
-        activeTransformOperations: [],
-        previewPending: true,
-        canMutateGameplay: true,
-        queueFeedbackOverride: null,
-      }),
+      deriveBuildQueueUi(
+        createUiInput({
+          latestBuildPreview: null,
+          previewPending: true,
+        }),
+      ),
     ).toMatchObject({
       queueFeedbackCopy: 'Recalculating affordability...',
       queueDisabled: true,
@@ -124,20 +175,17 @@ describe('build queue view model helpers', () => {
 
   it('surfaces deficit feedback for unaffordable placements', () => {
     expect(
-      deriveBuildQueueUi({
-        selectedPlacement: createSelection(),
-        latestBuildPreview: createPreview({
-          affordable: false,
-          current: 3,
-          deficit: 4,
-          needed: 7,
-          reason: 'insufficient-resources',
+      deriveBuildQueueUi(
+        createUiInput({
+          latestBuildPreview: createPreview({
+            affordable: false,
+            current: 3,
+            deficit: 4,
+            needed: 7,
+            reason: 'insufficient-resources',
+          }),
         }),
-        activeTransformOperations: [],
-        previewPending: false,
-        canMutateGameplay: true,
-        queueFeedbackOverride: null,
-      }),
+      ),
     ).toMatchObject({
       previewReasonCopy: 'Preview reason: insufficient resources',
       queueCostTone: 'blocked',
@@ -149,14 +197,11 @@ describe('build queue view model helpers', () => {
 
   it('surfaces read-only feedback when gameplay mutation is disabled', () => {
     expect(
-      deriveBuildQueueUi({
-        selectedPlacement: createSelection(),
-        latestBuildPreview: createPreview(),
-        activeTransformOperations: [],
-        previewPending: false,
-        canMutateGameplay: false,
-        queueFeedbackOverride: null,
-      }),
+      deriveBuildQueueUi(
+        createUiInput({
+          canMutateGameplay: false,
+        }),
+      ),
     ).toMatchObject({
       queueFeedbackCopy:
         'Queue action is read-only until you are an active, non-defeated player.',
@@ -166,20 +211,17 @@ describe('build queue view model helpers', () => {
 
   it('describes non-deficit placement rejections', () => {
     expect(
-      deriveBuildQueueUi({
-        selectedPlacement: createSelection(),
-        latestBuildPreview: createPreview({
-          affordable: false,
-          current: 10,
-          deficit: 0,
-          needed: 6,
-          reason: 'outside-territory',
+      deriveBuildQueueUi(
+        createUiInput({
+          latestBuildPreview: createPreview({
+            affordable: false,
+            current: 10,
+            deficit: 0,
+            needed: 6,
+            reason: 'outside-territory',
+          }),
         }),
-        activeTransformOperations: [],
-        previewPending: false,
-        canMutateGameplay: true,
-        queueFeedbackOverride: null,
-      }),
+      ),
     ).toMatchObject({
       previewReasonCopy: 'Preview reason: outside build zone',
       queueFeedbackCopy: 'Cannot queue here: outside build zone.',
@@ -190,39 +232,28 @@ describe('build queue view model helpers', () => {
 
   it('treats stale previews as unavailable for the active placement', () => {
     expect(
-      deriveBuildQueueUi({
-        selectedPlacement: createSelection({ x: 12 }),
-        latestBuildPreview: createPreview(),
-        activeTransformOperations: [],
-        previewPending: false,
-        canMutateGameplay: true,
-        queueFeedbackOverride: null,
-      }),
+      deriveBuildQueueUi(
+        createUiInput({
+          selectedPlacement: createSelection({ x: 12 }),
+        }),
+      ),
     ).toMatchObject({
       previewReasonCopy: 'Preview reason: awaiting local preview.',
       queueCostCopy: 'Cost: --',
-      queueFeedbackCopy: 'Preview unavailable. Select the placement again.',
+      queueFeedbackCopy: 'Preview unavailable. Move cursor to refresh.',
       queueDisabled: true,
     });
   });
 
   it('enables queueing for affordable active placements', () => {
-    expect(
-      deriveBuildQueueUi({
-        selectedPlacement: createSelection(),
-        latestBuildPreview: createPreview(),
-        activeTransformOperations: [],
-        previewPending: false,
-        canMutateGameplay: true,
-        queueFeedbackOverride: null,
-      }),
-    ).toMatchObject({
-      placementCopy: 'Placement: (4, 6) for turret.',
+    expect(deriveBuildQueueUi(createUiInput())).toMatchObject({
+      placementCopy: 'Placement: (4, 6) for turret. Click grid to queue build.',
       previewReasonCopy: 'Preview reason: legal placement',
       previewReasonIsError: false,
       queueCostCopy: 'Cost: 6 | Current: 10',
       queueCostTone: 'affordable',
-      queueFeedbackCopy: 'Affordable: need 6, current 10.',
+      queueFeedbackCopy:
+        'Ready: click grid to queue build (need 6, current 10).',
       queueFeedbackIsError: false,
       queueDisabled: false,
     });
@@ -230,17 +261,14 @@ describe('build queue view model helpers', () => {
 
   it('lets queue feedback overrides replace derived affordability feedback', () => {
     expect(
-      deriveBuildQueueUi({
-        selectedPlacement: createSelection(),
-        latestBuildPreview: createPreview(),
-        activeTransformOperations: [],
-        previewPending: false,
-        canMutateGameplay: true,
-        queueFeedbackOverride: {
-          text: 'Queued build #12 for execution.',
-          isError: false,
-        },
-      }),
+      deriveBuildQueueUi(
+        createUiInput({
+          queueFeedbackOverride: {
+            text: 'Queued build #12 for execution.',
+            isError: false,
+          },
+        }),
+      ),
     ).toMatchObject({
       queueFeedbackCopy: 'Queued build #12 for execution.',
       queueFeedbackIsError: false,
@@ -250,13 +278,14 @@ describe('build queue view model helpers', () => {
 });
 
 describe('match ui build controls', () => {
-  it('uses placement-specific control ids', () => {
+  it('uses template button menu and build mode ids', () => {
     const markup = readFileSync(
       new URL('../../apps/web/index.html', import.meta.url),
       'utf8',
     );
 
-    expect(markup).toContain('id="clear-build-placement"');
-    expect(markup).not.toContain('cancel-build-mode');
+    expect(markup).toContain('id="template-button-menu"');
+    expect(markup).toContain('id="exit-build-mode"');
+    expect(markup).not.toContain('id="template-select"');
   });
 });

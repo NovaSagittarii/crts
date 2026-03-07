@@ -58,6 +58,7 @@ import {
   type BuildQueueFeedbackOverride,
   type BuildQueuePreview,
 } from './build-queue-view-model.js';
+import { TemplateButtonMenuElement } from './template-button-menu.js';
 import {
   applyPlacementTransformOperation,
   createPlacementTransformViewState,
@@ -266,7 +267,6 @@ const queuePlacementEl = getRequiredElement<HTMLElement>('queue-placement');
 const previewReasonEl = getRequiredElement<HTMLElement>('preview-reason');
 const queueCostEl = getRequiredElement<HTMLElement>('queue-cost');
 const queueFeedbackEl = getRequiredElement<HTMLElement>('queue-feedback');
-const queueBuildButton = getRequiredElement<HTMLButtonElement>('queue-build');
 const destroySelectionEl = getRequiredElement<HTMLElement>('destroy-selection');
 const destroyFeedbackEl = getRequiredElement<HTMLElement>('destroy-feedback');
 const destroyQueueButton =
@@ -387,8 +387,9 @@ const restartMatchButton =
 const playerNameEl = getRequiredElement<HTMLInputElement>('player-name');
 const setNameButton = getRequiredElement<HTMLButtonElement>('set-name');
 
-const templateSelectEl =
-  getRequiredElement<HTMLSelectElement>('template-select');
+const templateButtonMenuEl = getRequiredElement<HTMLDivElement>(
+  'template-button-menu',
+);
 const buildDelayEl = getRequiredElement<HTMLInputElement>('build-delay');
 const transformRotateButton =
   getRequiredElement<HTMLButtonElement>('transform-rotate');
@@ -398,11 +399,17 @@ const transformMirrorHorizontalButton = getRequiredElement<HTMLButtonElement>(
 const transformMirrorVerticalButton = getRequiredElement<HTMLButtonElement>(
   'transform-mirror-vertical',
 );
-const clearBuildPlacementButton = getRequiredElement<HTMLButtonElement>(
-  'clear-build-placement',
-);
+const exitBuildModeButton =
+  getRequiredElement<HTMLButtonElement>('exit-build-mode');
 const transformIndicatorEl = getRequiredElement<HTMLElement>(
   'transform-indicator',
+);
+
+const templateButtonMenu = new TemplateButtonMenuElement(
+  templateButtonMenuEl,
+  (templateId) => {
+    activateBuildModeForTemplate(templateId);
+  },
 );
 
 const newRoomNameEl = getRequiredElement<HTMLInputElement>('new-room-name');
@@ -494,9 +501,11 @@ let isFinishedPanelMinimized = false;
 let currentTeamDefeated = false;
 let persistentDefeatReason: string | null = null;
 let latestOutcomeTimelineMetadata: unknown = null;
+let buildModeActive = false;
 let selectedTemplatePlacement: BuildPlacementSelection | null = null;
 let latestBuildPreview: BuildPreview | null = null;
 let previewPending = false;
+let lastHoveredGridCell: Cell | null = null;
 let authoritativePreviewRefreshState: AuthoritativePreviewRefreshState =
   createAuthoritativePreviewRefreshState();
 let lastTeamEconomySnapshot: TeamEconomySnapshot | null = null;
@@ -681,7 +690,8 @@ function refreshPreviewAfterAuthoritativeUpdate(
     !shouldRefreshAuthoritativePreview({
       section,
       tick,
-      hasSelectedPlacement: selectedTemplatePlacement !== null,
+      hasSelectedPlacement:
+        buildModeActive && selectedTemplatePlacement !== null,
       canMutateGameplay: canMutateGameplay(),
       previewPending,
       state: authoritativePreviewRefreshState,
@@ -1917,6 +1927,8 @@ function updateTransformIndicator(): void {
 
 function updateQueueAffordabilityUi(): void {
   const queueUi = deriveBuildQueueUi({
+    selectedTemplateId: selectedTemplateId || null,
+    buildModeActive,
     selectedPlacement: selectedTemplatePlacement,
     latestBuildPreview,
     activeTransformOperations: placementTransformState.operations,
@@ -1942,7 +1954,6 @@ function updateQueueAffordabilityUi(): void {
     );
   }
 
-  queueBuildButton.disabled = queueUi.queueDisabled;
   queueFeedbackEl.textContent = queueUi.queueFeedbackCopy;
   queueFeedbackEl.classList.toggle(
     'queue-feedback--error',
@@ -2084,6 +2095,11 @@ function applyTransformControl(
     return;
   }
 
+  if (!buildModeActive) {
+    setMessage('Enter build mode before applying placement transforms.', true);
+    return;
+  }
+
   placementTransformState = applyPlacementTransformOperation(
     placementTransformState,
     operation,
@@ -2091,18 +2107,6 @@ function applyTransformControl(
   updateTransformIndicator();
   setMessage(`${label} applied. Preview updated locally.`);
   emitBuildPreviewForSelectedPlacement();
-  requestRender();
-  refreshActionUi();
-}
-
-function clearSelectedBuildPlacement(): void {
-  if (!canMutateGameplay()) {
-    setMessage('Build controls are already read-only.', true);
-    return;
-  }
-
-  clearSelectedTemplatePlacement();
-  setMessage('Cleared selected build placement.');
   requestRender();
   refreshActionUi();
 }
@@ -2302,15 +2306,50 @@ function syncEconomyHud(team: TeamPayload | null, tick: number): void {
   renderEconomyDeltaChip(team);
 }
 
-function selectTemplatePlacementAt(cell: Cell): void {
-  const template = getSelectedTemplate();
-  if (!template) {
-    setMessage('No template selected.', true);
+function updateTemplateButtonMenu(): void {
+  if (availableTemplates.length === 0) {
+    selectedTemplateId = '';
+    buildModeActive = false;
+    clearSelectedTemplatePlacement();
+    templateButtonMenu.update({
+      templates: [],
+      selectedTemplateId: null,
+      buildModeActive: false,
+      enabled: false,
+    });
     return;
+  }
+
+  if (!selectedTemplateId || !getSelectedTemplate()) {
+    selectedTemplateId = availableTemplates[0]?.id ?? '';
+    clearSelectedTemplatePlacement();
+  }
+
+  templateButtonMenu.update({
+    templates: availableTemplates,
+    selectedTemplateId,
+    buildModeActive,
+    enabled: canMutateGameplay(),
+  });
+}
+
+function setBuildCandidateFromCell(cell: Cell): boolean {
+  const template = getSelectedTemplate();
+  if (!template || !buildModeActive) {
+    return false;
   }
 
   const x = cell.x - Math.floor(template.width / 2);
   const y = cell.y - Math.floor(template.height / 2);
+  if (
+    selectedTemplatePlacement &&
+    selectedTemplatePlacement.templateId === template.id &&
+    selectedTemplatePlacement.x === x &&
+    selectedTemplatePlacement.y === y
+  ) {
+    return false;
+  }
+
   selectedTemplatePlacement = {
     templateId: template.id,
     x,
@@ -2318,38 +2357,68 @@ function selectTemplatePlacementAt(cell: Cell): void {
   };
   authoritativePreviewRefreshState = createAuthoritativePreviewRefreshState();
   resetQueueFeedbackOverride();
-  setMessage(`Build placement selected at (${x}, ${y}).`);
   emitBuildPreviewForSelectedPlacement();
   refreshActionUi();
+  return true;
 }
 
-function updateTemplateOptions(): void {
-  templateSelectEl.innerHTML = '';
-
-  if (availableTemplates.length === 0) {
-    clearSelectedTemplatePlacement();
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = 'No templates';
-    templateSelectEl.append(option);
-    selectedTemplateId = '';
-    refreshActionUi();
+function exitBuildMode(announce = true): void {
+  if (!buildModeActive) {
+    if (announce) {
+      setMessage('Build mode is already inactive.');
+    }
     return;
   }
 
-  for (const template of availableTemplates) {
-    const option = document.createElement('option');
-    option.value = template.id;
-    option.textContent = `${template.name} (${template.width}x${template.height}) | base ${template.activationCost}`;
-    templateSelectEl.append(option);
+  buildModeActive = false;
+  clearSelectedTemplatePlacement();
+  updateTemplateButtonMenu();
+  requestRender();
+  refreshActionUi();
+  if (announce) {
+    setMessage('Build mode exited.');
+  }
+}
+
+function activateBuildModeForTemplate(templateId: string): void {
+  if (!canMutateGameplay()) {
+    setMessage('Build controls are read-only until the match is active.', true);
+    return;
   }
 
-  if (!selectedTemplateId || !getSelectedTemplate()) {
-    selectedTemplateId = availableTemplates[0].id;
+  if (!currentRoomId || currentRoomId === '-') {
+    setMessage('Join a room before entering build mode.', true);
+    return;
+  }
+
+  const template = availableTemplates.find((entry) => entry.id === templateId);
+  if (!template) {
+    setMessage('Selected template is no longer available.', true);
+    return;
+  }
+
+  const switchedTemplate = selectedTemplateId !== templateId;
+  selectedTemplateId = templateId;
+  buildModeActive = true;
+  if (switchedTemplate) {
     clearSelectedTemplatePlacement();
   }
-  templateSelectEl.value = selectedTemplateId;
+
+  const hasCandidate =
+    lastHoveredGridCell !== null &&
+    setBuildCandidateFromCell(lastHoveredGridCell);
+
+  updateTemplateButtonMenu();
+  requestRender();
   refreshActionUi();
+  if (hasCandidate) {
+    setMessage(
+      `Build mode active for ${template.name}. Click the grid to queue placement.`,
+    );
+    return;
+  }
+
+  setMessage(`Build mode active for ${template.name}. Move cursor to preview.`);
 }
 
 function getSelfParticipant(): MembershipParticipant | null {
@@ -2444,17 +2513,23 @@ function getReadOnlyBannerCopy(): {
 function updateReadOnlyExperience(): void {
   const gameplayAllowed = canMutateGameplay();
 
-  templateSelectEl.disabled = !gameplayAllowed;
+  if (!gameplayAllowed && buildModeActive) {
+    buildModeActive = false;
+    clearSelectedTemplatePlacement();
+  }
+
   buildDelayEl.disabled = !gameplayAllowed;
-  transformRotateButton.disabled = !gameplayAllowed;
-  transformMirrorHorizontalButton.disabled = !gameplayAllowed;
-  transformMirrorVerticalButton.disabled = !gameplayAllowed;
-  clearBuildPlacementButton.disabled = !gameplayAllowed;
+  transformRotateButton.disabled = !gameplayAllowed || !buildModeActive;
+  transformMirrorHorizontalButton.disabled =
+    !gameplayAllowed || !buildModeActive;
+  transformMirrorVerticalButton.disabled = !gameplayAllowed || !buildModeActive;
+  exitBuildModeButton.disabled = !gameplayAllowed || !buildModeActive;
   destroyQueueButton.disabled = !gameplayAllowed;
   destroyConfirmButton.disabled = !gameplayAllowed;
   destroyCancelButton.disabled = !gameplayAllowed;
   canvas.classList.toggle('canvas--locked', !gameplayAllowed);
   canvas.setAttribute('aria-disabled', gameplayAllowed ? 'false' : 'true');
+  updateTemplateButtonMenu();
 
   const bannerCopy = getReadOnlyBannerCopy();
   spectatorBannerEl.classList.toggle('is-hidden', bannerCopy === null);
@@ -2677,10 +2752,13 @@ function resizeCanvas(): void {
 }
 
 function previewMatchesCurrentSelection(preview: BuildPreview): boolean {
-  return previewMatchesSelection(
-    preview,
-    selectedTemplatePlacement,
-    placementTransformState.operations,
+  return (
+    buildModeActive &&
+    previewMatchesSelection(
+      preview,
+      selectedTemplatePlacement,
+      placementTransformState.operations,
+    )
   );
 }
 
@@ -2897,21 +2975,57 @@ function pointerToCell(event: PointerEvent): Cell | null {
   });
 }
 
-function chooseTemplatePlacement(cell: Cell): void {
+function queueBuildAtCell(cell: Cell): void {
+  if (!buildModeActive) {
+    setMessage('Select a template button to enter build mode.', true);
+    return;
+  }
+
   if (!canMutateGameplay()) {
     setMessage(
-      'Build placement is unavailable while you are spectating.',
+      'Build placement is read-only until you are an active, non-defeated player.',
       true,
     );
     return;
   }
 
   if (!currentRoomId || currentRoomId === '-') {
-    setMessage('Join a room before selecting a build placement.', true);
+    setMessage('Join a room before queueing builds.', true);
     return;
   }
 
-  selectTemplatePlacementAt(cell);
+  setBuildCandidateFromCell(cell);
+  const queueRequest = buildPreviewRequestFromSelection(
+    selectedTemplatePlacement,
+    toPlacementTransformInput(placementTransformState),
+  );
+  if (
+    !queueRequest ||
+    !latestBuildPreview ||
+    !previewMatchesSelection(
+      latestBuildPreview,
+      selectedTemplatePlacement,
+      placementTransformState.operations,
+    ) ||
+    !latestBuildPreview.affordable
+  ) {
+    refreshActionUi();
+    return;
+  }
+
+  resetQueueFeedbackOverride();
+  setQueueFeedbackOverride('Submitting build queue request...', false);
+  overlayBuildFeedbackPending = true;
+  overlayBuildFeedbackIsError = false;
+  overlayBuildFeedbackCopy = 'Submitting build queue request...';
+  socket.emit('build:queue', {
+    templateId: queueRequest.templateId,
+    x: queueRequest.x,
+    y: queueRequest.y,
+    transform: queueRequest.transform,
+    delayTicks: readDelayTicks(),
+  });
+  refreshActionUi();
 }
 
 function updateTeamStats(payload: RoomStatePayload): void {
@@ -3258,6 +3372,13 @@ canvas.addEventListener('pointerdown', (event) => {
     return;
   }
 
+  lastHoveredGridCell = cell;
+
+  if (buildModeActive) {
+    queueBuildAtCell(cell);
+    return;
+  }
+
   if (selectDestroyStructureAtCell(cell)) {
     return;
   }
@@ -3275,7 +3396,7 @@ canvas.addEventListener('pointerdown', (event) => {
     return;
   }
 
-  chooseTemplatePlacement(cell);
+  setMessage('Click a template button to enter build mode.');
 });
 
 canvas.addEventListener('pointermove', (event) => {
@@ -3297,6 +3418,16 @@ canvas.addEventListener('pointermove', (event) => {
     cameraState = applyPanDelta(cameraState, deltaX, deltaY);
     updateCameraStatus();
     requestRender();
+    return;
+  }
+
+  const cell = pointerToCell(event);
+  if (cell) {
+    lastHoveredGridCell = cell;
+  }
+
+  if (buildModeActive && cell) {
+    setBuildCandidateFromCell(cell);
     return;
   }
 
@@ -3341,6 +3472,32 @@ window.addEventListener('keydown', (event) => {
   }
   if (event.metaKey || event.ctrlKey || event.altKey) {
     return;
+  }
+
+  if (buildModeActive) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      exitBuildMode();
+      return;
+    }
+
+    if (event.key === 'r' || event.key === 'R') {
+      event.preventDefault();
+      applyTransformControl('rotate', 'Rotate 90deg');
+      return;
+    }
+
+    if (event.key === 'h' || event.key === 'H') {
+      event.preventDefault();
+      applyTransformControl('mirror-horizontal', 'Horizontal mirror');
+      return;
+    }
+
+    if (event.key === 'v' || event.key === 'V') {
+      event.preventDefault();
+      applyTransformControl('mirror-vertical', 'Vertical mirror');
+      return;
+    }
   }
 
   if (event.key === 'f' || event.key === 'F') {
@@ -3481,7 +3638,10 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   availableTemplates = payload.templates;
   syncPreviewTemplateSnapshots(payload.templates);
   selectedTemplateId = payload.templates[0]?.id ?? '';
-  updateTemplateOptions();
+  buildModeActive = false;
+  clearSelectedTemplatePlacement();
+  lastHoveredGridCell = null;
+  updateTemplateButtonMenu();
   applyAuthoritativePlayerIdentity({
     sessionId: payload.playerId,
     name: payload.playerName,
@@ -3517,8 +3677,10 @@ socket.on('room:left', (payload: RoomLeftPayload) => {
   availableTemplates = [];
   previewTemplateSnapshotsById.clear();
   selectedTemplateId = '';
-  updateTemplateOptions();
+  buildModeActive = false;
+  updateTemplateButtonMenu();
   clearSelectedTemplatePlacement();
+  lastHoveredGridCell = null;
   gridWidth = 0;
   gridHeight = 0;
   gridBytes = null;
@@ -3998,13 +4160,6 @@ setNameButton.addEventListener('click', () => {
   });
 });
 
-templateSelectEl.addEventListener('change', () => {
-  selectedTemplateId = templateSelectEl.value;
-  clearSelectedTemplatePlacement();
-  requestRender();
-  refreshActionUi();
-});
-
 buildDelayEl.addEventListener('change', () => {
   readDelayTicks();
 });
@@ -4021,8 +4176,8 @@ transformMirrorVerticalButton.addEventListener('click', () => {
   applyTransformControl('mirror-vertical', 'Vertical mirror');
 });
 
-clearBuildPlacementButton.addEventListener('click', () => {
-  clearSelectedBuildPlacement();
+exitBuildModeButton.addEventListener('click', () => {
+  exitBuildMode();
 });
 
 createRoomButton.addEventListener('click', () => {
@@ -4075,31 +4230,6 @@ toggleReadyButton.addEventListener('click', () => {
 
 startMatchButton.addEventListener('click', () => {
   socket.emit('room:start');
-});
-
-queueBuildButton.addEventListener('click', () => {
-  const queueRequest = buildPreviewRequestFromSelection(
-    selectedTemplatePlacement,
-    toPlacementTransformInput(placementTransformState),
-  );
-  if (!queueRequest || !latestBuildPreview || !latestBuildPreview.affordable) {
-    refreshActionUi();
-    return;
-  }
-
-  resetQueueFeedbackOverride();
-  setQueueFeedbackOverride('Submitting build queue request...', false);
-  overlayBuildFeedbackPending = true;
-  overlayBuildFeedbackIsError = false;
-  overlayBuildFeedbackCopy = 'Submitting build queue request...';
-  socket.emit('build:queue', {
-    templateId: queueRequest.templateId,
-    x: queueRequest.x,
-    y: queueRequest.y,
-    transform: queueRequest.transform,
-    delayTicks: readDelayTicks(),
-  });
-  refreshActionUi();
 });
 
 destroyQueueButton.addEventListener('click', () => {
@@ -4171,7 +4301,7 @@ overlayTabTeamButton.addEventListener('click', () => {
 });
 
 updateTransformIndicator();
-updateTemplateOptions();
+updateTemplateButtonMenu();
 resetEconomyTracking();
 resetDestroyInteractionState();
 setActiveOverlayTab(activeOverlayTab);
