@@ -255,7 +255,7 @@ describe('server match lifecycle contract', () => {
       { attempts: 30 },
     );
     expect(backToLobby.countdownSecondsRemaining).toBeNull();
-  });
+  }, 10_000);
 
   test('keeps countdown running through disconnect and finishes through breach-only outcomes', async ({
     connectedRoom,

@@ -2,6 +2,7 @@ import { describe, expect } from 'vitest';
 
 import type {
   BuildQueuedPayload,
+  BuildScheduledPayload,
   RoomGridStatePayload,
   RoomStateHashesPayload,
   RoomStructuresStatePayload,
@@ -126,7 +127,7 @@ describe('section sync and queued scheduling', () => {
   );
 
   lockstepSectionsTest(
-    'broadcasts queued intents immediately and scheduled builds on turn flush',
+    'broadcasts authoritative queued intents and scheduled builds on turn flush',
     async ({ connectedRoom, startLockstepMatch }) => {
       const setup = await startLockstepMatch(connectedRoom, {
         waitForActiveMembership: false,
@@ -134,12 +135,33 @@ describe('section sync and queued scheduling', () => {
 
       const hostQueuedPromise = waitForBuildQueueResponse(setup.host, 4_000);
       const guestQueuedPromise = waitForBuildQueueResponse(setup.guest, 4_000);
+      const earlyHostQueuedPromise = waitForEvent<BuildQueuedPayload>(
+        setup.host,
+        'build:queued',
+        250,
+      );
+      const earlyGuestQueuedPromise = waitForEvent<BuildQueuedPayload>(
+        setup.guest,
+        'build:queued',
+        250,
+      );
+      const earlyHostScheduledPromise = waitForEvent<BuildScheduledPayload>(
+        setup.host,
+        'build:scheduled',
+        250,
+      );
+      const hostScheduledPromise = waitForBuildScheduled(setup.host, 6_000);
+      const guestScheduledPromise = waitForBuildScheduled(setup.guest, 6_000);
 
       setup.host.emit('build:queue', {
         templateId: 'block',
         x: setup.hostTeam.baseTopLeft.x + 8,
         y: setup.hostTeam.baseTopLeft.y + 8,
       });
+
+      await expect(earlyHostQueuedPromise).rejects.toThrow(/timed out/i);
+      await expect(earlyGuestQueuedPromise).rejects.toThrow(/timed out/i);
+      await expect(earlyHostScheduledPromise).rejects.toThrow(/timed out/i);
 
       const [hostQueuedResponse, guestQueuedResponse] = await Promise.all([
         hostQueuedPromise,
@@ -160,13 +182,9 @@ describe('section sync and queued scheduling', () => {
         hostQueued.bufferedTurn,
       );
 
-      await expect(waitForBuildScheduled(setup.host, 250)).rejects.toThrow(
-        /timed out/i,
-      );
-
       const [hostScheduled, guestScheduled] = await Promise.all([
-        waitForBuildScheduled(setup.host, 6_000),
-        waitForBuildScheduled(setup.guest, 6_000),
+        hostScheduledPromise,
+        guestScheduledPromise,
       ]);
 
       expect(hostScheduled).toEqual(guestScheduled);

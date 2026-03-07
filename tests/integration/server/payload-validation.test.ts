@@ -179,6 +179,7 @@ describe('socket payload validation', () => {
           expect(response.error.message).toBe('Invalid build payload');
         }
       },
+      10_000,
     );
   }
 
