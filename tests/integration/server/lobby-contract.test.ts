@@ -1,10 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import type { Socket } from 'socket.io-client';
-
-import {
-  createServer,
-  type GameServer,
-} from '../../../apps/server/src/server.js';
+import { describe, expect } from 'vitest';
 
 import type {
   ChatMessagePayload,
@@ -16,40 +10,27 @@ import type {
   RoomSlotClaimedPayload,
 } from '#rts-engine';
 import {
-  createClient,
   waitForEvent,
   waitForMembership,
   waitForRoomState,
 } from './test-support.js';
+import { createIntegrationTest } from './fixtures.js';
+
+const test = createIntegrationTest({
+  port: 0,
+  width: 50,
+  height: 50,
+  tickMs: 40,
+});
 
 function countPlayers(payload: RoomMembershipPayload): number {
   return payload.participants.filter(({ role }) => role === 'player').length;
 }
 
 describe('lobby room/team contract', () => {
-  let server: GameServer;
-  let port = 0;
-  const sockets: Socket[] = [];
-
-  beforeEach(async () => {
-    server = createServer({ port: 0, width: 50, height: 50, tickMs: 40 });
-    port = await server.start();
-  });
-
-  afterEach(async () => {
-    for (const socket of sockets) {
-      socket.close();
-    }
-    await server.stop();
-  });
-
-  function connectClient(): Socket {
-    const socket = createClient(port);
-    sockets.push(socket);
-    return socket;
-  }
-
-  test('keeps room membership revisions deterministic across join and leave', async () => {
+  test('keeps room membership revisions deterministic across join and leave', async ({
+    connectClient,
+  }) => {
     const owner = connectClient();
     await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
 
@@ -100,7 +81,9 @@ describe('lobby room/team contract', () => {
     expect(ownerAfterLeave.revision).toBe(ownerWithGuest.revision + 1);
   });
 
-  test('supports room-code join and caps players at two with spectator overflow', async () => {
+  test('supports room-code join and caps players at two with spectator overflow', async ({
+    connectClient,
+  }) => {
     const owner = connectClient();
     await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
 
@@ -163,7 +146,9 @@ describe('lobby room/team contract', () => {
     ).toBe('spectator');
   });
 
-  test('supports configured multi-seat teams with shared team ids', async () => {
+  test('supports configured multi-seat teams with shared team ids', async ({
+    connectClient,
+  }) => {
     const owner = connectClient();
     await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
 
@@ -284,7 +269,9 @@ describe('lobby room/team contract', () => {
     ).toEqual([created.playerId, teammateJoined.playerId]);
   });
 
-  test('enforces slot lock and manual ready toggles', async () => {
+  test('enforces slot lock and manual ready toggles', async ({
+    connectClient,
+  }) => {
     const owner = connectClient();
     await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
 
@@ -341,7 +328,9 @@ describe('lobby room/team contract', () => {
     ).toBe(false);
   });
 
-  test('transfers host deterministically before match start', async () => {
+  test('transfers host deterministically before match start', async ({
+    connectClient,
+  }) => {
     const owner = connectClient();
     await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
 
@@ -377,7 +366,9 @@ describe('lobby room/team contract', () => {
     expect(transferred.hostSessionId).toBe(guestJoined.playerId);
   });
 
-  test('guards start preconditions and continues countdown when a player disconnects', async () => {
+  test('guards start preconditions and continues countdown when a player disconnects', async ({
+    connectClient,
+  }) => {
     const owner = connectClient();
     await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
 
@@ -458,7 +449,9 @@ describe('lobby room/team contract', () => {
     expect(activeMembership.status).toBe('active');
   });
 
-  test('broadcasts room chat to players and spectators during active match', async () => {
+  test('broadcasts room chat to players and spectators during active match', async ({
+    connectClient,
+  }) => {
     const owner = connectClient();
     await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
 
