@@ -26,7 +26,7 @@ Lifecycle/status contract:
 - `room:start` is host-only and serves both initial start and restart from `finished`.
 - `room:cancel-countdown` is host-only and only legal while status is `countdown`.
 - Gameplay mutations are queue-only: accepted mutations must enter through queue/event paths such as `build:queue` and `destroy:queue`.
-- Accepted queue mutations fan out through `build:queued`, `build:scheduled`, `build:outcome`, and destroy counterparts; keep those server emissions aligned with the shared contract.
+- Accepted queue mutations fan out through `build:queued`, `build:outcome`, and destroy counterparts; keep those server emissions aligned with the shared contract.
 
 Illustrative (not exhaustive) `room:error.reason` examples:
 

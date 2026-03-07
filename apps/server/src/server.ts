@@ -15,7 +15,6 @@ import {
   type BuildQueueRejectedPayload,
   type BuildQueueRejectedReason,
   type BuildQueuedPayload,
-  type BuildScheduledPayload,
   type ChatSendPayload,
   type ClientToServerEvents,
   type DestroyOutcomePayload,
@@ -23,7 +22,6 @@ import {
   type DestroyQueueRejectedPayload,
   type DestroyQueueRejectedReason,
   type DestroyQueuedPayload,
-  type DestroyScheduledPayload,
   type LifecyclePreconditions,
   type LockstepCheckpointPayload,
   type LockstepFallbackReason,
@@ -815,24 +813,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
     };
   }
 
-  function createBuildScheduledPayload(
-    room: RuntimeRoom,
-    teamId: number | null,
-    sessionId: string,
-    intentId: string,
-    result: QueueBuildResult,
-  ): BuildScheduledPayload {
-    const player = room.rtsRoom.state.players.get(sessionId);
-    return {
-      roomId: room.rtsRoom.id,
-      intentId,
-      playerId: sessionId,
-      teamId: teamId ?? player?.teamId ?? -1,
-      eventId: result.eventId ?? -1,
-      executeTick: result.executeTick ?? room.rtsRoom.state.tick,
-    };
-  }
-
   function createBuildQueueRejectedPayload(
     room: RuntimeRoom,
     teamId: number,
@@ -850,26 +830,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
       needed: affordability?.needed,
       current: affordability?.current,
       deficit: affordability?.deficit,
-    };
-  }
-
-  function createDestroyScheduledPayload(
-    room: RuntimeRoom,
-    teamId: number | null,
-    sessionId: string,
-    intentId: string,
-    result: QueueDestroyResult,
-  ): DestroyScheduledPayload {
-    const player = room.rtsRoom.state.players.get(sessionId);
-    return {
-      roomId: room.rtsRoom.id,
-      intentId,
-      playerId: sessionId,
-      teamId: teamId ?? player?.teamId ?? -1,
-      eventId: result.eventId ?? -1,
-      executeTick: result.executeTick ?? room.rtsRoom.state.tick,
-      structureKey: result.structureKey ?? '',
-      idempotent: Boolean(result.idempotent),
     };
   }
 
@@ -1090,6 +1050,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     payload: BuildQueuedPayload,
   ): void {
     roomBroadcast.emitBuildQueued(room, payload);
+    roomBroadcast.emitStateHashes(room);
   }
 
   function emitBuildQueueRejected(
@@ -1099,19 +1060,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
     roomBroadcast.emitBuildQueueRejected(room, payload);
   }
 
-  function emitBuildScheduled(
-    room: RuntimeRoom,
-    payload: BuildScheduledPayload,
-  ): void {
-    roomBroadcast.emitBuildScheduled(room, payload);
-    roomBroadcast.emitStateHashes(room);
-  }
-
   function emitDestroyQueued(
     room: RuntimeRoom,
     payload: DestroyQueuedPayload,
   ): void {
     roomBroadcast.emitDestroyQueued(room, payload);
+    roomBroadcast.emitStateHashes(room);
   }
 
   function emitDestroyQueueRejected(
@@ -1119,14 +1073,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
     payload: DestroyQueueRejectedPayload,
   ): void {
     roomBroadcast.emitDestroyQueueRejected(room, payload);
-  }
-
-  function emitDestroyScheduled(
-    room: RuntimeRoom,
-    payload: DestroyScheduledPayload,
-  ): void {
-    roomBroadcast.emitDestroyScheduled(room, payload);
-    roomBroadcast.emitStateHashes(room);
   }
 
   function syncLockstepStatus(room: RuntimeRoom): void {
@@ -1346,16 +1292,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
           queueResult,
         ),
       );
-      emitBuildScheduled(
-        room,
-        createBuildScheduledPayload(
-          room,
-          null,
-          command.sessionId,
-          command.intentId,
-          queueResult,
-        ),
-      );
       return;
     }
 
@@ -1387,16 +1323,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
         command.intentId,
         command.bufferedTurn,
         command.scheduledByTurn,
-        queueResult,
-      ),
-    );
-    emitDestroyScheduled(
-      room,
-      createDestroyScheduledPayload(
-        room,
-        null,
-        command.sessionId,
-        command.intentId,
         queueResult,
       ),
     );
@@ -2791,16 +2717,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
           result,
         ),
       );
-      emitBuildScheduled(
-        room,
-        createBuildScheduledPayload(
-          room,
-          team.id,
-          session.id,
-          intentId,
-          result,
-        ),
-      );
     });
 
     socket.on('destroy:queue', (payload: unknown) => {
@@ -2906,16 +2822,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
           intentId,
           bufferedTurn,
           scheduledByTurn,
-          result,
-        ),
-      );
-      emitDestroyScheduled(
-        room,
-        createDestroyScheduledPayload(
-          room,
-          team.id,
-          session.id,
-          intentId,
           result,
         ),
       );

@@ -10,10 +10,8 @@ import {
 import type {
   BuildOutcomePayload,
   BuildQueuedPayload,
-  BuildScheduledPayload,
   DestroyOutcomePayload,
   DestroyQueuedPayload,
-  DestroyScheduledPayload,
   PlacementTransformInput,
   RoomErrorPayload,
   RoomGridStatePayload,
@@ -699,21 +697,6 @@ export function collectBuildQueuedEvents(
   );
 }
 
-export function collectBuildScheduledEvents(
-  socket: Socket,
-  count: number,
-  timeoutMs = 8000,
-  settleMs = 0,
-): Promise<BuildScheduledPayload[]> {
-  return collectEventsByCount<BuildScheduledPayload>(
-    socket,
-    'build:scheduled',
-    count,
-    timeoutMs,
-    settleMs,
-  );
-}
-
 export function collectBuildOutcomes(
   socket: Socket,
   eventIds: number[],
@@ -791,13 +774,6 @@ export function waitForBuildQueueResponse(
   );
 }
 
-export function waitForBuildScheduled(
-  socket: Socket,
-  timeoutMs = 2500,
-): Promise<BuildScheduledPayload> {
-  return waitForEvent(socket, 'build:scheduled', timeoutMs);
-}
-
 export function waitForDestroyQueueResponse(
   socket: Socket,
   timeoutMs = 2500,
@@ -808,13 +784,6 @@ export function waitForDestroyQueueResponse(
     timeoutMs,
     'Timed out waiting for destroy queue response',
   );
-}
-
-export function waitForDestroyScheduled(
-  socket: Socket,
-  timeoutMs = 2500,
-): Promise<DestroyScheduledPayload> {
-  return waitForEvent(socket, 'destroy:scheduled', timeoutMs);
 }
 
 function waitForOutcomeByEventId<T extends { eventId: number }>(

@@ -4,12 +4,10 @@ import {
   type BuildOutcomePayload,
   type BuildQueueRejectedPayload,
   type BuildQueuedPayload,
-  type BuildScheduledPayload,
   type ClientToServerEvents,
   type DestroyOutcomePayload,
   type DestroyQueueRejectedPayload,
   type DestroyQueuedPayload,
-  type DestroyScheduledPayload,
   type DeterminismHashAlgorithm,
   type LobbyRoom,
   type LockstepCheckpointPayload,
@@ -335,15 +333,6 @@ export class RoomBroadcastService {
       .emit('build:queue-rejected', payload);
   }
 
-  public emitBuildScheduled(
-    room: RuntimeBroadcastRoom,
-    payload: BuildScheduledPayload,
-  ): void {
-    this.io
-      .to(this.roomChannel(room.rtsRoom.id))
-      .emit('build:scheduled', payload);
-  }
-
   public emitDestroyQueued(
     room: RuntimeBroadcastRoom,
     payload: DestroyQueuedPayload,
@@ -360,15 +349,6 @@ export class RoomBroadcastService {
     this.io
       .to(this.roomChannel(room.rtsRoom.id))
       .emit('destroy:queue-rejected', payload);
-  }
-
-  public emitDestroyScheduled(
-    room: RuntimeBroadcastRoom,
-    payload: DestroyScheduledPayload,
-  ): void {
-    this.io
-      .to(this.roomChannel(room.rtsRoom.id))
-      .emit('destroy:scheduled', payload);
   }
 
   public emitBuildOutcomes(

@@ -18,7 +18,6 @@ import { createRoomTest } from './room-fixtures.js';
 import {
   waitForDestroyOutcome,
   waitForDestroyQueueResponse,
-  waitForDestroyScheduled,
   waitForEvent,
   waitForMembership,
   waitForRoomState,
@@ -119,7 +118,6 @@ async function breachGuestCore(
     15_000,
   );
 
-  const destroyScheduledPromise = waitForDestroyScheduled(match.guest, 4_000);
   const queueResponsePromise = waitForDestroyQueueResponse(match.guest);
   match.guest.emit('destroy:queue', {
     structureKey: guestCore.key,
@@ -131,11 +129,10 @@ async function breachGuestCore(
       `Expected guest core destroy queue acceptance, received ${queueResponse.error.reason}`,
     );
   }
-  const destroyScheduled = await destroyScheduledPromise;
 
   const destroyOutcome = await waitForDestroyOutcome(
     match.guest,
-    destroyScheduled.eventId,
+    queueResponse.queued.eventId,
   );
   expect(destroyOutcome.outcome).toBe('destroyed');
   expect(destroyOutcome.structureKey).toBe(guestCore.key);

@@ -14,8 +14,6 @@ import type {
 import { createLockstepTest } from './lockstep-fixtures.js';
 import {
   waitForBuildQueueResponse,
-  waitForBuildScheduled,
-  waitForDestroyScheduled,
   waitForEvent,
   waitForMembership,
   waitForState,
@@ -24,8 +22,6 @@ import {
 
 const PRIMARY_BOUNDARY_TICK_MS = 30;
 const PRIMARY_BOUNDARY_TURN_TICKS = 20;
-const PRIMARY_BOUNDARY_QUIET_WINDOW_MS =
-  PRIMARY_BOUNDARY_TICK_MS * (PRIMARY_BOUNDARY_TURN_TICKS - 2);
 
 const primaryTest = createLockstepTest(
   {
@@ -220,15 +216,17 @@ describe('lockstep primary mode', () => {
         },
       );
       const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
-      const scheduledPromise = waitForBuildScheduled(match.host, 5_000);
+      const ticksIntoTurn = state.tick % PRIMARY_BOUNDARY_TURN_TICKS;
+      const ticksUntilTurnFlush =
+        ticksIntoTurn === 0
+          ? PRIMARY_BOUNDARY_TURN_TICKS
+          : PRIMARY_BOUNDARY_TURN_TICKS - ticksIntoTurn;
+      const quietWindowMs =
+        PRIMARY_BOUNDARY_TICK_MS * Math.max(1, ticksUntilTurnFlush - 2);
       const earlyQueuedPromise = waitForEvent<BuildQueuedPayload>(
         match.host,
         'build:queued',
-        PRIMARY_BOUNDARY_QUIET_WINDOW_MS,
-      );
-      const earlyScheduledPromise = waitForBuildScheduled(
-        match.host,
-        PRIMARY_BOUNDARY_QUIET_WINDOW_MS,
+        quietWindowMs,
       );
 
       match.host.emit('build:queue', {
@@ -238,7 +236,6 @@ describe('lockstep primary mode', () => {
       });
 
       await expect(earlyQueuedPromise).rejects.toThrow(/timed out/i);
-      await expect(earlyScheduledPromise).rejects.toThrow(/timed out/i);
 
       const queued = await waitForBuildQueueResponse(match.host, 5_000);
       if ('error' in queued) {
@@ -247,10 +244,9 @@ describe('lockstep primary mode', () => {
         );
       }
 
-      const scheduled = await scheduledPromise;
-      expect(scheduled.intentId).toBe(queued.queued.intentId);
-      expect(scheduled.eventId).toBe(queued.queued.eventId);
-      expect(scheduled.executeTick).toBe(queued.queued.executeTick);
+      expect(queued.queued.intentId).toMatch(/^intent-/);
+      expect(queued.queued.eventId).toBeGreaterThan(0);
+      expect(queued.queued.executeTick).toBeGreaterThan(0);
     },
     30_000,
   );
@@ -342,9 +338,6 @@ describe('lockstep primary mode', () => {
         'build:queued',
         2_000,
       ).catch((error: unknown) => error);
-      const scheduledPromise = waitForBuildScheduled(spectator, 2_000).catch(
-        (error: unknown) => error,
-      );
       const rejectedPromise = waitForEvent<BuildQueueRejectedPayload>(
         spectator,
         'build:queue-rejected',
@@ -372,7 +365,6 @@ describe('lockstep primary mode', () => {
       expect(rejected.teamId).toBe(team.id);
       expect(rejected.reason).toBe('match-finished');
       await expect(matchFinishedPromise).resolves.toBeInstanceOf(Error);
-      await expect(scheduledPromise).resolves.toBeInstanceOf(Error);
     },
     30_000,
   );
@@ -428,9 +420,6 @@ describe('lockstep primary mode', () => {
         'destroy:queued',
         2_000,
       ).catch((error: unknown) => error);
-      const scheduledPromise = waitForDestroyScheduled(spectator, 2_000).catch(
-        (error: unknown) => error,
-      );
       const rejectedPromise = waitForEvent<DestroyQueueRejectedPayload>(
         spectator,
         'destroy:queue-rejected',
@@ -457,7 +446,6 @@ describe('lockstep primary mode', () => {
       expect(rejected.structureKey).toBe(ownStructure.key);
       expect(rejected.reason).toBe('match-finished');
       await expect(matchFinishedPromise).resolves.toBeInstanceOf(Error);
-      await expect(scheduledPromise).resolves.toBeInstanceOf(Error);
     },
     30_000,
   );
@@ -487,9 +475,6 @@ describe('lockstep primary mode', () => {
         );
       }
 
-      const scheduledPromise = waitForBuildScheduled(match.host, 2_000).catch(
-        (error: unknown) => error,
-      );
       const rejectedPromise = waitForEvent<BuildQueueRejectedPayload>(
         match.host,
         'build:queue-rejected',
@@ -511,7 +496,6 @@ describe('lockstep primary mode', () => {
       expect(rejected.intentId).toMatch(/^intent-/);
       expect(rejected.teamId).toBe(team.id);
       expect(rejected.reason).toBe('outside-territory');
-      await expect(scheduledPromise).resolves.toBeInstanceOf(Error);
     },
     30_000,
   );

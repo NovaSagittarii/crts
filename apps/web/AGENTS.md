@@ -31,7 +31,7 @@ Economy/queue expectations:
 
 - Keep in-match HUD economy readouts (`resources`, `income`, and breakdown details) sourced from `state.teams[].incomeBreakdown` and never from client-local rule simulation.
 - Render pending queue timeline from `state.teams[].pendingBuilds` grouped by `executeTick` and ordered by `eventId`.
-- Treat queue feedback as server-authoritative: reconcile optimistic UI against `build:queued`, `build:queue-rejected`, `build:scheduled`, `build:outcome`, `destroy:queued`, `destroy:queue-rejected`, `destroy:scheduled`, `destroy:outcome`, and `room:error`.
+- Treat queue feedback as server-authoritative: reconcile optimistic UI against `build:queued`, `build:queue-rejected`, `build:outcome`, `destroy:queued`, `destroy:queue-rejected`, `destroy:outcome`, and `room:error`.
 - Do not add preview-only gameplay socket events such as `build:preview`; derive affordance state from current room state plus authoritative queue outcomes.
 
 Finished/restart expectations:
