@@ -2,9 +2,89 @@ import { describe, expect, it } from 'vitest';
 
 import type { CameraViewState } from '../../apps/web/src/camera-view-model.js';
 import {
+  type StructureCardLayerUpdateInput,
   StructureCardOverlayLayer,
   type StructureCardPlacementInput,
 } from '../../apps/web/src/structure-card-overlay.js';
+
+interface FakeCardElementHandle {
+  element: HTMLElement;
+  classNames: Set<string>;
+  attributes: Map<string, string>;
+  style: Record<string, string>;
+  dataset: DOMStringMap;
+}
+
+function createFakeRootElement(): HTMLElement {
+  return {
+    append: () => undefined,
+  } as unknown as HTMLElement;
+}
+
+function createFakeCardElement(
+  width: number,
+  height: number,
+): FakeCardElementHandle {
+  const classNames = new Set<string>(['structure-card', 'is-hidden']);
+  const attributes = new Map<string, string>();
+  const style: Record<string, string> = {};
+  const dataset = {} as DOMStringMap;
+
+  const element = {
+    classList: {
+      add: (...tokens: string[]) => {
+        for (const token of tokens) {
+          classNames.add(token);
+        }
+      },
+      remove: (...tokens: string[]) => {
+        for (const token of tokens) {
+          classNames.delete(token);
+        }
+      },
+      contains: (token: string) => classNames.has(token),
+    },
+    setAttribute: (name: string, value: string) => {
+      attributes.set(name, value);
+    },
+    getBoundingClientRect: () => ({
+      width,
+      height,
+      left: 0,
+      right: width,
+      top: 0,
+      bottom: height,
+      x: 0,
+      y: 0,
+      toJSON: () => ({ width, height }),
+    }),
+    offsetWidth: width,
+    offsetHeight: height,
+    style,
+    dataset,
+  } as unknown as HTMLElement;
+
+  return {
+    element,
+    classNames,
+    attributes,
+    style,
+    dataset,
+  };
+}
+
+function createLayerUpdateInput(
+  overrides: Partial<StructureCardLayerUpdateInput> = {},
+): StructureCardLayerUpdateInput {
+  return {
+    cards: [],
+    camera: createCameraState(),
+    cellSize: 16,
+    viewportWidth: 640,
+    viewportHeight: 360,
+    ...overrides,
+  };
+}
 
 function createCameraState(
   overrides: Partial<CameraViewState> = {},
@@ -158,5 +238,42 @@ describe('structure card overlay layer', () => {
       variant: 'pinned',
       placement: null,
     });
+  });
+
+  it('toggles visible and hidden card classes when update visibility changes', () => {
+    const root = createFakeRootElement();
+    const layer = new StructureCardOverlayLayer(root);
+    const pinnedCard = createFakeCardElement(240, 140);
+
+    layer.registerCardElement('pinned', pinnedCard.element);
+
+    layer.update(
+      createLayerUpdateInput({
+        cards: [
+          {
+            id: 'pinned',
+            structureBounds: { x: 5, y: 5, width: 2, height: 2 },
+            variant: 'pinned',
+            visible: true,
+          },
+        ],
+      }),
+    );
+
+    expect(pinnedCard.classNames.has('is-hidden')).toBe(false);
+    expect(pinnedCard.classNames.has('is-visible')).toBe(true);
+    expect(pinnedCard.attributes.get('aria-hidden')).toBe('false');
+    expect(pinnedCard.style.zIndex).toBe('10');
+    expect(pinnedCard.dataset.variant).toBe('pinned');
+
+    layer.update(
+      createLayerUpdateInput({
+        cards: [],
+      }),
+    );
+
+    expect(pinnedCard.classNames.has('is-hidden')).toBe(true);
+    expect(pinnedCard.classNames.has('is-visible')).toBe(false);
+    expect(pinnedCard.attributes.get('aria-hidden')).toBe('true');
   });
 });

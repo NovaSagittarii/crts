@@ -238,6 +238,7 @@ export class StructureCardOverlayLayer {
 
   #showCard(element: HTMLElement, variant: StructureCardVariant): void {
     element.classList.remove('is-hidden');
+    element.classList.add('is-visible');
     element.setAttribute('aria-hidden', 'false');
     element.dataset.variant = variant;
     element.style.zIndex =
@@ -245,6 +246,7 @@ export class StructureCardOverlayLayer {
   }
 
   #hideCard(element: HTMLElement): void {
+    element.classList.remove('is-visible');
     element.classList.add('is-hidden');
     element.setAttribute('aria-hidden', 'true');
   }

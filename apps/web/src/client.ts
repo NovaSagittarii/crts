@@ -1243,11 +1243,6 @@ function getStructureAtCell(cell: Cell): VisibleStructure | null {
   return structureCellIndex.get(`${cell.x},${cell.y}`) ?? null;
 }
 
-function setCardVisibility(element: HTMLElement, visible: boolean): void {
-  element.classList.toggle('is-hidden', !visible);
-  element.setAttribute('aria-hidden', visible ? 'false' : 'true');
-}
-
 function formatStructureOwnerLabel(structure: VisibleStructure): string {
   return currentTeamId !== null && structure.teamId === currentTeamId
     ? `Team ${structure.teamId} (you)`
@@ -1405,7 +1400,6 @@ function syncDestroySelectionFromInteraction(nowMs: number): void {
 function renderStructureInspector(nowMs = Date.now()): void {
   const pinnedStructure = getPinnedStructure();
   if (!pinnedStructure) {
-    setCardVisibility(structureInspectorEl, false);
     structureInspectorStatusEl.textContent =
       'Pin a structure to keep actions anchored on the board.';
     structureInspectorTemplateEl.textContent = '-';
@@ -1414,7 +1408,6 @@ function renderStructureInspector(nowMs = Date.now()): void {
     structureInspectorStateEl.textContent = '-';
     structureInspectorStatusEl.classList.remove('inspector-status--pinned');
   } else {
-    setCardVisibility(structureInspectorEl, true);
     structureInspectorTemplateEl.textContent = pinnedStructure.templateName;
     structureInspectorOwnerEl.textContent =
       formatStructureOwnerLabel(pinnedStructure);
@@ -1429,14 +1422,12 @@ function renderStructureInspector(nowMs = Date.now()): void {
 
   const hoverStructure = getHoverPreviewStructure(nowMs);
   if (!hoverStructure) {
-    setCardVisibility(structureHoverPreviewEl, false);
     structureHoverStatusEl.textContent = 'Hover preview only.';
     structureHoverTemplateEl.textContent = '-';
     structureHoverOwnerEl.textContent = '-';
     structureHoverHealthEl.textContent = '-';
     structureHoverStateEl.textContent = '-';
   } else {
-    setCardVisibility(structureHoverPreviewEl, true);
     structureHoverStatusEl.textContent = 'Hover preview only.';
     structureHoverTemplateEl.textContent = hoverStructure.templateName;
     structureHoverOwnerEl.textContent =
