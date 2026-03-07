@@ -146,10 +146,7 @@ import {
 import { deriveLobbyControlsViewModel } from './lobby-controls-view-model.js';
 import { deriveLobbyMembershipViewModel } from './lobby-membership-view-model.js';
 import { LobbyScreenUi } from './lobby-screen-ui.js';
-import {
-  getLobbySlotColor,
-  getLobbySlotLabel,
-} from './lobby-slot-presentation.js';
+import { getLobbySlotLabel } from './lobby-slot-presentation.js';
 import {
   applyJoinedHashes,
   createStateHashResyncState,
@@ -213,10 +210,6 @@ function getRequiredElement<T extends HTMLElement>(id: string): T {
 
 function getTeamLabel(slotId: string): string {
   return getLobbySlotLabel(slotId);
-}
-
-function getTeamColor(slotId: string): string {
-  return getLobbySlotColor(slotId);
 }
 
 function generateStableIdFragment(): string {

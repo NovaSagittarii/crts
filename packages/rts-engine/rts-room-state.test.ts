@@ -168,4 +168,28 @@ describe('rts room state', () => {
       new Set(['p1', 'p2']),
     );
   });
+
+  test('advances automatic team ids past explicitly assigned team ids', () => {
+    const room = RtsEngine.createRoomState({
+      id: 'explicit-team-room',
+      name: 'Explicit Team Room',
+      width: 48,
+      height: 48,
+    });
+
+    const explicitTeam = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice', {
+      teamId: 3,
+      teamName: 'Team 3',
+    });
+    const automaticOne = RtsEngine.addPlayerToRoom(room, 'p2', 'Bob');
+    const automaticTwo = RtsEngine.addPlayerToRoom(room, 'p3', 'Cara');
+    const automaticThree = RtsEngine.addPlayerToRoom(room, 'p4', 'Drew');
+
+    expect(explicitTeam.id).toBe(3);
+    expect(automaticOne.id).toBe(4);
+    expect(automaticTwo.id).toBe(5);
+    expect(automaticThree.id).toBe(6);
+    expect(room.players.get('p1')?.teamId).toBe(3);
+    expect(room.teams.get(3)?.playerIds).toEqual(new Set(['p1']));
+  });
 });

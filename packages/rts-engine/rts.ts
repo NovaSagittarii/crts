@@ -549,9 +549,19 @@ export class RtsEngine {
 
   private static allocateTeamId(room: RoomState): number {
     const engine = RtsEngine.getRoomEngine(room);
+    while (room.teams.has(engine.nextTeamId)) {
+      engine.nextTeamId += 1;
+    }
     const teamId = engine.nextTeamId;
     engine.nextTeamId += 1;
     return teamId;
+  }
+
+  private static reserveTeamId(room: RoomState, teamId: number): void {
+    const engine = RtsEngine.getRoomEngine(room);
+    if (teamId >= engine.nextTeamId) {
+      engine.nextTeamId = teamId + 1;
+    }
   }
 
   private static allocateEventId(room: RoomState): number {
@@ -2210,6 +2220,9 @@ export class RtsEngine {
     }
 
     const teamId = options.teamId ?? RtsEngine.allocateTeamId(room);
+    if (options.teamId !== undefined) {
+      RtsEngine.reserveTeamId(room, teamId);
+    }
 
     const baseTopLeft = RtsEngine.pickSpawnPosition(room, teamId);
     const coreKey = RtsEngine.createStructureKey(
