@@ -36,11 +36,6 @@ export type TemplateButtonPatchOperation =
       templateId: string;
     }
   | {
-      type: 'move';
-      templateId: string;
-      to: number;
-    }
-  | {
       type: 'update';
       templateId: string;
       changes: readonly TemplateButtonChange[];
@@ -108,6 +103,8 @@ export class TemplateButtonMenuElement {
           });
           this.#buttonByTemplateId.set(operation.templateId, button);
           this.#applyButtonState(button, operation.next);
+          const beforeEl = this.#container.children.item(operation.at);
+          this.#container.insertBefore(button, beforeEl);
           break;
         }
         case 'update': {
@@ -118,16 +115,6 @@ export class TemplateButtonMenuElement {
           this.#applyButtonState(button, operation.next);
           break;
         }
-        case 'move': {
-          break;
-        }
-      }
-    }
-
-    for (const nextState of nextStates) {
-      const button = this.#buttonByTemplateId.get(nextState.templateId);
-      if (button) {
-        this.#container.append(button);
       }
     }
 
@@ -195,6 +182,21 @@ export class TemplateButtonMenuElement {
         continue;
       }
 
+      const previousIndex = previousIndexByTemplateId.get(nextState.templateId);
+      if (previousIndex !== undefined && previousIndex !== index) {
+        operations.push({
+          type: 'remove',
+          templateId: nextState.templateId,
+        });
+        operations.push({
+          type: 'insert',
+          templateId: nextState.templateId,
+          at: index,
+          next: nextState,
+        });
+        continue;
+      }
+
       const changes: TemplateButtonChange[] = [];
       if (previousState.label !== nextState.label) {
         changes.push('label');
@@ -211,15 +213,6 @@ export class TemplateButtonMenuElement {
           templateId: nextState.templateId,
           changes,
           next: nextState,
-        });
-      }
-
-      const previousIndex = previousIndexByTemplateId.get(nextState.templateId);
-      if (previousIndex !== undefined && previousIndex !== index) {
-        operations.push({
-          type: 'move',
-          templateId: nextState.templateId,
-          to: index,
         });
       }
     }

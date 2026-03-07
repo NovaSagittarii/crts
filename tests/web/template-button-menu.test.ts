@@ -156,4 +156,68 @@ describe('template button menu element', () => {
       },
     ]);
   });
+
+  it('emits no operations when derived button states are unchanged', () => {
+    const previousStates = TemplateButtonMenuElement.deriveButtonStates({
+      templates,
+      selectedTemplateId: 'block',
+      buildModeActive: true,
+      enabled: true,
+    });
+    const nextStates = TemplateButtonMenuElement.deriveButtonStates({
+      templates,
+      selectedTemplateId: 'block',
+      buildModeActive: true,
+      enabled: true,
+    });
+
+    expect(
+      TemplateButtonMenuElement.diffButtonStates(previousStates, nextStates),
+    ).toEqual([]);
+  });
+
+  it('reorders templates with remove/insert operations instead of move ops', () => {
+    const [blockTemplate, gliderTemplate] = templates;
+    if (!blockTemplate || !gliderTemplate) {
+      throw new Error('Expected template fixtures.');
+    }
+
+    const previousStates = TemplateButtonMenuElement.deriveButtonStates({
+      templates,
+      selectedTemplateId: 'block',
+      buildModeActive: true,
+      enabled: true,
+    });
+    const nextStates = TemplateButtonMenuElement.deriveButtonStates({
+      templates: [gliderTemplate, blockTemplate],
+      selectedTemplateId: 'block',
+      buildModeActive: true,
+      enabled: true,
+    });
+
+    expect(
+      TemplateButtonMenuElement.diffButtonStates(previousStates, nextStates),
+    ).toEqual([
+      {
+        type: 'remove',
+        templateId: 'glider',
+      },
+      {
+        type: 'insert',
+        templateId: 'glider',
+        at: 0,
+        next: nextStates[0],
+      },
+      {
+        type: 'remove',
+        templateId: 'block',
+      },
+      {
+        type: 'insert',
+        templateId: 'block',
+        at: 1,
+        next: nextStates[1],
+      },
+    ]);
+  });
 });
