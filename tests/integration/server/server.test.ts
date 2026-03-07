@@ -3,6 +3,7 @@ import type { Socket } from 'socket.io-client';
 
 import { createServer } from '../../../apps/server/src/server.js';
 import { Grid } from '#conway-core';
+import { normalizePlacementTransform } from '#rts-engine';
 import type {
   BuildScheduledPayload,
   BuildOutcomePayload,
@@ -439,6 +440,10 @@ describe('GameServer', () => {
 
       const response = await waitForBuildQueueResponse(setup.host, 4_000);
       if ('error' in response) {
+        if (response.error.reason === 'insufficient-resources') {
+          insufficient = { error: response.error };
+          break;
+        }
         continue;
       }
 
@@ -839,6 +844,9 @@ describe('GameServer', () => {
 
     const buildX = selectedPlacement.x;
     const buildY = selectedPlacement.y;
+    const buildTransform = normalizePlacementTransform({
+      operations: ['rotate'],
+    });
 
     const blockCells: Cell[] = [
       { x: buildX, y: buildY },
@@ -851,16 +859,36 @@ describe('GameServer', () => {
       templateId: blockTemplate.id,
       x: buildX,
       y: buildY,
+      transform: { operations: ['rotate'] },
       delayTicks: 1,
     });
 
     const scheduledPromise = waitForBuildScheduled(setup.host, 4_000);
+    const guestQueuedPromise = waitForEvent<BuildQueuedPayload>(
+      setup.guest,
+      'build:queued',
+    );
     const queued = await waitForEvent<BuildQueuedPayload>(
       setup.host,
       'build:queued',
     );
-    expect(queued.intentId).toMatch(/^intent-/);
     const scheduled = await scheduledPromise;
+    const guestQueued = await guestQueuedPromise;
+
+    expect(queued).toMatchObject({
+      roomId: setup.roomId,
+      intentId: expect.stringMatching(/^intent-/),
+      playerId: setup.hostJoined.playerId,
+      teamId,
+      templateId: blockTemplate.id,
+      x: buildX,
+      y: buildY,
+      transform: buildTransform,
+      delayTicks: 1,
+      eventId: scheduled.eventId,
+      executeTick: scheduled.executeTick,
+    });
+    expect(guestQueued).toEqual(queued);
     expect(scheduled.eventId).toBeGreaterThan(0);
     expect(scheduled.executeTick).toBeGreaterThan(0);
 

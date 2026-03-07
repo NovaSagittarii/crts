@@ -150,6 +150,7 @@ export interface StructurePayload {
   active: boolean;
   isCore: boolean;
   requiresDestroyConfirm: boolean;
+  transform: PlacementTransformState;
   footprint: Vector2[];
 }
 
@@ -394,6 +395,7 @@ export class Structure {
       active: this.active,
       isCore: this.isCore,
       requiresDestroyConfirm: this.template.requiresDestroyConfirm,
+      transform: this.transform,
       footprint: projection.occupiedCells,
     };
   }

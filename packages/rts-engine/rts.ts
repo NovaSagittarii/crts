@@ -206,15 +206,18 @@ export interface TeamIncomeBreakdown {
 export interface PendingBuildPayload {
   eventId: number;
   executeTick: number;
+  playerId: string;
   templateId: string;
   templateName: string;
   x: number;
   y: number;
+  transform: PlacementTransformState;
 }
 
 export interface PendingDestroyPayload {
   eventId: number;
   executeTick: number;
+  playerId: string;
   structureKey: string;
   templateId: string;
   templateName: string;
@@ -759,10 +762,12 @@ export class RtsEngine {
       return {
         eventId: event.id,
         executeTick: event.executeTick,
+        playerId: event.playerId,
         templateId: event.templateId,
         templateName: templateName ?? event.templateId,
         x: event.x,
         y: event.y,
+        transform: event.transform,
       };
     });
   }
@@ -779,6 +784,7 @@ export class RtsEngine {
       return {
         eventId: event.id,
         executeTick: event.executeTick,
+        playerId: event.playerId,
         structureKey: event.structureKey,
         templateId: structure?.templateId ?? 'unknown',
         templateName: template?.name ?? structure?.templateId ?? 'Unknown',

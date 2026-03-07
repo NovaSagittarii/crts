@@ -42,6 +42,7 @@ import {
   type PlacementTransformInput,
   type PlacementTransformOperation,
   type QueueDestroyResult,
+  normalizePlacementTransform,
   transitionMatchLifecycle,
   type PlayerProfilePayload,
   RtsEngine,
@@ -726,6 +727,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     payload: BuildQueuePayload,
     bufferedTurn: number,
     scheduledByTurn: number,
+    result: QueueBuildResult,
   ): BuildQueuedPayload {
     return {
       roomId: room.rtsRoom.id,
@@ -737,7 +739,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
       templateId: payload.templateId,
       x: payload.x,
       y: payload.y,
+      transform: normalizePlacementTransform(payload.transform),
       delayTicks: payload.delayTicks ?? 10,
+      eventId: result.eventId ?? -1,
+      executeTick: result.executeTick ?? room.rtsRoom.state.tick,
     };
   }
 
@@ -749,6 +754,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     payload: DestroyQueuePayload,
     bufferedTurn: number,
     scheduledByTurn: number,
+    result: QueueDestroyResult,
   ): DestroyQueuedPayload {
     return {
       roomId: room.rtsRoom.id,
@@ -759,6 +765,9 @@ export function createServer(options: ServerOptions = {}): GameServer {
       scheduledByTurn,
       delayTicks: payload.delayTicks ?? 10,
       structureKey: payload.structureKey,
+      eventId: result.eventId ?? -1,
+      executeTick: result.executeTick ?? room.rtsRoom.state.tick,
+      idempotent: Boolean(result.idempotent),
     };
   }
 
@@ -1282,6 +1291,19 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
+      emitBuildQueued(
+        room,
+        createBuildQueuedPayload(
+          room,
+          command.teamId,
+          command.sessionId,
+          command.intentId,
+          command.payload as BuildQueuePayload,
+          command.bufferedTurn,
+          command.scheduledByTurn,
+          queueResult,
+        ),
+      );
       emitBuildScheduled(
         room,
         createBuildScheduledPayload(
@@ -1315,6 +1337,19 @@ export function createServer(options: ServerOptions = {}): GameServer {
       return;
     }
 
+    emitDestroyQueued(
+      room,
+      createDestroyQueuedPayload(
+        room,
+        command.teamId,
+        command.sessionId,
+        command.intentId,
+        command.payload as DestroyQueuePayload,
+        command.bufferedTurn,
+        command.scheduledByTurn,
+        queueResult,
+      ),
+    );
     emitDestroyScheduled(
       room,
       createDestroyScheduledPayload(
@@ -2654,18 +2689,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
       const intentId = allocateIntentId(lockstepRuntime);
       const bufferedTurn = getBufferedTurn(room);
       const scheduledByTurn = getScheduledByTurn(room, bufferedTurn);
-      emitBuildQueued(
-        room,
-        createBuildQueuedPayload(
-          room,
-          team.id,
-          session.id,
-          intentId,
-          parsedPayload,
-          bufferedTurn,
-          scheduledByTurn,
-        ),
-      );
       if (
         lockstepRuntime.mode === 'primary' &&
         lockstepRuntime.status === 'running'
@@ -2717,6 +2740,19 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
+      emitBuildQueued(
+        room,
+        createBuildQueuedPayload(
+          room,
+          team.id,
+          session.id,
+          intentId,
+          parsedPayload,
+          bufferedTurn,
+          scheduledByTurn,
+          result,
+        ),
+      );
       emitBuildScheduled(
         room,
         createBuildScheduledPayload(
@@ -2778,18 +2814,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
       const intentId = allocateIntentId(lockstepRuntime);
       const bufferedTurn = getBufferedTurn(room);
       const scheduledByTurn = getScheduledByTurn(room, bufferedTurn);
-      emitDestroyQueued(
-        room,
-        createDestroyQueuedPayload(
-          room,
-          team.id,
-          session.id,
-          intentId,
-          parsedPayload,
-          bufferedTurn,
-          scheduledByTurn,
-        ),
-      );
       if (
         lockstepRuntime.mode === 'primary' &&
         lockstepRuntime.status === 'running'
@@ -2836,6 +2860,19 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
+      emitDestroyQueued(
+        room,
+        createDestroyQueuedPayload(
+          room,
+          team.id,
+          session.id,
+          intentId,
+          parsedPayload,
+          bufferedTurn,
+          scheduledByTurn,
+          result,
+        ),
+      );
       emitDestroyScheduled(
         room,
         createDestroyScheduledPayload(
