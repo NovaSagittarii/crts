@@ -1,77 +1,104 @@
-import { io, type Socket } from 'socket.io-client';
-import { Grid } from '#conway-core';
+import { type Socket, io } from 'socket.io-client';
 
+import { Grid } from '#conway-core';
 import {
-  RtsEngine,
-  type BuildPreviewTemplateSnapshot,
-  BuildScheduledPayload,
   BuildOutcomePayload,
-  BuildQueuedPayload,
+  type BuildPreviewTemplateSnapshot,
   BuildQueueRejectedPayload,
+  BuildQueuedPayload,
+  BuildScheduledPayload,
   ChatMessagePayload,
   ClientToServerEvents,
-  DestroyScheduledPayload,
   DestroyOutcomePayload,
-  DestroyQueuedPayload,
   DestroyQueueRejectedPayload,
+  DestroyQueuedPayload,
+  DestroyScheduledPayload,
   LockstepCheckpointPayload,
   LockstepFallbackPayload,
-  MembershipParticipant,
   MatchFinishedPayload,
   MatchStartedPayload,
+  MembershipParticipant,
+  PlacementBounds,
   PlayerProfilePayload,
   RoomCountdownPayload,
   RoomErrorPayload,
+  RoomGridStatePayload,
   RoomJoinedPayload,
   RoomLeftPayload,
   RoomListEntryPayload,
   RoomMembershipPayload,
-  RoomGridStatePayload,
-  PlacementBounds,
-  RoomStateHashesPayload,
-  RoomStatus,
   RoomSlotClaimedPayload,
+  RoomStateHashesPayload,
   RoomStatePayload,
+  RoomStatus,
   RoomStructuresStatePayload,
+  RtsEngine,
   ServerToClientEvents,
   StateRequestPayload,
   StructureTemplatePayload,
   TeamPayload,
 } from '#rts-engine';
 
+import { BuildModeController } from './build-mode-controller.js';
 import {
-  buildPreviewRequestFromSelection,
-  describeBuildFailureReason,
-  deriveBuildQueueUi,
-  formatDeficitCopy,
-  previewMatchesSelection,
   type BuildQueueFeedbackOverride,
   type BuildQueuePreview,
+  buildPreviewRequestFromSelection,
+  deriveBuildQueueUi,
+  describeBuildFailureReason,
+  formatDeficitCopy,
+  previewMatchesSelection,
 } from './build-queue-view-model.js';
-import { BuildModeController } from './build-mode-controller.js';
-import { EconomyHudController } from './economy-hud-controller.js';
-import { TemplateButtonMenuElement } from './template-button-menu.js';
 import {
-  applyPlacementTransformOperation,
-  createPlacementTransformViewState,
-  formatPlacementTransformIndicator,
-  toPlacementTransformInput,
-  type PlacementTransformViewState,
-} from './placement-transform-view-model.js';
+  CAMERA_DEFAULT_ZOOM,
+  CAMERA_KEYBOARD_ZOOM_FACTOR,
+  type CameraPanDirection,
+  type CameraPoint,
+  type CameraViewState,
+  applyKeyboardPan,
+  applyPanDelta,
+  applyWheelZoomAtPoint,
+  createCameraViewState,
+  normalizeWheelZoomFactor,
+  resetCameraToBase,
+  screenPointToCell,
+} from './camera-view-model.js';
+import { chooseGridCellSize } from './canvas-layout.js';
 import {
+  DEFAULT_CHAT_LOG_MAX_MESSAGES,
+  getChatOverflowCount,
+} from './chat-log-view-model.js';
+import {
+  type AuthoritativePreviewRefreshState,
+  type AuthoritativePreviewSection,
+  createAuthoritativePreviewRefreshState,
+  recordAuthoritativePreviewRefresh,
+  shouldApplyRoomScopedPayload,
+  shouldRefreshAuthoritativePreview,
+} from './client-sync-helpers.js';
+import {
+  type DestroySelectableStructure,
+  type DestroyViewModelState,
   armDestroyConfirm,
-  cancelDestroyConfirm,
   canQueueDestroy,
+  cancelDestroyConfirm,
   clearDestroySelection,
   createDestroyViewModelState,
   refreshDestroySelection,
   registerDestroyOutcome,
   registerDestroyQueued,
   syncDestroyPending,
-  type DestroySelectableStructure,
-  type DestroyViewModelState,
 } from './destroy-view-model.js';
+import { EconomyHudController } from './economy-hud-controller.js';
+import { deriveLobbyControlsViewModel } from './lobby-controls-view-model.js';
+import { deriveLobbyMembershipViewModel } from './lobby-membership-view-model.js';
+import { LobbyScreenUi } from './lobby-screen-ui.js';
+import { getLobbySlotLabel } from './lobby-slot-presentation.js';
+import { computeLocalBuildZoneOverlay } from './local-build-zone-view-model.js';
 import {
+  type MatchScreenViewState,
+  RECONNECT_NOTICE_MS,
+  SCREEN_TRANSITION_NOTICE_MS,
   applyAuthoritativeStatus,
   clearReconnectNotice,
   createMatchScreenViewState,
@@ -79,56 +106,14 @@ import {
   hasVisibleReconnectNotice,
   isReconnectSyncing,
   markReconnectPending,
-  RECONNECT_NOTICE_MS,
-  SCREEN_TRANSITION_NOTICE_MS,
-  type MatchScreenViewState,
 } from './match-screen-view-model.js';
 import {
-  applyKeyboardPan,
-  applyPanDelta,
-  applyWheelZoomAtPoint,
-  CAMERA_DEFAULT_ZOOM,
-  CAMERA_KEYBOARD_ZOOM_FACTOR,
-  createCameraViewState,
-  normalizeWheelZoomFactor,
-  resetCameraToBase,
-  screenPointToCell,
-  type CameraPanDirection,
-  type CameraPoint,
-  type CameraViewState,
-} from './camera-view-model.js';
-import {
-  canShowStructureActions,
-  createStructureInteractionState,
-  DEFAULT_HOVER_LEAVE_GRACE_MS,
-  reduceStructureInteraction,
-  selectActiveStructureKey,
-  selectStructureInteractionMode,
-  type StructureInteractionAction,
-  type StructureInteractionState,
-} from './structure-interaction-view-model.js';
-import {
-  createTacticalOverlayState,
-  DEFAULT_SYNC_STALE_THRESHOLD_MS,
-  deriveTacticalOverlayState,
-  type TacticalOverlayDetailRow,
-  type TacticalOverlaySection,
-  type TacticalOverlaySummaryItem,
-  type TacticalOverlayTeamSnapshot,
-  type TacticalOverlayState,
-} from './tactical-overlay-view-model.js';
-import { chooseGridCellSize } from './canvas-layout.js';
-import {
-  DEFAULT_CHAT_LOG_MAX_MESSAGES,
-  getChatOverflowCount,
-} from './chat-log-view-model.js';
-import { computeLocalBuildZoneOverlay } from './local-build-zone-view-model.js';
-import { getWrappedBoundsSegments } from './wrapped-grid-view-model.js';
-import {
-  computeVisibleGridBounds,
-  type VisibleGridBounds,
-} from './render-viewport.js';
-import { createRenderScheduler } from './render-scheduler.js';
+  type PlacementTransformViewState,
+  applyPlacementTransformOperation,
+  createPlacementTransformViewState,
+  formatPlacementTransformIndicator,
+  toPlacementTransformInput,
+} from './placement-transform-view-model.js';
 import {
   applyAuthoritativeIdentity,
   createPlayerIdentityState,
@@ -136,10 +121,11 @@ import {
   selectIsHost,
   selectSelfParticipant,
 } from './player-identity-view-model.js';
-import { deriveLobbyControlsViewModel } from './lobby-controls-view-model.js';
-import { deriveLobbyMembershipViewModel } from './lobby-membership-view-model.js';
-import { LobbyScreenUi } from './lobby-screen-ui.js';
-import { getLobbySlotLabel } from './lobby-slot-presentation.js';
+import { createRenderScheduler } from './render-scheduler.js';
+import {
+  type VisibleGridBounds,
+  computeVisibleGridBounds,
+} from './render-viewport.js';
 import {
   applyJoinedHashes,
   createStateHashResyncState,
@@ -151,13 +137,27 @@ import {
   resetStateHashResyncState,
 } from './state-hash-resync-view-model.js';
 import {
-  createAuthoritativePreviewRefreshState,
-  recordAuthoritativePreviewRefresh,
-  shouldApplyRoomScopedPayload,
-  shouldRefreshAuthoritativePreview,
-  type AuthoritativePreviewSection,
-  type AuthoritativePreviewRefreshState,
-} from './client-sync-helpers.js';
+  DEFAULT_HOVER_LEAVE_GRACE_MS,
+  type StructureInteractionAction,
+  type StructureInteractionState,
+  canShowStructureActions,
+  createStructureInteractionState,
+  reduceStructureInteraction,
+  selectActiveStructureKey,
+  selectStructureInteractionMode,
+} from './structure-interaction-view-model.js';
+import {
+  DEFAULT_SYNC_STALE_THRESHOLD_MS,
+  type TacticalOverlayDetailRow,
+  type TacticalOverlaySection,
+  type TacticalOverlayState,
+  type TacticalOverlaySummaryItem,
+  type TacticalOverlayTeamSnapshot,
+  createTacticalOverlayState,
+  deriveTacticalOverlayState,
+} from './tactical-overlay-view-model.js';
+import { TemplateButtonMenuElement } from './template-button-menu.js';
+import { getWrappedBoundsSegments } from './wrapped-grid-view-model.js';
 
 type BuildPreview = BuildQueuePreview & {
   footprint: Cell[];

@@ -1,39 +1,29 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-
 import express, { Express } from 'express';
-import { Server as SocketIOServer, Socket } from 'socket.io';
+import { Socket, Server as SocketIOServer } from 'socket.io';
 
 import {
-  LobbySessionCoordinator,
-  RECONNECT_HOLD_MS,
-  type PlayerSession,
-} from './lobby-session.js';
-import {
-  RoomBroadcastService,
-  type RuntimeBroadcastRoom,
-} from './server-room-broadcast.js';
-
-import {
-  LobbyRoom,
   type LobbyRejectionReason,
+  LobbyRoom,
   type LobbySlotDefinition,
 } from '#rts-engine';
 import {
-  type QueueBuildResult,
+  type BuildOutcomePayload,
   type BuildQueuePayload,
-  type BuildQueueRejectedReason,
   type BuildQueueRejectedPayload,
+  type BuildQueueRejectedReason,
+  type BuildQueuedPayload,
   type BuildScheduledPayload,
-  type DestroyQueuePayload,
-  type DestroyScheduledPayload,
   type ChatSendPayload,
   type ClientToServerEvents,
   type DestroyOutcomePayload,
-  type DestroyQueuedPayload,
-  type DestroyQueueRejectedReason,
+  type DestroyQueuePayload,
   type DestroyQueueRejectedPayload,
+  type DestroyQueueRejectedReason,
+  type DestroyQueuedPayload,
+  type DestroyScheduledPayload,
   type LifecyclePreconditions,
   type LockstepCheckpointPayload,
   type LockstepFallbackReason,
@@ -41,29 +31,38 @@ import {
   type LockstepStatusPayload,
   type PlacementTransformInput,
   type PlacementTransformOperation,
-  type QueueDestroyResult,
-  transitionMatchLifecycle,
   type PlayerProfilePayload,
-  RtsEngine,
-  type RoomGridStatePayload,
+  type QueueBuildResult,
+  type QueueDestroyResult,
   type RoomClaimSlotPayload,
   type RoomCreatePayload,
-  type BuildQueuedPayload,
-  type BuildOutcomePayload,
   type RoomErrorPayload,
+  type RoomGridStatePayload,
   type RoomJoinPayload,
-  type RoomSlotDefinitionPayload,
   type RoomSetReadyPayload,
-  type RoomStateHashesPayload,
+  type RoomSlotDefinitionPayload,
   type RoomStartPayload,
-  type RoomStructuresStatePayload,
-  type RtsRoom,
+  type RoomStateHashesPayload,
   type RoomStatePayload,
+  type RoomStructuresStatePayload,
+  RtsEngine,
+  type RtsRoom,
   type ServerToClientEvents,
   type StateRequestPayload,
   type StateRequestSection,
   type TeamState,
+  transitionMatchLifecycle,
 } from '#rts-engine';
+
+import {
+  LobbySessionCoordinator,
+  type PlayerSession,
+  RECONNECT_HOLD_MS,
+} from './lobby-session.js';
+import {
+  RoomBroadcastService,
+  type RuntimeBroadcastRoom,
+} from './server-room-broadcast.js';
 
 const DEFAULT_DIST_CLIENT_DIR = path.resolve(
   import.meta.dirname,

@@ -10,6 +10,18 @@ const config = {
   trailingComma: 'all',
   arrowParens: 'always',
   proseWrap: 'preserve',
+  plugins: ['@trivago/prettier-plugin-sort-imports'],
+  importOrder: [
+    '<BUILTIN_MODULES>',
+    '<THIRD_PARTY_MODULES>',
+    '<SEPARATOR>',
+    '^#',
+    '<SEPARATOR>',
+    '^[./]',
+  ],
+  importOrderSeparation: true,
+  importOrderSortSpecifiers: true,
+  importOrderSideEffects: false,
 };
 
 export default config;
