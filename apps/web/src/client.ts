@@ -7,15 +7,18 @@ import {
   BuildScheduledPayload,
   BuildOutcomePayload,
   BuildQueuedPayload,
+  BuildQueueRejectedPayload,
   ChatMessagePayload,
   ClientToServerEvents,
   DestroyScheduledPayload,
   DestroyOutcomePayload,
   DestroyQueuedPayload,
+  DestroyQueueRejectedPayload,
   LockstepCheckpointPayload,
   LockstepFallbackPayload,
   MembershipParticipant,
   MatchFinishedPayload,
+  MatchStartedPayload,
   PlayerProfilePayload,
   RoomCountdownPayload,
   RoomErrorPayload,
@@ -33,7 +36,8 @@ import {
   ServerToClientEvents,
   StateRequestPayload,
   StructureTemplatePayload,
-  TeamIncomeBreakdownPayload,
+  TeamIncomeBreakdown,
+  TeamPayload,
 } from '#rts-engine';
 
 import {
@@ -149,18 +153,20 @@ import {
   reconcileIncomingHashes,
   resetStateHashResyncState,
 } from './state-hash-resync-view-model.js';
+import {
+  createAuthoritativePreviewRefreshState,
+  recordAuthoritativePreviewRefresh,
+  shouldApplyRoomScopedPayload,
+  shouldRefreshAuthoritativePreview,
+  type AuthoritativePreviewSection,
+  type AuthoritativePreviewRefreshState,
+} from './client-sync-helpers.js';
 
-type RoomListEntry = RoomListEntryPayload;
-type StatePayload = RoomStatePayload;
-type TemplateSummary = StructureTemplatePayload;
-type TeamPayload = StatePayload['teams'][number];
 type BuildPreview = BuildQueuePreview & {
   footprint: Cell[];
   illegalCells: Cell[];
   bounds: PlacementBounds;
 };
-type BuildOutcome = BuildOutcomePayload;
-type DestroyOutcome = DestroyOutcomePayload;
 
 interface VisibleStructure {
   teamId: number;
@@ -182,7 +188,7 @@ interface TeamEconomySnapshot {
   tick: number;
   resources: number;
   income: number;
-  incomeBreakdown: TeamIncomeBreakdownPayload;
+  incomeBreakdown: TeamIncomeBreakdown;
 }
 
 interface Cell {
@@ -474,7 +480,7 @@ let playerIdentityState = createPlayerIdentityState(
   persistedSessionId,
   playerNameEl.value.trim(),
 );
-let availableTemplates: TemplateSummary[] = [];
+let availableTemplates: StructureTemplatePayload[] = [];
 const previewTemplateSnapshotsById = new Map<
   string,
   BuildPreviewTemplateSnapshot
@@ -491,7 +497,8 @@ let latestOutcomeTimelineMetadata: unknown = null;
 let selectedTemplatePlacement: BuildPlacementSelection | null = null;
 let latestBuildPreview: BuildPreview | null = null;
 let previewPending = false;
-let lastPreviewRefreshTick: number | null = null;
+let authoritativePreviewRefreshState: AuthoritativePreviewRefreshState =
+  createAuthoritativePreviewRefreshState();
 let lastTeamEconomySnapshot: TeamEconomySnapshot | null = null;
 let latestEconomyDeltaCue: AggregatedIncomeDelta | null = null;
 let latestEconomyDeltaTick: number | null = null;
@@ -649,7 +656,7 @@ function applyAuthoritativePlayerIdentity(payload: {
 
 function createSyntheticStatePayload(
   payload: RoomStructuresStatePayload,
-): StatePayload {
+): RoomStatePayload {
   return {
     roomId: payload.roomId,
     roomName: currentRoomName,
@@ -662,7 +669,36 @@ function createSyntheticStatePayload(
   };
 }
 
-function applyStatePayload(payload: StatePayload): void {
+function shouldApplyCurrentRoomPayload(payloadRoomId: string | null): boolean {
+  return shouldApplyRoomScopedPayload(currentRoomId, payloadRoomId);
+}
+
+function refreshPreviewAfterAuthoritativeUpdate(
+  section: AuthoritativePreviewSection,
+  tick: number,
+): void {
+  if (
+    !shouldRefreshAuthoritativePreview({
+      section,
+      tick,
+      hasSelectedPlacement: selectedTemplatePlacement !== null,
+      canMutateGameplay: canMutateGameplay(),
+      previewPending,
+      state: authoritativePreviewRefreshState,
+    })
+  ) {
+    return;
+  }
+
+  authoritativePreviewRefreshState = recordAuthoritativePreviewRefresh(
+    authoritativePreviewRefreshState,
+    section,
+    tick,
+  );
+  emitBuildPreviewForSelectedPlacement();
+}
+
+function applyStatePayload(payload: RoomStatePayload): void {
   const previousGridWidth = gridWidth;
   const previousGridHeight = gridHeight;
 
@@ -691,15 +727,7 @@ function applyStatePayload(payload: StatePayload): void {
   requestRender();
   updateLifecycleUi();
 
-  if (
-    selectedTemplatePlacement &&
-    canMutateGameplay() &&
-    !previewPending &&
-    lastPreviewRefreshTick !== payload.tick
-  ) {
-    lastPreviewRefreshTick = payload.tick;
-    emitBuildPreviewForSelectedPlacement();
-  }
+  refreshPreviewAfterAuthoritativeUpdate('full', payload.tick);
 }
 
 function applyGridStatePayload(payload: RoomGridStatePayload): void {
@@ -724,15 +752,7 @@ function applyGridStatePayload(payload: RoomGridStatePayload): void {
   requestRender();
   updateLifecycleUi();
 
-  if (
-    selectedTemplatePlacement &&
-    canMutateGameplay() &&
-    !previewPending &&
-    lastPreviewRefreshTick !== payload.tick
-  ) {
-    lastPreviewRefreshTick = payload.tick;
-    emitBuildPreviewForSelectedPlacement();
-  }
+  refreshPreviewAfterAuthoritativeUpdate('grid', payload.tick);
 }
 
 function applyStructuresStatePayload(
@@ -747,15 +767,7 @@ function applyStructuresStatePayload(
   requestRender();
   updateLifecycleUi();
 
-  if (
-    selectedTemplatePlacement &&
-    canMutateGameplay() &&
-    !previewPending &&
-    lastPreviewRefreshTick !== payload.tick
-  ) {
-    lastPreviewRefreshTick = payload.tick;
-    emitBuildPreviewForSelectedPlacement();
-  }
+  refreshPreviewAfterAuthoritativeUpdate('structures', payload.tick);
 }
 
 function getCanvasViewportPoint(event: MouseEvent | PointerEvent): CameraPoint {
@@ -1047,7 +1059,7 @@ function syncPlayerNameBeforeJoin(): void {
   socket.emit('player:set-name', { name });
 }
 
-function getSelectedTemplate(): TemplateSummary | null {
+function getSelectedTemplate(): StructureTemplatePayload | null {
   if (!selectedTemplateId) return null;
   return availableTemplates.find(({ id }) => id === selectedTemplateId) ?? null;
 }
@@ -1099,8 +1111,8 @@ function triggerValuePulse(...elements: HTMLElement[]): void {
 }
 
 function cloneIncomeBreakdown(
-  breakdown: TeamIncomeBreakdownPayload,
-): TeamIncomeBreakdownPayload {
+  breakdown: TeamIncomeBreakdown,
+): TeamIncomeBreakdown {
   return {
     base: breakdown.base,
     structures: breakdown.structures,
@@ -1161,7 +1173,7 @@ function clearSelectedTemplatePlacement(): void {
   selectedTemplatePlacement = null;
   latestBuildPreview = null;
   previewPending = false;
-  lastPreviewRefreshTick = null;
+  authoritativePreviewRefreshState = createAuthoritativePreviewRefreshState();
   resetQueueFeedbackOverride();
 }
 
@@ -1636,7 +1648,7 @@ function resetRoomTransitionViewModels(): void {
   resetTacticalOverlayState();
 }
 
-function syncVisibleStructures(payload: StatePayload): void {
+function syncVisibleStructures(payload: RoomStatePayload): void {
   const nextStructures: VisibleStructure[] = [];
   const nextIndex = new Map<string, VisibleStructure>();
 
@@ -1707,7 +1719,7 @@ function clearLocalBuildZoneOverlay(): void {
   localBuildZoneCoverageCache.clear();
 }
 
-function syncLocalBuildZoneOverlay(payload: StatePayload): void {
+function syncLocalBuildZoneOverlay(payload: RoomStatePayload): void {
   if (currentTeamId === null) {
     clearLocalBuildZoneOverlay();
     return;
@@ -1948,7 +1960,7 @@ function refreshActionUi(nowMs = Date.now()): void {
 }
 
 function syncPreviewTemplateSnapshots(
-  templates: readonly TemplateSummary[],
+  templates: readonly StructureTemplatePayload[],
 ): void {
   previewTemplateSnapshotsById.clear();
 
@@ -2304,7 +2316,7 @@ function selectTemplatePlacementAt(cell: Cell): void {
     x,
     y,
   };
-  lastPreviewRefreshTick = null;
+  authoritativePreviewRefreshState = createAuthoritativePreviewRefreshState();
   resetQueueFeedbackOverride();
   setMessage(`Build placement selected at (${x}, ${y}).`);
   emitBuildPreviewForSelectedPlacement();
@@ -2461,7 +2473,7 @@ function updateReadOnlyExperience(): void {
   refreshActionUi();
 }
 
-function syncCurrentTeamIdFromState(payload: StatePayload): void {
+function syncCurrentTeamIdFromState(payload: RoomStatePayload): void {
   currentTeamId = resolveTeamIdForSession(
     payload.teams,
     playerIdentityState.sessionId,
@@ -2613,7 +2625,7 @@ function applyRoomStatus(nextStatus: RoomStatus): void {
   updateLifecycleUi();
 }
 
-function renderRoomList(rooms: RoomListEntry[]): void {
+function renderRoomList(rooms: RoomListEntryPayload[]): void {
   roomListEl.innerHTML = '';
 
   for (const room of rooms) {
@@ -2902,7 +2914,7 @@ function chooseTemplatePlacement(cell: Cell): void {
   selectTemplatePlacementAt(cell);
 }
 
-function updateTeamStats(payload: StatePayload): void {
+function updateTeamStats(payload: RoomStatePayload): void {
   syncCurrentTeamIdFromState(payload);
 
   roomEl.textContent = `${payload.roomName} (#${payload.roomId})`;
@@ -3120,7 +3132,7 @@ function renderLobbyMembership(payload: RoomMembershipPayload): void {
   updateLifecycleUi();
 }
 
-function renderSpawnMarkers(payload: StatePayload): void {
+function renderSpawnMarkers(payload: RoomStatePayload): void {
   spawnMarkersEl.innerHTML = '';
 
   if (payload.teams.length === 0) {
@@ -3447,7 +3459,7 @@ socket.io.on('reconnect_failed', () => {
   );
 });
 
-socket.on('room:list', (rooms: RoomListEntry[]) => {
+socket.on('room:list', (rooms: RoomListEntryPayload[]) => {
   renderRoomList(rooms);
 });
 
@@ -3493,7 +3505,11 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   updateLifecycleUi();
 });
 
-socket.on('room:left', (_payload: RoomLeftPayload) => {
+socket.on('room:left', (payload: RoomLeftPayload) => {
+  if (!shouldApplyCurrentRoomPayload(payload.roomId)) {
+    return;
+  }
+
   currentRoomId = '-';
   currentRoomCode = '-';
   currentRoomName = '-';
@@ -3544,6 +3560,10 @@ socket.on('room:left', (_payload: RoomLeftPayload) => {
 });
 
 socket.on('room:error', (payload: RoomErrorPayload) => {
+  if (!shouldApplyCurrentRoomPayload(payload.roomId)) {
+    return;
+  }
+
   let message = getClaimFailureMessage(payload);
 
   if (
@@ -3609,6 +3629,10 @@ socket.on('room:error', (payload: RoomErrorPayload) => {
 });
 
 socket.on('room:membership', (payload: RoomMembershipPayload) => {
+  if (!shouldApplyCurrentRoomPayload(payload.roomId)) {
+    return;
+  }
+
   clearBootstrapMembershipTimeout();
   clearConnectionIssue(true);
   currentMembership = payload;
@@ -3630,7 +3654,11 @@ socket.on('room:countdown', (payload: RoomCountdownPayload) => {
   updateLifecycleUi();
 });
 
-socket.on('room:match-started', () => {
+socket.on('room:match-started', (payload: MatchStartedPayload) => {
+  if (!shouldApplyCurrentRoomPayload(payload.roomId)) {
+    return;
+  }
+
   countdownSecondsRemaining = null;
   applyRoomStatus('active');
   lobbyCountdownEl.textContent = 'Match active';
@@ -3679,6 +3707,10 @@ socket.on('lockstep:fallback', (payload: LockstepFallbackPayload) => {
 });
 
 socket.on('room:slot-claimed', (payload: RoomSlotClaimedPayload) => {
+  if (!shouldApplyCurrentRoomPayload(payload.roomId)) {
+    return;
+  }
+
   const label = getTeamLabel(payload.slotId);
   currentTeamId = payload.teamId;
   setMessage(`Slot claimed: ${label}.`);
@@ -3686,6 +3718,10 @@ socket.on('room:slot-claimed', (payload: RoomSlotClaimedPayload) => {
 });
 
 socket.on('chat:message', (payload: ChatMessagePayload) => {
+  if (!shouldApplyCurrentRoomPayload(payload.roomId)) {
+    return;
+  }
+
   appendChatMessage(payload);
 });
 
@@ -3698,7 +3734,7 @@ socket.on('player:profile', (payload: PlayerProfilePayload) => {
   updateLifecycleUi();
 });
 
-socket.on('build:outcome', (payload: BuildOutcome) => {
+socket.on('build:outcome', (payload: BuildOutcomePayload) => {
   if (payload.roomId !== currentRoomId) {
     return;
   }
@@ -3751,6 +3787,34 @@ socket.on('build:queued', (payload: BuildQueuedPayload) => {
   refreshActionUi();
 });
 
+socket.on('build:queue-rejected', (payload: BuildQueueRejectedPayload) => {
+  if (payload.roomId !== currentRoomId) {
+    return;
+  }
+
+  if (currentTeamId === null || payload.teamId !== currentTeamId) {
+    return;
+  }
+
+  const rejectionCopy =
+    payload.reason === 'insufficient-resources' &&
+    typeof payload.needed === 'number' &&
+    typeof payload.current === 'number' &&
+    typeof payload.deficit === 'number'
+      ? formatDeficitCopy(payload.needed, payload.current, payload.deficit)
+      : `Build intent rejected: ${describeBuildFailureReason(
+          payload.reason as Parameters<typeof describeBuildFailureReason>[0],
+        )}.`;
+
+  setQueueFeedbackOverride(rejectionCopy, true);
+  overlayBuildFeedbackPending = false;
+  overlayBuildFeedbackCopy = rejectionCopy;
+  overlayBuildFeedbackIsError = true;
+  setMessage(rejectionCopy, true);
+  addToast(rejectionCopy, true);
+  refreshActionUi();
+});
+
 socket.on('build:scheduled', (payload: BuildScheduledPayload) => {
   if (payload.roomId !== currentRoomId) {
     return;
@@ -3771,7 +3835,7 @@ socket.on('build:scheduled', (payload: BuildScheduledPayload) => {
   refreshActionUi();
 });
 
-socket.on('destroy:outcome', (payload: DestroyOutcome) => {
+socket.on('destroy:outcome', (payload: DestroyOutcomePayload) => {
   if (payload.roomId !== currentRoomId) {
     return;
   }
@@ -3827,6 +3891,26 @@ socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
   refreshActionUi();
 });
 
+socket.on('destroy:queue-rejected', (payload: DestroyQueueRejectedPayload) => {
+  if (payload.roomId !== currentRoomId) {
+    return;
+  }
+
+  if (currentTeamId === null || payload.teamId !== currentTeamId) {
+    return;
+  }
+
+  const rejectionCopy = `Destroy intent rejected: ${describeDestroyFailureReason(payload.reason)}.`;
+
+  setDestroyFeedbackOverride(rejectionCopy, true);
+  overlayTeamFeedbackPending = false;
+  overlayTeamFeedbackCopy = rejectionCopy;
+  overlayTeamFeedbackIsError = true;
+  setMessage(rejectionCopy, true);
+  addToast(rejectionCopy, true);
+  refreshActionUi();
+});
+
 socket.on('destroy:scheduled', (payload: DestroyScheduledPayload) => {
   if (payload.roomId !== currentRoomId) {
     return;
@@ -3861,16 +3945,6 @@ socket.on('destroy:scheduled', (payload: DestroyScheduledPayload) => {
 socket.on('state:grid', (payload: RoomGridStatePayload) => {
   if (payload.roomId !== currentRoomId) {
     return;
-  }
-
-  if (
-    selectedTemplatePlacement &&
-    canMutateGameplay() &&
-    !previewPending &&
-    lastPreviewRefreshTick !== payload.tick
-  ) {
-    lastPreviewRefreshTick = payload.tick;
-    emitBuildPreviewForSelectedPlacement();
   }
 
   stateHashResyncState = noteAppliedGridHash(
@@ -3908,7 +3982,11 @@ socket.on('state:hashes', (payload: RoomStateHashesPayload) => {
   }
 });
 
-socket.on('state', (payload: StatePayload) => {
+socket.on('state', (payload: RoomStatePayload) => {
+  if (!shouldApplyCurrentRoomPayload(payload.roomId)) {
+    return;
+  }
+
   stateHashResyncState = markAwaitingHashesAfterFullState(stateHashResyncState);
   applyStatePayload(payload);
 });

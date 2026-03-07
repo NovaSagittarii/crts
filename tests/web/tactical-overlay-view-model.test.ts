@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest';
 
 import type {
-  PendingBuildStatePayload,
-  PendingDestroyStatePayload,
+  PendingBuildPayload,
+  PendingDestroyPayload,
   StructureTemplateSummary,
 } from '#rts-engine';
 
@@ -25,7 +25,7 @@ function buildTemplate(id: string, name: string): StructureTemplateSummary {
 
 describe('tactical-overlay-view-model helpers', () => {
   test('maps authoritative economy, build, and team snapshots to stable sections', () => {
-    const pendingBuilds: PendingBuildStatePayload[] = [
+    const pendingBuilds: PendingBuildPayload[] = [
       {
         eventId: 17,
         executeTick: 55,
@@ -35,7 +35,7 @@ describe('tactical-overlay-view-model helpers', () => {
         y: 8,
       },
     ];
-    const pendingDestroys: PendingDestroyStatePayload[] = [
+    const pendingDestroys: PendingDestroyPayload[] = [
       {
         eventId: 91,
         executeTick: 60,

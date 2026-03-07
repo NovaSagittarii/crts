@@ -1,8 +1,8 @@
 import type {
-  PendingBuildStatePayload,
-  PendingDestroyStatePayload,
+  PendingBuildPayload,
+  PendingDestroyPayload,
   StructureTemplateSummary,
-  TeamIncomeBreakdownPayload,
+  TeamIncomeBreakdown,
 } from '#rts-engine';
 
 export const TACTICAL_DELTA_HIGHLIGHT_MS = 1_000;
@@ -20,9 +20,9 @@ export interface TacticalOverlayTeamSnapshot {
   baseIntact: boolean;
   resources: number;
   income: number;
-  incomeBreakdown: TeamIncomeBreakdownPayload;
-  pendingBuilds: readonly PendingBuildStatePayload[];
-  pendingDestroys: readonly PendingDestroyStatePayload[];
+  incomeBreakdown: TeamIncomeBreakdown;
+  pendingBuilds: readonly PendingBuildPayload[];
+  pendingDestroys: readonly PendingDestroyPayload[];
   structures: readonly TacticalOverlayStructureSnapshot[];
 }
 

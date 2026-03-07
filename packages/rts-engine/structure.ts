@@ -105,11 +105,9 @@ export interface StructureTemplateGridOptions extends StructureTemplateSharedOpt
   grid: Grid;
 }
 
-export type StructureTemplateOptions = StructureTemplateGridOptions;
-
 export type StructureTemplateInput =
   | StructureTemplate
-  | StructureTemplateOptions;
+  | StructureTemplateGridOptions;
 
 export interface StructureInstantiationOptions {
   key: string;
@@ -180,7 +178,7 @@ export class StructureTemplate {
 
   private readonly projectionCache = new Map<string, TransformedTemplate>();
 
-  public constructor(options: StructureTemplateOptions) {
+  public constructor(options: StructureTemplateGridOptions) {
     this.id = options.id;
     this.name = options.name;
     this.templateGrid = StructureTemplate.cloneAsTemplateGrid(options.grid);

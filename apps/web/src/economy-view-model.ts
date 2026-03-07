@@ -1,12 +1,9 @@
-import type {
-  PendingBuildStatePayload,
-  TeamIncomeBreakdownPayload,
-} from '#rts-engine';
+import type { PendingBuildPayload, TeamIncomeBreakdown } from '#rts-engine';
 
 export interface PendingBuildTickGroup {
   executeTick: number;
   etaLabel: string;
-  items: PendingBuildStatePayload[];
+  items: PendingBuildPayload[];
 }
 
 export interface IncomeDeltaSample {
@@ -28,8 +25,8 @@ export interface AggregatedIncomeDelta {
 const SHORT_CAUSE_FALLBACK = 'income';
 
 function comparePendingBuildRows(
-  a: PendingBuildStatePayload,
-  b: PendingBuildStatePayload,
+  a: PendingBuildPayload,
+  b: PendingBuildPayload,
 ): number {
   return a.executeTick - b.executeTick || a.eventId - b.eventId;
 }
@@ -72,7 +69,7 @@ export function formatRelativeEta(
 }
 
 export function groupPendingByExecuteTick(
-  pendingRows: readonly PendingBuildStatePayload[],
+  pendingRows: readonly PendingBuildPayload[],
   currentTick: number,
 ): PendingBuildTickGroup[] {
   const sortedRows = [...pendingRows].sort(comparePendingBuildRows);
@@ -97,8 +94,8 @@ export function groupPendingByExecuteTick(
 
 export function deriveIncomeDeltaSamples(
   tick: number,
-  previous: TeamIncomeBreakdownPayload,
-  current: TeamIncomeBreakdownPayload,
+  previous: TeamIncomeBreakdown,
+  current: TeamIncomeBreakdown,
 ): IncomeDeltaSample[] {
   const samples: IncomeDeltaSample[] = [];
 

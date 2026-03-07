@@ -5,8 +5,6 @@ export interface WrappedGridBounds {
   height: number;
 }
 
-export type WrappedGridSegment = WrappedGridBounds;
-
 interface SpanSegment {
   start: number;
   length: number;
@@ -45,14 +43,14 @@ export function getWrappedBoundsSegments(
   bounds: WrappedGridBounds,
   gridWidth: number,
   gridHeight: number,
-): WrappedGridSegment[] {
+): WrappedGridBounds[] {
   if (gridWidth <= 0 || gridHeight <= 0) {
     return [];
   }
 
   const xSegments = splitWrappedSpan(bounds.x, bounds.width, gridWidth);
   const ySegments = splitWrappedSpan(bounds.y, bounds.height, gridHeight);
-  const wrappedSegments: WrappedGridSegment[] = [];
+  const wrappedSegments: WrappedGridBounds[] = [];
 
   for (const xSegment of xSegments) {
     for (const ySegment of ySegments) {

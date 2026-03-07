@@ -19,6 +19,8 @@ import { LobbyRoom, type LobbyRejectionReason } from '#rts-engine';
 import {
   type QueueBuildResult,
   type BuildQueuePayload,
+  type BuildQueueRejectedReason,
+  type BuildQueueRejectedPayload,
   type BuildScheduledPayload,
   type DestroyQueuePayload,
   type DestroyScheduledPayload,
@@ -26,6 +28,8 @@ import {
   type ClientToServerEvents,
   type DestroyOutcomePayload,
   type DestroyQueuedPayload,
+  type DestroyQueueRejectedReason,
+  type DestroyQueueRejectedPayload,
   type LifecyclePreconditions,
   type LockstepCheckpointPayload,
   type LockstepFallbackReason,
@@ -105,8 +109,6 @@ export interface ServerOptions {
   clearTimeout?: ClearTimeoutHook;
 }
 
-export type StatePayload = RoomStatePayload;
-
 type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
 function configureStaticAssets(
@@ -136,6 +138,7 @@ interface BufferedLockstepCommand {
   scheduledByTurn: number;
   kind: 'build' | 'destroy';
   sessionId: string;
+  teamId: number;
   payload: BuildQueuePayload | DestroyQueuePayload;
   expectedAccepted: boolean;
   expectedExecuteTick: number | null;
@@ -178,7 +181,7 @@ interface RuntimeRoom extends RuntimeBroadcastRoom {
 export interface GameServer {
   start(): Promise<number>;
   stop(): Promise<void>;
-  getStatePayload(): StatePayload;
+  getStatePayload(): RoomStatePayload;
 }
 
 function roomChannel(roomId: string): string {
@@ -366,6 +369,7 @@ function sanitizeChatMessage(value: unknown): string | null {
 function mapLobbyReasonToError(reason: LobbyRejectionReason): RoomErrorPayload {
   if (reason === 'slot-full') {
     return {
+      roomId: null,
       reason,
       message: 'Selected team slot is already full',
     };
@@ -373,6 +377,7 @@ function mapLobbyReasonToError(reason: LobbyRejectionReason): RoomErrorPayload {
 
   if (reason === 'team-switch-locked') {
     return {
+      roomId: null,
       reason,
       message: 'Team switching is locked after a slot is claimed',
     };
@@ -380,6 +385,7 @@ function mapLobbyReasonToError(reason: LobbyRejectionReason): RoomErrorPayload {
 
   if (reason === 'not-player') {
     return {
+      roomId: null,
       reason,
       message: 'Only assigned players can toggle readiness',
     };
@@ -387,12 +393,14 @@ function mapLobbyReasonToError(reason: LobbyRejectionReason): RoomErrorPayload {
 
   if (reason === 'invalid-slot') {
     return {
+      roomId: null,
       reason,
       message: 'Selected team slot does not exist',
     };
   }
 
   return {
+    roomId: null,
     reason,
     message: 'Room request rejected',
   };
@@ -711,6 +719,26 @@ export function createServer(options: ServerOptions = {}): GameServer {
     };
   }
 
+  function createBuildQueueRejectedPayload(
+    room: RuntimeRoom,
+    teamId: number,
+    sessionId: string,
+    intentId: string,
+    reason: BuildQueueRejectedReason,
+    affordability?: AffordabilityMetadata,
+  ): BuildQueueRejectedPayload {
+    return {
+      roomId: room.rtsRoom.id,
+      intentId,
+      playerId: sessionId,
+      teamId,
+      reason,
+      needed: affordability?.needed,
+      current: affordability?.current,
+      deficit: affordability?.deficit,
+    };
+  }
+
   function createDestroyScheduledPayload(
     room: RuntimeRoom,
     teamId: number | null,
@@ -728,6 +756,24 @@ export function createServer(options: ServerOptions = {}): GameServer {
       executeTick: result.executeTick ?? room.rtsRoom.state.tick,
       structureKey: result.structureKey ?? '',
       idempotent: Boolean(result.idempotent),
+    };
+  }
+
+  function createDestroyQueueRejectedPayload(
+    room: RuntimeRoom,
+    teamId: number,
+    sessionId: string,
+    intentId: string,
+    structureKey: string,
+    reason: DestroyQueueRejectedReason,
+  ): DestroyQueueRejectedPayload {
+    return {
+      roomId: room.rtsRoom.id,
+      intentId,
+      playerId: sessionId,
+      teamId,
+      structureKey,
+      reason,
     };
   }
 
@@ -921,6 +967,13 @@ export function createServer(options: ServerOptions = {}): GameServer {
     roomBroadcast.emitBuildQueued(room, payload);
   }
 
+  function emitBuildQueueRejected(
+    room: RuntimeRoom,
+    payload: BuildQueueRejectedPayload,
+  ): void {
+    roomBroadcast.emitBuildQueueRejected(room, payload);
+  }
+
   function emitBuildScheduled(
     room: RuntimeRoom,
     payload: BuildScheduledPayload,
@@ -934,6 +987,13 @@ export function createServer(options: ServerOptions = {}): GameServer {
     payload: DestroyQueuedPayload,
   ): void {
     roomBroadcast.emitDestroyQueued(room, payload);
+  }
+
+  function emitDestroyQueueRejected(
+    room: RuntimeRoom,
+    payload: DestroyQueueRejectedPayload,
+  ): void {
+    roomBroadcast.emitDestroyQueueRejected(room, payload);
   }
 
   function emitDestroyScheduled(
@@ -1136,6 +1196,17 @@ export function createServer(options: ServerOptions = {}): GameServer {
       );
 
       if (!queueResult.accepted) {
+        emitBuildQueueRejected(
+          room,
+          createBuildQueueRejectedPayload(
+            room,
+            command.teamId,
+            command.sessionId,
+            command.intentId,
+            resolveQueueBuildRejectionReason(queueResult),
+            getAffordabilityMetadata(queueResult),
+          ),
+        );
         return;
       }
 
@@ -1158,6 +1229,17 @@ export function createServer(options: ServerOptions = {}): GameServer {
     );
 
     if (!queueResult.accepted) {
+      emitDestroyQueueRejected(
+        room,
+        createDestroyQueueRejectedPayload(
+          room,
+          command.teamId,
+          command.sessionId,
+          command.intentId,
+          (command.payload as DestroyQueuePayload).structureKey,
+          resolveQueueDestroyRejectionReason(queueResult),
+        ),
+      );
       return;
     }
 
@@ -1186,6 +1268,49 @@ export function createServer(options: ServerOptions = {}): GameServer {
     const lockstepRuntime = room.lockstepRuntime;
     if (lockstepRuntime.turnBuffer.size === 0) {
       return;
+    }
+
+    const pendingPrimaryCommands = [...lockstepRuntime.turnBuffer.entries()]
+      .flatMap(([turn, commands]) =>
+        commands.map((command) => ({
+          turn,
+          sequence: command.sequence,
+          command,
+        })),
+      )
+      .sort((left, right) =>
+        left.turn === right.turn
+          ? left.sequence - right.sequence
+          : left.turn - right.turn,
+      )
+      .map((entry) => entry.command);
+
+    for (const command of pendingPrimaryCommands) {
+      if (command.kind === 'build') {
+        emitBuildQueueRejected(
+          room,
+          createBuildQueueRejectedPayload(
+            room,
+            command.teamId,
+            command.sessionId,
+            command.intentId,
+            'match-finished',
+          ),
+        );
+        continue;
+      }
+
+      emitDestroyQueueRejected(
+        room,
+        createDestroyQueueRejectedPayload(
+          room,
+          command.teamId,
+          command.sessionId,
+          command.intentId,
+          (command.payload as DestroyQueuePayload).structureKey,
+          'match-finished',
+        ),
+      );
     }
 
     lockstepRuntime.turnBuffer.clear();
@@ -1393,9 +1518,20 @@ export function createServer(options: ServerOptions = {}): GameServer {
     socket: GameSocket,
     message: string,
     reason?: string,
-    affordability?: AffordabilityMetadata,
+    affordabilityOrRoomId?: AffordabilityMetadata | string | null,
+    roomId?: string | null,
   ): void {
-    const payload: RoomErrorPayload = { message };
+    const affordability =
+      typeof affordabilityOrRoomId === 'object' &&
+      affordabilityOrRoomId !== null
+        ? affordabilityOrRoomId
+        : undefined;
+    const resolvedRoomId =
+      typeof affordabilityOrRoomId === 'string' ||
+      affordabilityOrRoomId === null
+        ? affordabilityOrRoomId
+        : (roomId ?? null);
+    const payload: RoomErrorPayload = { roomId: resolvedRoomId, message };
     if (reason) {
       payload.reason = reason;
     }
@@ -1642,6 +1778,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         socket,
         'Selected team slot is temporarily held for reconnect',
         'slot-held',
+        getRuntimeRoomId(room),
       );
       return;
     }
@@ -1651,7 +1788,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       const mapped = mapLobbyReasonToError(
         result.reason ?? 'participant-not-found',
       );
-      roomError(socket, mapped.message, mapped.reason);
+      roomError(socket, mapped.message, mapped.reason, getRuntimeRoomId(room));
       return;
     }
 
@@ -1945,9 +2082,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
     };
   }
 
-  function resolveQueueBuildRejectionReason(result: QueueBuildResult): string {
+  function resolveQueueBuildRejectionReason(
+    result: QueueBuildResult,
+  ): BuildQueueRejectedReason {
     if (result.reason) {
-      return result.reason;
+      return result.reason as BuildQueueRejectedReason;
     }
 
     return mapQueueBuildErrorReason(result.error);
@@ -1955,9 +2094,9 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   function resolveQueueDestroyRejectionReason(
     result: QueueDestroyResult,
-  ): string {
+  ): DestroyQueueRejectedReason {
     if (result.reason) {
-      return result.reason;
+      return result.reason as DestroyQueueRejectedReason;
     }
 
     return 'destroy-rejected';
@@ -2149,7 +2288,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
       const ready = parseReadyPayload(payload);
       if (ready === null) {
-        roomError(socket, 'Invalid ready payload', 'invalid-ready');
+        roomError(
+          socket,
+          'Invalid ready payload',
+          'invalid-ready',
+          getRuntimeRoomId(room),
+        );
         return;
       }
 
@@ -2158,6 +2302,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           socket,
           'Cannot toggle Not Ready while countdown is running',
           'countdown-locked',
+          getRuntimeRoomId(room),
         );
         return;
       }
@@ -2167,6 +2312,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           socket,
           'Ready toggle is unavailable after match start',
           'match-started',
+          getRuntimeRoomId(room),
         );
         return;
       }
@@ -2176,7 +2322,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
         const mapped = mapLobbyReasonToError(
           result.reason ?? 'participant-not-found',
         );
-        roomError(socket, mapped.message, mapped.reason);
+        roomError(
+          socket,
+          mapped.message,
+          mapped.reason,
+          getRuntimeRoomId(room),
+        );
         return;
       }
 
@@ -2196,7 +2347,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
       const hostSessionId = room.lobby.snapshot().hostSessionId;
       if (hostSessionId !== session.id) {
-        roomError(socket, 'Only the host can start the match', 'not-host');
+        roomError(
+          socket,
+          'Only the host can start the match',
+          'not-host',
+          getRuntimeRoomId(room),
+        );
         return;
       }
 
@@ -2215,6 +2371,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
             socket,
             'Match start preconditions are not met',
             'not-ready',
+            getRuntimeRoomId(room),
           );
           return;
         }
@@ -2223,6 +2380,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           socket,
           'Match cannot transition from the current lifecycle state',
           'invalid-transition',
+          getRuntimeRoomId(room),
         );
         return;
       }
@@ -2234,6 +2392,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
             ? 'Force start is disabled when players are not ready'
             : 'Both player slots must be ready before starting',
           'not-ready',
+          getRuntimeRoomId(room),
         );
         return;
       }
@@ -2259,7 +2418,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
       const hostSessionId = room.lobby.snapshot().hostSessionId;
       if (hostSessionId !== session.id) {
-        roomError(socket, 'Only the host can cancel countdown', 'not-host');
+        roomError(
+          socket,
+          'Only the host can cancel countdown',
+          'not-host',
+          getRuntimeRoomId(room),
+        );
         return;
       }
 
@@ -2272,6 +2436,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           socket,
           'Countdown can only be canceled while countdown is running',
           'invalid-transition',
+          getRuntimeRoomId(room),
         );
         return;
       }
@@ -2299,7 +2464,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
           : null;
 
       if (!message) {
-        roomError(socket, 'Chat message cannot be empty', 'invalid-chat');
+        roomError(
+          socket,
+          'Chat message cannot be empty',
+          'invalid-chat',
+          getRuntimeRoomId(room),
+        );
         return;
       }
 
@@ -2329,6 +2499,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           socket,
           gate.message ?? 'Gameplay mutation rejected',
           gate.reason,
+          getRuntimeRoomId(room),
         );
         return;
       }
@@ -2338,6 +2509,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           socket,
           'Only assigned players can issue gameplay mutations',
           'not-player',
+          getRuntimeRoomId(room),
         );
         return;
       }
@@ -2346,7 +2518,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
       const parsedPayload = parseBuildPayload(payload);
       if (!parsedPayload) {
-        roomError(socket, 'Invalid build payload', 'invalid-build');
+        roomError(
+          socket,
+          'Invalid build payload',
+          'invalid-build',
+          getRuntimeRoomId(room),
+        );
         return;
       }
 
@@ -2377,6 +2554,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
             scheduledByTurn,
             kind: 'build',
             sessionId: session.id,
+            teamId: team.id,
             payload: cloneBuildQueuePayload(parsedPayload),
             expectedAccepted: false,
             expectedExecuteTick: null,
@@ -2394,6 +2572,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         scheduledByTurn,
         kind: 'build',
         sessionId: session.id,
+        teamId: team.id,
         payload: cloneBuildQueuePayload(parsedPayload),
         expectedAccepted: result.accepted,
         expectedExecuteTick: result.executeTick ?? null,
@@ -2409,6 +2588,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           reason === 'insufficient-resources'
             ? getAffordabilityMetadata(result)
             : undefined,
+          getRuntimeRoomId(room),
         );
 
         return;
@@ -2443,6 +2623,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           socket,
           gate.message ?? 'Gameplay mutation rejected',
           gate.reason,
+          getRuntimeRoomId(room),
         );
         return;
       }
@@ -2452,6 +2633,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           socket,
           'Only assigned players can issue gameplay mutations',
           'not-player',
+          getRuntimeRoomId(room),
         );
         return;
       }
@@ -2460,7 +2642,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
       const parsedPayload = parseDestroyPayload(payload);
       if (!parsedPayload) {
-        roomError(socket, 'Invalid destroy payload', 'invalid-build');
+        roomError(
+          socket,
+          'Invalid destroy payload',
+          'invalid-build',
+          getRuntimeRoomId(room),
+        );
         return;
       }
 
@@ -2491,6 +2678,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
             scheduledByTurn,
             kind: 'destroy',
             sessionId: session.id,
+            teamId: team.id,
             payload: cloneDestroyQueuePayload(parsedPayload),
             expectedAccepted: false,
             expectedExecuteTick: null,
@@ -2508,6 +2696,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         scheduledByTurn,
         kind: 'destroy',
         sessionId: session.id,
+        teamId: team.id,
         payload: cloneDestroyQueuePayload(parsedPayload),
         expectedAccepted: result.accepted,
         expectedExecuteTick: result.executeTick ?? null,
@@ -2515,7 +2704,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
       });
       if (!result.accepted) {
         const reason = resolveQueueDestroyRejectionReason(result);
-        roomError(socket, result.error ?? 'Destroy rejected', reason);
+        roomError(
+          socket,
+          result.error ?? 'Destroy rejected',
+          reason,
+          getRuntimeRoomId(room),
+        );
         return;
       }
 
@@ -2547,7 +2741,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   let interval: IntervalHandle | null = null;
   let tickCounter = 0;
 
-  function getStatePayload(): StatePayload {
+  function getStatePayload(): RoomStatePayload {
     const room = rooms.get(defaultRoomId);
     if (room) {
       return room.rtsRoom.createStatePayload();

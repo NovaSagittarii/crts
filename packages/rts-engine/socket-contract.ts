@@ -1,5 +1,4 @@
 import type {
-  AffordabilityResult,
   BuildOutcome,
   BuildQueuePayload,
   RoomDeterminismCheckpoint,
@@ -7,18 +6,11 @@ import type {
   RoomStateHashes,
   DestroyOutcome,
   DestroyQueuePayload,
-  DestroyRejectionReason,
-  PendingBuildPayload,
-  PendingDestroyPayload,
   RoomStatePayload,
   RoomStructuresStatePayload,
-  TeamIncomeBreakdown,
 } from './rts.js';
 import type { RankedTeamOutcome } from './match-lifecycle.js';
-import type {
-  StructurePayload,
-  StructureTemplatePayload,
-} from './structure.js';
+import type { StructureTemplatePayload } from './structure.js';
 
 // Shared Socket.IO payload contracts.
 //
@@ -105,6 +97,19 @@ export interface BuildScheduledPayload {
   executeTick: number;
 }
 
+export type BuildQueueRejectedReason = string;
+
+export interface BuildQueueRejectedPayload {
+  roomId: string;
+  intentId: string;
+  playerId: string;
+  teamId: number;
+  reason: BuildQueueRejectedReason;
+  needed?: number;
+  current?: number;
+  deficit?: number;
+}
+
 export interface DestroyScheduledPayload {
   roomId: string;
   intentId: string;
@@ -116,17 +121,16 @@ export interface DestroyScheduledPayload {
   idempotent: boolean;
 }
 
-export type BuildAffordabilityPayload = Pick<
-  AffordabilityResult,
-  'affordable' | 'needed' | 'current' | 'deficit'
->;
+export type DestroyQueueRejectedReason = string;
 
-export type PendingBuildStatePayload = PendingBuildPayload;
-export type PendingDestroyStatePayload = PendingDestroyPayload;
-export type StructureStatePayload = StructurePayload;
-export type TeamIncomeBreakdownPayload = TeamIncomeBreakdown;
-
-export type DestroyOutcomeRejectionReason = DestroyRejectionReason;
+export interface DestroyQueueRejectedPayload {
+  roomId: string;
+  intentId: string;
+  playerId: string;
+  teamId: number;
+  structureKey: string;
+  reason: DestroyQueueRejectedReason;
+}
 
 export interface BuildOutcomePayload extends BuildOutcome {
   roomId: string;
@@ -137,6 +141,7 @@ export interface DestroyOutcomePayload extends DestroyOutcome {
 }
 
 export interface RoomErrorPayload {
+  roomId: string | null;
   message: string;
   reason?: string;
   needed?: number;
@@ -306,9 +311,11 @@ export interface ServerToClientEvents {
   'room:error': (payload: RoomErrorPayload) => void;
   'chat:message': (payload: ChatMessagePayload) => void;
   'build:queued': (payload: BuildQueuedPayload) => void;
+  'build:queue-rejected': (payload: BuildQueueRejectedPayload) => void;
   'build:scheduled': (payload: BuildScheduledPayload) => void;
   'build:outcome': (payload: BuildOutcomePayload) => void;
   'destroy:queued': (payload: DestroyQueuedPayload) => void;
+  'destroy:queue-rejected': (payload: DestroyQueueRejectedPayload) => void;
   'destroy:scheduled': (payload: DestroyScheduledPayload) => void;
   'destroy:outcome': (payload: DestroyOutcomePayload) => void;
   'lockstep:checkpoint': (payload: LockstepCheckpointPayload) => void;
