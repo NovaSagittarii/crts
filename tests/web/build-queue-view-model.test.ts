@@ -1,15 +1,15 @@
 import { readFileSync } from 'node:fs';
-
-import type { PlacementTransformState } from '#rts-engine';
 import { describe, expect, it } from 'vitest';
 
+import type { PlacementTransformState } from '#rts-engine';
+
 import {
-  buildPreviewRequestFromSelection,
-  deriveBuildQueueUi,
-  previewMatchesSelection,
   type BuildPlacementSelection,
   type BuildQueuePreview,
   type BuildQueueUiInput,
+  buildPreviewRequestFromSelection,
+  deriveBuildQueueUi,
+  previewMatchesSelection,
 } from '../../apps/web/src/build-queue-view-model.js';
 
 function createSelection(

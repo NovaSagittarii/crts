@@ -1,20 +1,15 @@
 import { Grid } from '#conway-core';
+
 import {
-  determineMatchOutcome,
-  type MatchOutcome,
-  type TeamOutcomeSnapshot,
-} from './match-lifecycle.js';
+  type BuildZoneContributor,
+  type BuildZoneContributorProjectionInput,
+  collectBuildZoneContributors,
+  collectIllegalBuildZoneCells,
+} from './build-zone.js';
 import {
-  BASE_FOOTPRINT_HEIGHT,
-  BASE_FOOTPRINT_WIDTH,
-  getBaseCenter,
-  isCanonicalBaseCell,
-  type Vector2,
-} from './geometry.js';
-import {
+  DEFAULT_QUEUE_DELAY_TICKS,
   DEFAULT_SPAWN_CAPACITY,
   DEFAULT_STARTING_RESOURCES,
-  DEFAULT_QUEUE_DELAY_TICKS,
   DEFAULT_TEAM_TERRITORY_RADIUS,
   INTEGRITY_CHECK_INTERVAL_TICKS,
   INTEGRITY_HP_COST_PER_CELL,
@@ -22,31 +17,28 @@ import {
   SPAWN_MIN_WRAPPED_DISTANCE,
 } from './gameplay-rules.js';
 import {
-  collectBuildZoneContributors,
-  collectIllegalBuildZoneCells,
-  type BuildZoneContributor,
-  type BuildZoneContributorProjectionInput,
-} from './build-zone.js';
-import { createTorusSpawnLayout, wrappedDelta } from './spawn.js';
+  BASE_FOOTPRINT_HEIGHT,
+  BASE_FOOTPRINT_WIDTH,
+  type Vector2,
+  getBaseCenter,
+  isCanonicalBaseCell,
+} from './geometry.js';
 import {
-  createIdentityPlacementTransform,
-  normalizePlacementTransform,
-  projectPlacementToWorld,
-  projectTemplateWithTransform,
+  type MatchOutcome,
+  type TeamOutcomeSnapshot,
+  determineMatchOutcome,
+} from './match-lifecycle.js';
+import {
   type PlacementBounds,
   type PlacementTransformInput,
   type PlacementTransformState,
   type TransformTemplateInput,
   type TransformedTemplate,
+  createIdentityPlacementTransform,
+  normalizePlacementTransform,
+  projectPlacementToWorld,
+  projectTemplateWithTransform,
 } from './placement-transform.js';
-import {
-  CORE_STRUCTURE_TEMPLATE as DEFAULT_CORE_STRUCTURE_TEMPLATE,
-  createDefaultStructureTemplates,
-  Structure,
-  StructureTemplate,
-  type StructurePayload,
-  type StructureTemplateInput,
-} from './structure.js';
 import {
   INVALID_ROOM_STATE_ERROR_MESSAGE,
   allocateBuildEventId,
@@ -59,6 +51,15 @@ import {
   hasRoomRuntime,
   reserveTeamId as reserveRoomTeamId,
 } from './room-runtime.js';
+import { createTorusSpawnLayout, wrappedDelta } from './spawn.js';
+import {
+  CORE_STRUCTURE_TEMPLATE as DEFAULT_CORE_STRUCTURE_TEMPLATE,
+  Structure,
+  type StructurePayload,
+  StructureTemplate,
+  type StructureTemplateInput,
+  createDefaultStructureTemplates,
+} from './structure.js';
 
 export interface BuildQueuePayload {
   templateId: string;

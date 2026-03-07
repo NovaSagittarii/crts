@@ -1,12 +1,12 @@
 import { Grid } from '#conway-core';
 
 import {
-  RtsEngine,
   type BuildOutcome,
   type BuildPreviewResult,
   type BuildQueuePayload,
   type RoomState,
   type RoomTickResult,
+  RtsEngine,
   type TeamPayload,
 } from './rts.js';
 import type { StructurePayload } from './structure.js';

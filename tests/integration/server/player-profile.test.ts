@@ -1,12 +1,13 @@
 import { describe, expect } from 'vitest';
 
 import type { PlayerProfilePayload, RoomJoinedPayload } from '#rts-engine';
+
+import { createIntegrationTest } from './fixtures.js';
 import {
   waitForEvent,
   waitForMembership,
   waitForState,
 } from './test-support.js';
-import { createIntegrationTest } from './fixtures.js';
 
 const test = createIntegrationTest({
   port: 0,

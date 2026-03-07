@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest';
 import type { TeamIncomeBreakdown } from '#rts-engine';
 
 import {
+  type TeamEconomySnapshot,
   advanceEconomyDeltaTrackerState,
   createEconomyDeltaTrackerState,
-  type TeamEconomySnapshot,
 } from '../../apps/web/src/economy-hud-controller.js';
 
 function createBreakdown(

@@ -1,10 +1,10 @@
 import type { MembershipParticipant, RoomMembershipPayload } from '#rts-engine';
 
-import { selectSelfParticipant } from './player-identity-view-model.js';
 import {
   getLobbySlotColor,
   getLobbySlotLabel,
 } from './lobby-slot-presentation.js';
+import { selectSelfParticipant } from './player-identity-view-model.js';
 
 export interface LobbySlotMemberViewModel {
   sessionId: string;

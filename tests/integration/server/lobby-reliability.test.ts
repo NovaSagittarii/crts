@@ -1,5 +1,5 @@
-import { describe, expect, vi } from 'vitest';
 import type { Socket } from 'socket.io-client';
+import { describe, expect, vi } from 'vitest';
 
 import type {
   ChatMessagePayload,
@@ -9,8 +9,9 @@ import type {
   RoomListEntryPayload,
   RoomMembershipPayload,
 } from '#rts-engine';
-import { waitForEvent, waitForMembership } from './test-support.js';
+
 import { createIntegrationTest } from './fixtures.js';
+import { waitForEvent, waitForMembership } from './test-support.js';
 
 const HOLD_EXPIRY_ADVANCE_MS = 31_000;
 const test = createIntegrationTest({

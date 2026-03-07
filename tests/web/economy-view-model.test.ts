@@ -3,10 +3,10 @@ import { describe, expect, test } from 'vitest';
 import type { PendingBuildPayload } from '#rts-engine';
 
 import {
+  type IncomeDeltaSample,
   aggregateIncomeDelta,
   formatRelativeEta,
   groupPendingByExecuteTick,
-  type IncomeDeltaSample,
 } from '../../apps/web/src/economy-view-model.js';
 
 const identityTransform = {

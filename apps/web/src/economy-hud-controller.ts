@@ -1,10 +1,10 @@
 import type { TeamIncomeBreakdown, TeamPayload } from '#rts-engine';
 
 import {
-  aggregateIncomeDelta,
-  deriveIncomeDeltaSamples,
   type AggregatedIncomeDelta,
   type IncomeDeltaSample,
+  aggregateIncomeDelta,
+  deriveIncomeDeltaSamples,
 } from './economy-view-model.js';
 import { PendingTimelineElement } from './pending-timeline-element.js';
 

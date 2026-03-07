@@ -1,16 +1,16 @@
+import type { RankedTeamOutcome } from './match-lifecycle.js';
+import type { PlacementTransformState } from './placement-transform.js';
 import type {
   BuildOutcome,
   BuildQueuePayload,
+  DestroyOutcome,
+  DestroyQueuePayload,
   RoomDeterminismCheckpoint,
   RoomGridStatePayload,
   RoomStateHashes,
-  DestroyOutcome,
-  DestroyQueuePayload,
   RoomStatePayload,
   RoomStructuresStatePayload,
 } from './rts.js';
-import type { RankedTeamOutcome } from './match-lifecycle.js';
-import type { PlacementTransformState } from './placement-transform.js';
 import type { StructureTemplatePayload } from './structure.js';
 
 // Shared Socket.IO payload contracts.

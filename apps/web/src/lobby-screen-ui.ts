@@ -2,11 +2,11 @@ import type { RoomStatePayload } from '#rts-engine';
 
 import type { LobbyControlsViewModel } from './lobby-controls-view-model.js';
 import type { LobbyMembershipViewModel } from './lobby-membership-view-model.js';
+import { LobbySlotListUi } from './lobby-slot-list-ui.js';
 import {
   getLobbySlotColor,
   getLobbySlotLabel,
 } from './lobby-slot-presentation.js';
-import { LobbySlotListUi } from './lobby-slot-list-ui.js';
 
 interface LobbyScreenUiElements {
   statusEl: HTMLElement;

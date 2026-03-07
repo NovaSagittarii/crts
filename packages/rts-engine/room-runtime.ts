@@ -1,5 +1,5 @@
-import type { StructureTemplate } from './structure.js';
 import type { RoomState, TimelineEvent } from './rts.js';
+import type { StructureTemplate } from './structure.js';
 
 export const INVALID_ROOM_STATE_ERROR_MESSAGE =
   'RoomState must come from RtsEngine.createRoomState or RtsEngine.createRoom';

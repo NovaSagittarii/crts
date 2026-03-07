@@ -1,11 +1,10 @@
 import type { ServerOptions } from '../../../apps/server/src/server.js';
-
+import { createIntegrationTest } from './fixtures.js';
 import {
-  setupConnectedRoom,
   type ConnectedRoomSetup,
   type SetupConnectedRoomOptions,
+  setupConnectedRoom,
 } from './match-support.js';
-import { createIntegrationTest } from './fixtures.js';
 
 export type RoomFixtureOptions = Omit<
   SetupConnectedRoomOptions,

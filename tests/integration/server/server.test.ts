@@ -1,17 +1,21 @@
 import { describe, expect } from 'vitest';
+
 import { Grid } from '#conway-core';
 import {
-  normalizePlacementTransform,
-  type BuildScheduledPayload,
   type BuildOutcomePayload,
   type BuildQueuedPayload,
+  type BuildScheduledPayload,
+  type RoomErrorPayload,
   type RoomGridStatePayload,
   type RoomJoinedPayload,
-  type RoomErrorPayload,
   type RoomLeftPayload,
   type RoomStatePayload,
   type TeamPayload,
+  normalizePlacementTransform,
 } from '#rts-engine';
+
+import { createIntegrationTest } from './fixtures.js';
+import { createMatchTest } from './match-fixtures.js';
 import {
   type Cell,
   claimSlot,
@@ -23,15 +27,13 @@ import {
   getTeamByPlayerId,
   waitForBuildQueueResponse,
   waitForBuildScheduled,
-  waitForDestroyScheduled,
   waitForDestroyQueueResponse,
+  waitForDestroyScheduled,
   waitForEvent,
   waitForNoEvent,
   waitForRoomList,
   waitForRoomState,
 } from './test-support.js';
-import { createIntegrationTest } from './fixtures.js';
-import { createMatchTest } from './match-fixtures.js';
 
 const defaultServerOptions = { port: 0, width: 52, height: 52, tickMs: 40 };
 const buildQueueRoomOptions = { roomName: 'Build Queue Contract Room' };

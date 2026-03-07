@@ -1,13 +1,15 @@
 import { describe, expect } from 'vitest';
 
 import type {
-  BuildScheduledPayload,
   BuildOutcomePayload,
+  BuildScheduledPayload,
   MatchFinishedPayload,
   PlacementTransformInput,
   RoomErrorPayload,
   RoomJoinedPayload,
 } from '#rts-engine';
+
+import { createMatchTest } from './match-fixtures.js';
 import {
   type ActiveMatchSetup,
   collectCandidatePlacements,
@@ -21,7 +23,6 @@ import {
   waitForEvent,
   waitForRoomState,
 } from './test-support.js';
-import { createMatchTest } from './match-fixtures.js';
 
 const test = createMatchTest(
   { port: 0, width: 52, height: 52, tickMs: 40 },

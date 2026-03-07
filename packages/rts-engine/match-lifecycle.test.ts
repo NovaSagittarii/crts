@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  type LifecyclePreconditions,
+  type TeamOutcomeSnapshot,
   determineMatchOutcome,
   rankTeamsForOutcome,
   transitionMatchLifecycle,
-  type LifecyclePreconditions,
-  type TeamOutcomeSnapshot,
 } from './match-lifecycle.js';
 
 const READY_PRECONDITIONS: LifecyclePreconditions = {

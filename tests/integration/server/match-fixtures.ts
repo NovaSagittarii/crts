@@ -1,11 +1,10 @@
 import type { ServerOptions } from '../../../apps/server/src/server.js';
-
 import {
-  startMatchAndWaitForActive,
   type StartMatchOptions,
+  startMatchAndWaitForActive,
 } from './match-support.js';
+import { type RoomFixtureOptions, createRoomTest } from './room-fixtures.js';
 import { type ActiveMatchSetup } from './test-support.js';
-import { createRoomTest, type RoomFixtureOptions } from './room-fixtures.js';
 
 interface MatchFixtures {
   activeMatch: ActiveMatchSetup;

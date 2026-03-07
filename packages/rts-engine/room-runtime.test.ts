@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
+
 import { Grid } from '#conway-core';
 
-import type { RoomState, TimelineEvent } from './rts.js';
 import {
   INVALID_ROOM_STATE_ERROR_MESSAGE,
   allocateBuildEventId,
@@ -15,6 +15,7 @@ import {
   hasRoomRuntime,
   reserveTeamId,
 } from './room-runtime.js';
+import type { RoomState, TimelineEvent } from './rts.js';
 
 function createBareRoomState(tick = 0): RoomState {
   return {

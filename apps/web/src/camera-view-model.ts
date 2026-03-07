@@ -1,4 +1,4 @@
-import { getBaseCenter, type Vector2 } from '#rts-engine';
+import { type Vector2, getBaseCenter } from '#rts-engine';
 
 export const CAMERA_MIN_ZOOM = 0.45;
 export const CAMERA_MAX_ZOOM = 1.6;
