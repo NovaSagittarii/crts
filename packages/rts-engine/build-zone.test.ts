@@ -6,7 +6,6 @@ import {
   collectIllegalBuildZoneCells,
   isBuildZoneCoveredByContributor,
 } from './build-zone.js';
-import { BUILD_ZONE_RADIUS } from './gameplay-rules.js';
 
 interface Cell {
   x: number;
@@ -21,14 +20,14 @@ describe('build-zone helpers', () => {
         y: 24,
         width: 4,
         height: 3,
-        hp: 2,
+        buildRadius: 7.5,
       },
       {
         x: 40,
         y: 12,
         width: 3,
         height: 2,
-        hp: 0,
+        buildRadius: 0,
       },
     ]);
 
@@ -36,29 +35,40 @@ describe('build-zone helpers', () => {
       {
         centerX: 14,
         centerY: 25,
+        buildRadius: 7.5,
       },
     ]);
   });
 
-  test('ignores contributors with invalid width or height', () => {
+  test('ignores contributors with invalid dimensions or zero radius', () => {
     const contributors = collectBuildZoneContributors([
       {
         x: 2,
         y: 4,
         width: 2,
         height: 2,
+        buildRadius: 3,
       },
       {
         x: 8,
         y: 10,
         width: 0,
         height: 3,
+        buildRadius: 5,
       },
       {
         x: 12,
         y: 16,
         width: 3,
         height: -1,
+        buildRadius: 5,
+      },
+      {
+        x: 16,
+        y: 18,
+        width: 3,
+        height: 3,
+        buildRadius: 0,
       },
     ]);
 
@@ -66,6 +76,7 @@ describe('build-zone helpers', () => {
       {
         centerX: 3,
         centerY: 5,
+        buildRadius: 3,
       },
     ]);
   });
@@ -77,6 +88,7 @@ describe('build-zone helpers', () => {
         y: 20,
         width: 1,
         height: 1,
+        buildRadius: 4.5,
       },
     ]);
     expect(contributor).toBeDefined();
@@ -85,12 +97,16 @@ describe('build-zone helpers', () => {
     }
 
     expect(
-      isBuildZoneCoveredByContributor(contributor, 20 + BUILD_ZONE_RADIUS, 20),
+      isBuildZoneCoveredByContributor(
+        contributor,
+        20 + contributor.buildRadius,
+        20,
+      ),
     ).toBe(true);
     expect(
       isBuildZoneCoveredByContributor(
         contributor,
-        20 + BUILD_ZONE_RADIUS + 1,
+        20 + contributor.buildRadius + 1,
         20,
       ),
     ).toBe(false);
@@ -103,26 +119,28 @@ describe('build-zone helpers', () => {
         y: 0,
         width: 1,
         height: 1,
+        buildRadius: 3,
       },
       {
         x: 30,
         y: 0,
         width: 1,
         height: 1,
+        buildRadius: 5,
       },
     ]);
 
     const areaCells: Cell[] = [
       { x: 2, y: 0 },
-      { x: 15, y: 0 },
-      { x: 44, y: 0 },
-      { x: 47, y: 0 },
+      { x: 5, y: 0 },
+      { x: 34, y: 0 },
+      { x: 36, y: 0 },
     ];
     const illegalCells = collectIllegalBuildZoneCells(areaCells, contributors);
 
     expect(illegalCells).toEqual([
-      { x: 15, y: 0 },
-      { x: 47, y: 0 },
+      { x: 5, y: 0 },
+      { x: 36, y: 0 },
     ]);
   });
 
@@ -143,12 +161,14 @@ describe('build-zone helpers', () => {
         y: 0,
         width: 1,
         height: 1,
+        buildRadius: 3,
       },
       {
         x: 30,
         y: 0,
         width: 1,
         height: 1,
+        buildRadius: 5,
       },
     ]);
 
@@ -171,27 +191,29 @@ describe('build-zone helpers', () => {
         y: 0,
         width: 1,
         height: 1,
+        buildRadius: 3,
       },
       {
         x: 30,
         y: 0,
         width: 1,
         height: 1,
+        buildRadius: 5,
       },
     ]);
 
     const areaCells: Cell[] = [
       { x: 30, y: 0 },
-      { x: 15, y: 0 },
+      { x: 5, y: 0 },
       { x: 2, y: 0 },
-      { x: 44, y: 0 },
-      { x: 47, y: 0 },
+      { x: 34, y: 0 },
+      { x: 36, y: 0 },
     ];
 
     expect(collectCoveredBuildZoneCells(areaCells, contributors)).toEqual([
       { x: 30, y: 0 },
       { x: 2, y: 0 },
-      { x: 44, y: 0 },
+      { x: 34, y: 0 },
     ]);
   });
 });

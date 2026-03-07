@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import { Grid } from '#conway-core';
 
+import { createIdentityPlacementTransform } from './placement-transform.js';
 import {
   CORE_STRUCTURE_TEMPLATE,
   CORE_TEMPLATE_GRID,
@@ -32,7 +33,10 @@ describe('structure', () => {
     expect(generator?.height).toBe(4);
     expect(generator?.activationCost).toBe(6);
     expect(generator?.income).toBe(2);
+    expect(generator?.buildRadius).toBe(2);
     expect(generator?.checks).toHaveLength(0);
+    expect(generator?.toSummary().buildRadius).toBe(2);
+    expect(generator?.toPayload().buildRadius).toBe(2);
   });
 
   test('creates fresh default template instances on each call', () => {
@@ -53,7 +57,7 @@ describe('structure', () => {
       grid: sourceGrid,
       activationCost: 0,
       income: 0,
-      buildArea: 0,
+      buildRadius: 0,
       startingHp: 2,
       checks: [],
     });
@@ -123,7 +127,49 @@ describe('structure', () => {
     expect(CORE_STRUCTURE_TEMPLATE.id).toBe(CORE_TEMPLATE_ID);
     expect(CORE_STRUCTURE_TEMPLATE.startingHp).toBe(500);
     expect(CORE_STRUCTURE_TEMPLATE.requiresDestroyConfirm).toBe(true);
+    expect(CORE_STRUCTURE_TEMPLATE.buildRadius).toBe(14.9);
+    expect(CORE_STRUCTURE_TEMPLATE.toSummary().buildRadius).toBe(14.9);
+    expect(CORE_STRUCTURE_TEMPLATE.toPayload().buildRadius).toBe(14.9);
     expect(CORE_STRUCTURE_TEMPLATE.width).toBe(CORE_TEMPLATE_GRID.width);
     expect(CORE_STRUCTURE_TEMPLATE.height).toBe(CORE_TEMPLATE_GRID.height);
+  });
+
+  test('derives structure build radius from active template instances including core', () => {
+    const relayTemplate = new StructureTemplate({
+      id: 'relay',
+      name: 'Relay',
+      grid: new Grid(1, 1, [{ x: 0, y: 0 }], 'flat'),
+      activationCost: 0,
+      income: 0,
+      buildRadius: 7.5,
+      startingHp: 2,
+      checks: [],
+    });
+
+    const activeRelay = relayTemplate.instantiate({
+      key: 'relay-1',
+      x: 3,
+      y: 4,
+      transform: createIdentityPlacementTransform(),
+      active: true,
+      isCore: false,
+    });
+    expect(activeRelay.buildRadius).toBe(7.5);
+
+    activeRelay.deactivate();
+    expect(activeRelay.buildRadius).toBe(0);
+
+    const activeCore = CORE_STRUCTURE_TEMPLATE.instantiate({
+      key: 'core-1',
+      x: 8,
+      y: 8,
+      transform: createIdentityPlacementTransform(),
+      active: true,
+      isCore: true,
+    });
+    expect(activeCore.buildRadius).toBe(14.9);
+
+    activeCore.destroy();
+    expect(activeCore.buildRadius).toBe(0);
   });
 });

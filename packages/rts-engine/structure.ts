@@ -96,7 +96,7 @@ interface StructureTemplateSharedOptions {
   name: string;
   activationCost: number;
   income: number;
-  buildArea: number;
+  buildRadius: number;
   startingHp: number;
   checks: Vector2[];
   requiresDestroyConfirm?: boolean;
@@ -131,7 +131,7 @@ export interface StructureTemplateSummary {
   height: number;
   activationCost: number;
   income: number;
-  buildArea: number;
+  buildRadius: number;
 }
 
 export interface StructureTemplatePayload extends StructureTemplateSummary {
@@ -149,6 +149,7 @@ export interface StructurePayload {
   height: number;
   hp: number;
   active: boolean;
+  buildRadius: number;
   isCore: boolean;
   requiresDestroyConfirm: boolean;
   transform: PlacementTransformState;
@@ -168,7 +169,7 @@ export class StructureTemplate {
 
   public readonly income: number;
 
-  public readonly buildArea: number;
+  public readonly buildRadius: number;
 
   public readonly startingHp: number;
 
@@ -188,7 +189,7 @@ export class StructureTemplate {
     this.height = this.templateGrid.height;
     this.activationCost = options.activationCost;
     this.income = options.income;
-    this.buildArea = options.buildArea;
+    this.buildRadius = options.buildRadius;
     if (!Number.isFinite(options.startingHp) || options.startingHp <= 0) {
       throw new Error('Template starting HP must be greater than zero');
     }
@@ -289,7 +290,7 @@ export class StructureTemplate {
       height: this.height,
       activationCost: this.activationCost,
       income: this.income,
-      buildArea: this.buildArea,
+      buildRadius: this.buildRadius,
     };
   }
 
@@ -338,7 +339,7 @@ export class Structure {
   }
 
   public get buildRadius(): number {
-    return this.active && !this.isCore ? this.template.buildArea : 0;
+    return this.active ? this.template.buildRadius : 0;
   }
 
   public projectTemplate(): TransformedTemplate {
@@ -394,6 +395,7 @@ export class Structure {
       height: transformedTemplate.height,
       hp: this.hp,
       active: this.active,
+      buildRadius: this.buildRadius,
       isCore: this.isCore,
       requiresDestroyConfirm: this.template.requiresDestroyConfirm,
       transform: this.transform,
@@ -408,7 +410,7 @@ interface StructureTemplateRowsOptions {
   rows: readonly string[];
   activationCost?: number;
   income?: number;
-  buildArea?: number;
+  buildRadius?: number;
   startingHp: number;
   requiresDestroyConfirm?: boolean;
   padding?: number;
@@ -434,7 +436,7 @@ function createTemplateFromRows({
   rows,
   activationCost = 0,
   income = 0,
-  buildArea = 0,
+  buildRadius = 0,
   startingHp,
   requiresDestroyConfirm = false,
   padding = 0,
@@ -449,7 +451,7 @@ function createTemplateFromRows({
     grid: templateGrid,
     activationCost,
     income,
-    buildArea,
+    buildRadius,
     startingHp,
     checks: [], // TODO: wire checked/checks behavior if needed.
     requiresDestroyConfirm,
@@ -460,7 +462,7 @@ export const CORE_STRUCTURE_TEMPLATE = createTemplateFromRows({
   id: CORE_TEMPLATE_ID,
   name: 'Core',
   rows: CORE_TEMPLATE_ROWS,
-  buildArea: 0,
+  buildRadius: 14.9,
   startingHp: 500,
   requiresDestroyConfirm: true,
   padding: CORE_TEMPLATE_PADDING,
@@ -474,7 +476,7 @@ export function createDefaultStructureTemplates(): StructureTemplate[] {
       rows: ['##', '##'],
       activationCost: 0,
       income: 0,
-      buildArea: 0,
+      buildRadius: 0,
       startingHp: 2,
     }),
     createTemplateFromRows({
@@ -483,7 +485,7 @@ export function createDefaultStructureTemplates(): StructureTemplate[] {
       rows: ['##', '##'],
       activationCost: 6,
       income: 2,
-      buildArea: 2,
+      buildRadius: 2,
       startingHp: 2,
       padding: 1,
       checked: true,
@@ -494,7 +496,7 @@ export function createDefaultStructureTemplates(): StructureTemplate[] {
       rows: ['.#.', '..#', '###'],
       activationCost: 2,
       income: 0,
-      buildArea: 0,
+      buildRadius: 0,
       startingHp: 2,
     }),
     createTemplateFromRows({
@@ -503,7 +505,7 @@ export function createDefaultStructureTemplates(): StructureTemplate[] {
       rows: ['##..', '#.##', '.###', '..#.'],
       activationCost: 4,
       income: 0,
-      buildArea: 1,
+      buildRadius: 1,
       startingHp: 2,
     }),
     createTemplateFromRows({
