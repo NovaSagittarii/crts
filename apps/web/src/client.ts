@@ -54,10 +54,10 @@ import {
   deriveBuildQueueUi,
   formatDeficitCopy,
   previewMatchesSelection,
-  type BuildPlacementSelection,
   type BuildQueueFeedbackOverride,
   type BuildQueuePreview,
 } from './build-queue-view-model.js';
+import { BuildModeController } from './build-mode-controller.js';
 import { TemplateButtonMenuElement } from './template-button-menu.js';
 import {
   applyPlacementTransformOperation,
@@ -501,11 +501,9 @@ let isFinishedPanelMinimized = false;
 let currentTeamDefeated = false;
 let persistentDefeatReason: string | null = null;
 let latestOutcomeTimelineMetadata: unknown = null;
-let buildModeActive = false;
-let selectedTemplatePlacement: BuildPlacementSelection | null = null;
+const buildModeController = new BuildModeController();
 let latestBuildPreview: BuildPreview | null = null;
 let previewPending = false;
-let lastHoveredGridCell: Cell | null = null;
 let authoritativePreviewRefreshState: AuthoritativePreviewRefreshState =
   createAuthoritativePreviewRefreshState();
 let lastTeamEconomySnapshot: TeamEconomySnapshot | null = null;
@@ -691,7 +689,8 @@ function refreshPreviewAfterAuthoritativeUpdate(
       section,
       tick,
       hasSelectedPlacement:
-        buildModeActive && selectedTemplatePlacement !== null,
+        buildModeController.active &&
+        buildModeController.candidatePlacement !== null,
       canMutateGameplay: canMutateGameplay(),
       previewPending,
       state: authoritativePreviewRefreshState,
@@ -1180,7 +1179,7 @@ function shouldDeduplicateBuildErrorToast(
 }
 
 function clearSelectedTemplatePlacement(): void {
-  selectedTemplatePlacement = null;
+  buildModeController.clearCandidate();
   latestBuildPreview = null;
   previewPending = false;
   authoritativePreviewRefreshState = createAuthoritativePreviewRefreshState();
@@ -1928,8 +1927,8 @@ function updateTransformIndicator(): void {
 function updateQueueAffordabilityUi(): void {
   const queueUi = deriveBuildQueueUi({
     selectedTemplateId: selectedTemplateId || null,
-    buildModeActive,
-    selectedPlacement: selectedTemplatePlacement,
+    buildModeActive: buildModeController.active,
+    selectedPlacement: buildModeController.candidatePlacement,
     latestBuildPreview,
     activeTransformOperations: placementTransformState.operations,
     previewPending,
@@ -2049,7 +2048,7 @@ function emitBuildPreviewForSelectedPlacement(): void {
   }
 
   const previewRequest = buildPreviewRequestFromSelection(
-    selectedTemplatePlacement,
+    buildModeController.candidatePlacement,
     toPlacementTransformInput(placementTransformState),
   );
   if (!previewRequest) {
@@ -2095,7 +2094,7 @@ function applyTransformControl(
     return;
   }
 
-  if (!buildModeActive) {
+  if (!buildModeController.active) {
     setMessage('Enter build mode before applying placement transforms.', true);
     return;
   }
@@ -2309,7 +2308,7 @@ function syncEconomyHud(team: TeamPayload | null, tick: number): void {
 function updateTemplateButtonMenu(): void {
   if (availableTemplates.length === 0) {
     selectedTemplateId = '';
-    buildModeActive = false;
+    buildModeController.deactivate();
     clearSelectedTemplatePlacement();
     templateButtonMenu.update({
       templates: [],
@@ -2328,33 +2327,25 @@ function updateTemplateButtonMenu(): void {
   templateButtonMenu.update({
     templates: availableTemplates,
     selectedTemplateId,
-    buildModeActive,
+    buildModeActive: buildModeController.active,
     enabled: canMutateGameplay(),
   });
 }
 
 function setBuildCandidateFromCell(cell: Cell): boolean {
   const template = getSelectedTemplate();
-  if (!template || !buildModeActive) {
+  if (!template || !buildModeController.active) {
     return false;
   }
 
-  const x = cell.x - Math.floor(template.width / 2);
-  const y = cell.y - Math.floor(template.height / 2);
-  if (
-    selectedTemplatePlacement &&
-    selectedTemplatePlacement.templateId === template.id &&
-    selectedTemplatePlacement.x === x &&
-    selectedTemplatePlacement.y === y
-  ) {
+  const candidateUpdate = buildModeController.updateCandidateForCell(
+    template,
+    cell,
+  );
+  if (!candidateUpdate.changed) {
     return false;
   }
 
-  selectedTemplatePlacement = {
-    templateId: template.id,
-    x,
-    y,
-  };
   authoritativePreviewRefreshState = createAuthoritativePreviewRefreshState();
   resetQueueFeedbackOverride();
   emitBuildPreviewForSelectedPlacement();
@@ -2363,14 +2354,14 @@ function setBuildCandidateFromCell(cell: Cell): boolean {
 }
 
 function exitBuildMode(announce = true): void {
-  if (!buildModeActive) {
+  if (!buildModeController.active) {
     if (announce) {
       setMessage('Build mode is already inactive.');
     }
     return;
   }
 
-  buildModeActive = false;
+  buildModeController.deactivate();
   clearSelectedTemplatePlacement();
   updateTemplateButtonMenu();
   requestRender();
@@ -2399,14 +2390,14 @@ function activateBuildModeForTemplate(templateId: string): void {
 
   const switchedTemplate = selectedTemplateId !== templateId;
   selectedTemplateId = templateId;
-  buildModeActive = true;
+  buildModeController.activate();
   if (switchedTemplate) {
     clearSelectedTemplatePlacement();
   }
 
   const hasCandidate =
-    lastHoveredGridCell !== null &&
-    setBuildCandidateFromCell(lastHoveredGridCell);
+    buildModeController.lastHoveredCell !== null &&
+    setBuildCandidateFromCell(buildModeController.lastHoveredCell);
 
   updateTemplateButtonMenu();
   requestRender();
@@ -2513,17 +2504,20 @@ function getReadOnlyBannerCopy(): {
 function updateReadOnlyExperience(): void {
   const gameplayAllowed = canMutateGameplay();
 
-  if (!gameplayAllowed && buildModeActive) {
-    buildModeActive = false;
+  if (!gameplayAllowed && buildModeController.active) {
+    buildModeController.deactivate();
     clearSelectedTemplatePlacement();
   }
 
   buildDelayEl.disabled = !gameplayAllowed;
-  transformRotateButton.disabled = !gameplayAllowed || !buildModeActive;
+  transformRotateButton.disabled =
+    !gameplayAllowed || !buildModeController.active;
   transformMirrorHorizontalButton.disabled =
-    !gameplayAllowed || !buildModeActive;
-  transformMirrorVerticalButton.disabled = !gameplayAllowed || !buildModeActive;
-  exitBuildModeButton.disabled = !gameplayAllowed || !buildModeActive;
+    !gameplayAllowed || !buildModeController.active;
+  transformMirrorVerticalButton.disabled =
+    !gameplayAllowed || !buildModeController.active;
+  exitBuildModeButton.disabled =
+    !gameplayAllowed || !buildModeController.active;
   destroyQueueButton.disabled = !gameplayAllowed;
   destroyConfirmButton.disabled = !gameplayAllowed;
   destroyCancelButton.disabled = !gameplayAllowed;
@@ -2753,10 +2747,10 @@ function resizeCanvas(): void {
 
 function previewMatchesCurrentSelection(preview: BuildPreview): boolean {
   return (
-    buildModeActive &&
+    buildModeController.active &&
     previewMatchesSelection(
       preview,
-      selectedTemplatePlacement,
+      buildModeController.candidatePlacement,
       placementTransformState.operations,
     )
   );
@@ -2976,7 +2970,7 @@ function pointerToCell(event: PointerEvent): Cell | null {
 }
 
 function queueBuildAtCell(cell: Cell): void {
-  if (!buildModeActive) {
+  if (!buildModeController.active) {
     setMessage('Select a template button to enter build mode.', true);
     return;
   }
@@ -2996,7 +2990,7 @@ function queueBuildAtCell(cell: Cell): void {
 
   setBuildCandidateFromCell(cell);
   const queueRequest = buildPreviewRequestFromSelection(
-    selectedTemplatePlacement,
+    buildModeController.candidatePlacement,
     toPlacementTransformInput(placementTransformState),
   );
   if (
@@ -3004,7 +2998,7 @@ function queueBuildAtCell(cell: Cell): void {
     !latestBuildPreview ||
     !previewMatchesSelection(
       latestBuildPreview,
-      selectedTemplatePlacement,
+      buildModeController.candidatePlacement,
       placementTransformState.operations,
     ) ||
     !latestBuildPreview.affordable
@@ -3372,9 +3366,9 @@ canvas.addEventListener('pointerdown', (event) => {
     return;
   }
 
-  lastHoveredGridCell = cell;
+  buildModeController.recordHover(cell);
 
-  if (buildModeActive) {
+  if (buildModeController.active) {
     queueBuildAtCell(cell);
     return;
   }
@@ -3423,10 +3417,10 @@ canvas.addEventListener('pointermove', (event) => {
 
   const cell = pointerToCell(event);
   if (cell) {
-    lastHoveredGridCell = cell;
+    buildModeController.recordHover(cell);
   }
 
-  if (buildModeActive && cell) {
+  if (buildModeController.active && cell) {
     setBuildCandidateFromCell(cell);
     return;
   }
@@ -3474,7 +3468,7 @@ window.addEventListener('keydown', (event) => {
     return;
   }
 
-  if (buildModeActive) {
+  if (buildModeController.active) {
     if (event.key === 'Escape') {
       event.preventDefault();
       exitBuildMode();
@@ -3638,9 +3632,9 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   availableTemplates = payload.templates;
   syncPreviewTemplateSnapshots(payload.templates);
   selectedTemplateId = payload.templates[0]?.id ?? '';
-  buildModeActive = false;
+  buildModeController.deactivate();
   clearSelectedTemplatePlacement();
-  lastHoveredGridCell = null;
+  buildModeController.recordHover(null);
   updateTemplateButtonMenu();
   applyAuthoritativePlayerIdentity({
     sessionId: payload.playerId,
@@ -3677,10 +3671,10 @@ socket.on('room:left', (payload: RoomLeftPayload) => {
   availableTemplates = [];
   previewTemplateSnapshotsById.clear();
   selectedTemplateId = '';
-  buildModeActive = false;
+  buildModeController.deactivate();
   updateTemplateButtonMenu();
   clearSelectedTemplatePlacement();
-  lastHoveredGridCell = null;
+  buildModeController.recordHover(null);
   gridWidth = 0;
   gridHeight = 0;
   gridBytes = null;
