@@ -911,6 +911,58 @@ describe('GameServer', () => {
     await server.stop();
   }, 20_000);
 
+  test('canonicalizes authoritative queued payload coordinates and delay', async () => {
+    const server = createServer({ port: 0, width: 52, height: 52, tickMs: 40 });
+    const port = await server.start();
+    const setup = await setupActiveMatch(port);
+
+    try {
+      const blockTemplate = setup.hostJoined.templates.find(
+        ({ id }) => id === 'block',
+      );
+      if (!blockTemplate) {
+        throw new Error('Expected block template');
+      }
+
+      const selectedPlacement = collectCandidatePlacements(
+        setup.hostTeam,
+        blockTemplate,
+        setup.hostJoined.state.width,
+        setup.hostJoined.state.height,
+      )[0];
+      if (!selectedPlacement) {
+        throw new Error('Expected valid block placement');
+      }
+
+      const queuedPromise = waitForEvent<BuildQueuedPayload>(
+        setup.host,
+        'build:queued',
+      );
+
+      setup.host.emit('build:queue', {
+        templateId: blockTemplate.id,
+        x: selectedPlacement.x + setup.hostJoined.state.width,
+        y: selectedPlacement.y,
+        transform: { operations: ['rotate'] },
+        delayTicks: 999,
+      });
+
+      const queued = await queuedPromise;
+
+      expect(queued.x).toBe(selectedPlacement.x);
+      expect(queued.y).toBe(selectedPlacement.y);
+      expect(queued.transform).toEqual(
+        normalizePlacementTransform({ operations: ['rotate'] }),
+      );
+      expect(queued.delayTicks).toBe(20);
+      expect(queued.executeTick - queued.bufferedTurn).toBe(20);
+    } finally {
+      setup.host.close();
+      setup.guest.close();
+      await server.stop();
+    }
+  });
+
   test.fails(
     'sends build:scheduled only to the queueing client after authoritative queue fanout',
     async () => {

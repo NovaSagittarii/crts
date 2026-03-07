@@ -9,40 +9,53 @@ import {
   type IncomeDeltaSample,
 } from '../../apps/web/src/economy-view-model.js';
 
+const identityTransform = {
+  operations: [],
+  matrix: { xx: 1, xy: 0, yx: 0, yy: 1 },
+};
+
 describe('economy-view-model helpers', () => {
   test('groups pending builds by execute tick with deterministic event ordering', () => {
     const pending: PendingBuildPayload[] = [
       {
         eventId: 9,
         executeTick: 18,
+        playerId: 'p1',
         templateId: 'block',
         templateName: 'Block',
         x: 8,
         y: 6,
+        transform: identityTransform,
       },
       {
         eventId: 2,
         executeTick: 16,
+        playerId: 'p2',
         templateId: 'beacon',
         templateName: 'Beacon',
         x: 3,
         y: 3,
+        transform: identityTransform,
       },
       {
         eventId: 4,
         executeTick: 18,
+        playerId: 'p3',
         templateId: 'boat',
         templateName: 'Boat',
         x: 5,
         y: 7,
+        transform: identityTransform,
       },
       {
         eventId: 1,
         executeTick: 16,
+        playerId: 'p4',
         templateId: 'blinker',
         templateName: 'Blinker',
         x: 1,
         y: 2,
+        transform: identityTransform,
       },
     ];
 

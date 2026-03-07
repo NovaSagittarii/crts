@@ -42,7 +42,6 @@ import {
   type PlacementTransformInput,
   type PlacementTransformOperation,
   type QueueDestroyResult,
-  normalizePlacementTransform,
   transitionMatchLifecycle,
   type PlayerProfilePayload,
   RtsEngine,
@@ -719,54 +718,100 @@ export function createServer(options: ServerOptions = {}): GameServer {
       : bufferedTurn;
   }
 
+  function requirePendingBuildEvent(
+    room: RuntimeRoom,
+    teamId: number,
+    eventId: number,
+  ) {
+    const team = room.rtsRoom.state.teams.get(teamId);
+    const event = team?.pendingBuildEvents.find(
+      (candidate) => candidate.id === eventId,
+    );
+    if (!event) {
+      throw new Error(
+        `Missing pending build event ${eventId} for team ${teamId}`,
+      );
+    }
+    return event;
+  }
+
+  function requirePendingDestroyEvent(
+    room: RuntimeRoom,
+    teamId: number,
+    eventId: number,
+  ) {
+    const team = room.rtsRoom.state.teams.get(teamId);
+    const event = team?.pendingDestroyEvents.find(
+      (candidate) => candidate.id === eventId,
+    );
+    if (!event) {
+      throw new Error(
+        `Missing pending destroy event ${eventId} for team ${teamId}`,
+      );
+    }
+    return event;
+  }
+
   function createBuildQueuedPayload(
     room: RuntimeRoom,
     teamId: number,
-    sessionId: string,
     intentId: string,
-    payload: BuildQueuePayload,
     bufferedTurn: number,
     scheduledByTurn: number,
     result: QueueBuildResult,
   ): BuildQueuedPayload {
+    if (result.eventId === undefined || result.executeTick === undefined) {
+      throw new Error(
+        'Accepted build queue result is missing canonical event metadata',
+      );
+    }
+
+    const event = requirePendingBuildEvent(room, teamId, result.eventId);
+
     return {
       roomId: room.rtsRoom.id,
       intentId,
-      playerId: sessionId,
-      teamId,
+      playerId: event.playerId,
+      teamId: event.teamId,
       bufferedTurn,
       scheduledByTurn,
-      templateId: payload.templateId,
-      x: payload.x,
-      y: payload.y,
-      transform: normalizePlacementTransform(payload.transform),
-      delayTicks: payload.delayTicks ?? 10,
-      eventId: result.eventId ?? -1,
-      executeTick: result.executeTick ?? room.rtsRoom.state.tick,
+      templateId: event.templateId,
+      x: event.x,
+      y: event.y,
+      transform: event.transform,
+      delayTicks: Math.max(1, event.executeTick - room.rtsRoom.state.tick),
+      eventId: event.id,
+      executeTick: event.executeTick,
     };
   }
 
   function createDestroyQueuedPayload(
     room: RuntimeRoom,
     teamId: number,
-    sessionId: string,
     intentId: string,
-    payload: DestroyQueuePayload,
     bufferedTurn: number,
     scheduledByTurn: number,
     result: QueueDestroyResult,
   ): DestroyQueuedPayload {
+    if (result.eventId === undefined || result.executeTick === undefined) {
+      throw new Error(
+        'Accepted destroy queue result is missing canonical event metadata',
+      );
+    }
+
+    const event = requirePendingDestroyEvent(room, teamId, result.eventId);
+
     return {
       roomId: room.rtsRoom.id,
       intentId,
-      playerId: sessionId,
-      teamId,
+      playerId: event.playerId,
+      teamId: event.teamId,
       bufferedTurn,
       scheduledByTurn,
-      delayTicks: payload.delayTicks ?? 10,
-      structureKey: payload.structureKey,
-      eventId: result.eventId ?? -1,
-      executeTick: result.executeTick ?? room.rtsRoom.state.tick,
+      delayTicks: Math.max(1, event.executeTick - room.rtsRoom.state.tick),
+      structureKey: event.structureKey,
+      eventId: event.id,
+      executeTick: event.executeTick,
       idempotent: Boolean(result.idempotent),
     };
   }
@@ -1296,9 +1341,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         createBuildQueuedPayload(
           room,
           command.teamId,
-          command.sessionId,
           command.intentId,
-          command.payload as BuildQueuePayload,
           command.bufferedTurn,
           command.scheduledByTurn,
           queueResult,
@@ -1342,9 +1385,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       createDestroyQueuedPayload(
         room,
         command.teamId,
-        command.sessionId,
         command.intentId,
-        command.payload as DestroyQueuePayload,
         command.bufferedTurn,
         command.scheduledByTurn,
         queueResult,
@@ -2745,9 +2786,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         createBuildQueuedPayload(
           room,
           team.id,
-          session.id,
           intentId,
-          parsedPayload,
           bufferedTurn,
           scheduledByTurn,
           result,
@@ -2865,9 +2904,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         createDestroyQueuedPayload(
           room,
           team.id,
-          session.id,
           intentId,
-          parsedPayload,
           bufferedTurn,
           scheduledByTurn,
           result,
