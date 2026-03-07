@@ -43,8 +43,6 @@ import {
 import {
   aggregateIncomeDelta,
   deriveIncomeDeltaSamples,
-  formatRelativeEta,
-  groupPendingByExecuteTick,
   type AggregatedIncomeDelta,
   type IncomeDeltaSample,
 } from './economy-view-model.js';
@@ -59,6 +57,7 @@ import {
 } from './build-queue-view-model.js';
 import { BuildModeController } from './build-mode-controller.js';
 import { TemplateButtonMenuElement } from './template-button-menu.js';
+import { PendingTimelineElement } from './pending-timeline-element.js';
 import {
   applyPlacementTransformOperation,
   createPlacementTransformViewState,
@@ -407,6 +406,7 @@ const templateButtonMenu = new TemplateButtonMenuElement(
     activateBuildModeForTemplate(templateId);
   },
 );
+const pendingTimeline = new PendingTimelineElement(pendingTimelineEl);
 
 const newRoomNameEl = getRequiredElement<HTMLInputElement>('new-room-name');
 const newRoomSizeEl = getRequiredElement<HTMLInputElement>('new-room-size');
@@ -2160,48 +2160,10 @@ function renderPendingTimeline(
   team: TeamPayload | null,
   currentTick: number,
 ): void {
-  pendingTimelineEl.innerHTML = '';
-
-  if (!team || team.pendingBuilds.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'pending-item';
-    empty.textContent = 'No pending build events.';
-    pendingTimelineEl.append(empty);
-    return;
-  }
-
-  const groupedRows = groupPendingByExecuteTick(
-    team.pendingBuilds,
+  pendingTimeline.update({
+    pendingBuilds: team?.pendingBuilds ?? [],
     currentTick,
-  );
-
-  for (const group of groupedRows) {
-    const groupEl = document.createElement('section');
-    groupEl.className = 'pending-group';
-
-    const title = document.createElement('p');
-    title.className = 'pending-group__title';
-    title.textContent = `Execute tick ${group.executeTick} (${group.etaLabel})`;
-    groupEl.append(title);
-
-    for (const row of group.items) {
-      const item = document.createElement('article');
-      item.className = 'pending-item';
-
-      const name = document.createElement('div');
-      name.className = 'pending-item__name';
-      name.textContent = `${row.templateName} (#${row.eventId})`;
-
-      const meta = document.createElement('div');
-      meta.className = 'pending-item__meta';
-      meta.textContent = `tick ${row.executeTick} | ${formatRelativeEta(row.executeTick, currentTick)} | at (${row.x}, ${row.y})`;
-
-      item.append(name, meta);
-      groupEl.append(item);
-    }
-
-    pendingTimelineEl.append(groupEl);
-  }
+  });
 }
 
 function renderEconomyDeltaChip(team: TeamPayload | null): void {
