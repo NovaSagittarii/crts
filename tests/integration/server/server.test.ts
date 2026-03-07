@@ -408,10 +408,10 @@ describe('GameServer', () => {
       const setup = activeMatch;
 
       const expensiveTemplate = setup.hostJoined.templates.find(
-        ({ id }) => id === 'eater-1',
+        ({ id }) => id === 'generator',
       );
       if (!expensiveTemplate) {
-        throw new Error('Expected eater-1 template to be available');
+        throw new Error('Expected generator template to be available');
       }
 
       const placements = collectCandidatePlacements(
@@ -419,20 +419,13 @@ describe('GameServer', () => {
         expensiveTemplate,
         setup.hostJoined.state.width,
         setup.hostJoined.state.height,
+        { searchRadius: 18, step: 1 },
       );
       expect(placements.length).toBeGreaterThan(0);
 
       let insufficient: { error: RoomErrorPayload } | null = null;
       for (let attempt = 0; attempt < placements.length; attempt += 1) {
         const placement = placements[attempt];
-        const errorPromise = waitForEvent<RoomErrorPayload>(
-          setup.host,
-          'room:error',
-          1_500,
-        ).catch(() => null);
-        const scheduledPromise = waitForBuildScheduled(setup.host, 1_500).catch(
-          () => null,
-        );
         setup.host.emit('build:queue', {
           templateId: expensiveTemplate.id,
           x: placement.x,
@@ -446,18 +439,6 @@ describe('GameServer', () => {
             insufficient = { error: response.error };
             break;
           }
-          continue;
-        }
-
-        const [error, scheduled] = await Promise.all([
-          errorPromise,
-          scheduledPromise,
-        ]);
-        if (error?.reason === 'insufficient-resources') {
-          insufficient = { error };
-          break;
-        }
-        if (scheduled) {
           continue;
         }
       }

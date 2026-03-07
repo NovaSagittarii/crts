@@ -3,7 +3,7 @@ import { type Socket, io } from 'socket.io-client';
 import {
   BASE_FOOTPRINT_HEIGHT,
   BASE_FOOTPRINT_WIDTH,
-  BUILD_ZONE_RADIUS,
+  CORE_STRUCTURE_TEMPLATE,
   getBaseCenter,
   normalizePlacementTransform,
 } from '#rts-engine';
@@ -414,6 +414,7 @@ export function collectCandidatePlacements(
   const placements: Cell[] = [];
   const searchRadius = options.searchRadius ?? 10;
   const step = options.step ?? 2;
+  const coreBuildRadius = CORE_STRUCTURE_TEMPLATE.buildRadius;
   const baseCenter = getBaseCenter(team.baseTopLeft);
   const baseLeft = team.baseTopLeft.x;
   const baseTop = team.baseTopLeft.y;
@@ -452,7 +453,7 @@ export function collectCandidatePlacements(
         for (let tx = 0; tx < transformedSize.width; tx += 1) {
           const dx = buildX + tx - baseCenter.x;
           const dy = buildY + ty - baseCenter.y;
-          if (dx * dx + dy * dy > BUILD_ZONE_RADIUS * BUILD_ZONE_RADIUS) {
+          if (dx * dx + dy * dy > coreBuildRadius * coreBuildRadius) {
             fullyInsideBuildZone = false;
             break;
           }
