@@ -13,6 +13,7 @@ const staticIgnores = [
   'node_modules/**',
   'conway-rts/**',
   '.planning/**',
+  'tests/integration/server/*_scratch.ts',
 ];
 const ignoreFiles = ['.gitignore', '.prettierignore'];
 

@@ -132,7 +132,11 @@ describe('section sync and queued fanout', () => {
       });
 
       const hostQueuedPromise = waitForBuildQueueResponse(setup.host, 4_000);
-      const guestQueuedPromise = waitForBuildQueueResponse(setup.guest, 4_000);
+      const guestQueuedPromise = waitForEvent<BuildQueuedPayload>(
+        setup.guest,
+        'build:queued',
+        4_000,
+      );
       const earlyHostQueuedPromise = waitForEvent<BuildQueuedPayload>(
         setup.host,
         'build:queued',
@@ -153,18 +157,17 @@ describe('section sync and queued fanout', () => {
       await expect(earlyHostQueuedPromise).rejects.toThrow(/timed out/i);
       await expect(earlyGuestQueuedPromise).rejects.toThrow(/timed out/i);
 
-      const [hostQueuedResponse, guestQueuedResponse] = await Promise.all([
+      const [hostQueuedResponse, guestQueued] = await Promise.all([
         hostQueuedPromise,
         guestQueuedPromise,
       ]);
-      if ('error' in hostQueuedResponse || 'error' in guestQueuedResponse) {
+      if ('error' in hostQueuedResponse) {
         throw new Error(
           'Expected both clients to observe a buffered build intent',
         );
       }
 
       const hostQueued: BuildQueuedPayload = hostQueuedResponse.queued;
-      const guestQueued: BuildQueuedPayload = guestQueuedResponse.queued;
       expect(guestQueued).toEqual(hostQueued);
       expect(hostQueued.playerId).toBe(setup.hostJoined.playerId);
       expect(hostQueued.teamId).toBe(setup.hostTeam.id);

@@ -2693,16 +2693,19 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
       if (!result.accepted) {
         const reason = resolveQueueBuildRejectionReason(result);
-        roomError(
-          socket,
-          result.error ?? 'Build rejected',
-          reason,
-          reason === 'insufficient-resources'
-            ? getAffordabilityMetadata(result)
-            : undefined,
-          getRuntimeRoomId(room),
+        emitBuildQueueRejected(
+          room,
+          createBuildQueueRejectedPayload(
+            room,
+            team.id,
+            session.id,
+            intentId,
+            reason,
+            reason === 'insufficient-resources'
+              ? getAffordabilityMetadata(result)
+              : undefined,
+          ),
         );
-
         return;
       }
 
@@ -2805,11 +2808,16 @@ export function createServer(options: ServerOptions = {}): GameServer {
       });
       if (!result.accepted) {
         const reason = resolveQueueDestroyRejectionReason(result);
-        roomError(
-          socket,
-          result.error ?? 'Destroy rejected',
-          reason,
-          getRuntimeRoomId(room),
+        emitDestroyQueueRejected(
+          room,
+          createDestroyQueueRejectedPayload(
+            room,
+            team.id,
+            session.id,
+            intentId,
+            parsedPayload.structureKey,
+            reason,
+          ),
         );
         return;
       }

@@ -615,21 +615,27 @@ describe('lockstep primary mode', () => {
         2_000,
       );
 
+      const responsePromise = waitForBuildQueueResponse(match.host, 500);
       match.host.emit('build:queue', {
         templateId: 'block',
         x: opposingTeam.baseTopLeft.x + 1,
         y: opposingTeam.baseTopLeft.y + 1,
       });
 
-      await expect(waitForBuildQueueResponse(match.host, 500)).rejects.toThrow(
-        /timed out/i,
-      );
+      const response = await responsePromise;
+      if ('queued' in response) {
+        throw new Error(
+          'Expected buffered out-of-territory build to be rejected',
+        );
+      }
+      expect(response.error.reason).toBe('outside-territory');
 
       const rejected = await rejectedPromise;
       expect(rejected.roomId).toBe(match.roomId);
       expect(rejected.intentId).toMatch(/^intent-/);
       expect(rejected.teamId).toBe(team.id);
       expect(rejected.reason).toBe('outside-territory');
+      expect(response.error.reason).toBe(rejected.reason);
     },
     30_000,
   );
