@@ -16,7 +16,9 @@ These rules apply to `apps/server/*`.
 State payload expectations:
 
 - `state` remains room-scoped and carries deterministic `RoomStatePayload` team rows with `pendingBuilds[]` sorted by `executeTick` then `eventId`.
+- Incremental resync uses `state:grid`, `state:structures`, and `state:hashes`; `state:request` may ask for full or section-based refreshes.
 - Team rows include `incomeBreakdown` fields and pending queue metadata (`eventId`, `executeTick`, `templateId`, `templateName`, `x`, `y`) for reconnect-safe HUD/timeline rendering.
+- Lockstep recovery signals flow through `lockstep:checkpoint` and `lockstep:fallback` rather than app-specific resync events.
 
 Lifecycle/status contract:
 
@@ -24,15 +26,16 @@ Lifecycle/status contract:
 - `room:start` is host-only and serves both initial start and restart from `finished`.
 - `room:cancel-countdown` is host-only and only legal while status is `countdown`.
 - Gameplay mutations are queue-only: accepted mutations must enter through queue/event paths such as `build:queue` and `destroy:queue`.
+- Accepted queue mutations fan out through `build:queued`, `build:scheduled`, `build:outcome`, and destroy counterparts; keep those server emissions aligned with the shared contract.
 
-Common (not exhaustive) `room:error.reason` values:
+Illustrative (not exhaustive) `room:error.reason` examples:
 
 - `not-host`: host-only action attempted by non-host session.
 - `invalid-transition`: lifecycle action rejected for current room status.
 - `invalid-state`: gameplay mutation attempted outside `active`.
 - `defeated`: defeated player attempted gameplay mutation.
-- `not-ready`: lobby start attempted before both slotted players are ready.
-- `out-of-bounds`: `build:queue` payload coordinates exceeded room bounds.
+- `not-ready`: lobby start attempted before all required seats/slots were filled and ready.
+- `template-exceeds-map-size`: `build:queue` referenced a template footprint that cannot fit inside the map.
 - `outside-territory`: `build:queue` payload targeted cells beyond the team's union build zone.
 - `invalid-coordinates`: `build:queue` payload included non-integer coordinates.
 - `invalid-delay`: `build:queue` delay value was not an integer.
@@ -47,6 +50,7 @@ Common (not exhaustive) `room:error.reason` values:
 - `match-started`: lobby mutation attempted after match became active.
 - `invalid-chat`: chat payload was empty or invalid.
 - `invalid-build`: build payload was malformed.
+- `wrong-owner` / `invalid-target` / `invalid-lifecycle-state`: destroy/build queue requests failed ownership, target, or lifecycle validation.
 - `team-defeated` / `team-unavailable` / `build-rejected`: queue request failed deterministic placement/team checks.
 - `session-replaced`: session auth token was replaced by a newer socket connection.
 
