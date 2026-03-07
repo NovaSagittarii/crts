@@ -8,7 +8,6 @@ import type {
   DestroyQueueRejectedPayload,
   LockstepCheckpointPayload,
   LockstepFallbackPayload,
-  RoomErrorPayload,
   RoomJoinedPayload,
   RoomMembershipPayload,
   RoomSlotClaimedPayload,
@@ -48,53 +47,6 @@ async function claimSlot(socket: Socket, slotId: string): Promise<number> {
     throw new Error(`Expected ${slotId} claim to assign a team`);
   }
   return claimed.teamId;
-}
-
-function waitForBuildResponses(
-  socket: Socket,
-  count: number,
-  timeoutMs = 4_000,
-): Promise<
-  Array<
-    | { kind: 'queued'; payload: BuildQueuedPayload }
-    | { kind: 'error'; payload: RoomErrorPayload }
-  >
-> {
-  return new Promise((resolve, reject) => {
-    const responses: Array<
-      | { kind: 'queued'; payload: BuildQueuedPayload }
-      | { kind: 'error'; payload: RoomErrorPayload }
-    > = [];
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error(`Timed out waiting for ${count} build responses`));
-    }, timeoutMs);
-
-    function cleanup(): void {
-      clearTimeout(timer);
-      socket.off('build:queued', onQueued);
-      socket.off('room:error', onError);
-    }
-
-    function onQueued(payload: BuildQueuedPayload): void {
-      responses.push({ kind: 'queued', payload });
-      if (responses.length >= count) {
-        cleanup();
-        resolve(responses);
-      }
-    }
-
-    function onError(payload: RoomErrorPayload): void {
-      responses.push({ kind: 'error', payload });
-      if (responses.length >= count) {
-        cleanup();
-        resolve(responses);
-      }
-    }
-
-    socket.on('build:queued', onQueued);
-    socket.on('room:error', onError);
-  });
 }
 
 describe('lockstep primary mode', () => {
@@ -564,12 +516,11 @@ describe('lockstep primary mode', () => {
       host.emit('room:leave');
       guest.emit('room:leave');
 
-      await expect(rejectedPromise).resolves.toMatchObject({
-        roomId: hostJoined.roomId,
-        intentId: expect.stringMatching(/^intent-/),
-        teamId: team.id,
-        reason: 'match-finished',
-      });
+      const rejected = await rejectedPromise;
+      expect(rejected.roomId).toBe(hostJoined.roomId);
+      expect(rejected.intentId).toMatch(/^intent-/);
+      expect(rejected.teamId).toBe(team.id);
+      expect(rejected.reason).toBe('match-finished');
       await expect(scheduledPromise).resolves.toBeInstanceOf(Error);
     } finally {
       host?.close();
@@ -698,13 +649,12 @@ describe('lockstep primary mode', () => {
       host.emit('room:leave');
       guest.emit('room:leave');
 
-      await expect(rejectedPromise).resolves.toMatchObject({
-        roomId: hostJoined.roomId,
-        intentId: expect.stringMatching(/^intent-/),
-        teamId: team.id,
-        structureKey: ownStructure.key,
-        reason: 'match-finished',
-      });
+      const rejected = await rejectedPromise;
+      expect(rejected.roomId).toBe(hostJoined.roomId);
+      expect(rejected.intentId).toMatch(/^intent-/);
+      expect(rejected.teamId).toBe(team.id);
+      expect(rejected.structureKey).toBe(ownStructure.key);
+      expect(rejected.reason).toBe('match-finished');
       await expect(scheduledPromise).resolves.toBeInstanceOf(Error);
     } finally {
       host?.close();
@@ -808,12 +758,11 @@ describe('lockstep primary mode', () => {
         /timed out/i,
       );
 
-      await expect(rejectedPromise).resolves.toMatchObject({
-        roomId: hostJoined.roomId,
-        intentId: expect.stringMatching(/^intent-/),
-        teamId: team.id,
-        reason: 'outside-territory',
-      });
+      const rejected = await rejectedPromise;
+      expect(rejected.roomId).toBe(hostJoined.roomId);
+      expect(rejected.intentId).toMatch(/^intent-/);
+      expect(rejected.teamId).toBe(team.id);
+      expect(rejected.reason).toBe('outside-territory');
       await expect(scheduledPromise).resolves.toBeInstanceOf(Error);
     } finally {
       host?.close();

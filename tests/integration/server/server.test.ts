@@ -875,9 +875,9 @@ describe('GameServer', () => {
     const scheduled = await scheduledPromise;
     const guestQueued = await guestQueuedPromise;
 
+    expect(queued.intentId).toMatch(/^intent-/);
     expect(queued).toMatchObject({
       roomId: setup.roomId,
-      intentId: expect.stringMatching(/^intent-/),
       playerId: setup.hostJoined.playerId,
       teamId,
       templateId: blockTemplate.id,
@@ -968,7 +968,7 @@ describe('GameServer', () => {
 
   test.fails(
     'detects missing authoritative queue events and requests a resync',
-    async () => {
+    () => {
       // TODO: implement queue-gap detection using monotonically increasing
       // room-wide queue event counter ids carried on authoritative queued events.
       expect(true).toBe(false);
