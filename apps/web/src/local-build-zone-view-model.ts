@@ -28,10 +28,6 @@ export interface ComputeLocalBuildZoneOverlayResult {
   cellKeys: number[];
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
-}
-
 function toCellKey(x: number, y: number, gridWidth: number): number {
   return y * gridWidth + x;
 }
@@ -80,17 +76,15 @@ function deriveStructureCoverageCellKeys(
     hp: structure.hp,
   });
 
-  const minX = clamp(contributor.centerX - BUILD_ZONE_RADIUS, 0, gridWidth - 1);
-  const maxX = clamp(contributor.centerX + BUILD_ZONE_RADIUS, 0, gridWidth - 1);
-  const minY = clamp(
-    contributor.centerY - BUILD_ZONE_RADIUS,
-    0,
-    gridHeight - 1,
+  const minX = Math.max(0, Math.ceil(contributor.centerX - BUILD_ZONE_RADIUS));
+  const maxX = Math.min(
+    gridWidth - 1,
+    Math.floor(contributor.centerX + BUILD_ZONE_RADIUS),
   );
-  const maxY = clamp(
-    contributor.centerY + BUILD_ZONE_RADIUS,
-    0,
+  const minY = Math.max(0, Math.ceil(contributor.centerY - BUILD_ZONE_RADIUS));
+  const maxY = Math.min(
     gridHeight - 1,
+    Math.floor(contributor.centerY + BUILD_ZONE_RADIUS),
   );
 
   const coverageCellKeys: number[] = [];
