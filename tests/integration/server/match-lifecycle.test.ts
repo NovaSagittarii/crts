@@ -16,6 +16,9 @@ import {
 } from './match-support.js';
 import { createRoomTest } from './room-fixtures.js';
 import {
+  collectCandidatePlacements,
+  waitForBuildOutcome,
+  waitForBuildQueueResponse,
   waitForDestroyOutcome,
   waitForDestroyQueueResponse,
   waitForEvent,
@@ -138,6 +141,76 @@ async function breachGuestCore(
   expect(destroyOutcome.structureKey).toBe(guestCore.key);
 
   return finishedPromise;
+}
+
+async function queueAppliedHostBlock(match: ActiveMatch): Promise<string> {
+  const blockTemplate = match.room.templates.find(({ id }) => id === 'block');
+  if (!blockTemplate) {
+    throw new Error('Expected block template to be available');
+  }
+
+  const placements = collectCandidatePlacements(
+    { baseTopLeft: match.hostBaseTopLeft },
+    blockTemplate,
+    match.room.state.width,
+    match.room.state.height,
+  );
+
+  for (const placement of placements) {
+    const queueResponsePromise = waitForBuildQueueResponse(match.host, 4_000);
+    match.host.emit('build:queue', {
+      templateId: blockTemplate.id,
+      x: placement.x,
+      y: placement.y,
+      delayTicks: 1,
+    });
+
+    const queueResponse = await queueResponsePromise;
+    if ('error' in queueResponse) {
+      continue;
+    }
+
+    const outcome = await waitForBuildOutcome(
+      match.host,
+      queueResponse.queued.eventId,
+      12_000,
+    );
+    if (outcome.outcome === 'applied') {
+      const appliedState = await waitForRoomState(
+        match.host,
+        match.room.roomId,
+        (payload) =>
+          payload.roomId === match.room.roomId &&
+          payload.teams.some(
+            (team) =>
+              team.id === match.hostTeamId &&
+              team.structures.some(
+                (structure) =>
+                  structure.x === placement.x &&
+                  structure.y === placement.y &&
+                  structure.hp > 0,
+              ),
+          ),
+        { attempts: 40, timeoutMs: 2_000 },
+      );
+      const hostTeam = appliedState.teams.find(
+        ({ id }) => id === match.hostTeamId,
+      );
+      const builtStructure = hostTeam?.structures.find(
+        (structure) =>
+          structure.x === placement.x &&
+          structure.y === placement.y &&
+          structure.hp > 0,
+      );
+      if (builtStructure) {
+        return builtStructure.key;
+      }
+    }
+  }
+
+  throw new Error(
+    'Expected an applied host block build for lifecycle coverage',
+  );
 }
 
 describe('server match lifecycle contract', () => {
@@ -422,17 +495,84 @@ describe('server match lifecycle contract', () => {
     );
     expect(restartWhileActive.reason).toBe('invalid-transition');
 
+    const builtStructureKey = await queueAppliedHostBlock(match);
+
     match.host.emit('build:queue', {
       templateId: 'block',
       x: match.hostBaseTopLeft.x + 4,
       y: match.hostBaseTopLeft.y + 4,
+      delayTicks: 80,
     });
-    await waitForEvent(match.host, 'build:queued');
+    const queuedBuild = await waitForBuildQueueResponse(match.host, 4_000);
+    if ('error' in queuedBuild) {
+      throw new Error(
+        `Expected delayed build queue acceptance, received ${queuedBuild.error.reason}`,
+      );
+    }
+
+    match.host.emit('destroy:queue', {
+      structureKey: builtStructureKey,
+      delayTicks: 80,
+    });
+    const queuedDestroy = await waitForDestroyQueueResponse(match.host, 4_000);
+    if ('error' in queuedDestroy) {
+      throw new Error(
+        `Expected delayed destroy queue acceptance, received ${queuedDestroy.error.reason}`,
+      );
+    }
+
+    const buildOutcomePromise = waitForBuildOutcome(
+      match.host,
+      queuedBuild.queued.eventId,
+      12_000,
+    );
+    const destroyOutcomePromise = waitForDestroyOutcome(
+      match.host,
+      queuedDestroy.queued.eventId,
+      12_000,
+    );
 
     const firstFinished = await breachGuestCore(match);
     expect(
       firstFinished.ranked.some(({ queuedBuildCount }) => queuedBuildCount > 0),
     ).toBe(true);
+
+    const [buildOutcome, destroyOutcome, finishedState] = await Promise.all([
+      buildOutcomePromise,
+      destroyOutcomePromise,
+      waitForRoomState(
+        match.host,
+        match.room.roomId,
+        (payload) => payload.roomId === match.room.roomId,
+        { attempts: 40, timeoutMs: 2_000 },
+      ),
+    ]);
+
+    expect(buildOutcome.outcome).toBe('rejected');
+    expect(buildOutcome.reason).toBe('match-finished');
+    expect(buildOutcome.resolvedTick).toBeLessThan(buildOutcome.executeTick);
+    expect(destroyOutcome.outcome).toBe('rejected');
+    expect(destroyOutcome.reason).toBe('match-finished');
+    expect(destroyOutcome.resolvedTick).toBeLessThan(
+      destroyOutcome.executeTick,
+    );
+
+    const hostTeam = finishedState.teams.find(
+      ({ id }) => id === match.hostTeamId,
+    );
+    if (!hostTeam) {
+      throw new Error('Expected host team in finished room state');
+    }
+    expect(
+      hostTeam.pendingBuilds.some(
+        ({ eventId }) => eventId === queuedBuild.queued.eventId,
+      ),
+    ).toBe(false);
+    expect(
+      hostTeam.pendingDestroys.some(
+        ({ eventId }) => eventId === queuedDestroy.queued.eventId,
+      ),
+    ).toBe(false);
 
     match.guest.emit('room:start');
     const nonHostRestart = await waitForEvent<RoomErrorPayload>(

@@ -145,47 +145,50 @@ describe('GameServer', () => {
     async ({ activeMatch }) => {
       const setup = activeMatch;
 
-      const generatorTemplate = setup.hostJoined.templates.find(
-        ({ id }) => id === 'generator',
+      const blockTemplate = setup.hostJoined.templates.find(
+        ({ id }) => id === 'block',
       );
-      if (!generatorTemplate) {
-        throw new Error('Expected generator template to be available');
+      if (!blockTemplate) {
+        throw new Error('Expected block template to be available');
       }
 
       const candidatePlacements = collectCandidatePlacements(
         setup.hostTeam,
-        generatorTemplate,
+        blockTemplate,
         setup.hostJoined.state.width,
         setup.hostJoined.state.height,
       );
+      const duplicatePlacement = candidatePlacements[0];
+      const controlPlacement = candidatePlacements[1];
+      if (!duplicatePlacement || !controlPlacement) {
+        throw new Error('Expected at least two valid block placements');
+      }
 
       const queuedIntents: BuildQueuedPayload[] = [];
-      for (const placement of candidatePlacements) {
+      for (const placement of [
+        duplicatePlacement,
+        duplicatePlacement,
+        controlPlacement,
+      ]) {
         setup.host.emit('build:queue', {
-          templateId: generatorTemplate.id,
+          templateId: blockTemplate.id,
           x: placement.x,
           y: placement.y,
-          delayTicks: 40,
+          delayTicks: 8,
         });
 
         const response = await waitForBuildQueueResponse(setup.host);
         if ('queued' in response) {
           queuedIntents.push(response.queued);
+          continue;
         }
 
-        if (queuedIntents.length === 8) {
-          break;
-        }
+        throw new Error(
+          `Expected build queue acceptance, received ${response.error.reason}`,
+        );
       }
 
-      expect(queuedIntents.length).toBeGreaterThanOrEqual(8);
-      expect(queuedIntents.length).toBe(8);
-      expect(
-        queuedIntents.every(
-          ({ intentId, scheduledByTurn, bufferedTurn }) =>
-            intentId.length > 0 && scheduledByTurn >= bufferedTurn,
-        ),
-      ).toBe(true);
+      expect(queuedIntents).toHaveLength(3);
 
       const queuedById = new Map(
         queuedIntents.map((queued) => [queued.eventId, queued]),
@@ -199,7 +202,6 @@ describe('GameServer', () => {
 
       expect(outcomesById.size).toBe(queuedById.size);
 
-      const observedOutcomes: BuildOutcomePayload[] = [];
       for (const [eventId, outcomes] of outcomesById.entries()) {
         expect(outcomes).toHaveLength(1);
 
@@ -213,19 +215,20 @@ describe('GameServer', () => {
         expect(outcome.resolvedTick).toBeGreaterThanOrEqual(
           outcome.executeTick,
         );
-        if (outcome.outcome === 'rejected') {
-          expect(outcome.reason).toBeDefined();
-        }
-
-        observedOutcomes.push(outcome);
       }
 
-      expect(
-        observedOutcomes.some(({ outcome }) => outcome === 'applied'),
-      ).toBe(true);
-      expect(
-        observedOutcomes.some(({ outcome }) => outcome === 'rejected'),
-      ).toBe(true);
+      const [firstDuplicate, secondDuplicate, controlBuild] = queuedIntents;
+      const firstDuplicateOutcome =
+        outcomesById.get(firstDuplicate.eventId)?.[0] ?? null;
+      const secondDuplicateOutcome =
+        outcomesById.get(secondDuplicate.eventId)?.[0] ?? null;
+      const controlOutcome =
+        outcomesById.get(controlBuild.eventId)?.[0] ?? null;
+
+      expect(firstDuplicateOutcome?.outcome).toBe('applied');
+      expect(secondDuplicateOutcome?.outcome).toBe('rejected');
+      expect(secondDuplicateOutcome?.reason).toBe('occupied-site');
+      expect(controlOutcome?.outcome).toBe('applied');
     },
     25_000,
   );
