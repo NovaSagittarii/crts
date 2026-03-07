@@ -372,8 +372,18 @@
         margin-top: 8px;
       }
 
-      .template-button-menu {
+      .template-button-menu-field {
         margin-top: 8px;
+        display: grid;
+        gap: 6px;
+      }
+
+      .template-button-menu-field__label {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .template-button-menu {
         display: grid;
         gap: 8px;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1723,13 +1733,15 @@
                               class="tactical-detail-list"
                             ></div>
 
-                            <label>
-                              Template
+                            <div class="template-button-menu-field">
+                              <p class="template-button-menu-field__label">
+                                Template
+                              </p>
                               <div
                                 id="template-button-menu"
                                 class="template-button-menu"
                               ></div>
-                            </label>
+                            </div>
                             <label>
                               Delay (ticks)
                               <input

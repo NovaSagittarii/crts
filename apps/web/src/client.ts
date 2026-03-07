@@ -197,6 +197,14 @@ interface Cell {
   y: number;
 }
 
+interface TeamBuildZoneProjectionInput {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  hp: number;
+}
+
 function getRequiredElement<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
   if (!el) {
@@ -534,6 +542,10 @@ let overlayTeamFeedbackPending = false;
 let overlayTeamFeedbackIsError = false;
 let visibleStructures: VisibleStructure[] = [];
 let structureCellIndex = new Map<string, VisibleStructure>();
+let teamBuildZoneProjectionInputsByTeamId = new Map<
+  number,
+  TeamBuildZoneProjectionInput[]
+>();
 let localBuildZoneCells: Cell[] = [];
 let localBuildZoneCellKeys = new Set<number>();
 let localBuildZoneSignature = '';
@@ -705,6 +717,8 @@ function refreshPreviewAfterAuthoritativeUpdate(
     tick,
   );
   emitBuildPreviewForSelectedPlacement();
+  refreshBuildPlacementUi();
+  requestRender();
 }
 
 function applyStatePayload(payload: RoomStatePayload): void {
@@ -1326,10 +1340,18 @@ function applyStructureInteraction(
   action: StructureInteractionAction,
   nowMs = Date.now(),
 ): void {
-  structureInteractionState = reduceStructureInteraction(
-    structureInteractionState,
-    action,
-  );
+  const previousState = structureInteractionState;
+  const nextState = reduceStructureInteraction(previousState, action);
+  const interactionChanged =
+    previousState.hoverKey !== nextState.hoverKey ||
+    previousState.pinnedKey !== nextState.pinnedKey ||
+    previousState.hoverLeaveExpiresAtMs !== nextState.hoverLeaveExpiresAtMs;
+
+  structureInteractionState = nextState;
+  if (!interactionChanged) {
+    return;
+  }
+
   syncDestroySelectionFromInteraction(nowMs);
   scheduleStructureHoverTick(nowMs);
   renderStructureInspector(nowMs);
@@ -1660,6 +1682,10 @@ function resetRoomTransitionViewModels(): void {
 function syncVisibleStructures(payload: RoomStatePayload): void {
   const nextStructures: VisibleStructure[] = [];
   const nextIndex = new Map<string, VisibleStructure>();
+  const nextTeamBuildZoneProjectionInputs = new Map<
+    number,
+    TeamBuildZoneProjectionInput[]
+  >();
 
   const sortedTeams = [...payload.teams].sort(
     (left, right) => left.id - right.id,
@@ -1683,6 +1709,22 @@ function syncVisibleStructures(payload: RoomStatePayload): void {
       };
       nextStructures.push(visible);
 
+      const teamBuildZoneProjectionInputs =
+        nextTeamBuildZoneProjectionInputs.get(team.id) ?? [];
+      teamBuildZoneProjectionInputs.push({
+        x: visible.x,
+        y: visible.y,
+        width: visible.width,
+        height: visible.height,
+        hp: visible.hp,
+      });
+      if (!nextTeamBuildZoneProjectionInputs.has(team.id)) {
+        nextTeamBuildZoneProjectionInputs.set(
+          team.id,
+          teamBuildZoneProjectionInputs,
+        );
+      }
+
       for (const footprintCell of visible.footprint) {
         const indexKey = `${footprintCell.x},${footprintCell.y}`;
         if (!nextIndex.has(indexKey)) {
@@ -1694,6 +1736,7 @@ function syncVisibleStructures(payload: RoomStatePayload): void {
 
   visibleStructures = nextStructures;
   structureCellIndex = nextIndex;
+  teamBuildZoneProjectionInputsByTeamId = nextTeamBuildZoneProjectionInputs;
 
   structureInteractionState = reduceStructureInteraction(
     structureInteractionState,
@@ -1969,6 +2012,11 @@ function refreshActionUi(nowMs = Date.now()): void {
   renderTacticalOverlay(nowMs);
 }
 
+function refreshBuildPlacementUi(): void {
+  updateQueueAffordabilityUi();
+  renderOverlayFeedbackRows();
+}
+
 function syncPreviewTemplateSnapshots(
   templates: readonly StructureTemplatePayload[],
 ): void {
@@ -2004,21 +2052,16 @@ function deriveLocalBuildPreview(
     return null;
   }
 
+  const teamBuildZoneProjectionInputs =
+    teamBuildZoneProjectionInputsByTeamId.get(currentTeamId) ?? [];
+
   const previewResult = RtsEngine.previewBuildPlacementFromSnapshot({
     width: gridWidth,
     height: gridHeight,
     grid: authoritativeGrid,
     teamResources: currentTeam.resources,
     teamDefeated: currentTeam.defeated,
-    teamBuildZoneProjectionInputs: visibleStructures
-      .filter((structure) => structure.teamId === currentTeamId)
-      .map((structure) => ({
-        x: structure.x,
-        y: structure.y,
-        width: structure.width,
-        height: structure.height,
-        hp: structure.hp,
-      })),
+    teamBuildZoneProjectionInputs,
     template:
       previewTemplateSnapshotsById.get(previewRequest.templateId) ?? null,
     x: previewRequest.x,
@@ -2058,8 +2101,6 @@ function emitBuildPreviewForSelectedPlacement(): void {
   resetQueueFeedbackOverride();
   previewPending = false;
   latestBuildPreview = deriveLocalBuildPreview(previewRequest);
-  refreshActionUi();
-  requestRender();
 }
 
 function emitDestroyQueueForSelection(): void {
@@ -2349,7 +2390,8 @@ function setBuildCandidateFromCell(cell: Cell): boolean {
   authoritativePreviewRefreshState = createAuthoritativePreviewRefreshState();
   resetQueueFeedbackOverride();
   emitBuildPreviewForSelectedPlacement();
-  refreshActionUi();
+  refreshBuildPlacementUi();
+  requestRender();
   return true;
 }
 
@@ -2763,20 +2805,31 @@ function renderLocalBuildZoneOverlay(
     return;
   }
 
+  const visibleCells: Cell[] = [];
+  for (let y = visibleBounds.minY; y <= visibleBounds.maxY; y += 1) {
+    for (let x = visibleBounds.minX; x <= visibleBounds.maxX; x += 1) {
+      if (localBuildZoneCellKeys.has(cellKey(x, y))) {
+        visibleCells.push({ x, y });
+      }
+    }
+  }
+
+  if (visibleCells.length === 0) {
+    return;
+  }
+
+  const hasBuildZoneCell = (x: number, y: number): boolean => {
+    if (x < 0 || x >= gridWidth || y < 0 || y >= gridHeight) {
+      return false;
+    }
+    return localBuildZoneCellKeys.has(cellKey(x, y));
+  };
+
   ctx.fillStyle = 'rgba(94, 201, 255, 0.23)';
 
   const fillInset = 0.6;
   const fillSize = Math.max(1, cellSize - fillInset * 2);
-  for (const cell of localBuildZoneCells) {
-    if (
-      cell.x < visibleBounds.minX ||
-      cell.x > visibleBounds.maxX ||
-      cell.y < visibleBounds.minY ||
-      cell.y > visibleBounds.maxY
-    ) {
-      continue;
-    }
-
+  for (const cell of visibleCells) {
     ctx.fillRect(
       cell.x * cellSize + fillInset,
       cell.y * cellSize + fillInset,
@@ -2789,34 +2842,25 @@ function renderLocalBuildZoneOverlay(
   ctx.lineWidth = 1 / cameraState.zoom;
   ctx.beginPath();
 
-  for (const cell of localBuildZoneCells) {
-    if (
-      cell.x < visibleBounds.minX ||
-      cell.x > visibleBounds.maxX ||
-      cell.y < visibleBounds.minY ||
-      cell.y > visibleBounds.maxY
-    ) {
-      continue;
-    }
-
+  for (const cell of visibleCells) {
     const left = cell.x * cellSize;
     const top = cell.y * cellSize;
     const right = left + cellSize;
     const bottom = top + cellSize;
 
-    if (!localBuildZoneCellKeys.has(cellKey(cell.x, cell.y - 1))) {
+    if (!hasBuildZoneCell(cell.x, cell.y - 1)) {
       ctx.moveTo(left, top);
       ctx.lineTo(right, top);
     }
-    if (!localBuildZoneCellKeys.has(cellKey(cell.x + 1, cell.y))) {
+    if (!hasBuildZoneCell(cell.x + 1, cell.y)) {
       ctx.moveTo(right, top);
       ctx.lineTo(right, bottom);
     }
-    if (!localBuildZoneCellKeys.has(cellKey(cell.x, cell.y + 1))) {
+    if (!hasBuildZoneCell(cell.x, cell.y + 1)) {
       ctx.moveTo(left, bottom);
       ctx.lineTo(right, bottom);
     }
-    if (!localBuildZoneCellKeys.has(cellKey(cell.x - 1, cell.y))) {
+    if (!hasBuildZoneCell(cell.x - 1, cell.y)) {
       ctx.moveTo(left, top);
       ctx.lineTo(left, bottom);
     }

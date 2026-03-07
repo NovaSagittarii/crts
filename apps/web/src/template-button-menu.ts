@@ -1,3 +1,5 @@
+/// <reference lib="dom" />
+
 export interface TemplateButtonMenuTemplate {
   id: string;
   name: string;
