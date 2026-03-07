@@ -78,6 +78,33 @@ describe('structure-interaction-view-model helpers', () => {
     expect(canShowStructureActions(state, 5_000)).toBe(true);
   });
 
+  test('allows hover preview to expire while pinned state stays action-ready', () => {
+    let state = createStructureInteractionState();
+    state = reduceStructureInteraction(state, {
+      type: 'pin',
+      structureKey: 'base-core',
+    });
+
+    state = reduceStructureInteraction(state, {
+      type: 'hover-leave',
+      atMs: 10,
+      graceMs: 300,
+    });
+    state = reduceStructureInteraction(state, {
+      type: 'tick',
+      atMs: 400,
+    });
+
+    expect(selectActiveStructureKey(state, 400)).toBe('base-core');
+    expect(selectStructureInteractionMode(state, 400)).toBe('pinned');
+    expect(canShowStructureActions(state, 400)).toBe(true);
+
+    state = reduceStructureInteraction(state, { type: 'unpin' });
+
+    expect(selectActiveStructureKey(state, 401)).toBeNull();
+    expect(selectStructureInteractionMode(state, 401)).toBe('idle');
+  });
+
   test('returns to hover-only mode after unpin and disables actions', () => {
     let state = createStructureInteractionState();
     state = reduceStructureInteraction(state, {

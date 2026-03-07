@@ -149,7 +149,6 @@ import {
   createStructureInteractionState,
   reduceStructureInteraction,
   selectActiveStructureKey,
-  selectStructureInteractionMode,
 } from './structure-interaction-view-model.js';
 import {
   DEFAULT_SYNC_STALE_THRESHOLD_MS,
