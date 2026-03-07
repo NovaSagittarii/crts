@@ -23,6 +23,7 @@ function createHashes(
     hashAlgorithm: 'fnv1a-32',
     gridHash: 'grid-a',
     structuresHash: 'structures-a',
+    economyHash: 'economy-a',
     roomMembershipHash: 'membership-a',
     ...overrides,
   };

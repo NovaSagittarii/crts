@@ -1172,6 +1172,7 @@ describe('rts', () => {
     const afterQueuedBuild = RtsEngine.createStateHashes(room);
     expect(afterQueuedBuild.gridHash).toBe(initial.gridHash);
     expect(afterQueuedBuild.structuresHash).not.toBe(initial.structuresHash);
+    expect(afterQueuedBuild.economyHash).not.toBe(initial.economyHash);
 
     room.grid.setCell(0, 0, true);
     const afterGridMutation = RtsEngine.createStateHashes(room);
@@ -1179,6 +1180,7 @@ describe('rts', () => {
     expect(afterGridMutation.structuresHash).toBe(
       afterQueuedBuild.structuresHash,
     );
+    expect(afterGridMutation.economyHash).toBe(afterQueuedBuild.economyHash);
   });
 
   test('[QUAL-01] rejects insufficient resources with numeric deficit fields', () => {

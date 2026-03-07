@@ -165,6 +165,7 @@ export interface RoomJoinedPayload {
   roomId: string;
   roomCode: string;
   roomName: string;
+  tickMs: number;
   playerId: string;
   playerName: string;
   teamId: number | null;

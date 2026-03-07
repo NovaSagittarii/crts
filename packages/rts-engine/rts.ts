@@ -338,6 +338,7 @@ export interface RoomStateHashes {
   hashAlgorithm: DeterminismHashAlgorithm;
   gridHash: string;
   structuresHash: string;
+  economyHash: string;
 }
 
 interface BuildResultBase {
@@ -888,6 +889,49 @@ export class RtsEngine {
       for (const structure of structures) {
         hash = RtsEngine.hashStructure(hash, structure);
       }
+
+      const pendingBuilds = [...team.pendingBuildEvents].sort(
+        RtsEngine.compareBuildEvents,
+      );
+      hash = RtsEngine.hashInt32(hash, pendingBuilds.length);
+      for (const pendingBuild of pendingBuilds) {
+        hash = RtsEngine.hashBuildEvent(hash, pendingBuild);
+      }
+
+      const pendingDestroys = [...team.pendingDestroyEvents].sort(
+        RtsEngine.compareDestroyEvents,
+      );
+      hash = RtsEngine.hashInt32(hash, pendingDestroys.length);
+      for (const pendingDestroy of pendingDestroys) {
+        hash = RtsEngine.hashDestroyEvent(hash, pendingDestroy);
+      }
+    }
+
+    return hash;
+  }
+
+  private static hashEconomySection(
+    room: RoomState,
+    orderedTeams: readonly TeamState[],
+  ): number {
+    let hash = RtsEngine.hashStateRoomScope(RtsEngine.FNV_OFFSET_BASIS, room);
+    hash = RtsEngine.hashInt32(hash, orderedTeams.length);
+
+    for (const team of orderedTeams) {
+      hash = RtsEngine.hashInt32(hash, team.id);
+      hash = RtsEngine.hashNumber(hash, team.resources);
+      hash = RtsEngine.hashNumber(hash, team.income);
+      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.base);
+      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.structures);
+      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.total);
+      hash = RtsEngine.hashNumber(
+        hash,
+        team.incomeBreakdown.activeStructureCount,
+      );
+      hash = RtsEngine.hashBoolean(hash, team.defeated);
+      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.x);
+      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.y);
+      hash = RtsEngine.hashBoolean(hash, RtsEngine.isBaseIntact(room, team));
 
       const pendingBuilds = [...team.pendingBuildEvents].sort(
         RtsEngine.compareBuildEvents,
@@ -2723,6 +2767,7 @@ export class RtsEngine {
 
     const orderedTeams = RtsEngine.sortTeamsById(room.teams.values());
     const structuresHash = RtsEngine.hashStructuresSection(room, orderedTeams);
+    const economyHash = RtsEngine.hashEconomySection(room, orderedTeams);
 
     return {
       tick: room.tick,
@@ -2730,6 +2775,7 @@ export class RtsEngine {
       hashAlgorithm: 'fnv1a-32',
       gridHash: RtsEngine.formatHashHex(gridHash),
       structuresHash: RtsEngine.formatHashHex(structuresHash),
+      economyHash: RtsEngine.formatHashHex(economyHash),
     };
   }
 

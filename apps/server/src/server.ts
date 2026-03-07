@@ -1789,6 +1789,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       roomId: room.rtsRoom.id,
       roomCode: room.roomCode,
       roomName: room.rtsRoom.name,
+      tickMs,
       playerId: session.id,
       playerName: session.name,
       teamId,
