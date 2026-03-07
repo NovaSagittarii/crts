@@ -15,7 +15,11 @@ import {
   type RuntimeBroadcastRoom,
 } from './server-room-broadcast.js';
 
-import { LobbyRoom, type LobbyRejectionReason } from '#rts-engine';
+import {
+  LobbyRoom,
+  type LobbyRejectionReason,
+  type LobbySlotDefinition,
+} from '#rts-engine';
 import {
   type QueueBuildResult,
   type BuildQueuePayload,
@@ -48,6 +52,7 @@ import {
   type BuildOutcomePayload,
   type RoomErrorPayload,
   type RoomJoinPayload,
+  type RoomSlotDefinitionPayload,
   type RoomSetReadyPayload,
   type RoomStateHashesPayload,
   type RoomStartPayload,
@@ -64,7 +69,10 @@ const DEFAULT_DIST_CLIENT_DIR = path.resolve(
   import.meta.dirname,
   '../../../dist/client',
 );
-const PLAYER_SLOT_IDS = ['team-1', 'team-2'] as const;
+const DEFAULT_SLOT_DEFINITIONS: readonly LobbySlotDefinition[] = [
+  { id: 'team-1', capacity: 1 },
+  { id: 'team-2', capacity: 1 },
+];
 const COUNTDOWN_SECONDS = 3;
 const MEMBERSHIP_RESYNC_INTERVAL_MS = 300;
 const FINISHED_ROOM_RESYNC_INTERVAL_MS = 500;
@@ -210,6 +218,59 @@ function parseRoomDimension(value: unknown, fallback: number): number {
     return fallback;
   }
   return Math.max(24, Math.min(300, num));
+}
+
+function cloneSlotDefinitions(
+  slotDefinitions: readonly LobbySlotDefinition[],
+): LobbySlotDefinition[] {
+  return slotDefinitions.map(({ id, capacity }) => ({ id, capacity }));
+}
+
+function parseRoomSlotDefinitions(value: unknown): LobbySlotDefinition[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    return cloneSlotDefinitions(DEFAULT_SLOT_DEFINITIONS);
+  }
+
+  const seenSlotIds = new Set<string>();
+  const definitions: LobbySlotDefinition[] = [];
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== 'object') {
+      return cloneSlotDefinitions(DEFAULT_SLOT_DEFINITIONS);
+    }
+
+    const slotIdValue = (candidate as Partial<RoomSlotDefinitionPayload>)
+      .slotId;
+    const capacity = Number(
+      (candidate as Partial<RoomSlotDefinitionPayload>).capacity,
+    );
+    if (typeof slotIdValue !== 'string') {
+      return cloneSlotDefinitions(DEFAULT_SLOT_DEFINITIONS);
+    }
+
+    const slotId = slotIdValue.trim();
+    if (!slotId || !Number.isInteger(capacity) || capacity < 1) {
+      return cloneSlotDefinitions(DEFAULT_SLOT_DEFINITIONS);
+    }
+
+    if (seenSlotIds.has(slotId)) {
+      return cloneSlotDefinitions(DEFAULT_SLOT_DEFINITIONS);
+    }
+
+    seenSlotIds.add(slotId);
+    definitions.push({ id: slotId, capacity });
+  }
+
+  return definitions;
+}
+
+function getSlotTeamName(slotId: string): string {
+  const normalized = slotId.trim();
+  const numberedTeamMatch = /^team-(\d+)$/i.exec(normalized);
+  if (numberedTeamMatch) {
+    return `Team ${numberedTeamMatch[1]}`;
+  }
+
+  return normalized;
 }
 
 function parseReconnectHoldMs(value: unknown): number {
@@ -786,31 +847,42 @@ export function createServer(options: ServerOptions = {}): GameServer {
       templates: room.rtsRoom.state.templates,
     });
 
-    const orderedPlayers = [...room.rtsRoom.state.players.values()].sort(
-      (left, right) => {
-        if (left.teamId !== right.teamId) {
-          return left.teamId - right.teamId;
-        }
-
-        return left.id.localeCompare(right.id);
-      },
+    const orderedTeams = [...room.rtsRoom.state.teams.values()].sort(
+      (left, right) => left.id - right.id,
     );
 
-    for (const player of orderedPlayers) {
-      shadowRoom.addPlayer(player.id, player.name);
+    for (const team of orderedTeams) {
+      const orderedPlayers = [...team.playerIds]
+        .map((playerId) => room.rtsRoom.state.players.get(playerId))
+        .filter((player): player is NonNullable<typeof player> =>
+          Boolean(player),
+        )
+        .sort((left, right) => left.id.localeCompare(right.id));
+
+      for (const [index, player] of orderedPlayers.entries()) {
+        shadowRoom.addPlayer(player.id, player.name, {
+          teamId: team.id,
+          teamName: index === 0 ? team.name : undefined,
+        });
+      }
     }
 
     return shadowRoom;
   }
 
-  function buildRuntimeRoom(rtsRoom: RtsRoom): RuntimeRoom {
+  function buildRuntimeRoom(
+    rtsRoom: RtsRoom,
+    slotDefinitions: LobbySlotDefinition[] = cloneSlotDefinitions(
+      DEFAULT_SLOT_DEFINITIONS,
+    ),
+  ): RuntimeRoom {
     const roomId = rtsRoom.id;
     const lockstepRuntime = createLockstepRuntimeState();
     return {
       rtsRoom,
       lobby: LobbyRoom.create({
         roomId,
-        slotIds: [...PLAYER_SLOT_IDS],
+        slots: slotDefinitions,
       }),
       roomCode: roomId,
       revision: 0,
@@ -1769,11 +1841,17 @@ export function createServer(options: ServerOptions = {}): GameServer {
     }
 
     const trimmedSlotId = slotId.trim();
-    const heldBySessionId = sessionCoordinator.getHeldSessionForSlot(
+    const heldSessionIds = sessionCoordinator.getHeldSessionsForSlot(
       room.rtsRoom.id,
       trimmedSlotId,
     );
-    if (heldBySessionId && heldBySessionId !== session.id) {
+    const openSeatCount =
+      room.lobby.slotCapacity(trimmedSlotId) -
+      room.lobby.slotMemberIds(trimmedSlotId).length;
+    if (
+      heldSessionIds.some((heldSessionId) => heldSessionId !== session.id) &&
+      openSeatCount <= 0
+    ) {
       roomError(
         socket,
         'Selected team slot is temporarily held for reconnect',
@@ -1793,7 +1871,22 @@ export function createServer(options: ServerOptions = {}): GameServer {
     }
 
     if (!room.rtsRoom.state.players.has(session.id)) {
-      room.rtsRoom.addPlayer(session.id, session.name);
+      const sharedTeamId = room.lobby
+        .slotMemberIds(trimmedSlotId)
+        .filter((slotSessionId) => slotSessionId !== session.id)
+        .map(
+          (slotSessionId) =>
+            room.rtsRoom.state.players.get(slotSessionId)?.teamId ?? null,
+        )
+        .find((teamId): teamId is number => teamId !== null);
+
+      room.rtsRoom.addPlayer(
+        session.id,
+        session.name,
+        sharedTeamId === undefined
+          ? { teamName: getSlotTeamName(trimmedSlotId) }
+          : { teamId: sharedTeamId },
+      );
     }
 
     socket.emit('room:slot-claimed', {
@@ -1818,14 +1911,21 @@ export function createServer(options: ServerOptions = {}): GameServer {
     );
 
     for (const slotId of slotIds) {
-      const sessionId = snapshot.slots[slotId];
-      if (!sessionId) {
+      const slotMembers = snapshot.slotMembers[slotId] ?? [];
+      if (slotMembers.length !== room.lobby.slotCapacity(slotId)) {
         return false;
       }
 
-      const participant = bySession.get(sessionId);
-      if (!participant || participant.role !== 'player' || !participant.ready) {
-        return false;
+      for (const sessionId of slotMembers) {
+        const participant = bySession.get(sessionId);
+        if (
+          !participant ||
+          participant.role !== 'player' ||
+          participant.slotId !== slotId ||
+          !participant.ready
+        ) {
+          return false;
+        }
       }
     }
 
@@ -1837,25 +1937,39 @@ export function createServer(options: ServerOptions = {}): GameServer {
   ): LifecyclePreconditions {
     const snapshot = room.lobby.snapshot();
     const slotIds = room.lobby.slotIds();
-    const assignedSessionIds = slotIds
-      .map((slotId) => snapshot.slots[slotId])
-      .filter(
-        (sessionId): sessionId is string => typeof sessionId === 'string',
-      );
+    const participantBySession = new Map(
+      snapshot.participants.map((participant) => [
+        participant.sessionId,
+        participant,
+      ]),
+    );
+    const requiredSeatCount = slotIds.reduce(
+      (seatCount, slotId) => seatCount + room.lobby.slotCapacity(slotId),
+      0,
+    );
+    const assignedSessionIds = slotIds.flatMap(
+      (slotId) => snapshot.slotMembers[slotId] ?? [],
+    );
 
     const hasRequiredPlayers =
-      assignedSessionIds.length === slotIds.length &&
-      new Set(assignedSessionIds).size === slotIds.length &&
-      assignedSessionIds.every((sessionId) =>
-        snapshot.participants.some(
-          (participant) =>
-            participant.sessionId === sessionId &&
-            participant.role === 'player',
-        ),
-      );
+      assignedSessionIds.length === requiredSeatCount &&
+      new Set(assignedSessionIds).size === assignedSessionIds.length &&
+      slotIds.every((slotId) => {
+        const slotMembers = snapshot.slotMembers[slotId] ?? [];
+        if (slotMembers.length !== room.lobby.slotCapacity(slotId)) {
+          return false;
+        }
+
+        return slotMembers.every((sessionId) => {
+          const participant = participantBySession.get(sessionId);
+          return (
+            participant?.role === 'player' && participant.slotId === slotId
+          );
+        });
+      });
 
     const allPlayersConnected =
-      assignedSessionIds.length === slotIds.length &&
+      assignedSessionIds.length === requiredSeatCount &&
       assignedSessionIds.every((sessionId) =>
         sessionCoordinator.isSessionConnected(sessionId),
       );
@@ -1889,16 +2003,23 @@ export function createServer(options: ServerOptions = {}): GameServer {
     });
 
     for (const slotId of slotIds) {
-      const sessionId = snapshot.slots[slotId];
-      if (!sessionId) {
-        continue;
-      }
+      const slotMembers = snapshot.slotMembers[slotId] ?? [];
+      let slotTeamId: number | null = null;
 
-      const displayName =
-        sessionCoordinator.getSession(sessionId)?.name ??
-        participantBySession.get(sessionId)?.displayName ??
-        sessionId;
-      nextRoom.addPlayer(sessionId, displayName);
+      for (const sessionId of slotMembers) {
+        const displayName =
+          sessionCoordinator.getSession(sessionId)?.name ??
+          participantBySession.get(sessionId)?.displayName ??
+          sessionId;
+        const team = nextRoom.addPlayer(
+          sessionId,
+          displayName,
+          slotTeamId === null
+            ? { teamName: getSlotTeamName(slotId) }
+            : { teamId: slotTeamId },
+        );
+        slotTeamId = team.id;
+      }
     }
 
     room.rtsRoom = nextRoom;
@@ -2106,6 +2227,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     const roomPayload = (payload ?? {}) as RoomCreatePayload;
     const roomId = roomCounter.toString();
     roomCounter += 1;
+    const slotDefinitions = parseRoomSlotDefinitions(roomPayload.slots);
 
     const rtsRoom = RtsEngine.createRoom({
       id: roomId,
@@ -2118,7 +2240,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       templates: roomTemplates,
     });
 
-    const room = buildRuntimeRoom(rtsRoom);
+    const room = buildRuntimeRoom(rtsRoom, slotDefinitions);
     rooms.set(getRuntimeRoomId(room), room);
     return room;
   }
@@ -2390,7 +2512,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           socket,
           forceRequested
             ? 'Force start is disabled when players are not ready'
-            : 'Both player slots must be ready before starting',
+            : 'All assigned team seats must be ready before starting',
           'not-ready',
           getRuntimeRoomId(room),
         );

@@ -7,7 +7,11 @@ import {
   type ServerOptions,
 } from '../../../apps/server/src/server.js';
 
-import type { RoomErrorPayload, RoomJoinedPayload } from '#rts-engine';
+import type {
+  RoomErrorPayload,
+  RoomJoinedPayload,
+  RoomSlotClaimedPayload,
+} from '#rts-engine';
 import {
   createClient,
   type TestClientOptions,
@@ -296,6 +300,89 @@ describe('lobby reconnect reliability', () => {
     expect(claimError.reason).toBe('slot-held');
     expect(claimError.message).toBe(
       'Selected team slot is temporarily held for reconnect',
+    );
+  });
+
+  test('allows claims into a partially open team while another commander is held', async () => {
+    const host = connectClient({ sessionId: 'host-shared-hold' });
+    await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
+
+    host.emit('room:create', {
+      name: 'Shared Hold Room',
+      width: 52,
+      height: 52,
+      slots: [
+        { slotId: 'team-1', capacity: 3 },
+        { slotId: 'team-2', capacity: 1 },
+        { slotId: 'team-3', capacity: 1 },
+      ],
+    });
+    const created = await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
+
+    const firstCommander = connectClient({ sessionId: 'shared-hold-1' });
+    await waitForEvent<RoomJoinedPayload>(firstCommander, 'room:joined');
+    firstCommander.emit('room:join', { roomId: created.roomId });
+    await waitForEvent<RoomJoinedPayload>(firstCommander, 'room:joined');
+
+    const secondCommander = connectClient({ sessionId: 'shared-hold-2' });
+    await waitForEvent<RoomJoinedPayload>(secondCommander, 'room:joined');
+    secondCommander.emit('room:join', { roomId: created.roomId });
+    await waitForEvent<RoomJoinedPayload>(secondCommander, 'room:joined');
+
+    const reserveCommander = connectClient({ sessionId: 'shared-hold-3' });
+    await waitForEvent<RoomJoinedPayload>(reserveCommander, 'room:joined');
+    reserveCommander.emit('room:join', { roomId: created.roomId });
+    await waitForEvent<RoomJoinedPayload>(reserveCommander, 'room:joined');
+
+    const firstClaimedPromise = waitForEvent<RoomSlotClaimedPayload>(
+      firstCommander,
+      'room:slot-claimed',
+    );
+    firstCommander.emit('room:claim-slot', { slotId: 'team-1' });
+    const firstClaimed = await firstClaimedPromise;
+
+    const secondClaimedPromise = waitForEvent<RoomSlotClaimedPayload>(
+      secondCommander,
+      'room:slot-claimed',
+    );
+    secondCommander.emit('room:claim-slot', { slotId: 'team-1' });
+    const secondClaimed = await secondClaimedPromise;
+    expect(secondClaimed.teamId).toBe(firstClaimed.teamId);
+
+    firstCommander.disconnect();
+
+    const heldMembership = await waitForMembership(
+      host,
+      created.roomId,
+      (payload) =>
+        payload.heldSlotMembers['team-1']?.some(
+          ({ sessionId }) => sessionId === 'shared-hold-1',
+        ) ?? false,
+    );
+    expect(heldMembership.heldSlots['team-1']?.sessionId).toBe('shared-hold-1');
+
+    const reserveClaimedPromise = waitForEvent<RoomSlotClaimedPayload>(
+      reserveCommander,
+      'room:slot-claimed',
+    );
+    reserveCommander.emit('room:claim-slot', { slotId: 'team-1' });
+    const reserveClaimed = await reserveClaimedPromise;
+
+    expect(reserveClaimed.teamId).toBe(firstClaimed.teamId);
+
+    const filledMembership = await waitForMembership(
+      host,
+      created.roomId,
+      (payload) => payload.slotMembers['team-1']?.length === 3,
+    );
+    expect(filledMembership.slotMembers['team-1']).toEqual([
+      'shared-hold-1',
+      'shared-hold-2',
+      'shared-hold-3',
+    ]);
+    expect(filledMembership.heldSlotMembers['team-1']).toHaveLength(1);
+    expect(filledMembership.heldSlotMembers['team-1']?.[0]?.sessionId).toBe(
+      'shared-hold-1',
     );
   });
 

@@ -13,11 +13,13 @@ import type {
   RoomJoinedPayload,
   RoomListEntryPayload,
   RoomMembershipPayload,
+  RoomSlotClaimedPayload,
 } from '#rts-engine';
 import {
   createClient,
   waitForEvent,
   waitForMembership,
+  waitForRoomState,
 } from './test-support.js';
 
 function countPlayers(payload: RoomMembershipPayload): number {
@@ -159,6 +161,127 @@ describe('lobby room/team contract', () => {
         ({ sessionId }) => sessionId === spectatorJoined.playerId,
       )?.role,
     ).toBe('spectator');
+  });
+
+  test('supports configured multi-seat teams with shared team ids', async () => {
+    const owner = connectClient();
+    await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
+
+    owner.emit('room:create', {
+      name: 'Shared Command Room',
+      width: 54,
+      height: 54,
+      slots: [
+        { slotId: 'team-1', capacity: 2 },
+        { slotId: 'team-2', capacity: 2 },
+        { slotId: 'team-3', capacity: 2 },
+      ],
+    });
+    const created = await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
+
+    const teammate = connectClient();
+    await waitForEvent<RoomJoinedPayload>(teammate, 'room:joined');
+    teammate.emit('room:join', { roomId: created.roomId });
+    const teammateJoined = await waitForEvent<RoomJoinedPayload>(
+      teammate,
+      'room:joined',
+    );
+
+    const rival = connectClient();
+    await waitForEvent<RoomJoinedPayload>(rival, 'room:joined');
+    rival.emit('room:join', { roomId: created.roomId });
+    const rivalJoined = await waitForEvent<RoomJoinedPayload>(
+      rival,
+      'room:joined',
+    );
+
+    const thirdTeam = connectClient();
+    await waitForEvent<RoomJoinedPayload>(thirdTeam, 'room:joined');
+    thirdTeam.emit('room:join', { roomId: created.roomId });
+    const thirdTeamJoined = await waitForEvent<RoomJoinedPayload>(
+      thirdTeam,
+      'room:joined',
+    );
+
+    const ownerClaimedPromise = waitForEvent<RoomSlotClaimedPayload>(
+      owner,
+      'room:slot-claimed',
+    );
+    owner.emit('room:claim-slot', { slotId: 'team-1' });
+    const ownerClaimed = await ownerClaimedPromise;
+
+    const teammateClaimedPromise = waitForEvent<RoomSlotClaimedPayload>(
+      teammate,
+      'room:slot-claimed',
+    );
+    teammate.emit('room:claim-slot', { slotId: 'team-1' });
+    const teammateClaimed = await teammateClaimedPromise;
+
+    const rivalClaimedPromise = waitForEvent<RoomSlotClaimedPayload>(
+      rival,
+      'room:slot-claimed',
+    );
+    rival.emit('room:claim-slot', { slotId: 'team-2' });
+    const rivalClaimed = await rivalClaimedPromise;
+
+    const thirdTeamClaimedPromise = waitForEvent<RoomSlotClaimedPayload>(
+      thirdTeam,
+      'room:slot-claimed',
+    );
+    thirdTeam.emit('room:claim-slot', { slotId: 'team-3' });
+    const thirdTeamClaimed = await thirdTeamClaimedPromise;
+
+    expect(ownerClaimed.teamId).not.toBeNull();
+    expect(teammateClaimed.teamId).toBe(ownerClaimed.teamId);
+    expect(rivalClaimed.teamId).not.toBe(ownerClaimed.teamId);
+    expect(thirdTeamClaimed.teamId).not.toBe(ownerClaimed.teamId);
+
+    const membership = await waitForMembership(
+      owner,
+      created.roomId,
+      (payload) =>
+        countPlayers(payload) === 4 &&
+        payload.slotMembers['team-1']?.length === 2 &&
+        payload.slotMembers['team-2']?.length === 1 &&
+        payload.slotMembers['team-3']?.length === 1,
+    );
+
+    expect(membership.slotDefinitions).toEqual([
+      { slotId: 'team-1', capacity: 2 },
+      { slotId: 'team-2', capacity: 2 },
+      { slotId: 'team-3', capacity: 2 },
+    ]);
+    expect(membership.slotMembers['team-1']).toEqual([
+      created.playerId,
+      teammateJoined.playerId,
+    ]);
+    expect(membership.slotMembers['team-2']).toEqual([rivalJoined.playerId]);
+    expect(membership.slotMembers['team-3']).toEqual([
+      thirdTeamJoined.playerId,
+    ]);
+
+    const roomState = await waitForRoomState(
+      owner,
+      created.roomId,
+      (payload) =>
+        payload.teams.some(
+          ({ playerIds }) =>
+            playerIds.includes(created.playerId) &&
+            playerIds.includes(teammateJoined.playerId),
+        ) &&
+        payload.teams.some(({ playerIds }) =>
+          playerIds.includes(rivalJoined.playerId),
+        ) &&
+        payload.teams.some(({ playerIds }) =>
+          playerIds.includes(thirdTeamJoined.playerId),
+        ),
+    );
+
+    expect(
+      roomState.teams.find(({ playerIds }) =>
+        playerIds.includes(created.playerId),
+      )?.playerIds,
+    ).toEqual([created.playerId, teammateJoined.playerId]);
   });
 
   test('enforces slot lock and manual ready toggles', async () => {

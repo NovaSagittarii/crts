@@ -95,26 +95,33 @@ export class RoomBroadcastService {
     const roomId = room.rtsRoom.id;
     const snapshot = room.lobby.snapshot();
     const slotIds = room.lobby.slotIds();
+    const slotDefinitions: RoomMembershipPayload['slotDefinitions'] =
+      slotIds.map((slotId) => ({
+        slotId,
+        capacity: room.lobby.slotCapacity(slotId),
+      }));
     const heldSlots: RoomMembershipPayload['heldSlots'] = {};
+    const heldSlotMembers: RoomMembershipPayload['heldSlotMembers'] = {};
 
     for (const slotId of slotIds) {
-      const sessionId = snapshot.slots[slotId];
-      if (!sessionId) {
-        heldSlots[slotId] = null;
-        continue;
-      }
-
-      const hold = this.sessionCoordinator.getHold(sessionId);
-      if (hold && hold.roomId === roomId && hold.slotId === slotId) {
-        heldSlots[slotId] = {
-          sessionId,
+      const holds = this.sessionCoordinator
+        .getHeldSessionsForSlot(roomId, slotId)
+        .map((sessionId) => this.sessionCoordinator.getHold(sessionId))
+        .filter(
+          (
+            hold,
+          ): hold is NonNullable<
+            ReturnType<LobbySessionCoordinator['getHold']>
+          > => hold !== null,
+        )
+        .map((hold) => ({
+          sessionId: hold.sessionId,
           holdExpiresAt: hold.expiresAt,
           disconnectReason: hold.disconnectReason,
-        };
-        continue;
-      }
+        }));
 
-      heldSlots[slotId] = null;
+      heldSlots[slotId] = holds[0] ?? null;
+      heldSlotMembers[slotId] = holds;
     }
 
     return {
@@ -124,7 +131,9 @@ export class RoomBroadcastService {
       revision: room.revision,
       status: room.status,
       hostSessionId: snapshot.hostSessionId,
+      slotDefinitions,
       slots: snapshot.slots,
+      slotMembers: snapshot.slotMembers,
       participants: snapshot.participants.map((participant) => {
         const participantSession = this.sessionCoordinator.getSession(
           participant.sessionId,
@@ -149,6 +158,7 @@ export class RoomBroadcastService {
         };
       }),
       heldSlots,
+      heldSlotMembers,
       countdownSecondsRemaining: room.countdownSecondsRemaining,
       lockstep: room.lockstep,
     };
@@ -163,10 +173,18 @@ export class RoomBroadcastService {
       roomName: payload.roomName,
       status: payload.status,
       hostSessionId: payload.hostSessionId,
+      slotDefinitions: [...payload.slotDefinitions].sort((left, right) =>
+        compareKeys(left.slotId, right.slotId),
+      ),
       slots: Object.fromEntries(
         Object.entries(payload.slots).sort(([left], [right]) =>
           compareKeys(left, right),
         ),
+      ),
+      slotMembers: Object.fromEntries(
+        Object.entries(payload.slotMembers)
+          .sort(([left], [right]) => compareKeys(left, right))
+          .map(([slotId, sessionIds]) => [slotId, [...sessionIds]]),
       ),
       participants: [...payload.participants]
         .sort((left, right) => compareKeys(left.sessionId, right.sessionId))
@@ -184,6 +202,16 @@ export class RoomBroadcastService {
         Object.entries(payload.heldSlots).sort(([left], [right]) =>
           compareKeys(left, right),
         ),
+      ),
+      heldSlotMembers: Object.fromEntries(
+        Object.entries(payload.heldSlotMembers)
+          .sort(([left], [right]) => compareKeys(left, right))
+          .map(([slotId, holds]) => [
+            slotId,
+            [...holds].sort((left, right) =>
+              compareKeys(left.sessionId, right.sessionId),
+            ),
+          ]),
       ),
       countdownSecondsRemaining: payload.countdownSecondsRemaining,
       lockstep: payload.lockstep

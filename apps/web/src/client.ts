@@ -144,6 +144,10 @@ import {
   selectIsHost,
   selectSelfParticipant,
 } from './player-identity-view-model.js';
+import { deriveLobbyControlsViewModel } from './lobby-controls-view-model.js';
+import { deriveLobbyMembershipViewModel } from './lobby-membership-view-model.js';
+import { LobbyScreenUi } from './lobby-screen-ui.js';
+import { getLobbySlotLabel } from './lobby-slot-presentation.js';
 import {
   applyJoinedHashes,
   createStateHashResyncState,
@@ -214,23 +218,7 @@ function getRequiredElement<T extends HTMLElement>(id: string): T {
 }
 
 function getTeamLabel(slotId: string): string {
-  if (slotId === 'team-1') {
-    return 'Team A';
-  }
-  if (slotId === 'team-2') {
-    return 'Team B';
-  }
-  return slotId;
-}
-
-function getTeamColor(slotId: string): string {
-  if (slotId === 'team-1') {
-    return 'var(--team-a)';
-  }
-  if (slotId === 'team-2') {
-    return 'var(--team-b)';
-  }
-  return 'var(--accent)';
+  return getLobbySlotLabel(slotId);
 }
 
 function generateStableIdFragment(): string {
@@ -432,12 +420,17 @@ const refreshRoomsButton =
   getRequiredElement<HTMLButtonElement>('refresh-rooms');
 const roomListEl = getRequiredElement<HTMLDivElement>('room-list');
 
-const claimTeamOneButton =
-  getRequiredElement<HTMLButtonElement>('claim-team-1');
-const claimTeamTwoButton =
-  getRequiredElement<HTMLButtonElement>('claim-team-2');
 const toggleReadyButton = getRequiredElement<HTMLButtonElement>('toggle-ready');
 const startMatchButton = getRequiredElement<HTMLButtonElement>('start-match');
+const lobbyScreenUi = new LobbyScreenUi({
+  statusEl: lobbyStatusEl,
+  countdownEl: lobbyCountdownEl,
+  slotListEl: lobbyPlayerSlotsEl,
+  spectatorListEl: lobbySpectatorsEl,
+  spawnMarkersEl,
+  readyButton: toggleReadyButton,
+  startButton: startMatchButton,
+});
 
 const chatLogEl = getRequiredElement<HTMLDivElement>('chat-log');
 const chatInputEl = getRequiredElement<HTMLInputElement>('chat-input');
@@ -446,6 +439,11 @@ const toastStackEl = getRequiredElement<HTMLDivElement>('toast-stack');
 
 const SESSION_STORAGE_KEY = 'life-rts.session-id';
 const BOOTSTRAP_MEMBERSHIP_TIMEOUT_MS = 6000;
+const DEFAULT_WEB_ROOM_SLOT_DEFINITIONS = [
+  { slotId: 'team-1', capacity: 2 },
+  { slotId: 'team-2', capacity: 2 },
+  { slotId: 'team-3', capacity: 2 },
+];
 
 function getOrCreateSessionId(): string {
   const fallback = `session-${generateStableIdFragment()}`;
@@ -1033,35 +1031,27 @@ function appendChatMessage(payload: ChatMessagePayload): void {
   chatLogEl.scrollTop = chatLogEl.scrollHeight;
 }
 
-function updateLobbyControls(): void {
-  if (!currentMembership || !playerIdentityState.sessionId) {
-    claimTeamOneButton.disabled = false;
-    claimTeamTwoButton.disabled = false;
-    toggleReadyButton.disabled = true;
-    startMatchButton.disabled = true;
-    startMatchButton.textContent = 'Host Start';
+function renderLobbyUi(nowMs = Date.now()): void {
+  if (!currentMembership) {
+    lobbyScreenUi.reset();
     return;
   }
 
-  const self = selectSelfParticipant(
+  const membershipViewModel = deriveLobbyMembershipViewModel(
+    currentMembership,
+    playerIdentityState.sessionId,
+    nowMs,
+  );
+  const controlsViewModel = deriveLobbyControlsViewModel(
     currentMembership,
     playerIdentityState.sessionId,
   );
-  const isPlayer = self?.role === 'player';
-  const isHost = selectIsHost(currentMembership, playerIdentityState.sessionId);
-  const ready = Boolean(self?.ready);
-  const lifecycleLocked = currentMembership.status !== 'lobby';
-  const canHostStartOrRestart =
-    currentMembership.status === 'lobby' ||
-    currentMembership.status === 'finished';
 
-  claimTeamOneButton.disabled = isPlayer || lifecycleLocked;
-  claimTeamTwoButton.disabled = isPlayer || lifecycleLocked;
-  toggleReadyButton.disabled = !isPlayer || lifecycleLocked;
-  startMatchButton.disabled = !isHost || !canHostStartOrRestart;
-  startMatchButton.textContent =
-    currentMembership.status === 'finished' ? 'Host Restart' : 'Host Start';
-  toggleReadyButton.textContent = ready ? 'Set Not Ready' : 'Set Ready';
+  lobbyScreenUi.render(membershipViewModel, controlsViewModel);
+}
+
+function updateLobbyControls(): void {
+  renderLobbyUi();
 }
 
 function resolveJoinDisplayName(): string {
@@ -3125,200 +3115,18 @@ function updateTeamStats(payload: RoomStatePayload): void {
   refreshActionUi();
 }
 
-function renderLobbyStatus(payload: RoomMembershipPayload): void {
-  const hostText = payload.hostSessionId
-    ? `Host: ${payload.hostSessionId}`
-    : 'Host: none';
-  lobbyStatusEl.textContent = `${hostText} | rev ${payload.revision} | ${payload.status}`;
-  countdownSecondsRemaining = payload.countdownSecondsRemaining;
-
-  if (payload.status === 'countdown') {
-    const seconds = payload.countdownSecondsRemaining ?? 0;
-    lobbyCountdownEl.textContent = `Match starts in ${seconds}s`;
-    return;
-  }
-
-  if (payload.status === 'active') {
-    lobbyCountdownEl.textContent = 'Match active';
-    return;
-  }
-
-  if (payload.status === 'finished') {
-    lobbyCountdownEl.textContent = 'Match finished';
-    return;
-  }
-
-  lobbyCountdownEl.textContent = 'Waiting for both players to ready up';
-}
-
-function createBadge(label: string, className: string): HTMLElement {
-  const badge = document.createElement('span');
-  badge.className = `badge ${className}`;
-  badge.textContent = label;
-  return badge;
-}
-
-function createHeldBadge(participant: MembershipParticipant): HTMLElement {
-  const badge = document.createElement('span');
-  badge.className = 'badge badge--held';
-
-  const dot = document.createElement('span');
-  dot.className = 'status-dot status-dot--held';
-  badge.append(dot);
-
-  const heldRemainingMs =
-    participant.holdExpiresAt === null
-      ? 0
-      : Math.max(0, participant.holdExpiresAt - Date.now());
-  const heldRemainingSec = Math.ceil(heldRemainingMs / 1000);
-
-  const text = document.createElement('span');
-  text.textContent = `Disconnected (${heldRemainingSec}s hold)`;
-  badge.append(text);
-
-  return badge;
-}
-
 function renderLobbyMembership(payload: RoomMembershipPayload): void {
   currentMembership = payload;
   currentRoomCode = payload.roomCode;
   roomCodeEl.textContent = payload.roomCode;
   applyRoomStatus(payload.status);
-
-  renderLobbyStatus(payload);
-
-  lobbyPlayerSlotsEl.innerHTML = '';
-  const participantBySession = new Map(
-    payload.participants.map((participant) => [
-      participant.sessionId,
-      participant,
-    ]),
-  );
-
-  for (const [slotId, occupantSessionId] of Object.entries(payload.slots)) {
-    const row = document.createElement('div');
-    row.className = 'slot-item';
-
-    const head = document.createElement('div');
-    head.className = 'slot-head';
-
-    const teamInfo = document.createElement('div');
-    teamInfo.className = 'slot-team';
-
-    const chip = document.createElement('span');
-    chip.className = 'team-chip';
-    chip.style.backgroundColor = getTeamColor(slotId);
-
-    const label = document.createElement('strong');
-    label.textContent = getTeamLabel(slotId);
-    teamInfo.append(chip, label);
-
-    const occupant = document.createElement('div');
-    if (!occupantSessionId) {
-      occupant.textContent = 'Open slot';
-      occupant.className = 'slot-meta';
-      head.append(teamInfo, occupant);
-      row.append(head);
-      lobbyPlayerSlotsEl.append(row);
-      continue;
-    }
-
-    const participant = participantBySession.get(occupantSessionId);
-    const displayName = participant?.displayName ?? occupantSessionId;
-    occupant.textContent = `${displayName} (${getTeamLabel(slotId)})`;
-    head.append(teamInfo, occupant);
-
-    const meta = document.createElement('div');
-    meta.className = 'slot-meta';
-    meta.textContent = `session: ${occupantSessionId}`;
-
-    const badges = document.createElement('div');
-    badges.className = 'badge-row';
-
-    if (payload.hostSessionId === occupantSessionId) {
-      badges.append(createBadge('Host', 'badge--host'));
-    }
-
-    if (participant?.ready) {
-      badges.append(createBadge('Ready', 'badge--ready'));
-    } else {
-      badges.append(createBadge('Not Ready', 'badge--held'));
-    }
-
-    if (participant?.connectionStatus === 'held') {
-      badges.append(createHeldBadge(participant));
-    }
-
-    row.append(head, meta, badges);
-    lobbyPlayerSlotsEl.append(row);
-  }
-
-  lobbySpectatorsEl.innerHTML = '';
-  const spectators = payload.participants.filter(
-    (participant) => participant.role === 'spectator',
-  );
-
-  if (spectators.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'spectator-item';
-    empty.textContent = 'No spectators in room.';
-    lobbySpectatorsEl.append(empty);
-  } else {
-    for (const spectator of spectators) {
-      const item = document.createElement('div');
-      item.className = 'spectator-item';
-
-      const title = document.createElement('div');
-      title.textContent = spectator.displayName;
-
-      const meta = document.createElement('div');
-      meta.className = 'spectator-meta';
-      meta.textContent = `session: ${spectator.sessionId}`;
-
-      item.append(title, meta);
-      lobbySpectatorsEl.append(item);
-    }
-  }
-
-  updateLobbyControls();
+  countdownSecondsRemaining = payload.countdownSecondsRemaining;
+  renderLobbyUi();
   updateLifecycleUi();
 }
 
 function renderSpawnMarkers(payload: RoomStatePayload): void {
-  spawnMarkersEl.innerHTML = '';
-
-  if (payload.teams.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'spawn-item';
-    empty.textContent = 'Spawn markers appear after player slots are claimed.';
-    spawnMarkersEl.append(empty);
-    return;
-  }
-
-  const sortedTeams = [...payload.teams].sort((a, b) => a.id - b.id);
-  for (const team of sortedTeams) {
-    const item = document.createElement('div');
-    item.className = 'spawn-item';
-
-    const title = document.createElement('div');
-    title.className = 'slot-team';
-
-    const chip = document.createElement('span');
-    chip.className = 'team-chip';
-    chip.style.backgroundColor =
-      team.id === 1 ? 'var(--team-a)' : 'var(--team-b)';
-
-    const label = document.createElement('strong');
-    label.textContent = `Team ${team.id}`;
-    title.append(chip, label);
-
-    const meta = document.createElement('div');
-    meta.className = 'spawn-meta';
-    meta.textContent = `base top-left: (${team.baseTopLeft.x}, ${team.baseTopLeft.y})`;
-
-    item.append(title, meta);
-    spawnMarkersEl.append(item);
-  }
+  lobbyScreenUi.renderSpawnMarkers(payload);
 }
 
 function getKeyboardPanDirection(key: string): CameraPanDirection | null {
@@ -3746,11 +3554,7 @@ socket.on('room:left', (payload: RoomLeftPayload) => {
   incomeEl.textContent = '-';
   baseEl.textContent = 'Unknown';
 
-  lobbyStatusEl.textContent = '';
-  lobbyCountdownEl.textContent = 'Waiting for host';
-  lobbyPlayerSlotsEl.innerHTML = '';
-  lobbySpectatorsEl.innerHTML = '';
-  spawnMarkersEl.innerHTML = '';
+  lobbyScreenUi.reset();
   chatLogEl.innerHTML = '';
 
   setMessage('You left the room.');
@@ -3850,7 +3654,14 @@ socket.on('room:countdown', (payload: RoomCountdownPayload) => {
 
   countdownSecondsRemaining = payload.secondsRemaining;
   applyRoomStatus('countdown');
-  lobbyCountdownEl.textContent = `Match starts in ${payload.secondsRemaining}s`;
+  if (currentMembership) {
+    currentMembership = {
+      ...currentMembership,
+      status: 'countdown',
+      countdownSecondsRemaining: payload.secondsRemaining,
+    };
+    renderLobbyUi();
+  }
   updateLifecycleUi();
 });
 
@@ -3861,7 +3672,14 @@ socket.on('room:match-started', (payload: MatchStartedPayload) => {
 
   countdownSecondsRemaining = null;
   applyRoomStatus('active');
-  lobbyCountdownEl.textContent = 'Match active';
+  if (currentMembership) {
+    currentMembership = {
+      ...currentMembership,
+      status: 'active',
+      countdownSecondsRemaining: null,
+    };
+    renderLobbyUi();
+  }
   addToast('Match started. Good luck.');
   requestStateSnapshot(true);
 });
@@ -3883,6 +3701,14 @@ socket.on('room:match-finished', (payload: MatchFinishedPayload) => {
     null;
   currentMatchFinished = payload;
   applyRoomStatus('finished');
+  if (currentMembership) {
+    currentMembership = {
+      ...currentMembership,
+      status: 'finished',
+      countdownSecondsRemaining: null,
+    };
+    renderLobbyUi();
+  }
   renderFinishedResults();
   updateLifecycleUi();
   requestStateSnapshot(true);
@@ -4225,6 +4051,7 @@ createRoomButton.addEventListener('click', () => {
     name: newRoomNameEl.value,
     width: size,
     height: size,
+    slots: DEFAULT_WEB_ROOM_SLOT_DEFINITIONS.map((slot) => ({ ...slot })),
   });
 });
 
@@ -4244,13 +4071,8 @@ joinRoomCodeButton.addEventListener('click', () => {
 leaveRoomButton.addEventListener('click', () => {
   socket.emit('room:leave');
 });
-
-claimTeamOneButton.addEventListener('click', () => {
-  socket.emit('room:claim-slot', { slotId: 'team-1' });
-});
-
-claimTeamTwoButton.addEventListener('click', () => {
-  socket.emit('room:claim-slot', { slotId: 'team-2' });
+lobbyScreenUi.setClaimHandler((slotId) => {
+  socket.emit('room:claim-slot', { slotId });
 });
 
 toggleReadyButton.addEventListener('click', () => {

@@ -385,6 +385,11 @@ export interface CreateRoomOptions {
   templates?: StructureTemplateInput[];
 }
 
+export interface AddPlayerToRoomOptions {
+  teamId?: number;
+  teamName?: string;
+}
+
 interface BuildPlacementProjectionResult {
   transform: PlacementTransformState;
   transformedTemplate: TransformedTemplate;
@@ -544,9 +549,19 @@ export class RtsEngine {
 
   private static allocateTeamId(room: RoomState): number {
     const engine = RtsEngine.getRoomEngine(room);
+    while (room.teams.has(engine.nextTeamId)) {
+      engine.nextTeamId += 1;
+    }
     const teamId = engine.nextTeamId;
     engine.nextTeamId += 1;
     return teamId;
+  }
+
+  private static reserveTeamId(room: RoomState, teamId: number): void {
+    const engine = RtsEngine.getRoomEngine(room);
+    if (teamId >= engine.nextTeamId) {
+      engine.nextTeamId = teamId + 1;
+    }
   }
 
   private static allocateEventId(room: RoomState): number {
@@ -2177,6 +2192,7 @@ export class RtsEngine {
     room: RoomState,
     playerId: string,
     playerName: string,
+    options: AddPlayerToRoomOptions = {},
   ): TeamState {
     const existing = room.players.get(playerId);
     if (existing) {
@@ -2186,7 +2202,27 @@ export class RtsEngine {
       }
     }
 
-    const teamId = RtsEngine.allocateTeamId(room);
+    const requestedTeam =
+      options.teamId === undefined
+        ? null
+        : (room.teams.get(options.teamId) ?? null);
+    if (requestedTeam) {
+      requestedTeam.playerIds.add(playerId);
+      if (options.teamName) {
+        requestedTeam.name = options.teamName;
+      }
+      room.players.set(playerId, {
+        id: playerId,
+        name: playerName,
+        teamId: requestedTeam.id,
+      });
+      return requestedTeam;
+    }
+
+    const teamId = options.teamId ?? RtsEngine.allocateTeamId(room);
+    if (options.teamId !== undefined) {
+      RtsEngine.reserveTeamId(room, teamId);
+    }
 
     const baseTopLeft = RtsEngine.pickSpawnPosition(room, teamId);
     const coreKey = RtsEngine.createStructureKey(
@@ -2211,7 +2247,7 @@ export class RtsEngine {
 
     const team: TeamState = {
       id: teamId,
-      name: `${playerName}'s Team`,
+      name: options.teamName ?? `${playerName}'s Team`,
       playerIds: new Set<string>([playerId]),
       resources: DEFAULT_STARTING_RESOURCES,
       income: 0,
@@ -2935,8 +2971,9 @@ export class RtsEngine {
       }
     }
 
+    const undefeatedTeams = orderedTeams.filter((team) => !team.defeated);
     const outcome =
-      defeatedTeams.length > 0
+      defeatedTeams.length > 0 && undefeatedTeams.length <= 1
         ? RtsEngine.createCanonicalMatchOutcome(room, coreHpBeforeResolution)
         : null;
 
@@ -3063,8 +3100,12 @@ export class RtsRoom {
     return RtsEngine.getTimelineEvents(this.state);
   }
 
-  public addPlayer(playerId: string, playerName: string): TeamState {
-    return RtsEngine.addPlayerToRoom(this.state, playerId, playerName);
+  public addPlayer(
+    playerId: string,
+    playerName: string,
+    options: AddPlayerToRoomOptions = {},
+  ): TeamState {
+    return RtsEngine.addPlayerToRoom(this.state, playerId, playerName, options);
   }
 
   public renamePlayer(playerId: string, name: string): void {

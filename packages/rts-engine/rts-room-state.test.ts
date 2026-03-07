@@ -132,8 +132,64 @@ describe('rts room state', () => {
     expect(room.players.get('p1')?.name).toBe('Alicia');
     expect(room.teams.get(team.id)?.name).toBe(`Alicia's Team`);
 
+    const teammate = RtsEngine.addPlayerToRoom(room, 'p2', 'Bob', {
+      teamId: team.id,
+    });
+    expect(teammate.id).toBe(team.id);
+    expect(room.players.get('p2')?.teamId).toBe(team.id);
+    expect(room.teams.get(team.id)?.playerIds).toEqual(new Set(['p1', 'p2']));
+
+    RtsEngine.renamePlayerInRoom(room, 'p1', 'Alice Prime');
+    expect(room.teams.get(team.id)?.name).toBe(`Alicia's Team`);
+
     RtsEngine.removePlayerFromRoom(room, 'p1');
     expect(room.players.has('p1')).toBe(false);
+    expect(room.teams.has(team.id)).toBe(true);
+
+    RtsEngine.removePlayerFromRoom(room, 'p2');
     expect(room.teams.has(team.id)).toBe(false);
+  });
+
+  test('adds commanders to an existing team through the instance API', () => {
+    const room = RtsEngine.createRoom({
+      id: 'existing-team-room',
+      name: 'Existing Team Room',
+      width: 40,
+      height: 40,
+    });
+
+    const team = room.addPlayer('p1', 'Alice', { teamName: 'Team 1' });
+    const teammate = room.addPlayer('p2', 'Bob', { teamId: team.id });
+
+    expect(teammate.id).toBe(team.id);
+    expect(room.state.players.get('p2')?.teamId).toBe(team.id);
+    expect(room.state.teams.get(team.id)?.name).toBe('Team 1');
+    expect(room.state.teams.get(team.id)?.playerIds).toEqual(
+      new Set(['p1', 'p2']),
+    );
+  });
+
+  test('advances automatic team ids past explicitly assigned team ids', () => {
+    const room = RtsEngine.createRoomState({
+      id: 'explicit-team-room',
+      name: 'Explicit Team Room',
+      width: 48,
+      height: 48,
+    });
+
+    const explicitTeam = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice', {
+      teamId: 3,
+      teamName: 'Team 3',
+    });
+    const automaticOne = RtsEngine.addPlayerToRoom(room, 'p2', 'Bob');
+    const automaticTwo = RtsEngine.addPlayerToRoom(room, 'p3', 'Cara');
+    const automaticThree = RtsEngine.addPlayerToRoom(room, 'p4', 'Drew');
+
+    expect(explicitTeam.id).toBe(3);
+    expect(automaticOne.id).toBe(4);
+    expect(automaticTwo.id).toBe(5);
+    expect(automaticThree.id).toBe(6);
+    expect(room.players.get('p1')?.teamId).toBe(3);
+    expect(room.teams.get(3)?.playerIds).toEqual(new Set(['p1']));
   });
 });

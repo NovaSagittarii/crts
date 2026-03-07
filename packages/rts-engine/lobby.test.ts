@@ -20,10 +20,14 @@ describe('lobby', () => {
   });
 
   describe('QUAL-01 lobby/team invariants', () => {
-    test('[QUAL-01] enforces spectator overflow when player slots are full', () => {
+    test('[QUAL-01] enforces per-team capacity when multiple commanders join the same team', () => {
       const lobby = LobbyRoom.create({
         roomId: 'room-1',
-        slotIds: ['team-1', 'team-2'],
+        slots: [
+          { id: 'team-1', capacity: 2 },
+          { id: 'team-2', capacity: 2 },
+          { id: 'team-3', capacity: 2 },
+        ],
       });
 
       lobby.join({ sessionId: 'p1', displayName: 'Alice' });
@@ -31,7 +35,7 @@ describe('lobby', () => {
       lobby.join({ sessionId: 'p3', displayName: 'Cara' });
 
       expect(lobby.claimSlot('p1', 'team-1').ok).toBe(true);
-      expect(lobby.claimSlot('p2', 'team-2').ok).toBe(true);
+      expect(lobby.claimSlot('p2', 'team-1').ok).toBe(true);
 
       const fullSlot = lobby.claimSlot('p3', 'team-1');
       expect(fullSlot.ok).toBe(false);
@@ -39,6 +43,9 @@ describe('lobby', () => {
       expect(fullSlot.message).toMatch(/full/i);
 
       const snapshot = lobby.snapshot();
+      expect(snapshot.slotMembers['team-1']).toEqual(['p1', 'p2']);
+      expect(snapshot.slotCapacities['team-1']).toBe(2);
+      expect(snapshot.slots['team-1']).toBe('p1');
       const spectator = snapshot.participants.find(
         ({ sessionId }) => sessionId === 'p3',
       );
@@ -107,15 +114,20 @@ describe('lobby', () => {
     test('[QUAL-01] resolves slot claim contention deterministically', () => {
       const lobby = LobbyRoom.create({
         roomId: 'room-5',
-        slotIds: ['team-1', 'team-2'],
+        slots: [
+          { id: 'team-1', capacity: 2 },
+          { id: 'team-2', capacity: 2 },
+        ],
       });
 
       lobby.join({ sessionId: 'p1', displayName: 'Alice' });
       lobby.join({ sessionId: 'p2', displayName: 'Bob' });
+      lobby.join({ sessionId: 'p3', displayName: 'Cara' });
 
       expect(lobby.claimSlot('p1', 'team-1').ok).toBe(true);
+      expect(lobby.claimSlot('p2', 'team-1').ok).toBe(true);
 
-      const contested = lobby.claimSlot('p2', 'team-1');
+      const contested = lobby.claimSlot('p3', 'team-1');
       expect(contested.ok).toBe(false);
       expect(contested.reason).toBe('slot-full');
 
@@ -123,7 +135,7 @@ describe('lobby', () => {
       expect(idempotent.ok).toBe(true);
 
       expect(lobby.leave('p1').ok).toBe(true);
-      expect(lobby.claimSlot('p2', 'team-1').ok).toBe(true);
+      expect(lobby.claimSlot('p3', 'team-1').ok).toBe(true);
     });
 
     test('[QUAL-01] keeps slot claims isolated across independent lobby instances', () => {

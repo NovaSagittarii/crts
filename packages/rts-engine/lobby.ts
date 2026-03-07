@@ -1,5 +1,10 @@
 export type LobbySlotId = string;
 
+export interface LobbySlotDefinition {
+  id: LobbySlotId;
+  capacity: number;
+}
+
 export interface LobbyParticipantState {
   sessionId: string;
   displayName: string;
@@ -11,7 +16,8 @@ export interface LobbyParticipantState {
 
 export interface CreateLobbyRoomOptions {
   roomId: string;
-  slotIds: LobbySlotId[];
+  slotIds?: LobbySlotId[];
+  slots?: LobbySlotDefinition[];
 }
 
 export interface JoinLobbyInput {
@@ -36,7 +42,38 @@ export interface LobbySnapshot {
   roomId: string;
   hostSessionId: string | null;
   slots: Record<string, string | null>;
+  slotMembers: Record<string, string[]>;
+  slotCapacities: Record<string, number>;
   participants: LobbyParticipantState[];
+}
+
+function normalizeSlotDefinitions(
+  options: CreateLobbyRoomOptions,
+): LobbySlotDefinition[] {
+  const slots =
+    options.slots ??
+    options.slotIds?.map((slotId) => ({
+      id: slotId,
+      capacity: 1,
+    })) ??
+    [];
+
+  if (slots.length === 0) {
+    throw new Error('Lobby room must define at least one slot');
+  }
+
+  const dedupedSlots = new Set(slots.map(({ id }) => id));
+  if (dedupedSlots.size !== slots.length) {
+    throw new Error('Lobby room slot IDs must be unique');
+  }
+
+  for (const slot of slots) {
+    if (!Number.isInteger(slot.capacity) || slot.capacity <= 0) {
+      throw new Error(`Lobby room slot ${slot.id} must define capacity >= 1`);
+    }
+  }
+
+  return slots.map((slot) => ({ ...slot }));
 }
 
 function cloneParticipant(
@@ -66,29 +103,25 @@ function reject(
 export class LobbyRoom {
   public readonly roomId: string;
   private readonly slotIdsInternal: LobbySlotId[];
+  private readonly slotDefinitions: Map<LobbySlotId, LobbySlotDefinition>;
   private hostSessionId: string | null;
   private readonly participants: Map<string, LobbyParticipantState>;
-  private readonly slotAssignments: Map<LobbySlotId, string | null>;
+  private readonly slotAssignments: Map<LobbySlotId, string[]>;
   private joinOrder: string[];
   private nextJoinOrder: number;
 
   private constructor(options: CreateLobbyRoomOptions) {
-    if (options.slotIds.length === 0) {
-      throw new Error('Lobby room must define at least one slot');
-    }
-
-    const dedupedSlots = new Set(options.slotIds);
-    if (dedupedSlots.size !== options.slotIds.length) {
-      throw new Error('Lobby room slot IDs must be unique');
-    }
-
-    const slotAssignments = new Map<LobbySlotId, string | null>();
-    for (const slotId of options.slotIds) {
-      slotAssignments.set(slotId, null);
+    const slotDefinitions = normalizeSlotDefinitions(options);
+    const slotAssignments = new Map<LobbySlotId, string[]>();
+    for (const slot of slotDefinitions) {
+      slotAssignments.set(slot.id, []);
     }
 
     this.roomId = options.roomId;
-    this.slotIdsInternal = [...options.slotIds];
+    this.slotIdsInternal = slotDefinitions.map(({ id }) => id);
+    this.slotDefinitions = new Map(
+      slotDefinitions.map((slot) => [slot.id, { ...slot }]),
+    );
     this.hostSessionId = null;
     this.participants = new Map<string, LobbyParticipantState>();
     this.slotAssignments = slotAssignments;
@@ -102,6 +135,14 @@ export class LobbyRoom {
 
   slotIds(): LobbySlotId[] {
     return [...this.slotIdsInternal];
+  }
+
+  slotCapacity(slotId: LobbySlotId): number {
+    return this.slotDefinitions.get(slotId)?.capacity ?? 0;
+  }
+
+  slotMemberIds(slotId: LobbySlotId): string[] {
+    return [...(this.slotAssignments.get(slotId) ?? [])];
   }
 
   participantCount(): number {
@@ -156,11 +197,6 @@ export class LobbyRoom {
       return reject('invalid-slot', `Team slot ${slotId} does not exist`);
     }
 
-    const currentOccupant = this.slotAssignments.get(slotId);
-    if (currentOccupant && currentOccupant !== sessionId) {
-      return reject('slot-full', `Team slot ${slotId} is full`);
-    }
-
     if (participant.role === 'player') {
       if (participant.slotId === slotId) {
         return {
@@ -174,10 +210,15 @@ export class LobbyRoom {
       );
     }
 
+    const currentOccupants = this.slotAssignments.get(slotId) ?? [];
+    if (currentOccupants.length >= this.slotCapacity(slotId)) {
+      return reject('slot-full', `Team slot ${slotId} is full`);
+    }
+
     participant.role = 'player';
     participant.slotId = slotId;
     participant.ready = false;
-    this.slotAssignments.set(slotId, sessionId);
+    this.slotAssignments.set(slotId, [...currentOccupants, sessionId]);
 
     return {
       ok: true,
@@ -215,10 +256,10 @@ export class LobbyRoom {
     }
 
     if (participant.slotId) {
-      const occupiedBy = this.slotAssignments.get(participant.slotId);
-      if (occupiedBy === sessionId) {
-        this.slotAssignments.set(participant.slotId, null);
-      }
+      const remainingOccupants = (
+        this.slotAssignments.get(participant.slotId) ?? []
+      ).filter((occupantSessionId) => occupantSessionId !== sessionId);
+      this.slotAssignments.set(participant.slotId, remainingOccupants);
     }
 
     this.participants.delete(sessionId);
@@ -238,8 +279,13 @@ export class LobbyRoom {
 
   snapshot(): LobbySnapshot {
     const slots: Record<string, string | null> = {};
+    const slotMembers: Record<string, string[]> = {};
+    const slotCapacities: Record<string, number> = {};
     for (const slotId of this.slotIdsInternal) {
-      slots[slotId] = this.slotAssignments.get(slotId) ?? null;
+      const members = this.slotAssignments.get(slotId) ?? [];
+      slots[slotId] = members[0] ?? null;
+      slotMembers[slotId] = [...members];
+      slotCapacities[slotId] = this.slotCapacity(slotId);
     }
 
     const participants = this.joinOrder
@@ -253,6 +299,8 @@ export class LobbyRoom {
       roomId: this.roomId,
       hostSessionId: this.hostSessionId,
       slots,
+      slotMembers,
+      slotCapacities,
       participants,
     };
   }

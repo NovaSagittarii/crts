@@ -18,9 +18,17 @@ function createMembershipPayload(): RoomMembershipPayload {
     revision: 2,
     status: 'lobby',
     hostSessionId: 'server-session',
+    slotDefinitions: [
+      { slotId: 'team-1', capacity: 2 },
+      { slotId: 'team-2', capacity: 2 },
+    ],
     slots: {
       'team-1': 'server-session',
       'team-2': null,
+    },
+    slotMembers: {
+      'team-1': ['server-session'],
+      'team-2': [],
     },
     participants: [
       {
@@ -47,6 +55,10 @@ function createMembershipPayload(): RoomMembershipPayload {
     heldSlots: {
       'team-1': null,
       'team-2': null,
+    },
+    heldSlotMembers: {
+      'team-1': [],
+      'team-2': [],
     },
     countdownSecondsRemaining: null,
     hashAlgorithm: 'fnv1a-32',
