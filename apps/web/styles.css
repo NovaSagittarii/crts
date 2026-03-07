@@ -751,16 +751,46 @@ main {
   background: rgba(70, 213, 182, 0.14);
 }
 
-.structure-inspector {
+.structure-overlay-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.structure-card {
+  position: absolute;
+  width: min(320px, calc(100% - 16px));
   border: 1px solid rgba(154, 167, 189, 0.32);
   border-radius: 12px;
   padding: 10px;
-  background: rgba(8, 13, 24, 0.75);
+  background: rgba(8, 13, 24, 0.84);
   display: grid;
   gap: 8px;
+  box-shadow: 0 14px 28px rgba(5, 7, 13, 0.5);
+  pointer-events: none;
 }
 
-.structure-inspector h2 {
+.structure-card.is-hidden {
+  display: none;
+}
+
+.structure-card--hover {
+  width: min(250px, calc(100% - 16px));
+  border-color: rgba(94, 201, 255, 0.48);
+  background: rgba(7, 14, 25, 0.82);
+}
+
+.structure-card--pinned {
+  width: min(330px, calc(100% - 16px));
+  border-color: rgba(248, 192, 108, 0.44);
+  pointer-events: auto;
+}
+
+.structure-card h2 {
   margin: 0;
   font-size: 12px;
   text-transform: uppercase;

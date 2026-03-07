@@ -137,6 +137,11 @@ import {
   resetStateHashResyncState,
 } from './state-hash-resync-view-model.js';
 import {
+  StructureCardOverlayLayer,
+  type StructureCardState,
+} from './structure-card-overlay.js';
+import { StructureGridOverlayModel } from './structure-grid-overlay-view-model.js';
+import {
   DEFAULT_HOVER_LEAVE_GRACE_MS,
   type StructureInteractionAction,
   type StructureInteractionState,
@@ -218,6 +223,9 @@ function generateStableIdFragment(): string {
 
 const canvas = getRequiredElement<HTMLCanvasElement>('grid');
 const gridViewportEl = getRequiredElement<HTMLDivElement>('grid-viewport');
+const structureOverlayLayerEl = getRequiredElement<HTMLDivElement>(
+  'structure-overlay-layer',
+);
 const ctxRaw = canvas.getContext('2d');
 if (!ctxRaw) {
   throw new Error('Failed to initialize canvas 2d context');
@@ -248,6 +256,27 @@ const queuePlacementEl = getRequiredElement<HTMLElement>('queue-placement');
 const previewReasonEl = getRequiredElement<HTMLElement>('preview-reason');
 const queueCostEl = getRequiredElement<HTMLElement>('queue-cost');
 const queueFeedbackEl = getRequiredElement<HTMLElement>('queue-feedback');
+const structureHoverPreviewEl = getRequiredElement<HTMLElement>(
+  'structure-hover-preview',
+);
+const structureHoverStatusEl = getRequiredElement<HTMLElement>(
+  'structure-hover-status',
+);
+const structureHoverTemplateEl = getRequiredElement<HTMLElement>(
+  'structure-hover-template',
+);
+const structureHoverOwnerEl = getRequiredElement<HTMLElement>(
+  'structure-hover-owner',
+);
+const structureHoverHealthEl = getRequiredElement<HTMLElement>(
+  'structure-hover-health',
+);
+const structureHoverStateEl = getRequiredElement<HTMLElement>(
+  'structure-hover-state',
+);
+const structureInspectorEl = getRequiredElement<HTMLElement>(
+  'structure-inspector',
+);
 const destroySelectionEl = getRequiredElement<HTMLElement>('destroy-selection');
 const destroyFeedbackEl = getRequiredElement<HTMLElement>('destroy-feedback');
 const destroyQueueButton =
@@ -392,6 +421,11 @@ const templateButtonMenu = new TemplateButtonMenuElement(
     activateBuildModeForTemplate(templateId);
   },
 );
+const structureCardOverlayLayer = new StructureCardOverlayLayer(
+  structureOverlayLayerEl,
+);
+structureCardOverlayLayer.registerCardElement('pinned', structureInspectorEl);
+structureCardOverlayLayer.registerCardElement('hover', structureHoverPreviewEl);
 const economyHudController = new EconomyHudController({
   resourcesEl,
   incomeEl,
@@ -490,6 +524,8 @@ let playerIdentityState = createPlayerIdentityState(
   playerNameEl.value.trim(),
 );
 let availableTemplates: StructureTemplatePayload[] = [];
+const templateMaxHpByTemplateId = new Map<string, number>();
+let templateMaxHpLookup: Record<string, number> = {};
 const previewTemplateSnapshotsById = new Map<
   string,
   BuildPreviewTemplateSnapshot
@@ -553,6 +589,15 @@ const BUILD_ERROR_TOAST_DEDUPE_MS = 800;
 const CAMERA_KEYBOARD_WORLD_STEP_CELLS = 8;
 const LOCAL_BUILD_ZONE_CACHE_MAX_ENTRIES = 512;
 const STATE_REQUEST_MIN_INTERVAL_MS = 120;
+const STRUCTURE_OUTLINE_COLOR = 'rgba(154, 167, 189, 0.72)';
+const STRUCTURE_OUTLINE_ACTIVE_COLOR = 'rgba(94, 201, 255, 0.9)';
+const STRUCTURE_OUTLINE_PINNED_COLOR = 'rgba(248, 192, 108, 0.96)';
+const STRUCTURE_BAR_TRACK_COLOR = 'rgba(5, 7, 13, 0.76)';
+const STRUCTURE_BAR_FILL_GOOD = 'rgba(92, 216, 164, 0.95)';
+const STRUCTURE_BAR_FILL_WARN = 'rgba(248, 192, 108, 0.95)';
+const STRUCTURE_BAR_FILL_BAD = 'rgba(224, 122, 122, 0.96)';
+const STRUCTURE_LABEL_FONT_FAMILY =
+  '"IBM Plex Mono", "JetBrains Mono", "Fira Mono", monospace';
 
 function addToast(message: string, isError = false): void {
   const toast = document.createElement('div');
@@ -1176,6 +1221,7 @@ function resetDestroyInteractionState(): void {
   clearLocalBuildZoneOverlay();
   resetDestroyFeedbackOverride();
   renderStructureInspector();
+  requestRender();
 }
 
 function mapVisibleStructureToSelectable(
@@ -1195,6 +1241,105 @@ function getVisibleStructureByKey(key: string): VisibleStructure | null {
 
 function getStructureAtCell(cell: Cell): VisibleStructure | null {
   return structureCellIndex.get(`${cell.x},${cell.y}`) ?? null;
+}
+
+function setCardVisibility(element: HTMLElement, visible: boolean): void {
+  element.classList.toggle('is-hidden', !visible);
+  element.setAttribute('aria-hidden', visible ? 'false' : 'true');
+}
+
+function formatStructureOwnerLabel(structure: VisibleStructure): string {
+  return currentTeamId !== null && structure.teamId === currentTeamId
+    ? `Team ${structure.teamId} (you)`
+    : `Team ${structure.teamId}`;
+}
+
+function getPinnedStructure(): VisibleStructure | null {
+  return structureInteractionState.pinnedKey
+    ? getVisibleStructureByKey(structureInteractionState.pinnedKey)
+    : null;
+}
+
+function getHoverPreviewStructure(nowMs = Date.now()): VisibleStructure | null {
+  const hoverKey = structureInteractionState.hoverKey;
+  if (!hoverKey) {
+    return null;
+  }
+
+  if (
+    structureInteractionState.pinnedKey === null &&
+    structureInteractionState.hoverLeaveExpiresAtMs !== null &&
+    nowMs >= structureInteractionState.hoverLeaveExpiresAtMs
+  ) {
+    return null;
+  }
+
+  return getVisibleStructureByKey(hoverKey);
+}
+
+function syncStructureCardOverlayPositions(nowMs = Date.now()): void {
+  const viewportRect = gridViewportEl.getBoundingClientRect();
+  const canvasRect = canvas.getBoundingClientRect();
+
+  if (
+    viewportRect.width <= 0 ||
+    viewportRect.height <= 0 ||
+    canvasRect.width <= 0 ||
+    canvasRect.height <= 0
+  ) {
+    structureCardOverlayLayer.update({
+      cards: [],
+      camera: cameraState,
+      cellSize,
+      viewportWidth: 0,
+      viewportHeight: 0,
+    });
+    return;
+  }
+
+  structureOverlayLayerEl.style.left = `${canvasRect.left - viewportRect.left}px`;
+  structureOverlayLayerEl.style.top = `${canvasRect.top - viewportRect.top}px`;
+  structureOverlayLayerEl.style.width = `${canvasRect.width}px`;
+  structureOverlayLayerEl.style.height = `${canvasRect.height}px`;
+
+  const cards: StructureCardState[] = [];
+  const pinnedStructure = getPinnedStructure();
+  if (pinnedStructure) {
+    cards.push({
+      id: 'pinned',
+      structureBounds: {
+        x: pinnedStructure.x,
+        y: pinnedStructure.y,
+        width: pinnedStructure.width,
+        height: pinnedStructure.height,
+      },
+      variant: 'pinned',
+      visible: true,
+    });
+  }
+
+  const hoverStructure = getHoverPreviewStructure(nowMs);
+  if (hoverStructure) {
+    cards.push({
+      id: 'hover',
+      structureBounds: {
+        x: hoverStructure.x,
+        y: hoverStructure.y,
+        width: hoverStructure.width,
+        height: hoverStructure.height,
+      },
+      variant: 'hover',
+      visible: true,
+    });
+  }
+
+  structureCardOverlayLayer.update({
+    cards,
+    camera: cameraState,
+    cellSize,
+    viewportWidth: canvasRect.width,
+    viewportHeight: canvasRect.height,
+  });
 }
 
 function clearStructureHoverTickTimeout(): void {
@@ -1235,6 +1380,7 @@ function scheduleStructureHoverTick(nowMs: number): void {
     syncDestroySelectionFromInteraction(tickNow);
     renderStructureInspector(tickNow);
     refreshActionUi(tickNow);
+    requestRender();
   }, delayMs);
 }
 
@@ -1262,45 +1408,51 @@ function syncDestroySelectionFromInteraction(nowMs: number): void {
 }
 
 function renderStructureInspector(nowMs = Date.now()): void {
-  const mode = selectStructureInteractionMode(structureInteractionState, nowMs);
-  const activeKey = selectActiveStructureKey(structureInteractionState, nowMs);
-  const activeStructure = activeKey
-    ? getVisibleStructureByKey(activeKey)
-    : null;
-
-  if (!activeStructure) {
+  const pinnedStructure = getPinnedStructure();
+  if (!pinnedStructure) {
+    setCardVisibility(structureInspectorEl, false);
     structureInspectorStatusEl.textContent =
-      'Hover a structure to inspect details. Click or tap to pin and unlock actions.';
+      'Pin a structure to keep actions anchored on the board.';
     structureInspectorTemplateEl.textContent = '-';
     structureInspectorOwnerEl.textContent = '-';
     structureInspectorHealthEl.textContent = '-';
     structureInspectorStateEl.textContent = '-';
     structureInspectorStatusEl.classList.remove('inspector-status--pinned');
-    return;
-  }
-
-  structureInspectorTemplateEl.textContent = activeStructure.templateName;
-  structureInspectorOwnerEl.textContent =
-    currentTeamId !== null && activeStructure.teamId === currentTeamId
-      ? `Team ${activeStructure.teamId} (you)`
-      : `Team ${activeStructure.teamId}`;
-  structureInspectorHealthEl.textContent = `${activeStructure.hp} HP`;
-  structureInspectorStateEl.textContent = activeStructure.active
-    ? 'Active'
-    : 'Inactive';
-
-  if (mode === 'pinned') {
+  } else {
+    setCardVisibility(structureInspectorEl, true);
+    structureInspectorTemplateEl.textContent = pinnedStructure.templateName;
+    structureInspectorOwnerEl.textContent =
+      formatStructureOwnerLabel(pinnedStructure);
+    structureInspectorHealthEl.textContent = `${pinnedStructure.hp} HP`;
+    structureInspectorStateEl.textContent = pinnedStructure.active
+      ? 'Active'
+      : 'Inactive';
     structureInspectorStatusEl.textContent =
       'Pinned structure. Actions and outcomes stay anchored here.';
-  } else {
-    structureInspectorStatusEl.textContent =
-      'Hover preview only. Click or tap to pin this structure for actions.';
+    structureInspectorStatusEl.classList.add('inspector-status--pinned');
   }
 
-  structureInspectorStatusEl.classList.toggle(
-    'inspector-status--pinned',
-    mode === 'pinned',
-  );
+  const hoverStructure = getHoverPreviewStructure(nowMs);
+  if (!hoverStructure) {
+    setCardVisibility(structureHoverPreviewEl, false);
+    structureHoverStatusEl.textContent = 'Hover preview only.';
+    structureHoverTemplateEl.textContent = '-';
+    structureHoverOwnerEl.textContent = '-';
+    structureHoverHealthEl.textContent = '-';
+    structureHoverStateEl.textContent = '-';
+  } else {
+    setCardVisibility(structureHoverPreviewEl, true);
+    structureHoverStatusEl.textContent = 'Hover preview only.';
+    structureHoverTemplateEl.textContent = hoverStructure.templateName;
+    structureHoverOwnerEl.textContent =
+      formatStructureOwnerLabel(hoverStructure);
+    structureHoverHealthEl.textContent = `${hoverStructure.hp} HP`;
+    structureHoverStateEl.textContent = hoverStructure.active
+      ? 'Active'
+      : 'Inactive';
+  }
+
+  syncStructureCardOverlayPositions(nowMs);
 }
 
 function applyStructureInteraction(
@@ -1323,6 +1475,7 @@ function applyStructureInteraction(
   scheduleStructureHoverTick(nowMs);
   renderStructureInspector(nowMs);
   refreshActionUi(nowMs);
+  requestRender();
 }
 
 function updateStructureHoverStateForPointer(event: PointerEvent): void {
@@ -1730,6 +1883,7 @@ function syncVisibleStructures(
   if (refreshUi) {
     refreshActionUi(nowMs);
   }
+  requestRender();
 }
 
 function cellKey(x: number, y: number): number {
@@ -2736,6 +2890,121 @@ function renderBuildPreviewOverlay(
   }
 }
 
+function deriveStructureIntegrityRatio(overlay: {
+  integrityRatio: number | null;
+  hp: number;
+}): number {
+  if (overlay.integrityRatio !== null) {
+    return Math.max(0, Math.min(overlay.integrityRatio, 1));
+  }
+
+  // Fallback until template max HP is provided to the client.
+  return Math.max(0.08, Math.min(overlay.hp / 100, 1));
+}
+
+function pickStructureIntegrityColor(ratio: number): string {
+  if (ratio <= 0.3) {
+    return STRUCTURE_BAR_FILL_BAD;
+  }
+  if (ratio <= 0.65) {
+    return STRUCTURE_BAR_FILL_WARN;
+  }
+  return STRUCTURE_BAR_FILL_GOOD;
+}
+
+function renderStructureOverlayLayer(
+  visibleBounds: VisibleGridBounds | null,
+  nowMs = Date.now(),
+): void {
+  if (!visibleBounds || visibleStructures.length === 0) {
+    return;
+  }
+
+  const hoverStructure = getHoverPreviewStructure(nowMs);
+  const overlayItems = StructureGridOverlayModel.deriveOverlayItems({
+    structures: visibleStructures,
+    hoveredStructureKey: hoverStructure?.key ?? null,
+    maxHpByTemplateId: templateMaxHpLookup,
+    visibleBounds,
+  });
+
+  if (overlayItems.length === 0) {
+    return;
+  }
+
+  const pinnedKey = structureInteractionState.pinnedKey;
+  const outlineWidth = 1 / cameraState.zoom;
+  const pinnedOutlineWidth = 1.8 / cameraState.zoom;
+  const barInset = 1.5 / cameraState.zoom;
+  const barHeight = 2.5 / cameraState.zoom;
+  const labelPaddingX = 4 / cameraState.zoom;
+  const labelPaddingY = 3 / cameraState.zoom;
+  const labelGap = 6 / cameraState.zoom;
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+
+  for (const overlay of overlayItems) {
+    const worldX = overlay.x * cellSize;
+    const worldY = overlay.y * cellSize;
+    const worldWidth = overlay.width * cellSize;
+    const worldHeight = overlay.height * cellSize;
+    if (worldWidth <= 0 || worldHeight <= 0) {
+      continue;
+    }
+
+    const isPinned = pinnedKey === overlay.key;
+    const isHovered = overlay.showLabel;
+    const outlineColor = isPinned
+      ? STRUCTURE_OUTLINE_PINNED_COLOR
+      : isHovered
+        ? STRUCTURE_OUTLINE_ACTIVE_COLOR
+        : STRUCTURE_OUTLINE_COLOR;
+
+    ctx.strokeStyle = outlineColor;
+    ctx.lineWidth = isPinned ? pinnedOutlineWidth : outlineWidth;
+    ctx.strokeRect(
+      worldX + 0.5 / cameraState.zoom,
+      worldY + 0.5 / cameraState.zoom,
+      Math.max(worldWidth - 1 / cameraState.zoom, 1 / cameraState.zoom),
+      Math.max(worldHeight - 1 / cameraState.zoom, 1 / cameraState.zoom),
+    );
+
+    const barX = worldX + barInset;
+    const barY = worldY + barInset;
+    const barWidth = Math.max(worldWidth - barInset * 2, 4 / cameraState.zoom);
+    const integrityRatio = deriveStructureIntegrityRatio(overlay);
+
+    ctx.fillStyle = STRUCTURE_BAR_TRACK_COLOR;
+    ctx.fillRect(barX, barY, barWidth, barHeight);
+    ctx.fillStyle = pickStructureIntegrityColor(integrityRatio);
+    ctx.fillRect(barX, barY, barWidth * integrityRatio, barHeight);
+
+    if (!overlay.showLabel) {
+      continue;
+    }
+
+    const labelText = overlay.templateName;
+    const labelFontSize = 11 / cameraState.zoom;
+    ctx.font = `${labelFontSize}px ${STRUCTURE_LABEL_FONT_FAMILY}`;
+    const textWidth = ctx.measureText(labelText).width;
+    const labelWidth = textWidth + labelPaddingX * 2;
+    const labelHeight = labelFontSize + labelPaddingY * 2;
+    const labelX = worldX + (worldWidth - labelWidth) / 2;
+    const labelY = worldY - labelHeight - labelGap;
+
+    ctx.fillStyle = 'rgba(8, 13, 24, 0.9)';
+    ctx.fillRect(labelX, labelY, labelWidth, labelHeight);
+    ctx.strokeStyle = STRUCTURE_OUTLINE_ACTIVE_COLOR;
+    ctx.lineWidth = outlineWidth;
+    ctx.strokeRect(labelX, labelY, labelWidth, labelHeight);
+    ctx.fillStyle = 'rgba(240, 248, 255, 0.96)';
+    ctx.fillText(labelText, labelX + labelPaddingX, labelY + labelHeight / 2);
+  }
+
+  ctx.textBaseline = 'alphabetic';
+}
+
 const renderScheduler = createRenderScheduler({
   render,
   requestAnimationFrame: (callback) => window.requestAnimationFrame(callback),
@@ -2747,7 +3016,10 @@ function requestRender(): void {
 }
 
 function render(): void {
-  if (!gridBytes) return;
+  if (!gridBytes) {
+    syncStructureCardOverlayPositions();
+    return;
+  }
 
   const visibleBounds = computeVisibleGridBounds({
     camera: cameraState,
@@ -2784,8 +3056,11 @@ function render(): void {
     }
   }
 
+  renderStructureOverlayLayer(visibleBounds);
+
   renderBuildPreviewOverlay(visibleBounds);
   ctx.restore();
+  syncStructureCardOverlayPositions();
 }
 
 function pointerToCell(event: PointerEvent): Cell | null {
