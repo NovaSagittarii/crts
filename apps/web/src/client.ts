@@ -2147,6 +2147,9 @@ function syncPreviewTemplateSnapshots(
   templates: readonly StructureTemplatePayload[],
 ): void {
   previewTemplateSnapshotsById.clear();
+  templateMaxHpByTemplateId.clear();
+
+  const nextTemplateMaxHpLookup: Record<string, number> = {};
 
   for (const template of templates) {
     previewTemplateSnapshotsById.set(template.id, {
@@ -2160,7 +2163,14 @@ function syncPreviewTemplateSnapshots(
       checks: template.checks.map((check) => ({ x: check.x, y: check.y })),
       activationCost: template.activationCost,
     });
+
+    if (template.startingHp > 0) {
+      templateMaxHpByTemplateId.set(template.id, template.startingHp);
+      nextTemplateMaxHpLookup[template.id] = template.startingHp;
+    }
   }
+
+  templateMaxHpLookup = nextTemplateMaxHpLookup;
 }
 
 function deriveLocalBuildPreview(
@@ -3592,6 +3602,8 @@ socket.on('room:left', (payload: RoomLeftPayload) => {
   currentTeamId = null;
   availableTemplates = [];
   previewTemplateSnapshotsById.clear();
+  templateMaxHpByTemplateId.clear();
+  templateMaxHpLookup = {};
   selectedTemplateId = '';
   buildModeController.deactivate();
   updateTemplateButtonMenu();
