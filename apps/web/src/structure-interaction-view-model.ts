@@ -187,6 +187,17 @@ export function selectActiveStructureKey(
   return state.hoverKey;
 }
 
+export function selectHoverPreviewStructureKey(
+  state: StructureInteractionState,
+  nowMs: number | null = null,
+): string | null {
+  if (state.pinnedKey) {
+    return null;
+  }
+
+  return selectActiveStructureKey(state, nowMs);
+}
+
 export function selectStructureInteractionMode(
   state: StructureInteractionState,
   nowMs: number | null = null,

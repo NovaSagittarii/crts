@@ -149,6 +149,7 @@ import {
   createStructureInteractionState,
   reduceStructureInteraction,
   selectActiveStructureKey,
+  selectHoverPreviewStructureKey,
 } from './structure-interaction-view-model.js';
 import {
   DEFAULT_SYNC_STALE_THRESHOLD_MS,
@@ -1260,16 +1261,11 @@ function getPinnedStructure(): VisibleStructure | null {
 }
 
 function getHoverPreviewStructure(nowMs = Date.now()): VisibleStructure | null {
-  const hoverKey = structureInteractionState.hoverKey;
+  const hoverKey = selectHoverPreviewStructureKey(
+    structureInteractionState,
+    nowMs,
+  );
   if (!hoverKey) {
-    return null;
-  }
-
-  if (
-    structureInteractionState.pinnedKey === null &&
-    structureInteractionState.hoverLeaveExpiresAtMs !== null &&
-    nowMs >= structureInteractionState.hoverLeaveExpiresAtMs
-  ) {
     return null;
   }
 

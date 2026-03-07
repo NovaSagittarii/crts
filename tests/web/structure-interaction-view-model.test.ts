@@ -5,6 +5,7 @@ import {
   createStructureInteractionState,
   reduceStructureInteraction,
   selectActiveStructureKey,
+  selectHoverPreviewStructureKey,
   selectStructureInteractionMode,
 } from '../../apps/web/src/structure-interaction-view-model.js';
 
@@ -172,5 +173,39 @@ describe('structure-interaction-view-model helpers', () => {
 
     expect(selectActiveStructureKey(state, 10)).toBe('alpha');
     expect(canShowStructureActions(state, 10)).toBe(true);
+  });
+
+  test('suppresses hover preview while a structure is pinned', () => {
+    let state = createStructureInteractionState();
+    state = reduceStructureInteraction(state, {
+      type: 'hover-enter',
+      structureKey: 'alpha',
+    });
+    state = reduceStructureInteraction(state, {
+      type: 'pin-active',
+    });
+
+    expect(selectHoverPreviewStructureKey(state, 100)).toBeNull();
+
+    state = reduceStructureInteraction(state, {
+      type: 'unpin',
+    });
+    expect(selectHoverPreviewStructureKey(state, 100)).toBe('alpha');
+  });
+
+  test('excludes expired hover keys from hover preview selection', () => {
+    let state = createStructureInteractionState();
+    state = reduceStructureInteraction(state, {
+      type: 'hover-enter',
+      structureKey: 'alpha',
+    });
+    state = reduceStructureInteraction(state, {
+      type: 'hover-leave',
+      atMs: 1_000,
+      graceMs: 300,
+    });
+
+    expect(selectHoverPreviewStructureKey(state, 1_250)).toBe('alpha');
+    expect(selectHoverPreviewStructureKey(state, 1_301)).toBeNull();
   });
 });
