@@ -192,6 +192,13 @@ interface Cell {
   y: number;
 }
 
+interface StructureOverlayGeometry {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 interface TeamBuildZoneProjectionInput {
   x: number;
   y: number;
@@ -603,6 +610,8 @@ let destroyViewState: DestroyViewModelState = createDestroyViewModelState();
 let structureInteractionState: StructureInteractionState =
   createStructureInteractionState();
 let structureHoverTickTimeoutId: number | null = null;
+let structureOverlayGeometry: StructureOverlayGeometry | null = null;
+let structureOverlayGeometryDirty = true;
 let tacticalOverlayState: TacticalOverlayState = createTacticalOverlayState();
 let tacticalOverlayTickTimeoutId: number | null = null;
 let activeOverlayTab: 'economy' | 'build' | 'team' = 'economy';
@@ -872,6 +881,7 @@ function applyStructuresStatePayload(
   syncVisibleStructures(syntheticPayload, false);
   syncLocalBuildZoneOverlay(syntheticPayload);
   renderSpawnMarkers(syntheticPayload);
+  renderTacticalOverlay(Date.now());
   requestRender();
 
   if (
@@ -1014,8 +1024,10 @@ function updateVisibleMatchScreen(): void {
   const showLobby = matchScreenState.screen === 'lobby';
   lobbyScreenEl.classList.toggle('is-active', showLobby);
   lobbyScreenEl.setAttribute('aria-hidden', showLobby ? 'false' : 'true');
+  lobbyScreenEl.toggleAttribute('inert', !showLobby);
   ingameScreenEl.classList.toggle('is-active', !showLobby);
   ingameScreenEl.setAttribute('aria-hidden', showLobby ? 'true' : 'false');
+  ingameScreenEl.toggleAttribute('inert', showLobby);
   ingameLayoutController.syncScreen(matchScreenState.screen);
   chatDrawerController.syncScreen(matchScreenState.screen);
   tacticalRailController.syncScreen(matchScreenState.screen);
@@ -1318,7 +1330,15 @@ function getHoverPreviewStructure(nowMs = Date.now()): VisibleStructure | null {
   return getVisibleStructureByKey(hoverKey);
 }
 
-function syncStructureCardOverlayPositions(nowMs = Date.now()): void {
+function markStructureOverlayGeometryDirty(): void {
+  structureOverlayGeometryDirty = true;
+}
+
+function syncStructureOverlayGeometry(): StructureOverlayGeometry | null {
+  if (!structureOverlayGeometryDirty && structureOverlayGeometry) {
+    return structureOverlayGeometry;
+  }
+
   const viewportRect = gridViewportEl.getBoundingClientRect();
   const canvasRect = canvas.getBoundingClientRect();
 
@@ -1328,6 +1348,51 @@ function syncStructureCardOverlayPositions(nowMs = Date.now()): void {
     canvasRect.width <= 0 ||
     canvasRect.height <= 0
   ) {
+    structureOverlayGeometry = null;
+    structureOverlayGeometryDirty = false;
+    return null;
+  }
+
+  const nextGeometry: StructureOverlayGeometry = {
+    left: canvasRect.left - viewportRect.left,
+    top: canvasRect.top - viewportRect.top,
+    width: canvasRect.width,
+    height: canvasRect.height,
+  };
+
+  if (
+    !structureOverlayGeometry ||
+    structureOverlayGeometry.left !== nextGeometry.left
+  ) {
+    structureOverlayLayerEl.style.left = `${nextGeometry.left}px`;
+  }
+  if (
+    !structureOverlayGeometry ||
+    structureOverlayGeometry.top !== nextGeometry.top
+  ) {
+    structureOverlayLayerEl.style.top = `${nextGeometry.top}px`;
+  }
+  if (
+    !structureOverlayGeometry ||
+    structureOverlayGeometry.width !== nextGeometry.width
+  ) {
+    structureOverlayLayerEl.style.width = `${nextGeometry.width}px`;
+  }
+  if (
+    !structureOverlayGeometry ||
+    structureOverlayGeometry.height !== nextGeometry.height
+  ) {
+    structureOverlayLayerEl.style.height = `${nextGeometry.height}px`;
+  }
+
+  structureOverlayGeometry = nextGeometry;
+  structureOverlayGeometryDirty = false;
+  return structureOverlayGeometry;
+}
+
+function syncStructureCardOverlayPositions(nowMs = Date.now()): void {
+  const geometry = syncStructureOverlayGeometry();
+  if (!geometry) {
     structureCardOverlayLayer.update({
       cards: [],
       camera: cameraState,
@@ -1337,11 +1402,6 @@ function syncStructureCardOverlayPositions(nowMs = Date.now()): void {
     });
     return;
   }
-
-  structureOverlayLayerEl.style.left = `${canvasRect.left - viewportRect.left}px`;
-  structureOverlayLayerEl.style.top = `${canvasRect.top - viewportRect.top}px`;
-  structureOverlayLayerEl.style.width = `${canvasRect.width}px`;
-  structureOverlayLayerEl.style.height = `${canvasRect.height}px`;
 
   const cards: StructureCardState[] = [];
   const pinnedStructure = getPinnedStructure();
@@ -1378,8 +1438,8 @@ function syncStructureCardOverlayPositions(nowMs = Date.now()): void {
     cards,
     camera: cameraState,
     cellSize,
-    viewportWidth: canvasRect.width,
-    viewportHeight: canvasRect.height,
+    viewportWidth: geometry.width,
+    viewportHeight: geometry.height,
   });
 }
 
@@ -2777,6 +2837,7 @@ function resizeCanvas(): void {
   canvas.width = Math.floor(canvasCssWidth * canvasRatio);
   canvas.height = Math.floor(canvasCssHeight * canvasRatio);
   ctx.setTransform(canvasRatio, 0, 0, canvasRatio, 0, 0);
+  markStructureOverlayGeometryDirty();
   updateCameraStatus();
 }
 
@@ -3520,6 +3581,17 @@ window.addEventListener('resize', () => {
     requestRender();
   }
 });
+
+if (typeof ResizeObserver !== 'undefined') {
+  const structureOverlayResizeObserver = new ResizeObserver(() => {
+    markStructureOverlayGeometryDirty();
+    if (gridBytes) {
+      requestRender();
+    }
+  });
+  structureOverlayResizeObserver.observe(gridViewportEl);
+  structureOverlayResizeObserver.observe(canvas);
+}
 
 socket.on('connect', () => {
   statusEl.textContent = 'Connected';
