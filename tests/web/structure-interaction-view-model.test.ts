@@ -5,6 +5,7 @@ import {
   createStructureInteractionState,
   reduceStructureInteraction,
   selectActiveStructureKey,
+  selectHoverPreviewStructureKey,
   selectStructureInteractionMode,
 } from '../../apps/web/src/structure-interaction-view-model.js';
 
@@ -78,6 +79,33 @@ describe('structure-interaction-view-model helpers', () => {
     expect(canShowStructureActions(state, 5_000)).toBe(true);
   });
 
+  test('allows hover preview to expire while pinned state stays action-ready', () => {
+    let state = createStructureInteractionState();
+    state = reduceStructureInteraction(state, {
+      type: 'pin',
+      structureKey: 'base-core',
+    });
+
+    state = reduceStructureInteraction(state, {
+      type: 'hover-leave',
+      atMs: 10,
+      graceMs: 300,
+    });
+    state = reduceStructureInteraction(state, {
+      type: 'tick',
+      atMs: 400,
+    });
+
+    expect(selectActiveStructureKey(state, 400)).toBe('base-core');
+    expect(selectStructureInteractionMode(state, 400)).toBe('pinned');
+    expect(canShowStructureActions(state, 400)).toBe(true);
+
+    state = reduceStructureInteraction(state, { type: 'unpin' });
+
+    expect(selectActiveStructureKey(state, 401)).toBeNull();
+    expect(selectStructureInteractionMode(state, 401)).toBe('idle');
+  });
+
   test('returns to hover-only mode after unpin and disables actions', () => {
     let state = createStructureInteractionState();
     state = reduceStructureInteraction(state, {
@@ -145,5 +173,39 @@ describe('structure-interaction-view-model helpers', () => {
 
     expect(selectActiveStructureKey(state, 10)).toBe('alpha');
     expect(canShowStructureActions(state, 10)).toBe(true);
+  });
+
+  test('suppresses hover preview while a structure is pinned', () => {
+    let state = createStructureInteractionState();
+    state = reduceStructureInteraction(state, {
+      type: 'hover-enter',
+      structureKey: 'alpha',
+    });
+    state = reduceStructureInteraction(state, {
+      type: 'pin-active',
+    });
+
+    expect(selectHoverPreviewStructureKey(state, 100)).toBeNull();
+
+    state = reduceStructureInteraction(state, {
+      type: 'unpin',
+    });
+    expect(selectHoverPreviewStructureKey(state, 100)).toBe('alpha');
+  });
+
+  test('excludes expired hover keys from hover preview selection', () => {
+    let state = createStructureInteractionState();
+    state = reduceStructureInteraction(state, {
+      type: 'hover-enter',
+      structureKey: 'alpha',
+    });
+    state = reduceStructureInteraction(state, {
+      type: 'hover-leave',
+      atMs: 1_000,
+      graceMs: 300,
+    });
+
+    expect(selectHoverPreviewStructureKey(state, 1_250)).toBe('alpha');
+    expect(selectHoverPreviewStructureKey(state, 1_301)).toBeNull();
   });
 });

@@ -43,7 +43,6 @@ function expireHoverIfNeeded(
   atMs: number,
 ): StructureInteractionState {
   if (
-    state.pinnedKey ||
     !state.hoverKey ||
     state.hoverLeaveExpiresAtMs === null ||
     atMs < state.hoverLeaveExpiresAtMs
@@ -96,7 +95,7 @@ export function reduceStructureInteraction(
   }
 
   if (action.type === 'hover-leave') {
-    if (state.pinnedKey || !state.hoverKey) {
+    if (!state.hoverKey) {
       return state;
     }
 
@@ -186,6 +185,17 @@ export function selectActiveStructureKey(
   }
 
   return state.hoverKey;
+}
+
+export function selectHoverPreviewStructureKey(
+  state: StructureInteractionState,
+  nowMs: number | null = null,
+): string | null {
+  if (state.pinnedKey) {
+    return null;
+  }
+
+  return selectActiveStructureKey(state, nowMs);
 }
 
 export function selectStructureInteractionMode(

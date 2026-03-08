@@ -210,7 +210,8 @@ main {
 .control button,
 .tactical-rail input,
 .tactical-rail select,
-.tactical-rail button {
+.tactical-rail button,
+.structure-card button {
   width: 100%;
   border-radius: 10px;
   border: 1px solid var(--panel-border);
@@ -221,20 +222,27 @@ main {
 }
 
 .control button,
-.tactical-rail button {
+.tactical-rail button,
+.structure-card button {
   margin-top: 6px;
   cursor: pointer;
 }
 
 .control button:hover,
-.tactical-rail button:hover {
+.tactical-rail button:hover,
+.structure-card button:hover {
   border-color: var(--accent);
 }
 
 .control button:disabled,
-.tactical-rail button:disabled {
+.tactical-rail button:disabled,
+.structure-card button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.structure-card .button-row button {
+  margin-top: 0;
 }
 
 .button-row {
@@ -751,16 +759,64 @@ main {
   background: rgba(70, 213, 182, 0.14);
 }
 
-.structure-inspector {
+.structure-overlay-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.structure-card {
+  position: absolute;
+  width: min(320px, calc(100% - 16px));
   border: 1px solid rgba(154, 167, 189, 0.32);
   border-radius: 12px;
   padding: 10px;
-  background: rgba(8, 13, 24, 0.75);
+  background: rgba(8, 13, 24, 0.84);
   display: grid;
   gap: 8px;
+  box-shadow: 0 14px 28px rgba(5, 7, 13, 0.5);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: none;
+  transition:
+    opacity 180ms ease,
+    visibility 0s linear 0s;
 }
 
-.structure-inspector h2 {
+.structure-card.is-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 180ms ease,
+    visibility 0s linear 180ms;
+}
+
+.structure-card.is-visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.structure-card--hover {
+  width: min(250px, calc(100% - 16px));
+  border-color: rgba(94, 201, 255, 0.48);
+  background: rgba(7, 14, 25, 0.82);
+}
+
+.structure-card--pinned {
+  width: min(330px, calc(100% - 16px));
+  border-color: rgba(248, 192, 108, 0.44);
+}
+
+.structure-card--pinned.is-visible {
+  pointer-events: auto;
+}
+
+.structure-card h2 {
   margin: 0;
   font-size: 12px;
   text-transform: uppercase;

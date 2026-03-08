@@ -191,22 +191,53 @@
                     >
                       <canvas id="grid"></canvas>
 
-                      <aside
-                        id="tactical-rail"
-                        class="tactical-rail"
-                        data-mobile-tab="economy"
+                      <div
+                        id="structure-overlay-layer"
+                        class="structure-overlay-layer"
                       >
                         <section
-                          id="structure-inspector"
-                          class="structure-inspector"
+                          id="structure-hover-preview"
+                          class="structure-card structure-card--hover is-hidden"
+                          aria-hidden="true"
                         >
-                          <h2>Structure Inspector</h2>
+                          <p
+                            id="structure-hover-status"
+                            class="inspector-status"
+                          >
+                            Hover preview only.
+                          </p>
+                          <div class="inspector-grid">
+                            <div class="inspector-metric">
+                              <span>Template</span>
+                              <strong id="structure-hover-template">-</strong>
+                            </div>
+                            <div class="inspector-metric">
+                              <span>Owner</span>
+                              <strong id="structure-hover-owner">-</strong>
+                            </div>
+                            <div class="inspector-metric">
+                              <span>Integrity</span>
+                              <strong id="structure-hover-health">-</strong>
+                            </div>
+                            <div class="inspector-metric">
+                              <span>State</span>
+                              <strong id="structure-hover-state">-</strong>
+                            </div>
+                          </div>
+                        </section>
+
+                        <section
+                          id="structure-inspector"
+                          class="structure-card structure-card--pinned is-hidden"
+                          aria-hidden="true"
+                        >
+                          <h2>Pinned Structure</h2>
                           <p
                             id="structure-inspector-status"
                             class="inspector-status"
                           >
-                            Hover a structure to inspect details. Click or tap
-                            to pin and unlock actions.
+                            Pinned structure. Actions and outcomes stay anchored
+                            here.
                           </p>
                           <div class="inspector-grid">
                             <div class="inspector-metric">
@@ -268,7 +299,13 @@
                             is selected.
                           </p>
                         </section>
+                      </div>
 
+                      <aside
+                        id="tactical-rail"
+                        class="tactical-rail"
+                        data-mobile-tab="economy"
+                      >
                         <div
                           class="tactical-mobile-tabs"
                           role="tablist"

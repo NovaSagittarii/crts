@@ -132,6 +132,7 @@ export interface StructureTemplateSummary {
   activationCost: number;
   income: number;
   buildArea: number;
+  startingHp: number;
 }
 
 export interface StructureTemplatePayload extends StructureTemplateSummary {
@@ -290,6 +291,7 @@ export class StructureTemplate {
       activationCost: this.activationCost,
       income: this.income,
       buildArea: this.buildArea,
+      startingHp: this.startingHp,
     };
   }
 

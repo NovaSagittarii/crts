@@ -126,4 +126,26 @@ describe('structure', () => {
     expect(CORE_STRUCTURE_TEMPLATE.width).toBe(CORE_TEMPLATE_GRID.width);
     expect(CORE_STRUCTURE_TEMPLATE.height).toBe(CORE_TEMPLATE_GRID.height);
   });
+
+  test('includes starting hp in template summary and payload exports', () => {
+    const template = new StructureTemplate({
+      id: 'hp-probe',
+      name: 'HP Probe',
+      grid: new Grid(1, 1, [{ x: 0, y: 0 }], 'flat'),
+      activationCost: 1,
+      income: 0,
+      buildArea: 2,
+      startingHp: 37,
+      checks: [],
+    });
+
+    expect(template.toSummary()).toMatchObject({
+      id: 'hp-probe',
+      startingHp: 37,
+    });
+    expect(template.toPayload()).toMatchObject({
+      id: 'hp-probe',
+      startingHp: 37,
+    });
+  });
 });
