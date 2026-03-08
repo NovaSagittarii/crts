@@ -88,6 +88,7 @@ import {
   syncDestroyPending,
 } from './destroy-view-model.js';
 import { EconomyHudController } from './economy-hud-controller.js';
+import { IngameLayoutController } from './ingame-layout-controller.js';
 import { deriveLobbyControlsViewModel } from './lobby-controls-view-model.js';
 import { deriveLobbyMembershipViewModel } from './lobby-membership-view-model.js';
 import { LobbyScreenUi } from './lobby-screen-ui.js';
@@ -464,6 +465,21 @@ const chatLogEl = getRequiredElement<HTMLDivElement>('chat-log');
 const chatInputEl = getRequiredElement<HTMLInputElement>('chat-input');
 const chatSendButton = getRequiredElement<HTMLButtonElement>('chat-send');
 const toastStackEl = getRequiredElement<HTMLDivElement>('toast-stack');
+const ingameLayoutController = new IngameLayoutController(
+  { bodyEl: document.body },
+  {
+    onModeChanged: () => {
+      const previousCellSize = cellSize;
+      resizeCanvas();
+      if (gridWidth > 0 && gridHeight > 0 && cellSize !== previousCellSize) {
+        resetCameraForCurrentTeam();
+      }
+      if (gridWidth > 0 && gridHeight > 0) {
+        requestRender();
+      }
+    },
+  },
+);
 
 const SESSION_STORAGE_KEY = 'life-rts.session-id';
 const BOOTSTRAP_MEMBERSHIP_TIMEOUT_MS = 6000;
@@ -966,6 +982,7 @@ function updateVisibleMatchScreen(): void {
   lobbyScreenEl.setAttribute('aria-hidden', showLobby ? 'false' : 'true');
   ingameScreenEl.classList.toggle('is-active', !showLobby);
   ingameScreenEl.setAttribute('aria-hidden', showLobby ? 'true' : 'false');
+  ingameLayoutController.syncScreen(matchScreenState.screen);
   updateCameraStatus();
 }
 

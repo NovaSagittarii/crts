@@ -28,6 +28,19 @@ body {
   background: radial-gradient(circle at top, #1b2a49, var(--bg)) fixed;
 }
 
+body,
+#app-main,
+#match-layout,
+.match-stage,
+.screen-stack,
+#ingame-screen,
+.ingame-layout,
+.board,
+.camera-shell,
+.grid-viewport {
+  min-height: 0;
+}
+
 header {
   display: flex;
   flex-wrap: wrap;
@@ -81,6 +94,64 @@ p {
 
 main {
   padding: 0 clamp(20px, 4vw, 48px) 40px;
+}
+
+body.app--ingame {
+  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+body.app--ingame #app-header,
+body.app--ingame #app-footer {
+  display: none;
+}
+
+body.app--ingame #app-main {
+  height: 100%;
+  padding: 8px;
+}
+
+body.app--ingame .match-layout {
+  position: relative;
+  height: 100%;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+body.app--ingame .match-stage {
+  height: 100%;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+}
+
+body.app--ingame .screen-stack,
+body.app--ingame #ingame-screen,
+body.app--ingame .ingame-layout,
+body.app--ingame .board,
+body.app--ingame .camera-shell,
+body.app--ingame .grid-viewport {
+  height: 100%;
+}
+
+body.app--ingame .screen-stack {
+  min-height: 0;
+}
+
+body.app--ingame .edge-status-strip {
+  padding: 6px 8px;
+  gap: 6px;
+}
+
+body.app--ingame #message,
+body.app--ingame .camera-hint,
+body.app--ingame .chat-shell {
+  display: none;
+}
+
+body.app--ingame .board {
+  border-radius: 16px;
+  padding: 8px;
 }
 
 .match-layout {

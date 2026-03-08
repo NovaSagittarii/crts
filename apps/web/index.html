@@ -14,7 +14,7 @@
     <script type="module" src="./src/client.ts"></script>
   </head>
   <body>
-    <header>
+    <header id="app-header">
       <div>
         <h1>Multiplayer Life Grid</h1>
         <p>
@@ -57,8 +57,8 @@
         </div>
       </div>
     </header>
-    <main>
-      <div class="match-layout">
+    <main id="app-main">
+      <div id="match-layout" class="match-layout">
         <section class="match-stage">
           <div class="edge-status-strip">
             <div id="lifecycle-status-line" class="lifecycle-status-line">
@@ -570,7 +570,11 @@
           </div>
         </section>
 
-        <aside class="control chat-shell">
+        <aside
+          id="room-chat-shell"
+          class="control chat-shell"
+          aria-hidden="false"
+        >
           <h2>Room Chat</h2>
           <div id="chat-log" class="chat-log"></div>
           <label>
@@ -624,7 +628,7 @@
 
     <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
 
-    <footer>
+    <footer id="app-footer">
       Deterministic-lockstep multiplayer Life RTS. Players and spectators share
       lobby visibility and room chat.
     </footer>
