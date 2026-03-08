@@ -2752,18 +2752,22 @@ function renderRoomList(rooms: RoomListEntryPayload[]): void {
   }
 }
 
-function chooseCellSize(width: number): number {
+function chooseCellSize(width: number, height: number): number {
   const viewportWidth =
     gridViewportEl.clientWidth > 0
       ? gridViewportEl.clientWidth
       : window.innerWidth;
-  return chooseGridCellSize(width, viewportWidth);
+  const viewportHeight =
+    gridViewportEl.clientHeight > 0
+      ? gridViewportEl.clientHeight
+      : window.innerHeight;
+  return chooseGridCellSize(width, height, viewportWidth, viewportHeight);
 }
 
 function resizeCanvas(): void {
   if (!gridWidth || !gridHeight) return;
 
-  cellSize = chooseCellSize(gridWidth);
+  cellSize = chooseCellSize(gridWidth, gridHeight);
   canvasRatio = window.devicePixelRatio || 1;
   canvasCssWidth = gridWidth * cellSize;
   canvasCssHeight = gridHeight * cellSize;
