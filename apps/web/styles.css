@@ -144,8 +144,7 @@ body.app--ingame .edge-status-strip {
 }
 
 body.app--ingame #message,
-body.app--ingame .camera-hint,
-body.app--ingame .chat-shell {
+body.app--ingame .camera-hint {
   display: none;
 }
 
@@ -807,6 +806,49 @@ body.app--ingame .board {
   pointer-events: auto;
 }
 
+.tactical-rail-controls {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+}
+
+.tactical-rail .tactical-rail-action {
+  width: auto;
+  margin-top: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  border-radius: 9px;
+}
+
+.tactical-rail.tactical-rail--compact .tactical-section {
+  display: none;
+}
+
+#tactical-rail.tactical-rail--compact[data-active-section='economy']
+  .tactical-section[data-overlay-section='economy'],
+#tactical-rail.tactical-rail--compact[data-active-section='build']
+  .tactical-section[data-overlay-section='build'],
+#tactical-rail.tactical-rail--compact[data-active-section='team']
+  .tactical-section[data-overlay-section='team'] {
+  display: block;
+}
+
+#tactical-rail.tactical-rail--minimized {
+  width: auto;
+  max-width: min(240px, calc(100% - 24px));
+  max-height: none;
+  overflow: visible;
+  gap: 0;
+  padding: 8px;
+}
+
+#tactical-rail.tactical-rail--minimized .tactical-mobile-tabs,
+#tactical-rail.tactical-rail--minimized .tactical-section,
+#tactical-rail.tactical-rail--minimized #tactical-sync-hint {
+  display: none;
+}
+
 .tactical-mobile-tabs {
   display: none;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1099,6 +1141,42 @@ body.app--ingame .board {
   color: var(--text);
 }
 
+.camera-action {
+  border-radius: 999px;
+  border: 1px solid rgba(154, 167, 189, 0.36);
+  background: rgba(9, 14, 26, 0.78);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  padding: 5px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.camera-action--chat {
+  margin-left: auto;
+}
+
+.camera-action--active {
+  border-color: rgba(70, 213, 182, 0.7);
+  color: var(--text);
+  background: rgba(70, 213, 182, 0.16);
+}
+
+.chat-unread-badge {
+  min-width: 18px;
+  border-radius: 999px;
+  background: rgba(248, 192, 108, 0.22);
+  border: 1px solid rgba(248, 192, 108, 0.56);
+  color: #ffde9d;
+  font-family: 'IBM Plex Mono', 'Courier New', monospace;
+  font-size: 10px;
+  text-align: center;
+  padding: 1px 5px;
+}
+
 .camera-hint {
   margin: 0;
   color: var(--muted);
@@ -1133,8 +1211,48 @@ body.app--ingame .board {
   top: 16px;
 }
 
+.chat-shell__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chat-shell .chat-shell__close {
+  display: none;
+  width: auto;
+  margin-top: 0;
+  padding: 6px 12px;
+  font-size: 11px;
+}
+
 .chat-shell .chat-log {
   max-height: min(52vh, 520px);
+}
+
+body.app--ingame .chat-shell.chat-shell--drawer-mode {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: min(360px, calc(100% - 24px));
+  margin: 0;
+  z-index: 8;
+  display: none;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+}
+
+body.app--ingame .chat-shell.chat-shell--drawer-open {
+  display: grid;
+}
+
+body.app--ingame .chat-shell.chat-shell--drawer-open .chat-log {
+  max-height: none;
+  min-height: 0;
+}
+
+body.app--ingame .chat-shell.chat-shell--drawer-mode .chat-shell__close {
+  display: inline-flex;
 }
 
 canvas {
@@ -1453,6 +1571,10 @@ footer {
     max-height: min(72%, 460px);
     padding: 10px;
     background: rgba(8, 12, 22, 0.95);
+  }
+
+  .tactical-rail-controls {
+    display: none;
   }
 
   #tactical-rail[data-mobile-tab='economy'] .tactical-section,

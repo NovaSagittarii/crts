@@ -62,6 +62,7 @@ import {
   screenPointToCell,
 } from './camera-view-model.js';
 import { chooseGridCellSize } from './canvas-layout.js';
+import { ChatDrawerController } from './chat-drawer-controller.js';
 import {
   DEFAULT_CHAT_LOG_MAX_MESSAGES,
   getChatOverflowCount,
@@ -160,6 +161,7 @@ import {
   createTacticalOverlayState,
   deriveTacticalOverlayState,
 } from './tactical-overlay-view-model.js';
+import { TacticalRailController } from './tactical-rail-controller.js';
 import { TemplateButtonMenuElement } from './template-button-menu.js';
 import { getWrappedBoundsSegments } from './wrapped-grid-view-model.js';
 
@@ -348,6 +350,12 @@ const overlayTabBuildButton =
   getRequiredElement<HTMLButtonElement>('overlay-tab-build');
 const overlayTabTeamButton =
   getRequiredElement<HTMLButtonElement>('overlay-tab-team');
+const tacticalCompactToggleButton = getRequiredElement<HTMLButtonElement>(
+  'tactical-compact-toggle',
+);
+const tacticalMinimizeToggleButton = getRequiredElement<HTMLButtonElement>(
+  'tactical-minimize-toggle',
+);
 const pendingTimelineEl =
   getRequiredElement<HTMLDivElement>('pending-timeline');
 const messageEl = getRequiredElement<HTMLElement>('message');
@@ -464,7 +472,33 @@ const lobbyScreenUi = new LobbyScreenUi({
 const chatLogEl = getRequiredElement<HTMLDivElement>('chat-log');
 const chatInputEl = getRequiredElement<HTMLInputElement>('chat-input');
 const chatSendButton = getRequiredElement<HTMLButtonElement>('chat-send');
+const chatShellEl = getRequiredElement<HTMLElement>('room-chat-shell');
+const chatDrawerToggleButton =
+  getRequiredElement<HTMLButtonElement>('chat-drawer-toggle');
+const chatDrawerCloseButton =
+  getRequiredElement<HTMLButtonElement>('chat-drawer-close');
+const chatUnreadBadgeEl = getRequiredElement<HTMLElement>('chat-unread-badge');
 const toastStackEl = getRequiredElement<HTMLDivElement>('toast-stack');
+const tacticalRailController = new TacticalRailController({
+  railEl: tacticalRailEl,
+  compactButtonEl: tacticalCompactToggleButton,
+  minimizeButtonEl: tacticalMinimizeToggleButton,
+});
+const chatDrawerController = new ChatDrawerController(
+  {
+    chatShellEl,
+    toggleButtonEl: chatDrawerToggleButton,
+    closeButtonEl: chatDrawerCloseButton,
+    unreadBadgeEl: chatUnreadBadgeEl,
+  },
+  {
+    onOpenChanged: (isOpen) => {
+      if (isOpen) {
+        chatInputEl.focus();
+      }
+    },
+  },
+);
 const ingameLayoutController = new IngameLayoutController(
   { bodyEl: document.body },
   {
@@ -983,6 +1017,8 @@ function updateVisibleMatchScreen(): void {
   ingameScreenEl.classList.toggle('is-active', !showLobby);
   ingameScreenEl.setAttribute('aria-hidden', showLobby ? 'true' : 'false');
   ingameLayoutController.syncScreen(matchScreenState.screen);
+  chatDrawerController.syncScreen(matchScreenState.screen);
+  tacticalRailController.syncScreen(matchScreenState.screen);
   updateCameraStatus();
 }
 
@@ -1649,6 +1685,7 @@ function renderOverlayFeedbackRows(): void {
 function setActiveOverlayTab(tabId: 'economy' | 'build' | 'team'): void {
   activeOverlayTab = tabId;
   tacticalRailEl.dataset.mobileTab = tabId;
+  tacticalRailController.setActiveSection(tabId);
 
   const tabs = [
     { id: 'economy', button: overlayTabEconomyButton },
@@ -1798,6 +1835,8 @@ function resetRoomTransitionViewModels(): void {
   resetEconomyTracking();
   resetDestroyInteractionState();
   resetTacticalOverlayState();
+  tacticalRailController.reset();
+  chatDrawerController.resetRoom();
 }
 
 function syncVisibleStructures(
@@ -3830,6 +3869,9 @@ socket.on('chat:message', (payload: ChatMessagePayload) => {
   }
 
   appendChatMessage(payload);
+  chatDrawerController.notifyIncomingMessage(
+    payload.senderSessionId === playerIdentityState.sessionId,
+  );
 });
 
 socket.on('player:profile', (payload: PlayerProfilePayload) => {
@@ -4205,6 +4247,22 @@ overlayTabBuildButton.addEventListener('click', () => {
 
 overlayTabTeamButton.addEventListener('click', () => {
   setActiveOverlayTab('team');
+});
+
+tacticalCompactToggleButton.addEventListener('click', () => {
+  tacticalRailController.toggleCompact();
+});
+
+tacticalMinimizeToggleButton.addEventListener('click', () => {
+  tacticalRailController.toggleMinimized();
+});
+
+chatDrawerToggleButton.addEventListener('click', () => {
+  chatDrawerController.toggle();
+});
+
+chatDrawerCloseButton.addEventListener('click', () => {
+  chatDrawerController.close();
 });
 
 updateTransformIndicator();

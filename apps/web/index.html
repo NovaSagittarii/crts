@@ -177,6 +177,21 @@
                       <span id="camera-status" class="camera-pill"
                         >Camera: ready</span
                       >
+                      <button
+                        id="chat-drawer-toggle"
+                        class="camera-action camera-action--chat"
+                        type="button"
+                        aria-expanded="false"
+                        aria-controls="room-chat-shell"
+                        hidden
+                      >
+                        Chat
+                        <span
+                          id="chat-unread-badge"
+                          class="chat-unread-badge is-hidden"
+                          >0</span
+                        >
+                      </button>
                     </div>
                     <p class="camera-hint">
                       Camera controls: right-drag pan, wheel/pinch zoom, arrows
@@ -306,6 +321,26 @@
                         class="tactical-rail"
                         data-mobile-tab="economy"
                       >
+                        <div class="tactical-rail-controls">
+                          <button
+                            id="tactical-compact-toggle"
+                            class="tactical-rail-action"
+                            type="button"
+                            aria-pressed="false"
+                            hidden
+                          >
+                            Compact view
+                          </button>
+                          <button
+                            id="tactical-minimize-toggle"
+                            class="tactical-rail-action"
+                            type="button"
+                            aria-pressed="false"
+                            hidden
+                          >
+                            Minimize
+                          </button>
+                        </div>
                         <div
                           class="tactical-mobile-tabs"
                           role="tablist"
@@ -575,7 +610,17 @@
           class="control chat-shell"
           aria-hidden="false"
         >
-          <h2>Room Chat</h2>
+          <div class="chat-shell__header">
+            <h2>Room Chat</h2>
+            <button
+              id="chat-drawer-close"
+              class="chat-shell__close"
+              type="button"
+              hidden
+            >
+              Close
+            </button>
+          </div>
           <div id="chat-log" class="chat-log"></div>
           <label>
             Message
