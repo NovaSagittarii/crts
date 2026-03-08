@@ -44,6 +44,8 @@ const primaryTest = createLockstepTest(
     hostSessionId: 'primary-host',
     guestSessionId: 'primary-guest',
   },
+  { startMode: 'manual' },
+  { runtimeMode: 'manual' },
 );
 const boundaryTest = createLockstepTest(
   {
@@ -60,6 +62,8 @@ const boundaryTest = createLockstepTest(
     hostSessionId: 'primary-boundary-host',
     guestSessionId: 'primary-boundary-guest',
   },
+  { startMode: 'manual' },
+  { runtimeMode: 'manual' },
 );
 const overflowTest = createLockstepTest(
   {
@@ -77,6 +81,8 @@ const overflowTest = createLockstepTest(
     hostSessionId: 'primary-overflow-host',
     guestSessionId: 'primary-overflow-guest',
   },
+  { startMode: 'manual' },
+  { runtimeMode: 'manual' },
 );
 const finishTest = createLockstepTest(
   {
@@ -93,6 +99,8 @@ const finishTest = createLockstepTest(
     hostSessionId: 'primary-finish-host',
     guestSessionId: 'primary-finish-guest',
   },
+  { startMode: 'manual' },
+  { runtimeMode: 'manual' },
 );
 const finishDestroyTest = createLockstepTest(
   {
@@ -109,6 +117,8 @@ const finishDestroyTest = createLockstepTest(
     hostSessionId: 'primary-finish-destroy-host',
     guestSessionId: 'primary-finish-destroy-guest',
   },
+  { startMode: 'manual' },
+  { runtimeMode: 'manual' },
 );
 const rejectTest = createLockstepTest(
   {
@@ -125,6 +135,8 @@ const rejectTest = createLockstepTest(
     hostSessionId: 'primary-reject-host',
     guestSessionId: 'primary-reject-guest',
   },
+  { startMode: 'manual' },
+  { runtimeMode: 'manual' },
 );
 
 function resolveTeamForPlayer(

@@ -34,12 +34,13 @@ import {
 
 const defaultServerOptions = { port: 0, width: 52, height: 52, tickMs: 40 };
 const buildQueueRoomOptions = { roomName: 'Build Queue Contract Room' };
-const bufferedMatchOptions = { startMode: 'fake-timers' as const };
+const bufferedMatchOptions = { startMode: 'manual' as const };
 
 const matchTest = createMatchTest(
   defaultServerOptions,
   buildQueueRoomOptions,
   bufferedMatchOptions,
+  { runtimeMode: 'manual' },
 );
 const snapshotMatchTest = createMatchTest(
   {
@@ -48,6 +49,7 @@ const snapshotMatchTest = createMatchTest(
   },
   buildQueueRoomOptions,
   bufferedMatchOptions,
+  { runtimeMode: 'manual' },
 );
 const stateRequestMatchTest = createMatchTest(
   {
@@ -56,6 +58,7 @@ const stateRequestMatchTest = createMatchTest(
   },
   buildQueueRoomOptions,
   bufferedMatchOptions,
+  { runtimeMode: 'manual' },
 );
 const skirmishRoomTest = createIntegrationTest({
   port: 0,

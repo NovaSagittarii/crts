@@ -32,6 +32,8 @@ const sectionsMatchTest = createMatchTest(
     hostSessionId: 'sections-host',
     guestSessionId: 'sections-guest',
   },
+  { startMode: 'manual' },
+  { runtimeMode: 'manual' },
 );
 
 const lockstepSectionsTest = createLockstepTest(
@@ -49,6 +51,8 @@ const lockstepSectionsTest = createLockstepTest(
     hostSessionId: 'sections-host',
     guestSessionId: 'sections-guest',
   },
+  { startMode: 'manual' },
+  { runtimeMode: 'manual' },
 );
 
 describe('section sync and queued fanout', () => {
@@ -210,12 +214,12 @@ describe('section sync and queued fanout', () => {
         setup.host,
         'build:queued',
         250,
-      );
+      ).catch((error: unknown) => error);
       const earlyGuestQueuedPromise = waitForEvent<BuildQueuedPayload>(
         setup.guest,
         'build:queued',
         250,
-      );
+      ).catch((error: unknown) => error);
 
       setup.host.emit('build:queue', {
         templateId: generatorTemplate.id,
@@ -223,8 +227,14 @@ describe('section sync and queued fanout', () => {
         y: placement.y,
       });
 
-      await expect(earlyHostQueuedPromise).rejects.toThrow(/timed out/i);
-      await expect(earlyGuestQueuedPromise).rejects.toThrow(/timed out/i);
+      const [earlyHostQueuedError, earlyGuestQueuedError] = await Promise.all([
+        earlyHostQueuedPromise,
+        earlyGuestQueuedPromise,
+      ]);
+      expect(earlyHostQueuedError).toBeInstanceOf(Error);
+      expect(earlyGuestQueuedError).toBeInstanceOf(Error);
+      expect((earlyHostQueuedError as Error).message).toMatch(/timed out/i);
+      expect((earlyGuestQueuedError as Error).message).toMatch(/timed out/i);
 
       const [hostQueuedResponse, guestQueued] = await Promise.all([
         hostQueuedPromise,

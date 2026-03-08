@@ -31,6 +31,8 @@ const test = createLockstepTest(
     hostSessionId: 'shadow-host',
     guestSessionId: 'shadow-guest',
   },
+  { startMode: 'manual' },
+  { runtimeMode: 'manual' },
 );
 
 function resolveTeamForPlayer(

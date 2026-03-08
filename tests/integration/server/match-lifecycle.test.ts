@@ -1,5 +1,5 @@
 import type { Socket } from 'socket.io-client';
-import { describe, expect, vi } from 'vitest';
+import { describe, expect } from 'vitest';
 
 import type {
   ChatMessagePayload,
@@ -8,8 +8,10 @@ import type {
   RoomCountdownPayload,
   RoomErrorPayload,
   RoomJoinedPayload,
+  RoomStatePayload,
 } from '#rts-engine';
 
+import type { IntegrationRuntime } from './fixtures.js';
 import {
   type ConnectedRoomSetup,
   startMatchAndWaitForActive,
@@ -29,6 +31,7 @@ import {
 const test = createRoomTest(
   { port: 0, width: 52, height: 52, tickMs: 40 },
   { roomName: 'Lifecycle Room' },
+  { runtimeMode: 'manual' },
 );
 
 interface ConnectedPair {
@@ -55,7 +58,14 @@ function setupConnectedPair(setup: ConnectedRoomSetup): ConnectedPair {
   };
 }
 
-async function moveToActive(pair: ConnectedPair): Promise<ActiveMatch> {
+async function moveToActive(
+  pair: ConnectedPair,
+  runtime: IntegrationRuntime | null,
+): Promise<ActiveMatch> {
+  if (!runtime) {
+    throw new Error('Expected manual runtime');
+  }
+
   const activeSetup = await startMatchAndWaitForActive(
     {
       host: pair.host,
@@ -65,7 +75,8 @@ async function moveToActive(pair: ConnectedPair): Promise<ActiveMatch> {
       guestJoined: pair.guestJoined,
     },
     {
-      startMode: 'fake-timers',
+      startMode: 'manual',
+      runtime,
       waitForActiveMembership: true,
       membershipAttempts: 40,
     },
@@ -331,7 +342,12 @@ describe('server match lifecycle contract', () => {
   test('keeps countdown running through disconnect and finishes through breach-only outcomes', async ({
     connectedRoom,
     connectClient,
+    runtime,
   }) => {
+    if (!runtime) {
+      throw new Error('Expected manual runtime');
+    }
+
     const setup = setupConnectedPair(connectedRoom);
 
     setup.host.emit('room:claim-slot', { slotId: 'team-1' });
@@ -364,26 +380,24 @@ describe('server match lifecycle contract', () => {
       7000,
     );
 
-    vi.useFakeTimers();
-    try {
-      setup.host.emit('room:start');
-      await openingCountdownPromise;
-      await countdownMembershipPromise;
+    setup.host.emit('room:start');
+    await openingCountdownPromise;
+    await countdownMembershipPromise;
 
-      const countdownAfterDisconnectPromise =
-        waitForEvent<RoomCountdownPayload>(setup.host, 'room:countdown', 3500);
+    const countdownAfterDisconnectPromise = waitForEvent<RoomCountdownPayload>(
+      setup.host,
+      'room:countdown',
+      3500,
+    );
 
-      setup.guest.disconnect();
+    setup.guest.disconnect();
 
-      await vi.advanceTimersByTimeAsync(1_100);
-      const countdownAfterDisconnect = await countdownAfterDisconnectPromise;
-      expect(countdownAfterDisconnect.secondsRemaining).toBeLessThan(3);
+    await runtime.advanceMs(1_100);
+    const countdownAfterDisconnect = await countdownAfterDisconnectPromise;
+    expect(countdownAfterDisconnect.secondsRemaining).toBeLessThan(3);
 
-      await vi.advanceTimersByTimeAsync(2_100);
-      await matchStartedPromise;
-    } finally {
-      vi.useRealTimers();
-    }
+    await runtime.advanceMs(2_100);
+    await matchStartedPromise;
     await waitForMembership(
       setup.host,
       setup.room.roomId,
@@ -484,9 +498,14 @@ describe('server match lifecycle contract', () => {
   test('supports host-only restart from finished and resets prior match state', async ({
     connectedRoom,
     connectClient,
+    runtime,
   }) => {
+    if (!runtime) {
+      throw new Error('Expected manual runtime');
+    }
+
     const setup = setupConnectedPair(connectedRoom);
-    const match = await moveToActive(setup);
+    const match = await moveToActive(setup, runtime);
 
     match.host.emit('room:start');
     const restartWhileActive = await waitForEvent<RoomErrorPayload>(
@@ -616,30 +635,26 @@ describe('server match lifecycle contract', () => {
       (payload) => payload.status === 'countdown',
       { attempts: 35 },
     );
-    const restartMatchStartedPromise = waitForEvent<MatchStartedPayload>(
-      match.host,
-      'room:match-started',
-      7000,
+    const restartMatchStartedPromise = new Promise<MatchStartedPayload>(
+      (resolve) => {
+        match.host.once('room:match-started', resolve);
+      },
     );
 
-    vi.useFakeTimers();
-    try {
-      match.host.emit('room:start');
-      await restartCountdownMembershipPromise;
-      await vi.advanceTimersByTimeAsync(3_100);
-      await restartMatchStartedPromise;
-    } finally {
-      vi.useRealTimers();
-    }
+    match.host.emit('room:start');
+    await restartCountdownMembershipPromise;
+    await runtime.advanceMs(3_100);
+    await restartMatchStartedPromise;
 
-    const restartedState = await waitForRoomState(
+    const restartedStatePromise = waitForEvent<RoomStatePayload>(
       match.host,
-      setup.room.roomId,
-      (payload) => payload.roomId === setup.room.roomId,
-      { attempts: 40 },
+      'state',
+      2_000,
     );
+    match.host.emit('state:request', { sections: ['full'] });
+    const restartedState = await restartedStatePromise;
     expect(restartedState.grid).toStrictEqual(match.initialGrid);
-    expect(restartedState.tick).toBeLessThan(4);
+    expect(restartedState.tick).toBeLessThan(queuedBuild.queued.executeTick);
     expect(
       restartedState.teams.every(({ resources }) => resources === 40),
     ).toBe(true);

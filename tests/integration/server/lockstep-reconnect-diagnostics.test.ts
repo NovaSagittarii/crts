@@ -19,6 +19,8 @@ const test = createLockstepTest(
     hostSessionId: 'diag-host',
     guestSessionId: 'diag-guest',
   },
+  { startMode: 'manual' },
+  { runtimeMode: 'manual' },
 );
 
 describe('lockstep reconnect diagnostics', () => {

@@ -55,11 +55,16 @@ const serverOptions = {
 };
 
 const integrationTest = createIntegrationTest(serverOptions);
-const matchTest = createMatchTest(serverOptions, {
-  roomName: 'Validation Match Room',
-  hostSessionId: 'validation-host',
-  guestSessionId: 'validation-guest',
-});
+const matchTest = createMatchTest(
+  serverOptions,
+  {
+    roomName: 'Validation Match Room',
+    hostSessionId: 'validation-host',
+    guestSessionId: 'validation-guest',
+  },
+  { startMode: 'manual' },
+  { runtimeMode: 'manual' },
+);
 
 describe('socket payload validation', () => {
   async function createLobbyRoom(

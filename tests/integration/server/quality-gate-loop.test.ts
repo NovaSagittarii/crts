@@ -26,7 +26,8 @@ import {
 const test = createMatchTest(
   { port: 0, width: 52, height: 52, tickMs: 40 },
   { roomName: 'QUAL-02 Loop Room' },
-  { waitForActiveMembership: true },
+  { waitForActiveMembership: true, startMode: 'manual' },
+  { runtimeMode: 'manual' },
 );
 
 interface QueueBuildAttempt {

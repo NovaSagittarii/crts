@@ -1,5 +1,5 @@
 import type { Socket } from 'socket.io-client';
-import { describe, expect, vi } from 'vitest';
+import { describe, expect } from 'vitest';
 
 import type {
   ChatMessagePayload,
@@ -14,12 +14,17 @@ import { createIntegrationTest } from './fixtures.js';
 import { waitForEvent, waitForMembership } from './test-support.js';
 
 const HOLD_EXPIRY_ADVANCE_MS = 31_000;
-const test = createIntegrationTest({
-  port: 0,
-  width: 58,
-  height: 58,
-  tickMs: 40,
-});
+const test = createIntegrationTest(
+  {
+    port: 0,
+    width: 58,
+    height: 58,
+    tickMs: 40,
+  },
+  {
+    runtimeMode: 'manual',
+  },
+);
 
 function normalizeMembership(payload: RoomMembershipPayload): object {
   const sortedSlots: Record<string, string | null> = {};
@@ -91,7 +96,12 @@ async function waitForConsistentMembership(
 describe('lobby reliability regression', () => {
   test('keeps room state deterministic across host transfer, countdown guards, spectator chat, and reconnect reclaim races', async ({
     connectClient,
+    runtime,
   }) => {
+    if (!runtime) {
+      throw new Error('Expected manual runtime');
+    }
+
     const host = connectClient({ sessionId: 'host-main' });
     await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
 
@@ -182,45 +192,34 @@ describe('lobby reliability regression', () => {
     );
     expect(notReadyError.reason).toBe('not-ready');
 
-    let usingFakeTimers = false;
-    try {
-      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-      usingFakeTimers = true;
-      observer.disconnect();
+    observer.disconnect();
 
-      const observerHeld = await waitForMembership(
-        playerTwo,
-        created.roomId,
-        (payload) =>
-          payload.slots['team-1'] === 'observer' &&
-          payload.participants.some(
-            ({ sessionId, connectionStatus }) =>
-              sessionId === 'observer' && connectionStatus === 'held',
-          ),
-        { attempts: 1000, timeoutMs: 1000 },
-      );
-      expect(observerHeld.heldSlots['team-1']?.sessionId).toBe('observer');
+    const observerHeld = await waitForMembership(
+      playerTwo,
+      created.roomId,
+      (payload) =>
+        payload.slots['team-1'] === 'observer' &&
+        payload.participants.some(
+          ({ sessionId, connectionStatus }) =>
+            sessionId === 'observer' && connectionStatus === 'held',
+        ),
+      { attempts: 1000, timeoutMs: 1000 },
+    );
+    expect(observerHeld.heldSlots['team-1']?.sessionId).toBe('observer');
 
-      const observerExpiredPromise = waitForMembership(
-        playerTwo,
-        created.roomId,
-        (payload) =>
-          payload.slots['team-1'] === null &&
-          !payload.participants.some(
-            ({ sessionId }) => sessionId === 'observer',
-          ),
-        { attempts: 2000, timeoutMs: 1000 },
-      );
+    const observerExpiredPromise = waitForMembership(
+      playerTwo,
+      created.roomId,
+      (payload) =>
+        payload.slots['team-1'] === null &&
+        !payload.participants.some(({ sessionId }) => sessionId === 'observer'),
+      { attempts: 2000, timeoutMs: 1000 },
+    );
 
-      await vi.advanceTimersByTimeAsync(HOLD_EXPIRY_ADVANCE_MS);
+    await runtime.advanceMs(HOLD_EXPIRY_ADVANCE_MS);
 
-      const observerExpired = await observerExpiredPromise;
-      expect(observerExpired.heldSlots['team-1']).toBeNull();
-    } finally {
-      if (usingFakeTimers) {
-        vi.useRealTimers();
-      }
-    }
+    const observerExpired = await observerExpiredPromise;
+    expect(observerExpired.heldSlots['team-1']).toBeNull();
 
     const replacement = connectClient({ sessionId: 'replacement' });
     await waitForEvent<RoomJoinedPayload>(replacement, 'room:joined');

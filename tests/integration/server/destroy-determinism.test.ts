@@ -27,6 +27,8 @@ const test = createMatchTest(
     hostSessionId: 'destroy-determinism-host',
     guestSessionId: 'destroy-determinism-guest',
   },
+  { startMode: 'manual' },
+  { runtimeMode: 'manual' },
 );
 
 async function queueAppliedHostBlock(match: ActiveMatchSetup): Promise<{
