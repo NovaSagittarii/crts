@@ -83,6 +83,7 @@ export interface BuildEvent {
   y: number;
   transform: PlacementTransformState;
   executeTick: number;
+  reservedCost: number;
 }
 
 export interface DestroyEvent {
@@ -610,6 +611,7 @@ export class RtsEngine {
     next = RtsEngine.hashInt32(next, event.x);
     next = RtsEngine.hashInt32(next, event.y);
     next = RtsEngine.hashInt32(next, event.executeTick);
+    next = RtsEngine.hashNumber(next, event.reservedCost);
     return RtsEngine.hashTransform(next, event.transform);
   }
 
@@ -664,6 +666,17 @@ export class RtsEngine {
       type: 'build-rejected',
       metadata,
     });
+  }
+
+  private static refundReservedBuildCost(
+    team: TeamState,
+    event: BuildEvent,
+  ): void {
+    if (event.reservedCost <= 0) {
+      return;
+    }
+
+    team.resources += event.reservedCost;
   }
 
   private static rejectDestroy(
@@ -1026,6 +1039,7 @@ export class RtsEngine {
         continue;
       }
 
+      RtsEngine.refundReservedBuildCost(team, event);
       RtsEngine.rejectBuild(room, team, reason, event.id);
       RtsEngine.recordRejectedBuildOutcome(
         buildOutcomes,
@@ -1841,6 +1855,7 @@ export class RtsEngine {
 
       const template = room.templateMap.get(event.templateId);
       if (!template) {
+        RtsEngine.refundReservedBuildCost(team, event);
         RtsEngine.rejectBuild(room, team, 'unknown-template', event.id);
         RtsEngine.recordRejectedBuildOutcome(
           buildOutcomes,
@@ -1860,6 +1875,7 @@ export class RtsEngine {
         event.transform,
       );
       if (evaluation.reason && evaluation.reason !== 'insufficient-resources') {
+        RtsEngine.refundReservedBuildCost(team, event);
         RtsEngine.rejectBuild(room, team, evaluation.reason, event.id);
         RtsEngine.recordRejectedBuildOutcome(
           buildOutcomes,
@@ -1880,6 +1896,7 @@ export class RtsEngine {
         return candidate.structureKey === key;
       });
       if (RtsEngine.findStructureOwnerTeam(room, key) || isReservedInTick) {
+        RtsEngine.refundReservedBuildCost(team, event);
         RtsEngine.rejectBuild(room, team, 'occupied-site', event.id);
         RtsEngine.recordRejectedBuildOutcome(
           buildOutcomes,
@@ -1890,26 +1907,6 @@ export class RtsEngine {
         continue;
       }
 
-      const affordability = evaluation.affordability;
-      if (!affordability || !affordability.affordable) {
-        RtsEngine.rejectBuild(
-          room,
-          team,
-          'insufficient-resources',
-          event.id,
-          affordability,
-        );
-        RtsEngine.recordRejectedBuildOutcome(
-          buildOutcomes,
-          event,
-          'insufficient-resources',
-          room.tick,
-          affordability,
-        );
-        continue;
-      }
-
-      team.resources -= affordability.needed;
       acceptedEvents.push({
         ...event,
         x: evaluation.projection.bounds.x,
@@ -2536,8 +2533,10 @@ export class RtsEngine {
       y,
       transform: preview.transform,
       executeTick: room.tick + clampedDelay,
+      reservedCost: preview.needed ?? 0,
     };
 
+    team.resources -= event.reservedCost;
     RtsEngine.insertBuildEventSorted(team.pendingBuildEvents, event);
     team.buildStats.queued += 1;
     appendRoomTimelineEvent(room, {
@@ -2868,6 +2867,7 @@ export class RtsEngine {
         continue;
       }
 
+      RtsEngine.refundReservedBuildCost(team, event);
       RtsEngine.rejectBuild(room, team, 'apply-failed', event.id);
       RtsEngine.recordRejectedBuildOutcome(
         buildOutcomes,
