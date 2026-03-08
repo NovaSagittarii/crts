@@ -1,5 +1,8 @@
 import type { ServerOptions } from '../../../apps/server/src/server.js';
-import { createIntegrationTest } from './fixtures.js';
+import {
+  type IntegrationTestOptions,
+  createIntegrationTest,
+} from './fixtures.js';
 import {
   type ConnectedRoomSetup,
   type SetupConnectedRoomOptions,
@@ -18,8 +21,12 @@ interface RoomFixtures {
 export function createRoomTest(
   defaultServerOptions: ServerOptions,
   defaultRoomOptions: RoomFixtureOptions,
+  integrationOptions: IntegrationTestOptions = {},
 ) {
-  return createIntegrationTest(defaultServerOptions).extend<RoomFixtures>({
+  return createIntegrationTest(
+    defaultServerOptions,
+    integrationOptions,
+  ).extend<RoomFixtures>({
     connectedRoom: async ({ connectClient }, use) => {
       const connectedRoom = await setupConnectedRoom({
         ...defaultRoomOptions,

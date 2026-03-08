@@ -2,7 +2,7 @@ export const RECONNECT_HOLD_MS = 30_000;
 
 const MAX_SESSION_ID_LENGTH = 64;
 
-type TimeoutHandle = ReturnType<typeof setTimeout>;
+type TimeoutHandle = unknown;
 
 type SetTimeoutHook = (callback: () => void, delayMs: number) => TimeoutHandle;
 
@@ -361,7 +361,8 @@ export class LobbySessionCoordinator {
       options.setTimeout ??
       ((callback, delayMs) => setTimeout(callback, delayMs));
     const clearTimeoutHook =
-      options.clearTimeout ?? ((timer) => clearTimeout(timer));
+      options.clearTimeout ??
+      ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>));
     this.sessions = new SessionDirectory();
     this.holds = new ReconnectHoldRegistry({
       holdMs: this.holdMs,

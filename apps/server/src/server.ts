@@ -79,8 +79,8 @@ const DEFAULT_LOCKSTEP_MAX_BUFFERED_TURNS = 64;
 const DEFAULT_ACTIVE_STATE_SNAPSHOT_INTERVAL_TICKS = 50;
 const STATE_REQUEST_MIN_INTERVAL_MS = 100;
 
-type IntervalHandle = ReturnType<typeof setInterval>;
-type TimeoutHandle = ReturnType<typeof setTimeout>;
+type IntervalHandle = unknown;
+type TimeoutHandle = unknown;
 
 type SetIntervalHook = (
   callback: () => void,
@@ -90,6 +90,22 @@ type ClearIntervalHook = (timer: IntervalHandle) => void;
 type SetTimeoutHook = (callback: () => void, delayMs: number) => TimeoutHandle;
 type ClearTimeoutHook = (timer: TimeoutHandle) => void;
 
+function defaultSetInterval(callback: () => void, delayMs: number): unknown {
+  return setInterval(callback, delayMs);
+}
+
+function defaultClearInterval(timer: unknown): void {
+  clearInterval(timer as ReturnType<typeof setInterval>);
+}
+
+function defaultSetTimeout(callback: () => void, delayMs: number): unknown {
+  return setTimeout(callback, delayMs);
+}
+
+function defaultClearTimeout(timer: unknown): void {
+  clearTimeout(timer as ReturnType<typeof setTimeout>);
+}
+
 type ClientAssetsMode = 'optional' | 'strict';
 
 export interface ServerOptions {
@@ -97,6 +113,7 @@ export interface ServerOptions {
   width?: number;
   height?: number;
   tickMs?: number;
+  autoTick?: boolean;
   clientAssetsMode?: ClientAssetsMode;
   clientAssetsDir?: string;
   countdownSeconds?: number;
@@ -186,6 +203,7 @@ interface RuntimeRoom extends RuntimeBroadcastRoom {
 export interface GameServer {
   start(): Promise<number>;
   stop(): Promise<void>;
+  tickOnce(): void;
   getStatePayload(): RoomStatePayload;
 }
 
@@ -469,6 +487,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   const width = options.width ?? 100;
   const height = options.height ?? 100;
   const tickMs = options.tickMs ?? 100;
+  const autoTick = options.autoTick ?? true;
   const membershipResyncIntervalTicks = Math.max(
     1,
     Math.ceil(MEMBERSHIP_RESYNC_INTERVAL_MS / tickMs),
@@ -511,16 +530,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
     1000,
   );
   const now = options.now ?? (() => Date.now());
-  const setIntervalHook =
-    options.setInterval ??
-    ((callback, delayMs) => setInterval(callback, delayMs));
-  const clearIntervalHook =
-    options.clearInterval ?? ((timer) => clearInterval(timer));
-  const setTimeoutHook =
-    options.setTimeout ??
-    ((callback, delayMs) => setTimeout(callback, delayMs));
-  const clearTimeoutHook =
-    options.clearTimeout ?? ((timer) => clearTimeout(timer));
+  const setIntervalHook = options.setInterval ?? defaultSetInterval;
+  const clearIntervalHook = options.clearInterval ?? defaultClearInterval;
+  const setTimeoutHook = options.setTimeout ?? defaultSetTimeout;
+  const clearTimeoutHook = options.clearTimeout ?? defaultClearTimeout;
 
   const app: Express = express();
   configureStaticAssets(app, clientAssetsMode, clientAssetsDir);
@@ -674,6 +687,14 @@ export function createServer(options: ServerOptions = {}): GameServer {
       lastServedHashes: nextServedHashes,
     });
     return true;
+  }
+
+  function clearStateRequestBudgetForRoom(roomId: string): void {
+    for (const [sessionId, budget] of stateRequestBudgetBySession.entries()) {
+      if (budget.roomId === roomId) {
+        stateRequestBudgetBySession.delete(sessionId);
+      }
+    }
   }
 
   function cloneBuildQueuePayload(
@@ -1987,6 +2008,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   function resetRoomStateForRestart(room: RuntimeRoom): void {
     const previousRoom = room.rtsRoom;
+    clearStateRequestBudgetForRoom(previousRoom.id);
     const snapshot = room.lobby.snapshot();
     const slotIds = room.lobby.slotIds();
     const participantBySession = new Map(
@@ -2602,7 +2624,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         senderSessionId: session.id,
         senderName: session.name,
         message,
-        timestamp: Date.now(),
+        timestamp: now(),
       });
     });
 
@@ -2958,7 +2980,9 @@ export function createServer(options: ServerOptions = {}): GameServer {
   async function start(): Promise<number> {
     return new Promise((resolve) => {
       httpServer.listen(port, () => {
-        interval = setIntervalHook(tick, tickMs);
+        if (autoTick) {
+          interval = setIntervalHook(tick, tickMs);
+        }
         const address = httpServer.address();
         const resolvedPort =
           typeof address === 'object' && address !== null ? address.port : port;
@@ -2994,6 +3018,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     getStatePayload,
     start,
     stop,
+    tickOnce: tick,
   };
 }
 

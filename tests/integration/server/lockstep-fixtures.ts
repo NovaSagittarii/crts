@@ -1,4 +1,5 @@
 import type { ServerOptions } from '../../../apps/server/src/server.js';
+import type { IntegrationTestOptions } from './fixtures.js';
 import {
   type ConnectedRoomSetup,
   type StartMatchOptions,
@@ -20,6 +21,7 @@ export function createLockstepTest(
   defaultServerOptions: ServerOptions,
   defaultRoomOptions: RoomFixtureOptions,
   defaultMatchOptions: StartMatchOptions = {},
+  integrationOptions: IntegrationTestOptions = {},
 ) {
   return createRoomTest(
     {
@@ -27,10 +29,11 @@ export function createLockstepTest(
       ...defaultServerOptions,
     },
     defaultRoomOptions,
+    integrationOptions,
   ).extend<LockstepFixtures>({
     // Vitest requires object destructuring for fixture contexts even with no deps.
     // eslint-disable-next-line no-empty-pattern
-    startLockstepMatch: async ({}, use) => {
+    startLockstepMatch: async ({ runtime }, use) => {
       await use(
         async (
           connectedRoom: ConnectedRoomSetup,
@@ -40,6 +43,7 @@ export function createLockstepTest(
             waitForActiveMembership: true,
             ...defaultMatchOptions,
             ...options,
+            runtime: options.runtime ?? defaultMatchOptions.runtime ?? runtime,
           }),
       );
     },
