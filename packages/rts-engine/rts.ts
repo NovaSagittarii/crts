@@ -1162,7 +1162,7 @@ export class RtsEngine {
     );
 
     for (const structure of orderedStructures) {
-      if (structure.hp <= 0) {
+      if (structure.buildRadius <= 0) {
         continue;
       }
 
@@ -1173,7 +1173,7 @@ export class RtsEngine {
         y: structure.y,
         width: transformedTemplate.width,
         height: transformedTemplate.height,
-        hp: structure.hp,
+        buildRadius: structure.buildRadius,
       });
     }
 
@@ -1183,11 +1183,7 @@ export class RtsEngine {
   private static collectBuildZoneContributorsFromProjectionInputs(
     projectionInputs: readonly BuildZoneContributorProjectionInput[],
   ): BuildZoneContributor[] {
-    const activeProjectionInputs = projectionInputs.filter(
-      (projectionInput) => (projectionInput.hp ?? 1) > 0,
-    );
-
-    return collectBuildZoneContributors(activeProjectionInputs);
+    return collectBuildZoneContributors(projectionInputs);
   }
 
   private static createTemplateProjectionInput(

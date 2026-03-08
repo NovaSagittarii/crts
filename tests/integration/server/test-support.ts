@@ -3,9 +3,10 @@ import { type Socket, io } from 'socket.io-client';
 import {
   BASE_FOOTPRINT_HEIGHT,
   BASE_FOOTPRINT_WIDTH,
-  BUILD_ZONE_RADIUS,
-  getBaseCenter,
+  CORE_STRUCTURE_TEMPLATE,
+  isBuildZoneCoveredByContributor,
   normalizePlacementTransform,
+  projectBuildZoneContributor,
 } from '#rts-engine';
 import type {
   BuildOutcomePayload,
@@ -558,7 +559,13 @@ export function collectCandidatePlacements(
   const placements: Cell[] = [];
   const searchRadius = options.searchRadius ?? 10;
   const step = options.step ?? 2;
-  const baseCenter = getBaseCenter(team.baseTopLeft);
+  const coreBuildZoneContributor = projectBuildZoneContributor({
+    x: team.baseTopLeft.x,
+    y: team.baseTopLeft.y,
+    width: CORE_STRUCTURE_TEMPLATE.width,
+    height: CORE_STRUCTURE_TEMPLATE.height,
+    buildRadius: CORE_STRUCTURE_TEMPLATE.buildRadius,
+  });
   const baseLeft = team.baseTopLeft.x;
   const baseTop = team.baseTopLeft.y;
   const baseRight = baseLeft + BASE_FOOTPRINT_WIDTH;
@@ -594,9 +601,13 @@ export function collectCandidatePlacements(
       let fullyInsideBuildZone = true;
       for (let ty = 0; ty < transformedSize.height; ty += 1) {
         for (let tx = 0; tx < transformedSize.width; tx += 1) {
-          const dx = buildX + tx - baseCenter.x;
-          const dy = buildY + ty - baseCenter.y;
-          if (dx * dx + dy * dy > BUILD_ZONE_RADIUS * BUILD_ZONE_RADIUS) {
+          if (
+            !isBuildZoneCoveredByContributor(
+              coreBuildZoneContributor,
+              buildX + tx,
+              buildY + ty,
+            )
+          ) {
             fullyInsideBuildZone = false;
             break;
           }

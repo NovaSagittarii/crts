@@ -1,12 +1,10 @@
-import {
-  BUILD_ZONE_DISTANCE_SHAPE,
-  BUILD_ZONE_RADIUS,
-} from './gameplay-rules.js';
+import { BUILD_ZONE_DISTANCE_SHAPE } from './gameplay-rules.js';
 import { type Vector2 } from './geometry.js';
 
 export interface BuildZoneContributor {
   centerX: number;
   centerY: number;
+  buildRadius: number;
 }
 
 export interface BuildZoneContributorProjectionInput {
@@ -14,7 +12,7 @@ export interface BuildZoneContributorProjectionInput {
   y: number;
   width: number;
   height: number;
-  hp?: number;
+  buildRadius: number;
 }
 
 export function projectBuildZoneContributor(
@@ -23,6 +21,7 @@ export function projectBuildZoneContributor(
   return {
     centerX: input.x + Math.floor(input.width / 2),
     centerY: input.y + Math.floor(input.height / 2),
+    buildRadius: input.buildRadius,
   };
 }
 
@@ -32,10 +31,10 @@ export function collectBuildZoneContributors(
   const contributors: BuildZoneContributor[] = [];
 
   for (const input of inputs) {
-    if (typeof input.hp === 'number' && input.hp <= 0) {
+    if (input.width <= 0 || input.height <= 0) {
       continue;
     }
-    if (input.width <= 0 || input.height <= 0) {
+    if (input.buildRadius <= 0) {
       continue;
     }
 
@@ -54,10 +53,12 @@ export function isBuildZoneCoveredByContributor(
   const dy = y - contributor.centerY;
 
   if (BUILD_ZONE_DISTANCE_SHAPE === 'euclidean') {
-    return dx * dx + dy * dy <= BUILD_ZONE_RADIUS * BUILD_ZONE_RADIUS;
+    return (
+      dx * dx + dy * dy <= contributor.buildRadius * contributor.buildRadius
+    );
   }
 
-  return Math.max(Math.abs(dx), Math.abs(dy)) <= BUILD_ZONE_RADIUS;
+  return Math.max(Math.abs(dx), Math.abs(dy)) <= contributor.buildRadius;
 }
 
 export function collectIllegalBuildZoneCells(
