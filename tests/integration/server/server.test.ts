@@ -1,6 +1,5 @@
 import { describe, expect } from 'vitest';
 
-import { Grid } from '#conway-core';
 import {
   type BuildQueuedPayload,
   type DestroyQueuedPayload,
@@ -15,7 +14,6 @@ import {
 import { createIntegrationTest } from './fixtures.js';
 import { createMatchTest } from './match-fixtures.js';
 import {
-  type Cell,
   claimSlot,
   collectBuildOutcomes,
   collectBuildQueuedEvents,
@@ -71,11 +69,6 @@ const partyRoomTest = createIntegrationTest({
   height: 40,
   tickMs: 40,
 });
-
-function blockAlive(state: RoomStatePayload, coords: Cell[]): boolean {
-  const unpackedGrid = Grid.unpack(state.grid, state.width, state.height);
-  return coords.every(({ x, y }) => unpackedGrid[y * state.width + x] === 1);
-}
 
 function getTeam(state: RoomStatePayload, teamId: number): TeamPayload {
   const team = state.teams?.find(({ id }) => id === teamId);
