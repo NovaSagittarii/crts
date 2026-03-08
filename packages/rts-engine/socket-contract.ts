@@ -95,15 +95,6 @@ export interface DestroyQueuedPayload {
   idempotent: boolean;
 }
 
-export interface BuildScheduledPayload {
-  roomId: string;
-  intentId: string;
-  playerId: string;
-  teamId: number;
-  eventId: number;
-  executeTick: number;
-}
-
 export type BuildQueueRejectedReason = string;
 
 export interface BuildQueueRejectedPayload {
@@ -115,17 +106,6 @@ export interface BuildQueueRejectedPayload {
   needed?: number;
   current?: number;
   deficit?: number;
-}
-
-export interface DestroyScheduledPayload {
-  roomId: string;
-  intentId: string;
-  playerId: string;
-  teamId: number;
-  eventId: number;
-  executeTick: number;
-  structureKey: string;
-  idempotent: boolean;
 }
 
 export type DestroyQueueRejectedReason = string;
@@ -328,11 +308,9 @@ export interface ServerToClientEvents {
   'chat:message': (payload: ChatMessagePayload) => void;
   'build:queued': (payload: BuildQueuedPayload) => void;
   'build:queue-rejected': (payload: BuildQueueRejectedPayload) => void;
-  'build:scheduled': (payload: BuildScheduledPayload) => void;
   'build:outcome': (payload: BuildOutcomePayload) => void;
   'destroy:queued': (payload: DestroyQueuedPayload) => void;
   'destroy:queue-rejected': (payload: DestroyQueueRejectedPayload) => void;
-  'destroy:scheduled': (payload: DestroyScheduledPayload) => void;
   'destroy:outcome': (payload: DestroyOutcomePayload) => void;
   'lockstep:checkpoint': (payload: LockstepCheckpointPayload) => void;
   'lockstep:fallback': (payload: LockstepFallbackPayload) => void;

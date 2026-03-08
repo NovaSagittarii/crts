@@ -695,6 +695,54 @@ describe('rts', () => {
     expect(countStructuresByTemplateId(room, team.id, 'probe')).toBe(1);
   });
 
+  test('refunds queued build cost when a later duplicate rejects as occupied-site', () => {
+    const room = RtsEngine.createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 40,
+      height: 40,
+    });
+    const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+    const initialResources = team.resources;
+    const x = team.baseTopLeft.x + 6;
+    const y = team.baseTopLeft.y + 6;
+
+    const first = RtsEngine.queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x,
+      y,
+      delayTicks: 1,
+    });
+    const duplicate = RtsEngine.queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x,
+      y,
+      delayTicks: 1,
+    });
+
+    expect(first.accepted).toBe(true);
+    expect(duplicate.accepted).toBe(true);
+
+    const firstCost = first.needed ?? 0;
+    const duplicateCost = duplicate.needed ?? 0;
+    expect(team.resources).toBe(initialResources - firstCost - duplicateCost);
+
+    RtsEngine.tickRoom(room);
+    const result = RtsEngine.tickRoom(room);
+    const duplicateOutcome = result.buildOutcomes.find(
+      ({ eventId }) => eventId === duplicate.eventId,
+    );
+
+    expect(result.appliedBuilds).toBe(1);
+    expect(duplicateOutcome).toMatchObject({
+      eventId: duplicate.eventId,
+      teamId: team.id,
+      outcome: 'rejected',
+      reason: 'occupied-site',
+    });
+    expect(team.resources).toBe(initialResources - firstCost);
+  });
+
   test('[BUILD-01] updates union-zone eligibility after build completion and structure destruction', () => {
     const probeTemplate = new StructureTemplate({
       id: 'probe',
@@ -1308,6 +1356,7 @@ describe('rts', () => {
     const teamPayload = payload.teams.find(({ id }) => id === team.id);
 
     expect(teamPayload).toBeDefined();
+    expect(teamPayload?.resources).toBe(team.resources);
     expect(teamPayload?.pendingBuilds).toContainEqual({
       eventId: buildResult.eventId,
       executeTick: buildResult.executeTick,
@@ -1748,7 +1797,7 @@ describe('rts', () => {
     expect(room.teams.get(team.id)?.playerIds).toEqual(new Set(['p1', 'p2']));
   });
 
-  test('applies queued builds and charges build costs', () => {
+  test('charges build costs when queued and does not charge again on apply', () => {
     const room = RtsEngine.createRoomState({
       id: '1',
       name: 'Alpha',
@@ -1770,6 +1819,7 @@ describe('rts', () => {
     });
     expect(queued.accepted).toBe(true);
     const expectedCost = queued.needed ?? 0;
+    expect(team.resources).toBe(initialResources - expectedCost);
 
     const first = RtsEngine.tickRoom(room);
     const second = RtsEngine.tickRoom(room);
@@ -2124,6 +2174,7 @@ describe('rts', () => {
       height: 30,
     });
     const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+    const initialResources = team.resources;
     const base = team.baseTopLeft;
     const blockTemplate = RtsEngine.getRoomTemplate(room, 'block');
     expect(blockTemplate).toBeDefined();
@@ -2156,6 +2207,7 @@ describe('rts', () => {
     if (!queued) {
       throw new Error('Expected at least one valid queued build before breach');
     }
+    expect(team.resources).toBe(initialResources - (queued.needed ?? 0));
 
     const ownCore = getCoreStructure(room, team.id);
     expect(ownCore).not.toBeNull();
@@ -2184,6 +2236,7 @@ describe('rts', () => {
 
     expect(result.defeatedTeams).toEqual([team.id]);
     expect(team.defeated).toBe(true);
+    expect(team.resources).toBe(initialResources);
     expect(requireTeamPayload(room, team.id).pendingBuilds).toHaveLength(0);
     expect(pendingOutcome).toMatchObject({
       eventId: queued.eventId,
