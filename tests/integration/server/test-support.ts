@@ -9,11 +9,11 @@ import {
 } from '#rts-engine';
 import type {
   BuildOutcomePayload,
+  BuildQueueRejectedPayload,
   BuildQueuedPayload,
-  BuildScheduledPayload,
   DestroyOutcomePayload,
+  DestroyQueueRejectedPayload,
   DestroyQueuedPayload,
-  DestroyScheduledPayload,
   PlacementTransformInput,
   RoomErrorPayload,
   RoomGridStatePayload,
@@ -67,9 +67,139 @@ export interface ActiveMatchSetup {
   guestTeam: TeamPayload;
 }
 
-export type QueueResponse<TQueued> =
+type QueueErrorPayload<TRejected extends { reason: string }> =
+  | RoomErrorPayload
+  | (TRejected & { message?: string });
+
+export type QueueResponse<TQueued, TRejected extends { reason: string }> =
   | { queued: TQueued }
-  | { error: RoomErrorPayload };
+  | { error: QueueErrorPayload<TRejected> };
+
+const MAX_BUFFERED_EVENTS_PER_NAME = 32;
+const BUFFERED_EVENT_NAMES = new Set(['room:joined', 'lockstep:checkpoint']);
+
+type BufferedEventStore = Map<string, unknown[]>;
+
+const bufferedSocketEvents = new WeakMap<Socket, BufferedEventStore>();
+const socketPlayerIds = new WeakMap<Socket, string>();
+const socketSessionIds = new WeakMap<Socket, string>();
+const pendingQueueResponseKinds = new WeakMap<Socket, Set<string>>();
+
+function attachBufferedEventStore(socket: Socket): void {
+  const store: BufferedEventStore = new Map();
+  bufferedSocketEvents.set(socket, store);
+
+  // Capture server events before the test starts awaiting them.
+  socket.onAny((eventName, payload) => {
+    const event = typeof eventName === 'string' ? eventName : null;
+    if (event === null || !BUFFERED_EVENT_NAMES.has(event)) {
+      return;
+    }
+
+    if (
+      event === 'room:joined' &&
+      typeof payload === 'object' &&
+      payload !== null &&
+      'playerId' in payload &&
+      typeof payload.playerId === 'string'
+    ) {
+      socketPlayerIds.set(socket, payload.playerId);
+    }
+
+    const queue = store.get(event) ?? [];
+    queue.push(payload);
+    if (queue.length > MAX_BUFFERED_EVENTS_PER_NAME) {
+      queue.splice(0, queue.length - MAX_BUFFERED_EVENTS_PER_NAME);
+    }
+    store.set(event, queue);
+  });
+}
+
+function takeBufferedEvent<T>(
+  socket: Socket,
+  event: string,
+  predicate?: (payload: T) => boolean,
+): T | null {
+  const store = bufferedSocketEvents.get(socket);
+  const bufferedEvents = store?.get(event);
+  if (!bufferedEvents || bufferedEvents.length === 0) {
+    return null;
+  }
+
+  if (predicate === undefined) {
+    const payload = bufferedEvents.shift();
+    if (bufferedEvents.length === 0) {
+      store?.delete(event);
+    }
+    return (payload as T | undefined) ?? null;
+  }
+
+  const matchedIndex = bufferedEvents.findIndex((bufferedPayload) => {
+    try {
+      return predicate(bufferedPayload as T);
+    } catch {
+      return false;
+    }
+  });
+  if (matchedIndex === -1) {
+    return null;
+  }
+
+  const [payload] = bufferedEvents.splice(matchedIndex, 1);
+  if (bufferedEvents.length === 0) {
+    store?.delete(event);
+  }
+  return (payload as T | undefined) ?? null;
+}
+
+function removeBufferedEvent(
+  socket: Socket,
+  event: string,
+  payload: unknown,
+): void {
+  const store = bufferedSocketEvents.get(socket);
+  const bufferedEvents = store?.get(event);
+  if (!bufferedEvents || bufferedEvents.length === 0) {
+    return;
+  }
+
+  const matchedIndex = bufferedEvents.findIndex((bufferedPayload) =>
+    Object.is(bufferedPayload, payload),
+  );
+  if (matchedIndex === -1) {
+    return;
+  }
+
+  bufferedEvents.splice(matchedIndex, 1);
+  if (bufferedEvents.length === 0) {
+    store?.delete(event);
+  }
+}
+
+function acquireQueueResponseKind(socket: Socket, kind: string): void {
+  const activeKinds =
+    pendingQueueResponseKinds.get(socket) ?? new Set<string>();
+  if (activeKinds.has(kind)) {
+    throw new Error(
+      `waitFor${kind[0].toUpperCase()}${kind.slice(1)}QueueResponse does not support multiple in-flight waits on the same socket`,
+    );
+  }
+
+  activeKinds.add(kind);
+  pendingQueueResponseKinds.set(socket, activeKinds);
+}
+
+function releaseQueueResponseKind(socket: Socket, kind: string): void {
+  const activeKinds = pendingQueueResponseKinds.get(socket);
+  if (!activeKinds) {
+    return;
+  }
+
+  activeKinds.delete(kind);
+  if (activeKinds.size === 0) {
+    pendingQueueResponseKinds.delete(socket);
+  }
+}
 
 export function createClient(
   port: number,
@@ -81,6 +211,10 @@ export function createClient(
     transports: ['websocket'],
     auth: options.sessionId ? { sessionId: options.sessionId } : undefined,
   });
+  if (options.sessionId) {
+    socketSessionIds.set(socket, options.sessionId);
+  }
+  attachBufferedEventStore(socket);
   if (shouldConnect) {
     socket.connect();
   }
@@ -92,6 +226,13 @@ export function waitForEvent<T>(
   event: string,
   timeoutMs = 2500,
 ): Promise<T> {
+  if (BUFFERED_EVENT_NAMES.has(event)) {
+    const bufferedEvent = takeBufferedEvent<T>(socket, event);
+    if (bufferedEvent !== null) {
+      return Promise.resolve(bufferedEvent);
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       socket.off(event, onEvent);
@@ -99,6 +240,7 @@ export function waitForEvent<T>(
     }, timeoutMs);
 
     function onEvent(payload: T): void {
+      removeBufferedEvent(socket, event, payload);
       clearTimeout(timer);
       resolve(payload);
     }
@@ -163,6 +305,8 @@ export function waitForEventWithPredicate<T>(
     }
 
     function onEvent(payload: T): void {
+      removeBufferedEvent(socket, event, payload);
+
       let matches = false;
       try {
         matches = predicate(payload);
@@ -513,6 +657,7 @@ function collectEventsByCount<T>(
     }
 
     function onEvent(payload: T): void {
+      removeBufferedEvent(socket, event, payload);
       collected.push(payload);
       maybeResolve();
     }
@@ -564,6 +709,8 @@ function collectOutcomesByEventId<T extends { eventId: number }>(
     }
 
     function onEvent(payload: T): void {
+      removeBufferedEvent(socket, event, payload);
+
       if (
         !expected.has(payload.eventId) &&
         !outcomesById.has(payload.eventId)
@@ -592,21 +739,6 @@ export function collectBuildQueuedEvents(
   return collectEventsByCount<BuildQueuedPayload>(
     socket,
     'build:queued',
-    count,
-    timeoutMs,
-    settleMs,
-  );
-}
-
-export function collectBuildScheduledEvents(
-  socket: Socket,
-  count: number,
-  timeoutMs = 8000,
-  settleMs = 0,
-): Promise<BuildScheduledPayload[]> {
-  return collectEventsByCount<BuildScheduledPayload>(
-    socket,
-    'build:scheduled',
     count,
     timeoutMs,
     settleMs,
@@ -643,13 +775,22 @@ export function collectDestroyOutcomes(
   );
 }
 
-function waitForQueueResponse<TQueued>(
+function waitForQueueResponse<
+  TQueued extends { playerId: string },
+  TRejected extends { reason: string; playerId: string },
+>(
   socket: Socket,
+  kind: 'build' | 'destroy',
   queuedEvent: 'build:queued' | 'destroy:queued',
+  rejectedEvent: 'build:queue-rejected' | 'destroy:queue-rejected',
   timeoutMs: number,
   timeoutMessage: string,
-): Promise<QueueResponse<TQueued>> {
+): Promise<QueueResponse<TQueued, TRejected>> {
+  acquireQueueResponseKind(socket, kind);
+
   return new Promise((resolve, reject) => {
+    const expectedPlayerId =
+      socketPlayerIds.get(socket) ?? socketSessionIds.get(socket);
     const timer = setTimeout(() => {
       cleanup();
       reject(new Error(timeoutMessage));
@@ -658,20 +799,39 @@ function waitForQueueResponse<TQueued>(
     function cleanup(): void {
       clearTimeout(timer);
       socket.off(queuedEvent, onQueued);
+      socket.off(rejectedEvent, onRejected);
       socket.off('room:error', onError);
+      releaseQueueResponseKind(socket, kind);
     }
 
     function onQueued(payload: TQueued): void {
+      if (expectedPlayerId && payload.playerId !== expectedPlayerId) {
+        return;
+      }
+
+      removeBufferedEvent(socket, queuedEvent, payload);
       cleanup();
       resolve({ queued: payload });
     }
 
     function onError(payload: RoomErrorPayload): void {
+      removeBufferedEvent(socket, 'room:error', payload);
       cleanup();
       resolve({ error: payload });
     }
 
-    socket.once(queuedEvent, onQueued);
+    function onRejected(payload: TRejected): void {
+      if (expectedPlayerId && payload.playerId !== expectedPlayerId) {
+        return;
+      }
+
+      removeBufferedEvent(socket, rejectedEvent, payload);
+      cleanup();
+      resolve({ error: payload as QueueErrorPayload<TRejected> });
+    }
+
+    socket.on(queuedEvent, onQueued);
+    socket.on(rejectedEvent, onRejected);
     socket.once('room:error', onError);
   });
 }
@@ -679,39 +839,32 @@ function waitForQueueResponse<TQueued>(
 export function waitForBuildQueueResponse(
   socket: Socket,
   timeoutMs = 2500,
-): Promise<QueueResponse<BuildQueuedPayload>> {
-  return waitForQueueResponse<BuildQueuedPayload>(
+): Promise<QueueResponse<BuildQueuedPayload, BuildQueueRejectedPayload>> {
+  return waitForQueueResponse<BuildQueuedPayload, BuildQueueRejectedPayload>(
     socket,
+    'build',
     'build:queued',
+    'build:queue-rejected',
     timeoutMs,
     'Timed out waiting for build queue response',
   );
 }
 
-export function waitForBuildScheduled(
-  socket: Socket,
-  timeoutMs = 2500,
-): Promise<BuildScheduledPayload> {
-  return waitForEvent(socket, 'build:scheduled', timeoutMs);
-}
-
 export function waitForDestroyQueueResponse(
   socket: Socket,
   timeoutMs = 2500,
-): Promise<QueueResponse<DestroyQueuedPayload>> {
-  return waitForQueueResponse<DestroyQueuedPayload>(
+): Promise<QueueResponse<DestroyQueuedPayload, DestroyQueueRejectedPayload>> {
+  return waitForQueueResponse<
+    DestroyQueuedPayload,
+    DestroyQueueRejectedPayload
+  >(
     socket,
+    'destroy',
     'destroy:queued',
+    'destroy:queue-rejected',
     timeoutMs,
     'Timed out waiting for destroy queue response',
   );
-}
-
-export function waitForDestroyScheduled(
-  socket: Socket,
-  timeoutMs = 2500,
-): Promise<DestroyScheduledPayload> {
-  return waitForEvent(socket, 'destroy:scheduled', timeoutMs);
 }
 
 function waitForOutcomeByEventId<T extends { eventId: number }>(
@@ -727,6 +880,8 @@ function waitForOutcomeByEventId<T extends { eventId: number }>(
     }, timeoutMs);
 
     function onOutcome(payload: T): void {
+      removeBufferedEvent(socket, event, payload);
+
       if (payload.eventId !== eventId) {
         return;
       }

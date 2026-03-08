@@ -2,7 +2,6 @@ import { describe, expect } from 'vitest';
 
 import type {
   BuildQueuedPayload,
-  BuildScheduledPayload,
   RoomGridStatePayload,
   RoomStateHashesPayload,
   RoomStructuresStatePayload,
@@ -12,7 +11,6 @@ import { createLockstepTest } from './lockstep-fixtures.js';
 import { createMatchTest } from './match-fixtures.js';
 import {
   waitForBuildQueueResponse,
-  waitForBuildScheduled,
   waitForEvent,
   waitForNoEvent,
   waitForStateGrid,
@@ -52,7 +50,7 @@ const lockstepSectionsTest = createLockstepTest(
   },
 );
 
-describe('section sync and queued scheduling', () => {
+describe('section sync and queued fanout', () => {
   sectionsMatchTest(
     'serves grid and structures sections only to the requester',
     async ({ activeMatch }) => {
@@ -81,7 +79,13 @@ describe('section sync and queued scheduling', () => {
         },
       );
 
-      const scheduledPromise = waitForBuildScheduled(setup.host, 6_000);
+      const hashesPromise = waitForStateHashes(
+        setup.host,
+        (payload: RoomStateHashesPayload) =>
+          payload.roomId === setup.roomId &&
+          payload.structuresHash !== initialStructures.hashHex,
+        { timeoutMs: 6_000, overallTimeoutMs: 6_000 },
+      );
 
       setup.host.emit('build:queue', {
         templateId: 'block',
@@ -96,14 +100,7 @@ describe('section sync and queued scheduling', () => {
         );
       }
 
-      await scheduledPromise;
-      const hashes = await waitForStateHashes(
-        setup.host,
-        (payload: RoomStateHashesPayload) =>
-          payload.roomId === setup?.roomId &&
-          payload.structuresHash !== initialStructures.hashHex,
-        { timeoutMs: 6_000, overallTimeoutMs: 6_000 },
-      );
+      const hashes = await hashesPromise;
 
       expect(hashes.gridHash).toBe(initialGrid.hashHex);
       expect(hashes.structuresHash).not.toBe(initialStructures.hashHex);
@@ -128,14 +125,18 @@ describe('section sync and queued scheduling', () => {
   );
 
   lockstepSectionsTest(
-    'broadcasts authoritative queued intents and scheduled builds on turn flush',
+    'broadcasts authoritative queued intents and queue hashes on turn flush',
     async ({ connectedRoom, startLockstepMatch }) => {
       const setup = await startLockstepMatch(connectedRoom, {
         waitForActiveMembership: false,
       });
 
       const hostQueuedPromise = waitForBuildQueueResponse(setup.host, 4_000);
-      const guestQueuedPromise = waitForBuildQueueResponse(setup.guest, 4_000);
+      const guestQueuedPromise = waitForEvent<BuildQueuedPayload>(
+        setup.guest,
+        'build:queued',
+        4_000,
+      );
       const earlyHostQueuedPromise = waitForEvent<BuildQueuedPayload>(
         setup.host,
         'build:queued',
@@ -146,13 +147,6 @@ describe('section sync and queued scheduling', () => {
         'build:queued',
         250,
       );
-      const earlyHostScheduledPromise = waitForEvent<BuildScheduledPayload>(
-        setup.host,
-        'build:scheduled',
-        250,
-      );
-      const hostScheduledPromise = waitForBuildScheduled(setup.host, 6_000);
-      const guestScheduledPromise = waitForBuildScheduled(setup.guest, 6_000);
 
       setup.host.emit('build:queue', {
         templateId: 'block',
@@ -162,20 +156,18 @@ describe('section sync and queued scheduling', () => {
 
       await expect(earlyHostQueuedPromise).rejects.toThrow(/timed out/i);
       await expect(earlyGuestQueuedPromise).rejects.toThrow(/timed out/i);
-      await expect(earlyHostScheduledPromise).rejects.toThrow(/timed out/i);
 
-      const [hostQueuedResponse, guestQueuedResponse] = await Promise.all([
+      const [hostQueuedResponse, guestQueued] = await Promise.all([
         hostQueuedPromise,
         guestQueuedPromise,
       ]);
-      if ('error' in hostQueuedResponse || 'error' in guestQueuedResponse) {
+      if ('error' in hostQueuedResponse) {
         throw new Error(
           'Expected both clients to observe a buffered build intent',
         );
       }
 
       const hostQueued: BuildQueuedPayload = hostQueuedResponse.queued;
-      const guestQueued: BuildQueuedPayload = guestQueuedResponse.queued;
       expect(guestQueued).toEqual(hostQueued);
       expect(hostQueued.playerId).toBe(setup.hostJoined.playerId);
       expect(hostQueued.teamId).toBe(setup.hostTeam.id);
@@ -183,16 +175,51 @@ describe('section sync and queued scheduling', () => {
         hostQueued.bufferedTurn,
       );
 
-      const [hostScheduled, guestScheduled] = await Promise.all([
-        hostScheduledPromise,
-        guestScheduledPromise,
-      ]);
+      const hostStructures = await waitForStateStructures(
+        setup.host,
+        (payload) =>
+          payload.roomId === setup.roomId &&
+          payload.teams.some(
+            (team) =>
+              team.id === setup.hostTeam.id &&
+              team.pendingBuilds.some(
+                ({ eventId }) => eventId === hostQueued.eventId,
+              ),
+          ),
+        {
+          roomId: setup.roomId,
+          attempts: 60,
+          timeoutMs: 2_000,
+          overallTimeoutMs: 6_000,
+        },
+      );
+      const guestStructures = await waitForStateStructures(
+        setup.guest,
+        (payload) =>
+          payload.roomId === setup.roomId &&
+          payload.teams.some(
+            (team) =>
+              team.id === setup.hostTeam.id &&
+              team.pendingBuilds.some(
+                ({ eventId }) => eventId === hostQueued.eventId,
+              ),
+          ),
+        {
+          roomId: setup.roomId,
+          attempts: 60,
+          timeoutMs: 2_000,
+          overallTimeoutMs: 6_000,
+        },
+      );
 
-      expect(hostScheduled).toEqual(guestScheduled);
-      expect(hostScheduled.intentId).toBe(hostQueued.intentId);
-      expect(hostScheduled.eventId).toBeGreaterThan(0);
-      expect(hostScheduled.executeTick).toBeGreaterThan(0);
-      expect(hostScheduled.teamId).toBe(setup.hostTeam.id);
+      const hostPendingBuilds =
+        hostStructures.teams.find((team) => team.id === setup.hostTeam.id)
+          ?.pendingBuilds ?? [];
+      const guestPendingBuilds =
+        guestStructures.teams.find((team) => team.id === setup.hostTeam.id)
+          ?.pendingBuilds ?? [];
+
+      expect(hostPendingBuilds).toEqual(guestPendingBuilds);
     },
     25_000,
   );

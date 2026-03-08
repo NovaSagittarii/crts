@@ -2,7 +2,8 @@ import { describe, expect } from 'vitest';
 
 import type {
   BuildOutcomePayload,
-  BuildScheduledPayload,
+  BuildQueuedPayload,
+  DestroyQueuedPayload,
   RoomJoinedPayload,
 } from '#rts-engine';
 
@@ -13,10 +14,8 @@ import {
   getTeamByPlayerId,
   waitForBuildOutcome,
   waitForBuildQueueResponse,
-  waitForBuildScheduled,
   waitForDestroyOutcome,
   waitForDestroyQueueResponse,
-  waitForDestroyScheduled,
   waitForEvent,
   waitForRoomState,
 } from './test-support.js';
@@ -31,7 +30,7 @@ const test = createMatchTest(
 );
 
 async function queueAppliedHostBlock(match: ActiveMatchSetup): Promise<{
-  scheduled: BuildScheduledPayload;
+  queued: BuildQueuedPayload;
   outcome: BuildOutcomePayload;
   structureKey: string;
 }> {
@@ -51,9 +50,6 @@ async function queueAppliedHostBlock(match: ActiveMatchSetup): Promise<{
 
   for (const placement of placements) {
     const buildResponsePromise = waitForBuildQueueResponse(match.host);
-    const scheduledPromise = waitForBuildScheduled(match.host, 4_000).catch(
-      () => null,
-    );
     match.host.emit('build:queue', {
       templateId: blockTemplate.id,
       x: placement.x,
@@ -66,12 +62,10 @@ async function queueAppliedHostBlock(match: ActiveMatchSetup): Promise<{
       continue;
     }
 
-    const scheduled = await scheduledPromise;
-    if (!scheduled) {
-      continue;
-    }
-
-    const outcome = await waitForBuildOutcome(match.host, scheduled.eventId);
+    const outcome = await waitForBuildOutcome(
+      match.host,
+      buildResponse.queued.eventId,
+    );
     if (outcome.outcome !== 'applied') {
       continue;
     }
@@ -103,7 +97,7 @@ async function queueAppliedHostBlock(match: ActiveMatchSetup): Promise<{
     }
 
     return {
-      scheduled,
+      queued: buildResponse.queued,
       outcome,
       structureKey: builtStructure.key,
     };
@@ -122,7 +116,6 @@ describe('destroy reconnect determinism', () => {
     expect(appliedBuild.outcome.outcome).toBe('applied');
 
     const destroyResponsePromise = waitForDestroyQueueResponse(match.host);
-    const destroyScheduledPromise = waitForDestroyScheduled(match.host, 4_000);
     match.host.emit('destroy:queue', {
       structureKey: appliedBuild.structureKey,
       delayTicks: 20,
@@ -134,8 +127,8 @@ describe('destroy reconnect determinism', () => {
       );
     }
 
-    const destroyScheduled = await destroyScheduledPromise;
-    expect(destroyScheduled.idempotent).toBe(false);
+    const destroyQueued: DestroyQueuedPayload = destroyResponse.queued;
+    expect(destroyQueued.idempotent).toBe(false);
 
     match.guest.disconnect();
 
@@ -155,15 +148,15 @@ describe('destroy reconnect determinism', () => {
       (payload) => {
         const hostTeam = getTeamByPlayerId(payload, match.hostJoined.playerId);
         return hostTeam.pendingDestroys.some(
-          ({ eventId }) => eventId === destroyScheduled.eventId,
+          ({ eventId }) => eventId === destroyQueued.eventId,
         );
       },
       { attempts: 80, timeoutMs: 2000 },
     );
 
     const [hostOutcome, reconnectOutcome] = await Promise.all([
-      waitForDestroyOutcome(match.host, destroyScheduled.eventId, 16_000),
-      waitForDestroyOutcome(reconnectGuest, destroyScheduled.eventId, 16_000),
+      waitForDestroyOutcome(match.host, destroyQueued.eventId, 16_000),
+      waitForDestroyOutcome(reconnectGuest, destroyQueued.eventId, 16_000),
     ]);
 
     expect(reconnectOutcome).toEqual(hostOutcome);
@@ -181,7 +174,7 @@ describe('destroy reconnect determinism', () => {
           );
           return (
             !hostTeam.pendingDestroys.some(
-              ({ eventId }) => eventId === destroyScheduled.eventId,
+              ({ eventId }) => eventId === destroyQueued.eventId,
             ) &&
             !hostTeam.structures.some(
               ({ key, hp }) => key === appliedBuild.structureKey && hp > 0,
@@ -200,7 +193,7 @@ describe('destroy reconnect determinism', () => {
           );
           return (
             !hostTeam.pendingDestroys.some(
-              ({ eventId }) => eventId === destroyScheduled.eventId,
+              ({ eventId }) => eventId === destroyQueued.eventId,
             ) &&
             !hostTeam.structures.some(
               ({ key, hp }) => key === appliedBuild.structureKey && hp > 0,
@@ -229,7 +222,6 @@ describe('destroy reconnect determinism', () => {
     expect(appliedBuild.outcome.outcome).toBe('applied');
 
     const destroyResponsePromise = waitForDestroyQueueResponse(match.host);
-    const destroyScheduledPromise = waitForDestroyScheduled(match.host, 4_000);
     match.host.emit('destroy:queue', {
       structureKey: appliedBuild.structureKey,
       delayTicks: 1,
@@ -241,10 +233,10 @@ describe('destroy reconnect determinism', () => {
       );
     }
 
-    const destroyScheduled = await destroyScheduledPromise;
+    const destroyQueued: DestroyQueuedPayload = destroyResponse.queued;
     const hostOutcome = await waitForDestroyOutcome(
       match.host,
-      destroyScheduled.eventId,
+      destroyQueued.eventId,
     );
     expect(hostOutcome.outcome).toBe('destroyed');
     expect(hostOutcome.structureKey).toBe(appliedBuild.structureKey);
@@ -256,7 +248,7 @@ describe('destroy reconnect determinism', () => {
         const hostTeam = getTeamByPlayerId(payload, match.hostJoined.playerId);
         return (
           !hostTeam.pendingDestroys.some(
-            ({ eventId }) => eventId === destroyScheduled.eventId,
+            ({ eventId }) => eventId === destroyQueued.eventId,
           ) &&
           !hostTeam.structures.some(
             ({ key, hp }) => key === appliedBuild.structureKey && hp > 0,
@@ -285,7 +277,7 @@ describe('destroy reconnect determinism', () => {
         const hostTeam = getTeamByPlayerId(payload, match.hostJoined.playerId);
         return (
           !hostTeam.pendingDestroys.some(
-            ({ eventId }) => eventId === destroyScheduled.eventId,
+            ({ eventId }) => eventId === destroyQueued.eventId,
           ) &&
           !hostTeam.structures.some(
             ({ key, hp }) => key === appliedBuild.structureKey && hp > 0,

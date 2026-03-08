@@ -6,13 +6,11 @@ import {
   type BuildPreviewTemplateSnapshot,
   BuildQueueRejectedPayload,
   BuildQueuedPayload,
-  BuildScheduledPayload,
   ChatMessagePayload,
   ClientToServerEvents,
   DestroyOutcomePayload,
   DestroyQueueRejectedPayload,
   DestroyQueuedPayload,
-  DestroyScheduledPayload,
   LockstepCheckpointPayload,
   LockstepFallbackPayload,
   MatchFinishedPayload,
@@ -3867,15 +3865,20 @@ socket.on('build:queued', (payload: BuildQueuedPayload) => {
     return;
   }
 
+  requestStateSections(['structures']);
+
   if (currentTeamId === null || payload.teamId !== currentTeamId) {
     return;
   }
 
-  overlayBuildFeedbackPending = true;
+  const feedback = `Build queued (#${payload.eventId}) for tick ${payload.executeTick}.`;
+
+  overlayBuildFeedbackPending = false;
   overlayBuildFeedbackIsError = false;
-  overlayBuildFeedbackCopy = `Build intent buffered for turn ${payload.scheduledByTurn}.`;
-  setQueueFeedbackOverride(overlayBuildFeedbackCopy, false);
-  setMessage(overlayBuildFeedbackCopy);
+  overlayBuildFeedbackCopy = feedback;
+  setQueueFeedbackOverride(feedback, false);
+  setMessage(feedback);
+  addToast(feedback);
   refreshActionUi();
 });
 
@@ -3904,26 +3907,6 @@ socket.on('build:queue-rejected', (payload: BuildQueueRejectedPayload) => {
   overlayBuildFeedbackIsError = true;
   setMessage(rejectionCopy, true);
   addToast(rejectionCopy, true);
-  refreshActionUi();
-});
-
-socket.on('build:scheduled', (payload: BuildScheduledPayload) => {
-  if (payload.roomId !== currentRoomId) {
-    return;
-  }
-
-  requestStateSections(['structures']);
-
-  if (currentTeamId === null || payload.teamId !== currentTeamId) {
-    return;
-  }
-
-  overlayBuildFeedbackPending = false;
-  overlayBuildFeedbackIsError = false;
-  overlayBuildFeedbackCopy = `Build scheduled (#${payload.eventId}) for tick ${payload.executeTick}.`;
-  setQueueFeedbackOverride(overlayBuildFeedbackCopy, false);
-  addToast(overlayBuildFeedbackCopy);
-  setMessage(overlayBuildFeedbackCopy);
   refreshActionUi();
 });
 
@@ -3969,17 +3952,29 @@ socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
     return;
   }
 
+  requestStateSections(['structures']);
+
   if (currentTeamId === null || payload.teamId !== currentTeamId) {
     return;
   }
 
-  const feedback = `Destroy intent buffered for turn ${payload.scheduledByTurn}.`;
+  destroyViewState = registerDestroyQueued(
+    destroyViewState,
+    payload.structureKey,
+  );
 
-  overlayTeamFeedbackPending = true;
+  const feedback = payload.idempotent
+    ? `Destroy already pending for ${payload.structureKey}.`
+    : `Destroy queued (#${payload.eventId}) for tick ${payload.executeTick}.`;
+
+  overlayTeamFeedbackPending = false;
   overlayTeamFeedbackCopy = feedback;
   overlayTeamFeedbackIsError = false;
   setDestroyFeedbackOverride(feedback, false);
   setMessage(feedback);
+  if (!payload.idempotent) {
+    addToast(feedback);
+  }
   refreshActionUi();
 });
 
@@ -4000,37 +3995,6 @@ socket.on('destroy:queue-rejected', (payload: DestroyQueueRejectedPayload) => {
   overlayTeamFeedbackIsError = true;
   setMessage(rejectionCopy, true);
   addToast(rejectionCopy, true);
-  refreshActionUi();
-});
-
-socket.on('destroy:scheduled', (payload: DestroyScheduledPayload) => {
-  if (payload.roomId !== currentRoomId) {
-    return;
-  }
-
-  requestStateSections(['structures']);
-
-  if (currentTeamId === null || payload.teamId !== currentTeamId) {
-    return;
-  }
-
-  destroyViewState = registerDestroyQueued(
-    destroyViewState,
-    payload.structureKey,
-  );
-
-  const feedback = payload.idempotent
-    ? `Destroy already pending for ${payload.structureKey}.`
-    : `Destroy scheduled (#${payload.eventId}) for tick ${payload.executeTick}.`;
-
-  overlayTeamFeedbackPending = false;
-  overlayTeamFeedbackCopy = feedback;
-  overlayTeamFeedbackIsError = false;
-  setDestroyFeedbackOverride(feedback, false);
-  setMessage(feedback);
-  if (!payload.idempotent) {
-    addToast(feedback);
-  }
   refreshActionUi();
 });
 
