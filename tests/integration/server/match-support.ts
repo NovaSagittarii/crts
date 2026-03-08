@@ -44,6 +44,68 @@ export interface StartMatchOptions {
   waitForActiveMembership?: boolean;
 }
 
+const DEFAULT_MATCH_STARTED_TIMEOUT_MS = 7000;
+const DEFAULT_MANUAL_COUNTDOWN_ADVANCE_MS = 3_100;
+
+async function startRoomAndWaitForMatchStart(
+  host: Socket,
+  options: StartMatchOptions,
+): Promise<MatchStartedPayload> {
+  const countdownAdvanceMs =
+    options.countdownAdvanceMs ?? DEFAULT_MANUAL_COUNTDOWN_ADVANCE_MS;
+
+  let matchStartedResolved = false;
+  const matchStartedPromise =
+    options.startMode === 'manual'
+      ? new Promise<MatchStartedPayload>((resolve) => {
+          host.once('room:match-started', (payload: MatchStartedPayload) => {
+            matchStartedResolved = true;
+            resolve(payload);
+          });
+        })
+      : waitForEvent<MatchStartedPayload>(
+          host,
+          'room:match-started',
+          DEFAULT_MATCH_STARTED_TIMEOUT_MS,
+        ).then((payload) => {
+          matchStartedResolved = true;
+          return payload;
+        });
+
+  if (options.startMode === 'fake-timers') {
+    const countdownPromise = waitForEvent(host, 'room:countdown', 3500);
+    vi.useFakeTimers();
+    try {
+      host.emit('room:start');
+      await countdownPromise;
+      await vi.advanceTimersByTimeAsync(countdownAdvanceMs);
+      return await matchStartedPromise;
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  if (options.startMode === 'manual') {
+    if (!options.runtime) {
+      throw new Error('Manual start mode requires an integration runtime');
+    }
+
+    host.emit('room:start');
+    await options.runtime.settle();
+    if (!matchStartedResolved) {
+      await options.runtime.advanceMs(countdownAdvanceMs);
+    }
+    await options.runtime.settle();
+    if (!matchStartedResolved) {
+      throw new Error('Manual countdown did not emit room:match-started');
+    }
+    return matchStartedPromise;
+  }
+
+  host.emit('room:start');
+  return matchStartedPromise;
+}
+
 export async function setupConnectedRoom(
   options: SetupConnectedRoomOptions,
 ): Promise<ConnectedRoomSetup> {
@@ -120,56 +182,7 @@ export async function startMatchAndWaitForActive(
   setup.guest.emit('room:set-ready', { ready: true });
   await readyMembershipPromise;
 
-  let matchStartedResolved = false;
-  const matchStartedPromise =
-    options.startMode === 'manual'
-      ? new Promise<MatchStartedPayload>((resolve) => {
-          setup.host.once(
-            'room:match-started',
-            (payload: MatchStartedPayload) => {
-              matchStartedResolved = true;
-              resolve(payload);
-            },
-          );
-        })
-      : waitForEvent<MatchStartedPayload>(
-          setup.host,
-          'room:match-started',
-          7000,
-        ).then((payload) => {
-          matchStartedResolved = true;
-          return payload;
-        });
-  if (options.startMode === 'fake-timers') {
-    const countdownPromise = waitForEvent(setup.host, 'room:countdown', 3500);
-    vi.useFakeTimers();
-    try {
-      setup.host.emit('room:start');
-      await countdownPromise;
-      await vi.advanceTimersByTimeAsync(options.countdownAdvanceMs ?? 3_100);
-      await matchStartedPromise;
-    } finally {
-      vi.useRealTimers();
-    }
-  } else if (options.startMode === 'manual') {
-    if (!options.runtime) {
-      throw new Error('Manual start mode requires an integration runtime');
-    }
-
-    setup.host.emit('room:start');
-    await options.runtime.settle();
-    if (!matchStartedResolved) {
-      await options.runtime.advanceMs(options.countdownAdvanceMs ?? 3_100);
-    }
-    await options.runtime.settle();
-    if (!matchStartedResolved) {
-      throw new Error('Manual countdown did not emit room:match-started');
-    }
-    await matchStartedPromise;
-  } else {
-    setup.host.emit('room:start');
-    await matchStartedPromise;
-  }
+  await startRoomAndWaitForMatchStart(setup.host, options);
 
   if (options.waitForActiveMembership) {
     await waitForMembership(
