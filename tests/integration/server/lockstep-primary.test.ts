@@ -223,6 +223,24 @@ describe('lockstep primary mode', () => {
         },
       );
       const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
+      const generatorTemplate = match.hostJoined.templates.find(
+        ({ id }) => id === 'generator',
+      );
+      if (!generatorTemplate) {
+        throw new Error('Expected generator template to be available');
+      }
+
+      const placement = collectCandidatePlacements(
+        team,
+        generatorTemplate,
+        match.hostJoined.state.width,
+        match.hostJoined.state.height,
+      )[0];
+      if (!placement) {
+        throw new Error('Expected a valid generator placement');
+      }
+
+      const initialResources = team.resources;
       const ticksIntoTurn = state.tick % PRIMARY_BOUNDARY_TURN_TICKS;
       const ticksUntilTurnFlush =
         ticksIntoTurn === 0
@@ -235,16 +253,43 @@ describe('lockstep primary mode', () => {
         'build:queued',
         quietWindowMs,
       );
+      const queuedPromise = waitForBuildQueueResponse(match.host, 5_000);
 
       match.host.emit('build:queue', {
-        templateId: 'block',
-        x: team.baseTopLeft.x + 8,
-        y: team.baseTopLeft.y + 8,
+        templateId: generatorTemplate.id,
+        x: placement.x,
+        y: placement.y,
       });
 
       await expect(earlyQueuedPromise).rejects.toThrow(/timed out/i);
 
-      const queued = await waitForBuildQueueResponse(match.host, 5_000);
+      const preFlushState = await waitForState(
+        match.host,
+        (payload) => {
+          if (payload.roomId !== match.roomId) {
+            return false;
+          }
+          const hostTeam = resolveTeamForPlayer(
+            payload.teams,
+            match.hostJoined.playerId,
+          );
+          return (
+            hostTeam.resources === initialResources &&
+            hostTeam.pendingBuilds.length === 0
+          );
+        },
+        {
+          roomId: match.roomId,
+          attempts: 20,
+          timeoutMs: 2_000,
+        },
+      );
+      expect(
+        resolveTeamForPlayer(preFlushState.teams, match.hostJoined.playerId)
+          .resources,
+      ).toBe(initialResources);
+
+      const queued = await queuedPromise;
       if ('error' in queued) {
         throw new Error(
           `Build queue rejected: ${queued.error.reason ?? queued.error.message}`,
@@ -254,6 +299,34 @@ describe('lockstep primary mode', () => {
       expect(queued.queued.intentId).toMatch(/^intent-/);
       expect(queued.queued.eventId).toBeGreaterThan(0);
       expect(queued.queued.executeTick).toBeGreaterThan(0);
+
+      const queuedState = await waitForState(
+        match.host,
+        (payload) => {
+          if (payload.roomId !== match.roomId) {
+            return false;
+          }
+          const hostTeam = resolveTeamForPlayer(
+            payload.teams,
+            match.hostJoined.playerId,
+          );
+          return (
+            hostTeam.resources < initialResources &&
+            hostTeam.pendingBuilds.some(
+              ({ eventId }) => eventId === queued.queued.eventId,
+            )
+          );
+        },
+        {
+          roomId: match.roomId,
+          attempts: 40,
+          timeoutMs: 2_000,
+        },
+      );
+      expect(
+        resolveTeamForPlayer(queuedState.teams, match.hostJoined.playerId)
+          .resources,
+      ).toBeLessThan(initialResources);
     },
     30_000,
   );

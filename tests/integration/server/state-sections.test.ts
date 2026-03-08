@@ -10,6 +10,7 @@ import type {
 import { createLockstepTest } from './lockstep-fixtures.js';
 import { createMatchTest } from './match-fixtures.js';
 import {
+  collectCandidatePlacements,
   waitForBuildQueueResponse,
   waitForEvent,
   waitForNoEvent,
@@ -55,6 +56,12 @@ describe('section sync and queued fanout', () => {
     'serves grid and structures sections only to the requester',
     async ({ activeMatch }) => {
       const setup = activeMatch;
+      const generatorTemplate = setup.hostJoined.templates.find(
+        ({ id }) => id === 'generator',
+      );
+      if (!generatorTemplate) {
+        throw new Error('Expected generator template to be available');
+      }
 
       const initialGrid = await waitForStateGrid(
         setup.host,
@@ -78,6 +85,22 @@ describe('section sync and queued fanout', () => {
           roomId: setup.roomId,
         },
       );
+      const initialHostTeam = initialStructures.teams.find(
+        (team) => team.id === setup.hostTeam.id,
+      );
+      if (!initialHostTeam) {
+        throw new Error('Expected host team in initial structures state');
+      }
+
+      const placement = collectCandidatePlacements(
+        setup.hostTeam,
+        generatorTemplate,
+        setup.hostJoined.state.width,
+        setup.hostJoined.state.height,
+      )[0];
+      if (!placement) {
+        throw new Error('Expected a valid generator placement');
+      }
 
       const hashesPromise = waitForStateHashes(
         setup.host,
@@ -86,14 +109,16 @@ describe('section sync and queued fanout', () => {
           payload.structuresHash !== initialStructures.hashHex,
         { timeoutMs: 6_000, overallTimeoutMs: 6_000 },
       );
+      const queuedPromise = waitForBuildQueueResponse(setup.host, 4_000);
 
       setup.host.emit('build:queue', {
-        templateId: 'block',
-        x: setup.hostTeam.baseTopLeft.x + 8,
-        y: setup.hostTeam.baseTopLeft.y + 8,
+        templateId: generatorTemplate.id,
+        x: placement.x,
+        y: placement.y,
+        delayTicks: 20,
       });
 
-      const queued = await waitForBuildQueueResponse(setup.host, 4_000);
+      const queued = await queuedPromise;
       if ('error' in queued) {
         throw new Error(
           `Build queue unexpectedly failed: ${queued.error.reason ?? queued.error.message}`,
@@ -115,6 +140,18 @@ describe('section sync and queued fanout', () => {
         },
       );
       expect(updatedStructures.hashHex).toBe(hashes.structuresHash);
+      const updatedHostTeam = updatedStructures.teams.find(
+        (team) => team.id === setup.hostTeam.id,
+      );
+      if (!updatedHostTeam) {
+        throw new Error('Expected host team in updated structures state');
+      }
+      expect(updatedHostTeam.resources).toBeLessThan(initialHostTeam.resources);
+      expect(
+        updatedHostTeam.pendingBuilds.some(
+          ({ eventId }) => eventId === queued.queued.eventId,
+        ),
+      ).toBe(true);
 
       await Promise.all([
         waitForNoEvent(setup.guest, 'state:grid', 250),
@@ -130,6 +167,38 @@ describe('section sync and queued fanout', () => {
       const setup = await startLockstepMatch(connectedRoom, {
         waitForActiveMembership: false,
       });
+      const generatorTemplate = setup.hostJoined.templates.find(
+        ({ id }) => id === 'generator',
+      );
+      if (!generatorTemplate) {
+        throw new Error('Expected generator template to be available');
+      }
+
+      const placement = collectCandidatePlacements(
+        setup.hostTeam,
+        generatorTemplate,
+        setup.hostJoined.state.width,
+        setup.hostJoined.state.height,
+      )[0];
+      if (!placement) {
+        throw new Error('Expected a valid generator placement');
+      }
+
+      const initialStructures = await waitForStateStructures(
+        setup.host,
+        (payload) => payload.roomId === setup.roomId,
+        {
+          roomId: setup.roomId,
+          attempts: 20,
+          timeoutMs: 2_000,
+        },
+      );
+      const initialHostTeam = initialStructures.teams.find(
+        (team) => team.id === setup.hostTeam.id,
+      );
+      if (!initialHostTeam) {
+        throw new Error('Expected host team in initial structures state');
+      }
 
       const hostQueuedPromise = waitForBuildQueueResponse(setup.host, 4_000);
       const guestQueuedPromise = waitForEvent<BuildQueuedPayload>(
@@ -149,9 +218,9 @@ describe('section sync and queued fanout', () => {
       );
 
       setup.host.emit('build:queue', {
-        templateId: 'block',
-        x: setup.hostTeam.baseTopLeft.x + 8,
-        y: setup.hostTeam.baseTopLeft.y + 8,
+        templateId: generatorTemplate.id,
+        x: placement.x,
+        y: placement.y,
       });
 
       await expect(earlyHostQueuedPromise).rejects.toThrow(/timed out/i);
@@ -215,11 +284,19 @@ describe('section sync and queued fanout', () => {
       const hostPendingBuilds =
         hostStructures.teams.find((team) => team.id === setup.hostTeam.id)
           ?.pendingBuilds ?? [];
+      const hostQueuedTeam = hostStructures.teams.find(
+        (team) => team.id === setup.hostTeam.id,
+      );
       const guestPendingBuilds =
         guestStructures.teams.find((team) => team.id === setup.hostTeam.id)
           ?.pendingBuilds ?? [];
+      const guestQueuedTeam = guestStructures.teams.find(
+        (team) => team.id === setup.hostTeam.id,
+      );
 
       expect(hostPendingBuilds).toEqual(guestPendingBuilds);
+      expect(hostQueuedTeam?.resources).toBeLessThan(initialHostTeam.resources);
+      expect(guestQueuedTeam?.resources).toBe(hostQueuedTeam?.resources);
     },
     25_000,
   );

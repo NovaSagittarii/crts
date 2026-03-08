@@ -31,6 +31,7 @@ import {
   waitForRoomList,
   waitForRoomState,
   waitForStateHashes,
+  waitForStateStructures,
 } from './test-support.js';
 
 const defaultServerOptions = { port: 0, width: 52, height: 52, tickMs: 40 };
@@ -383,6 +384,12 @@ describe('GameServer', () => {
     'rejects unaffordable queue attempts with exact deficit metadata after buffering',
     async ({ activeMatch }) => {
       const setup = activeMatch;
+      const initialState = await waitForRoomState(
+        setup.host,
+        setup.roomId,
+        (state) => state.roomId === setup.roomId,
+        { attempts: 20 },
+      );
 
       const expensiveTemplate = setup.hostJoined.templates.find(
         ({ id }) => id === 'eater-1',
@@ -399,19 +406,28 @@ describe('GameServer', () => {
       );
       expect(placements.length).toBeGreaterThan(0);
 
+      let lastObservedResources = getTeam(
+        initialState,
+        setup.hostTeam.id,
+      ).resources;
+      let acceptedQueues = 0;
       let insufficient: Awaited<
         ReturnType<typeof waitForBuildQueueResponse>
       > | null = null;
       for (let attempt = 0; attempt < placements.length; attempt += 1) {
         const placement = placements[attempt];
+        const queueResponsePromise = waitForBuildQueueResponse(
+          setup.host,
+          4_000,
+        );
         setup.host.emit('build:queue', {
           templateId: expensiveTemplate.id,
           x: placement.x,
           y: placement.y,
-          delayTicks: 1,
+          delayTicks: 80,
         });
 
-        const response = await waitForBuildQueueResponse(setup.host, 4_000);
+        const response = await queueResponsePromise;
         if ('error' in response) {
           if (response.error.reason === 'insufficient-resources') {
             insufficient = { error: response.error };
@@ -419,6 +435,27 @@ describe('GameServer', () => {
           }
           continue;
         }
+
+        acceptedQueues += 1;
+        const queuedState = await waitForRoomState(
+          setup.host,
+          setup.roomId,
+          (state) => {
+            const team = getTeam(state, setup.hostTeam.id);
+            return (
+              team.pendingBuilds.some(
+                ({ eventId }) => eventId === response.queued.eventId,
+              ) &&
+              team.pendingBuilds.length >= acceptedQueues &&
+              team.resources < lastObservedResources
+            );
+          },
+          { attempts: 20 },
+        );
+        lastObservedResources = getTeam(
+          queuedState,
+          setup.hostTeam.id,
+        ).resources;
       }
 
       if (!insufficient || !('error' in insufficient)) {
@@ -442,6 +479,7 @@ describe('GameServer', () => {
         );
       }
 
+      expect(current).toBe(lastObservedResources);
       expect(current).toBeLessThan(needed);
       expect(deficit).toBe(needed - current);
     },
@@ -750,7 +788,7 @@ describe('GameServer', () => {
   );
 
   matchTest(
-    'queues template builds and charges resources',
+    'charges resources after authoritative queue acceptance for costly builds',
     async ({ activeMatch }) => {
       const setup = activeMatch;
 
@@ -765,36 +803,57 @@ describe('GameServer', () => {
       );
       const initialTeam = getTeam(initialTeamState, teamId);
 
-      const blockTemplate = setup.hostJoined.templates.find(
-        ({ id }) => id === 'block',
+      const costlyTemplate = setup.hostJoined.templates.find(
+        ({ id }) => id === 'eater-1',
       );
-      if (!blockTemplate) {
-        throw new Error('Expected block template to be available');
+      if (!costlyTemplate) {
+        throw new Error('Expected eater-1 template to be available');
       }
 
       const placements = collectCandidatePlacements(
         initialTeam,
-        blockTemplate,
+        costlyTemplate,
         setup.hostJoined.state.width,
         setup.hostJoined.state.height,
       );
       const selectedPlacement = placements[0];
       if (!selectedPlacement) {
-        throw new Error('Expected at least one valid block placement');
+        throw new Error('Expected at least one valid eater-1 placement');
       }
 
       const buildX = selectedPlacement.x;
       const buildY = selectedPlacement.y;
-      const buildTransform = normalizePlacementTransform({
-        operations: ['rotate'],
-      });
 
-      const blockCells: Cell[] = [
-        { x: buildX, y: buildY },
-        { x: buildX + 1, y: buildY },
-        { x: buildX, y: buildY + 1 },
-        { x: buildX + 1, y: buildY + 1 },
-      ];
+      const initialStructures = await waitForStateStructures(
+        setup.host,
+        (payload) => payload.roomId === setup.roomId,
+        {
+          roomId: setup.roomId,
+          attempts: 20,
+          timeoutMs: 2_000,
+        },
+      );
+      const initialStructuresTeam = initialStructures.teams.find(
+        (team) => team.id === teamId,
+      );
+      if (!initialStructuresTeam) {
+        throw new Error('Expected host team in initial structures state');
+      }
+      const pendingStructuresPromise = waitForStateStructures(
+        setup.host,
+        (payload) =>
+          payload.roomId === setup.roomId &&
+          payload.teams.some(
+            (team) =>
+              team.id === teamId &&
+              team.resources < initialStructuresTeam.resources,
+          ),
+        {
+          roomId: setup.roomId,
+          attempts: 20,
+          timeoutMs: 2_000,
+        },
+      );
 
       const queuedResponsePromise = waitForBuildQueueResponse(
         setup.host,
@@ -806,11 +865,10 @@ describe('GameServer', () => {
       );
 
       setup.host.emit('build:queue', {
-        templateId: blockTemplate.id,
+        templateId: costlyTemplate.id,
         x: buildX,
         y: buildY,
-        transform: { operations: ['rotate'] },
-        delayTicks: 1,
+        delayTicks: 80,
       });
 
       const [queuedResponse, guestQueued] = await Promise.all([
@@ -824,35 +882,37 @@ describe('GameServer', () => {
       }
 
       const queued = queuedResponse.queued;
+      const pendingStructures = await pendingStructuresPromise;
 
       expect(queued.intentId).toMatch(/^intent-/);
       expect(queued).toMatchObject({
         roomId: setup.roomId,
         playerId: setup.hostJoined.playerId,
         teamId,
-        templateId: blockTemplate.id,
+        templateId: costlyTemplate.id,
         x: buildX,
         y: buildY,
-        transform: buildTransform,
-        delayTicks: 1,
       });
       expect(guestQueued).toEqual(queued);
       expect(queued.eventId).toBeGreaterThan(0);
       expect(queued.executeTick).toBeGreaterThan(0);
+      const pendingTeam = pendingStructures.teams.find(
+        (team) => team.id === teamId,
+      );
+      expect(pendingTeam?.resources).toBeLessThan(
+        initialStructuresTeam.resources,
+      );
 
-      const builtState = await waitForRoomState(
+      const outcomesById = await collectBuildOutcomes(
         setup.host,
-        setup.roomId,
-        (state) =>
-          blockAlive(state, blockCells) &&
-          getTeam(state, teamId).resources < initialTeam.resources,
-        { attempts: 12 },
+        [queued.eventId],
+        12_000,
       );
-
-      expect(blockAlive(builtState, blockCells)).toBe(true);
-      expect(getTeam(builtState, teamId).resources).toBeLessThan(
-        initialTeam.resources,
-      );
+      expect(outcomesById.get(queued.eventId)?.[0]).toMatchObject({
+        eventId: queued.eventId,
+        teamId,
+        outcome: 'applied',
+      });
     },
     20_000,
   );
