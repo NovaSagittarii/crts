@@ -2,9 +2,7 @@ import { describe, expect } from 'vitest';
 
 import { Grid } from '#conway-core';
 import {
-  type BuildQueueRejectedPayload,
   type BuildQueuedPayload,
-  type DestroyQueueRejectedPayload,
   type DestroyQueuedPayload,
   type RoomGridStatePayload,
   type RoomJoinedPayload,
@@ -23,6 +21,8 @@ import {
   collectBuildQueuedEvents,
   collectCandidatePlacements,
   collectDestroyOutcomes,
+  expectBuildQueueRejected,
+  expectDestroyQueueRejected,
   getTeamByPlayerId,
   waitForBuildQueueResponse,
   waitForDestroyQueueResponse,
@@ -348,50 +348,32 @@ describe('GameServer', () => {
     async ({ activeMatch }) => {
       const setup = activeMatch;
 
-      const outOfBoundsRejectedPromise =
-        waitForEvent<BuildQueueRejectedPayload>(
-          setup.host,
-          'build:queue-rejected',
-          1_500,
-        );
-      setup.host.emit('build:queue', {
-        templateId: 'block',
-        x: -1,
-        y: 0,
-        delayTicks: 1,
-      });
-      const [outOfBounds, outOfBoundsRejected] = await Promise.all([
-        waitForBuildQueueResponse(setup.host, 1_500),
-        outOfBoundsRejectedPromise,
-      ]);
-      if ('queued' in outOfBounds) {
-        throw new Error('Expected out-of-bounds build request to be rejected');
-      }
-      expect(outOfBounds.error.reason).toBe('outside-territory');
+      const outOfBoundsRejected = await expectBuildQueueRejected(
+        setup.host,
+        () => {
+          setup.host.emit('build:queue', {
+            templateId: 'block',
+            x: -1,
+            y: 0,
+            delayTicks: 1,
+          });
+        },
+        1_500,
+      );
       expect(outOfBoundsRejected.reason).toBe('outside-territory');
 
-      const outsideTerritoryRejectedPromise =
-        waitForEvent<BuildQueueRejectedPayload>(
-          setup.host,
-          'build:queue-rejected',
-          1_500,
-        );
-      setup.host.emit('build:queue', {
-        templateId: 'block',
-        x: setup.guestTeam.baseTopLeft.x,
-        y: setup.guestTeam.baseTopLeft.y,
-        delayTicks: 1,
-      });
-      const [outsideTerritory, outsideTerritoryRejected] = await Promise.all([
-        waitForBuildQueueResponse(setup.host, 1_500),
-        outsideTerritoryRejectedPromise,
-      ]);
-      if ('queued' in outsideTerritory) {
-        throw new Error(
-          'Expected outside-territory build request to be rejected',
-        );
-      }
-      expect(outsideTerritory.error.reason).toBe('outside-territory');
+      const outsideTerritoryRejected = await expectBuildQueueRejected(
+        setup.host,
+        () => {
+          setup.host.emit('build:queue', {
+            templateId: 'block',
+            x: setup.guestTeam.baseTopLeft.x,
+            y: setup.guestTeam.baseTopLeft.y,
+            delayTicks: 1,
+          });
+        },
+        1_500,
+      );
       expect(outsideTerritoryRejected.reason).toBe('outside-territory');
     },
     20_000,
@@ -658,24 +640,16 @@ describe('GameServer', () => {
         );
       }
 
-      const wrongOwnerRejectedPromise =
-        waitForEvent<DestroyQueueRejectedPayload>(
-          setup.guest,
-          'destroy:queue-rejected',
-          1_500,
-        );
-      setup.guest.emit('destroy:queue', {
-        structureKey: targetStructureKey,
-        delayTicks: 1,
-      });
-      const [wrongOwnerError, wrongOwnerRejected] = await Promise.all([
-        waitForDestroyQueueResponse(setup.guest, 1_500),
-        wrongOwnerRejectedPromise,
-      ]);
-      if ('queued' in wrongOwnerError) {
-        throw new Error('Expected wrong-owner destroy request to be rejected');
-      }
-      expect(wrongOwnerError.error.reason).toBe('wrong-owner');
+      const wrongOwnerRejected = await expectDestroyQueueRejected(
+        setup.guest,
+        () => {
+          setup.guest.emit('destroy:queue', {
+            structureKey: targetStructureKey,
+            delayTicks: 1,
+          });
+        },
+        1_500,
+      );
       expect(wrongOwnerRejected.reason).toBe('wrong-owner');
 
       setup.host.emit('destroy:queue', {
@@ -716,24 +690,16 @@ describe('GameServer', () => {
         firstDestroyQueued.executeTick,
       );
 
-      const invalidTargetRejectedPromise =
-        waitForEvent<DestroyQueueRejectedPayload>(
-          setup.host,
-          'destroy:queue-rejected',
-          1_500,
-        );
-      setup.host.emit('destroy:queue', {
-        structureKey: 'missing-target-key',
-        delayTicks: 1,
-      });
-      const [invalidTargetError, invalidTargetRejected] = await Promise.all([
-        waitForDestroyQueueResponse(setup.host, 1_500),
-        invalidTargetRejectedPromise,
-      ]);
-      if ('queued' in invalidTargetError) {
-        throw new Error('Expected invalid destroy target to be rejected');
-      }
-      expect(invalidTargetError.error.reason).toBe('invalid-target');
+      const invalidTargetRejected = await expectDestroyQueueRejected(
+        setup.host,
+        () => {
+          setup.host.emit('destroy:queue', {
+            structureKey: 'missing-target-key',
+            delayTicks: 1,
+          });
+        },
+        1_500,
+      );
       expect(invalidTargetRejected.reason).toBe('invalid-target');
 
       const [hostOutcomesById, guestOutcomesById] = await Promise.all([
@@ -768,26 +734,16 @@ describe('GameServer', () => {
         hostOutcome.executeTick,
       );
 
-      const staleDestroyRejectedPromise =
-        waitForEvent<DestroyQueueRejectedPayload>(
-          setup.host,
-          'destroy:queue-rejected',
-          1_500,
-        );
-      setup.host.emit('destroy:queue', {
-        structureKey: targetStructureKey,
-        delayTicks: 1,
-      });
-      const [staleDestroyError, staleDestroyRejected] = await Promise.all([
-        waitForDestroyQueueResponse(setup.host, 1_500),
-        staleDestroyRejectedPromise,
-      ]);
-      if ('queued' in staleDestroyError) {
-        throw new Error(
-          'Expected stale destroy request to be rejected after prior destruction',
-        );
-      }
-      expect(staleDestroyError.error.reason).toBe('invalid-lifecycle-state');
+      const staleDestroyRejected = await expectDestroyQueueRejected(
+        setup.host,
+        () => {
+          setup.host.emit('destroy:queue', {
+            structureKey: targetStructureKey,
+            delayTicks: 1,
+          });
+        },
+        1_500,
+      );
       expect(staleDestroyRejected.reason).toBe('invalid-lifecycle-state');
     },
     40_000,

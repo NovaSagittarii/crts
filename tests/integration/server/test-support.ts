@@ -85,6 +85,15 @@ const socketPlayerIds = new WeakMap<Socket, string>();
 const socketSessionIds = new WeakMap<Socket, string>();
 const pendingQueueResponseKinds = new WeakMap<Socket, Set<string>>();
 
+function extractPlayerId(payload: unknown): string | null {
+  if (typeof payload !== 'object' || payload === null) {
+    return null;
+  }
+
+  const candidate = (payload as { playerId?: unknown }).playerId;
+  return typeof candidate === 'string' ? candidate : null;
+}
+
 function attachBufferedEventStore(socket: Socket): void {
   const store: BufferedEventStore = new Map();
   bufferedSocketEvents.set(socket, store);
@@ -96,14 +105,10 @@ function attachBufferedEventStore(socket: Socket): void {
       return;
     }
 
-    if (
-      event === 'room:joined' &&
-      typeof payload === 'object' &&
-      payload !== null &&
-      'playerId' in payload &&
-      typeof payload.playerId === 'string'
-    ) {
-      socketPlayerIds.set(socket, payload.playerId);
+    const playerId = event === 'room:joined' ? extractPlayerId(payload) : null;
+
+    if (playerId !== null) {
+      socketPlayerIds.set(socket, playerId);
     }
 
     const queue = store.get(event) ?? [];
@@ -850,6 +855,55 @@ export function waitForBuildQueueResponse(
   );
 }
 
+async function expectQueueRejected<
+  TQueued extends { playerId: string },
+  TRejected extends { reason: string; playerId: string },
+>(
+  socket: Socket,
+  rejectedEvent: 'build:queue-rejected' | 'destroy:queue-rejected',
+  queueResponsePromise: Promise<QueueResponse<TQueued, TRejected>>,
+  trigger: () => void,
+  timeoutMs: number,
+  queuedMessage: string,
+): Promise<TRejected> {
+  const rejectedPromise = waitForEvent<TRejected>(
+    socket,
+    rejectedEvent,
+    timeoutMs,
+  );
+  trigger();
+
+  const [response, rejected] = await Promise.all([
+    queueResponsePromise,
+    rejectedPromise,
+  ]);
+  if ('queued' in response) {
+    throw new Error(queuedMessage);
+  }
+  if (response.error.reason !== rejected.reason) {
+    throw new Error(
+      `Queue rejection mismatch: helper saw ${response.error.reason}, event emitted ${rejected.reason}`,
+    );
+  }
+
+  return rejected;
+}
+
+export function expectBuildQueueRejected(
+  socket: Socket,
+  trigger: () => void,
+  timeoutMs = 2500,
+): Promise<BuildQueueRejectedPayload> {
+  return expectQueueRejected<BuildQueuedPayload, BuildQueueRejectedPayload>(
+    socket,
+    'build:queue-rejected',
+    waitForBuildQueueResponse(socket, timeoutMs),
+    trigger,
+    timeoutMs,
+    'Expected build queue request to be rejected',
+  );
+}
+
 export function waitForDestroyQueueResponse(
   socket: Socket,
   timeoutMs = 2500,
@@ -864,6 +918,21 @@ export function waitForDestroyQueueResponse(
     'destroy:queue-rejected',
     timeoutMs,
     'Timed out waiting for destroy queue response',
+  );
+}
+
+export function expectDestroyQueueRejected(
+  socket: Socket,
+  trigger: () => void,
+  timeoutMs = 2500,
+): Promise<DestroyQueueRejectedPayload> {
+  return expectQueueRejected<DestroyQueuedPayload, DestroyQueueRejectedPayload>(
+    socket,
+    'destroy:queue-rejected',
+    waitForDestroyQueueResponse(socket, timeoutMs),
+    trigger,
+    timeoutMs,
+    'Expected destroy queue request to be rejected',
   );
 }
 
