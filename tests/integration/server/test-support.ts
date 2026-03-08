@@ -292,6 +292,13 @@ export function waitForEventWithPredicate<T>(
     return Promise.reject(new Error(timeoutMessage));
   }
 
+  if (BUFFERED_EVENT_NAMES.has(event)) {
+    const bufferedEvent = takeBufferedEvent<T>(socket, event, predicate);
+    if (bufferedEvent !== null) {
+      return Promise.resolve(bufferedEvent);
+    }
+  }
+
   return new Promise((resolve, reject) => {
     let remainingAttempts = attempts;
 

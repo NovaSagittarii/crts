@@ -3,7 +3,7 @@ import { describe, expect } from 'vitest';
 import type { LockstepCheckpointPayload, RoomJoinedPayload } from '#rts-engine';
 
 import { createLockstepTest } from './lockstep-fixtures.js';
-import { waitForEvent } from './test-support.js';
+import { waitForEvent, waitForEventWithPredicate } from './test-support.js';
 
 const test = createLockstepTest(
   {
@@ -40,13 +40,6 @@ describe('lockstep reconnect diagnostics', () => {
     guest.close();
     guest = connectClient({ sessionId: 'diag-guest' });
 
-    const checkpointAfterReconnectPromise =
-      waitForEvent<LockstepCheckpointPayload>(
-        guest,
-        'lockstep:checkpoint',
-        4_000,
-      );
-
     const rejoined = await waitForEvent<RoomJoinedPayload>(
       guest,
       'room:joined',
@@ -55,9 +48,23 @@ describe('lockstep reconnect diagnostics', () => {
     expect(rejoined.lockstep?.lastPrimaryHash).toMatch(/^[0-9a-f]{8}$/);
     expect(rejoined.lockstep?.mismatchCount).toBe(0);
 
-    const replayedCheckpoint = await checkpointAfterReconnectPromise;
+    const expectedHash = rejoined.lockstep?.lastPrimaryHash;
+    expect(expectedHash).toBeDefined();
+
+    const replayedCheckpoint =
+      await waitForEventWithPredicate<LockstepCheckpointPayload>(
+        guest,
+        'lockstep:checkpoint',
+        (payload) =>
+          payload.roomId === match.roomId && payload.hashHex === expectedHash,
+        {
+          attempts: 200,
+          overallTimeoutMs: 4_000,
+          timeoutMessage: 'Timed out waiting for replayed lockstep checkpoint',
+        },
+      );
     expect(replayedCheckpoint.roomId).toBe(match.roomId);
-    expect(replayedCheckpoint.hashHex).toBe(rejoined.lockstep?.lastPrimaryHash);
+    expect(replayedCheckpoint.hashHex).toBe(expectedHash);
     expect(replayedCheckpoint.mode).toBe('shadow');
   }, 25_000);
 });
