@@ -17,10 +17,10 @@ export interface IntegrationRuntime {
   advanceMs(ms: number): Promise<void>;
   runDueTimers(): Promise<void>;
   advanceTicks(count: number): Promise<void>;
-  setTimeout(callback: () => void, delayMs: number): unknown;
-  clearTimeout(timer: unknown): void;
-  setInterval(callback: () => void, delayMs: number): unknown;
-  clearInterval(timer: unknown): void;
+  setTimeout(callback: () => void, delayMs: number): object;
+  clearTimeout(timer: object): void;
+  setInterval(callback: () => void, delayMs: number): object;
+  clearInterval(timer: object): void;
 }
 
 export interface IntegrationHarness {
@@ -144,9 +144,10 @@ export function createIntegrationTest(
         };
       }
 
-      let { server, runtime, clientRuntime } =
-        createServerHarness(defaultServerOptions);
-      activeRuntime = runtime;
+      const initialHarness = createServerHarness(defaultServerOptions);
+      let server = initialHarness.server;
+      activeRuntime = initialHarness.runtime;
+      let clientRuntime = initialHarness.clientRuntime;
       let port = await server.start();
 
       const connectClient: ConnectClient = (options = {}) => {

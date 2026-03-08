@@ -17,12 +17,17 @@ import {
   waitForRoomState,
 } from './test-support.js';
 
-const test = createIntegrationTest({
-  port: 0,
-  width: 50,
-  height: 50,
-  tickMs: 40,
-});
+const test = createIntegrationTest(
+  {
+    port: 0,
+    width: 50,
+    height: 50,
+    tickMs: 40,
+  },
+  {
+    runtimeMode: 'manual',
+  },
+);
 
 function countPlayers(payload: RoomMembershipPayload): number {
   return payload.participants.filter(({ role }) => role === 'player').length;

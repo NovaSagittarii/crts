@@ -79,8 +79,8 @@ const DEFAULT_LOCKSTEP_MAX_BUFFERED_TURNS = 64;
 const DEFAULT_ACTIVE_STATE_SNAPSHOT_INTERVAL_TICKS = 50;
 const STATE_REQUEST_MIN_INTERVAL_MS = 100;
 
-type IntervalHandle = unknown;
-type TimeoutHandle = unknown;
+type IntervalHandle = object;
+type TimeoutHandle = object;
 
 type SetIntervalHook = (
   callback: () => void,
@@ -90,16 +90,16 @@ type ClearIntervalHook = (timer: IntervalHandle) => void;
 type SetTimeoutHook = (callback: () => void, delayMs: number) => TimeoutHandle;
 type ClearTimeoutHook = (timer: TimeoutHandle) => void;
 
-function defaultSetInterval(callback: () => void, delayMs: number): unknown {
-  return setInterval(callback, delayMs);
+function defaultSetInterval(callback: () => void, delayMs: number): object {
+  return setInterval(callback, delayMs) as unknown as object;
 }
 
 function defaultClearInterval(timer: unknown): void {
   clearInterval(timer as ReturnType<typeof setInterval>);
 }
 
-function defaultSetTimeout(callback: () => void, delayMs: number): unknown {
-  return setTimeout(callback, delayMs);
+function defaultSetTimeout(callback: () => void, delayMs: number): object {
+  return setTimeout(callback, delayMs) as unknown as object;
 }
 
 function defaultClearTimeout(timer: unknown): void {

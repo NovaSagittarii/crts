@@ -124,10 +124,13 @@ export async function startMatchAndWaitForActive(
   const matchStartedPromise =
     options.startMode === 'manual'
       ? new Promise<MatchStartedPayload>((resolve) => {
-          setup.host.once('room:match-started', (payload) => {
-            matchStartedResolved = true;
-            resolve(payload);
-          });
+          setup.host.once(
+            'room:match-started',
+            (payload: MatchStartedPayload) => {
+              matchStartedResolved = true;
+              resolve(payload);
+            },
+          );
         })
       : waitForEvent<MatchStartedPayload>(
           setup.host,

@@ -90,7 +90,7 @@ describe('lobby reconnect reliability', () => {
     expect(heldParticipant?.role).toBe('player');
     expect(heldParticipant?.slotId).toBe('team-1');
     expect(heldParticipant?.connectionStatus).toBe('held');
-    expect(heldParticipant?.holdExpiresAt).toBeGreaterThan(Date.now());
+    expect(heldParticipant?.holdExpiresAt).toBeGreaterThan(runtime.now());
     expect(heldMembership.heldSlots['team-1']?.sessionId).toBe(
       'session-reclaim-timeout',
     );

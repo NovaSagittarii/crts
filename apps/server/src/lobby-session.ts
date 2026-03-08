@@ -2,7 +2,7 @@ export const RECONNECT_HOLD_MS = 30_000;
 
 const MAX_SESSION_ID_LENGTH = 64;
 
-type TimeoutHandle = unknown;
+type TimeoutHandle = object;
 
 type SetTimeoutHook = (callback: () => void, delayMs: number) => TimeoutHandle;
 

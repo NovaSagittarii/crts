@@ -17,10 +17,10 @@ export interface ManualRuntime {
   settle(): Promise<void>;
   advanceMs(ms: number): Promise<void>;
   runDueTimers(): Promise<void>;
-  setTimeout(callback: () => void, delayMs: number): unknown;
-  clearTimeout(timer: unknown): void;
-  setInterval(callback: () => void, delayMs: number): unknown;
-  clearInterval(timer: unknown): void;
+  setTimeout(callback: () => void, delayMs: number): object;
+  clearTimeout(timer: object): void;
+  setInterval(callback: () => void, delayMs: number): object;
+  clearInterval(timer: object): void;
 }
 
 function normalizeDelayMs(delayMs: number, minimumMs: number): number {
@@ -117,20 +117,25 @@ export function createManualRuntime(initialNowMs = Date.now()): ManualRuntime {
       return;
     }
 
-    scheduledTimers.delete(timer.id);
-    activeTimer.active = false;
+    if (activeTimer.repeating) {
+      activeTimer.dueAtMs += activeTimer.delayMs;
+      activeTimer.order = nextOrder;
+      nextOrder += 1;
+    } else {
+      scheduledTimers.delete(timer.id);
+      activeTimer.active = false;
+    }
+
     activeTimer.callback();
     await settleMicrotasks();
 
-    if (!activeTimer.repeating || scheduledTimers.has(activeTimer.id)) {
+    if (!activeTimer.repeating) {
       return;
     }
 
-    activeTimer.active = true;
-    activeTimer.dueAtMs += activeTimer.delayMs;
-    activeTimer.order = nextOrder;
-    nextOrder += 1;
-    scheduledTimers.set(activeTimer.id, activeTimer);
+    if (!activeTimer.active || !scheduledTimers.has(activeTimer.id)) {
+      return;
+    }
   }
 
   async function enqueueAdvance(operation: () => Promise<void>): Promise<void> {
@@ -163,8 +168,9 @@ export function createManualRuntime(initialNowMs = Date.now()): ManualRuntime {
     },
     async advanceMs(ms: number): Promise<void> {
       const normalizedMs = normalizeDelayMs(ms, 0);
+      const targetTimeMs = nowMs + normalizedMs;
       await enqueueAdvance(async () => {
-        await advanceTo(nowMs + normalizedMs);
+        await advanceTo(Math.max(nowMs, targetTimeMs));
       });
     },
     async runDueTimers(): Promise<void> {
@@ -172,16 +178,16 @@ export function createManualRuntime(initialNowMs = Date.now()): ManualRuntime {
         await advanceTo(nowMs);
       });
     },
-    setTimeout(callback: () => void, delayMs: number): unknown {
+    setTimeout(callback: () => void, delayMs: number): object {
       return scheduleTimer(callback, delayMs, false);
     },
-    clearTimeout(timer: unknown): void {
+    clearTimeout(timer: object): void {
       clearTimer(timer);
     },
-    setInterval(callback: () => void, delayMs: number): unknown {
+    setInterval(callback: () => void, delayMs: number): object {
       return scheduleTimer(callback, delayMs, true);
     },
-    clearInterval(timer: unknown): void {
+    clearInterval(timer: object): void {
       clearTimer(timer);
     },
   };

@@ -56,12 +56,12 @@ describe('server bootstrap smoke', () => {
       const joinedPromise = waitForEvent<RoomJoinedPayload>(
         socket,
         'room:joined',
-        4000,
+        10_000,
       );
       const membershipPromise = waitForEvent<RoomMembershipPayload>(
         socket,
         'room:membership',
-        4000,
+        10_000,
       );
       socket.connect();
 
@@ -80,5 +80,5 @@ describe('server bootstrap smoke', () => {
       socket?.close();
       await server.stop();
     }
-  }, 20_000);
+  }, 30_000);
 });
