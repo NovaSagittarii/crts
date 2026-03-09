@@ -158,7 +158,7 @@ body.app--ingame .ingame-layout {
 }
 
 body.app--ingame .edge-status-strip {
-  position: absolute;
+  position: fixed;
   left: 12px;
   bottom: 12px;
   width: min(420px, calc(100% - 24px));
@@ -193,7 +193,7 @@ body.app--ingame .camera-shell {
 }
 
 body.app--ingame .camera-strip {
-  position: absolute;
+  position: fixed;
   top: 10px;
   left: 10px;
   right: 10px;
@@ -206,7 +206,11 @@ body.app--ingame .camera-strip > * {
 }
 
 body.app--ingame .grid-viewport {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
   width: 100%;
+  height: 100dvh;
   border-radius: 0;
   border: 0;
 }
@@ -1289,7 +1293,7 @@ body.app--ingame .grid-viewport {
 }
 
 body.app--ingame .chat-shell.chat-shell--drawer-mode {
-  position: absolute;
+  position: fixed;
   top: 12px;
   right: 12px;
   bottom: 12px;

@@ -2836,10 +2836,19 @@ function chooseCellSize(width: number, height: number): number {
 function resizeCanvas(): void {
   if (!gridWidth || !gridHeight) return;
 
+  const viewportWidth =
+    gridViewportEl.clientWidth > 0
+      ? gridViewportEl.clientWidth
+      : window.innerWidth;
+  const viewportHeight =
+    gridViewportEl.clientHeight > 0
+      ? gridViewportEl.clientHeight
+      : window.innerHeight;
+
   cellSize = chooseCellSize(gridWidth, gridHeight);
   canvasRatio = window.devicePixelRatio || 1;
-  canvasCssWidth = gridWidth * cellSize;
-  canvasCssHeight = gridHeight * cellSize;
+  canvasCssWidth = Math.max(1, Math.floor(viewportWidth));
+  canvasCssHeight = Math.max(1, Math.floor(viewportHeight));
 
   canvas.style.width = `${canvasCssWidth}px`;
   canvas.style.height = `${canvasCssHeight}px`;
