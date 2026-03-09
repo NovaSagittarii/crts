@@ -10,6 +10,7 @@ import type {
   RoomJoinedPayload,
 } from '#rts-engine';
 
+import type { IntegrationClock } from './fixtures.js';
 import { createMatchTest } from './match-fixtures.js';
 import {
   type ActiveMatchSetup,
@@ -23,10 +24,13 @@ import {
   waitForRoomState,
 } from './test-support.js';
 
+const OUTCOME_ADVANCE_MARGIN_TICKS = 2;
+
 const test = createMatchTest(
-  { port: 0, width: 52, height: 52, tickMs: 40 },
+  { port: 0, width: 52, height: 52, tickMs: 40, countdownSeconds: 0 },
   { roomName: 'QUAL-02 Loop Room' },
   { waitForActiveMembership: true },
+  { clockMode: 'manual' },
 );
 
 interface QueueBuildAttempt {
@@ -35,6 +39,7 @@ interface QueueBuildAttempt {
 
 async function queueValidHostBuild(
   match: ActiveMatchSetup,
+  clock: IntegrationClock,
 ): Promise<{ queued: BuildQueuedPayload; outcome: BuildOutcomePayload }> {
   const blockTemplate = match.hostJoined.templates.find(
     ({ id }) => id === 'block',
@@ -69,10 +74,14 @@ async function queueValidHostBuild(
         continue;
       }
 
-      const outcome = await waitForBuildOutcome(
+      const outcomePromise = waitForBuildOutcome(
         match.host,
         response.queued.eventId,
       );
+      await clock.advanceTicks(
+        response.queued.delayTicks + OUTCOME_ADVANCE_MARGIN_TICKS,
+      );
+      const outcome = await outcomePromise;
       return {
         queued: response.queued,
         outcome,
@@ -83,7 +92,10 @@ async function queueValidHostBuild(
   throw new Error('Unable to queue a valid build for QUAL-02 scenario');
 }
 
-async function queueAppliedHostBuild(match: ActiveMatchSetup): Promise<{
+async function queueAppliedHostBuild(
+  match: ActiveMatchSetup,
+  clock: IntegrationClock,
+): Promise<{
   queued: BuildQueuedPayload;
   outcome: BuildOutcomePayload;
   structureKey: string;
@@ -116,10 +128,14 @@ async function queueAppliedHostBuild(match: ActiveMatchSetup): Promise<{
       continue;
     }
 
-    const outcome = await waitForBuildOutcome(
+    const outcomePromise = waitForBuildOutcome(
       match.host,
       response.queued.eventId,
     );
+    await clock.advanceTicks(
+      response.queued.delayTicks + OUTCOME_ADVANCE_MARGIN_TICKS,
+    );
+    const outcome = await outcomePromise;
     if (outcome.outcome !== 'applied') {
       continue;
     }
@@ -168,11 +184,15 @@ async function queueAppliedHostBuild(match: ActiveMatchSetup): Promise<{
 describe('QUAL-02 quality gate integration loop', () => {
   test('QUAL-02: join -> build -> tick -> breach -> defeat with defeated build rejection', async ({
     activeMatch,
+    integration,
   }) => {
     const match = activeMatch;
 
     // QUAL-02 requires one explicit build queue + terminal outcome in the loop.
-    const { queued, outcome } = await queueValidHostBuild(match);
+    const { queued, outcome } = await queueValidHostBuild(
+      match,
+      integration.clock,
+    );
     expect(queued.eventId).toBeGreaterThan(0);
     expect(outcome.eventId).toBe(queued.eventId);
     expect(outcome.resolvedTick).toBeGreaterThanOrEqual(queued.executeTick);
@@ -203,11 +223,15 @@ describe('QUAL-02 quality gate integration loop', () => {
       );
     }
 
-    const destroyOutcome = await waitForDestroyOutcome(
+    const destroyOutcomePromise = waitForDestroyOutcome(
       match.guest,
       destroyQueueResponse.queued.eventId,
       12_000,
     );
+    await integration.clock.advanceTicks(
+      destroyQueueResponse.queued.delayTicks + OUTCOME_ADVANCE_MARGIN_TICKS,
+    );
+    const destroyOutcome = await destroyOutcomePromise;
     expect(destroyOutcome.outcome).toBe('destroyed');
     expect(destroyOutcome.structureKey).toBe(guestCore.key);
 
@@ -250,10 +274,11 @@ describe('QUAL-02 quality gate integration loop', () => {
   test('QUAL-04: build plus destroy stays deterministic across reconnect checkpoints', async ({
     activeMatch,
     connectClient,
+    integration,
   }) => {
     const match = activeMatch;
 
-    const appliedBuild = await queueAppliedHostBuild(match);
+    const appliedBuild = await queueAppliedHostBuild(match, integration.clock);
     expect(appliedBuild.outcome.outcome).toBe('applied');
 
     const destroyQueueResponsePromise = waitForDestroyQueueResponse(match.host);
@@ -294,9 +319,22 @@ describe('QUAL-02 quality gate integration loop', () => {
       { attempts: 60, timeoutMs: 2000 },
     );
 
+    const hostOutcomePromise = waitForDestroyOutcome(
+      match.host,
+      destroyQueued.eventId,
+      16_000,
+    );
+    const reconnectOutcomePromise = waitForDestroyOutcome(
+      reconnectGuest,
+      destroyQueued.eventId,
+      16_000,
+    );
+    await integration.clock.advanceTicks(
+      destroyQueued.delayTicks + OUTCOME_ADVANCE_MARGIN_TICKS,
+    );
     const [hostOutcome, reconnectOutcome] = await Promise.all([
-      waitForDestroyOutcome(match.host, destroyQueued.eventId, 16_000),
-      waitForDestroyOutcome(reconnectGuest, destroyQueued.eventId, 16_000),
+      hostOutcomePromise,
+      reconnectOutcomePromise,
     ]);
     expect(reconnectOutcome).toEqual(hostOutcome);
     expect(hostOutcome.outcome).toBe('destroyed');

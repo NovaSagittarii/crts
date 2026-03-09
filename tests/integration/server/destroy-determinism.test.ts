@@ -7,6 +7,7 @@ import type {
   RoomJoinedPayload,
 } from '#rts-engine';
 
+import type { IntegrationClock } from './fixtures.js';
 import { createMatchTest } from './match-fixtures.js';
 import {
   type ActiveMatchSetup,
@@ -20,16 +21,23 @@ import {
   waitForRoomState,
 } from './test-support.js';
 
+const OUTCOME_ADVANCE_MARGIN_TICKS = 2;
+
 const test = createMatchTest(
-  { port: 0, width: 52, height: 52, tickMs: 40 },
+  { port: 0, width: 52, height: 52, tickMs: 40, countdownSeconds: 0 },
   {
     roomName: 'Destroy Determinism Room',
     hostSessionId: 'destroy-determinism-host',
     guestSessionId: 'destroy-determinism-guest',
   },
+  {},
+  { clockMode: 'manual' },
 );
 
-async function queueAppliedHostBlock(match: ActiveMatchSetup): Promise<{
+async function queueAppliedHostBlock(
+  match: ActiveMatchSetup,
+  clock: IntegrationClock,
+): Promise<{
   queued: BuildQueuedPayload;
   outcome: BuildOutcomePayload;
   structureKey: string;
@@ -62,10 +70,14 @@ async function queueAppliedHostBlock(match: ActiveMatchSetup): Promise<{
       continue;
     }
 
-    const outcome = await waitForBuildOutcome(
+    const outcomePromise = waitForBuildOutcome(
       match.host,
       buildResponse.queued.eventId,
     );
+    await clock.advanceTicks(
+      buildResponse.queued.delayTicks + OUTCOME_ADVANCE_MARGIN_TICKS,
+    );
+    const outcome = await outcomePromise;
     if (outcome.outcome !== 'applied') {
       continue;
     }
@@ -110,9 +122,10 @@ describe('destroy reconnect determinism', () => {
   test('reconnects during pending destroy and converges on one authoritative terminal outcome', async ({
     activeMatch,
     connectClient,
+    integration,
   }) => {
     const match = activeMatch;
-    const appliedBuild = await queueAppliedHostBlock(match);
+    const appliedBuild = await queueAppliedHostBlock(match, integration.clock);
     expect(appliedBuild.outcome.outcome).toBe('applied');
 
     const destroyResponsePromise = waitForDestroyQueueResponse(match.host);
@@ -154,9 +167,22 @@ describe('destroy reconnect determinism', () => {
       { attempts: 80, timeoutMs: 2000 },
     );
 
+    const hostOutcomePromise = waitForDestroyOutcome(
+      match.host,
+      destroyQueued.eventId,
+      16_000,
+    );
+    const reconnectOutcomePromise = waitForDestroyOutcome(
+      reconnectGuest,
+      destroyQueued.eventId,
+      16_000,
+    );
+    await integration.clock.advanceTicks(
+      destroyQueued.delayTicks + OUTCOME_ADVANCE_MARGIN_TICKS,
+    );
     const [hostOutcome, reconnectOutcome] = await Promise.all([
-      waitForDestroyOutcome(match.host, destroyQueued.eventId, 16_000),
-      waitForDestroyOutcome(reconnectGuest, destroyQueued.eventId, 16_000),
+      hostOutcomePromise,
+      reconnectOutcomePromise,
     ]);
 
     expect(reconnectOutcome).toEqual(hostOutcome);
@@ -216,9 +242,10 @@ describe('destroy reconnect determinism', () => {
   test('reconnects after resolved destroy and receives converged authoritative state', async ({
     activeMatch,
     connectClient,
+    integration,
   }) => {
     const match = activeMatch;
-    const appliedBuild = await queueAppliedHostBlock(match);
+    const appliedBuild = await queueAppliedHostBlock(match, integration.clock);
     expect(appliedBuild.outcome.outcome).toBe('applied');
 
     const destroyResponsePromise = waitForDestroyQueueResponse(match.host);
@@ -234,10 +261,14 @@ describe('destroy reconnect determinism', () => {
     }
 
     const destroyQueued: DestroyQueuedPayload = destroyResponse.queued;
-    const hostOutcome = await waitForDestroyOutcome(
+    const hostOutcomePromise = waitForDestroyOutcome(
       match.host,
       destroyQueued.eventId,
     );
+    await integration.clock.advanceTicks(
+      destroyQueued.delayTicks + OUTCOME_ADVANCE_MARGIN_TICKS,
+    );
+    const hostOutcome = await hostOutcomePromise;
     expect(hostOutcome.outcome).toBe('destroyed');
     expect(hostOutcome.structureKey).toBe(appliedBuild.structureKey);
 

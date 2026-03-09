@@ -51,6 +51,11 @@ export interface SocketAdvanceDriver {
   subscribe(listener: () => void): () => void;
 }
 
+export interface EventObserver<T> {
+  readonly events: T[];
+  stop(): void;
+}
+
 export interface CandidatePlacementOptions {
   transform?: PlacementTransformInput;
   searchRadius?: number;
@@ -306,6 +311,27 @@ export function waitForNoEvent(
 
     socket.on(event, onEvent);
   });
+}
+
+export function observeEvents<T>(
+  socket: Socket,
+  event: string,
+): EventObserver<T> {
+  const events: T[] = [];
+
+  function onEvent(payload: T): void {
+    removeBufferedEvent(socket, event, payload);
+    events.push(payload);
+  }
+
+  socket.on(event, onEvent);
+
+  return {
+    events,
+    stop(): void {
+      socket.off(event, onEvent);
+    },
+  };
 }
 
 export function waitForEventWithPredicate<T>(

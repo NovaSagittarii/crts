@@ -22,15 +22,19 @@ import {
   expectBuildQueueRejected,
   expectDestroyQueueRejected,
   getTeamByPlayerId,
+  observeEvents,
   waitForBuildQueueResponse,
   waitForDestroyQueueResponse,
   waitForEvent,
-  waitForNoEvent,
   waitForRoomList,
   waitForRoomState,
   waitForStateHashes,
   waitForStateStructures,
 } from './test-support.js';
+
+const SNAPSHOT_INTERVAL_TICKS = 50;
+const SNAPSHOT_ADVANCE_LIMIT_TICKS = 5;
+const STATE_REQUEST_ADVANCE_MS = 100;
 
 const defaultServerOptions = { port: 0, width: 52, height: 52, tickMs: 40 };
 const buildQueueRoomOptions = { roomName: 'Build Queue Contract Room' };
@@ -49,6 +53,8 @@ const snapshotMatchTest = createMatchTest(
     activeStateSnapshotIntervalTicks: 50,
   },
   buildQueueRoomOptions,
+  {},
+  { clockMode: 'manual' },
 );
 const stateRequestMatchTest = createMatchTest(
   {
@@ -57,6 +63,8 @@ const stateRequestMatchTest = createMatchTest(
     activeStateSnapshotIntervalTicks: 1000,
   },
   buildQueueRoomOptions,
+  {},
+  { clockMode: 'manual' },
 );
 const skirmishRoomTest = createIntegrationTest({
   port: 0,
@@ -82,19 +90,37 @@ function getTeam(state: RoomStatePayload, teamId: number): TeamPayload {
 describe('GameServer', () => {
   snapshotMatchTest(
     'broadcasts periodic snapshots during active matches',
-    async ({ activeMatch }) => {
+    async ({ activeMatch, integration }) => {
       const setup = activeMatch;
 
-      const first = await waitForEvent<RoomStatePayload>(
+      const stateObserver = observeEvents<RoomStatePayload>(
         setup.host,
         'state',
-        7000,
       );
-      const second = await waitForEvent<RoomStatePayload>(
-        setup.host,
-        'state',
-        7000,
-      );
+      for (
+        let advancedTicks = 0;
+        advancedTicks <
+          SNAPSHOT_INTERVAL_TICKS + SNAPSHOT_ADVANCE_LIMIT_TICKS &&
+        stateObserver.events.length < 1;
+        advancedTicks += 1
+      ) {
+        await integration.clock.advanceTicks(1);
+      }
+      expect(stateObserver.events.length).toBeGreaterThanOrEqual(1);
+      const first = stateObserver.events[0];
+
+      for (
+        let advancedTicks = 0;
+        advancedTicks <
+          SNAPSHOT_INTERVAL_TICKS + SNAPSHOT_ADVANCE_LIMIT_TICKS &&
+        stateObserver.events.length < 2;
+        advancedTicks += 1
+      ) {
+        await integration.clock.advanceTicks(1);
+      }
+      stateObserver.stop();
+      expect(stateObserver.events.length).toBeGreaterThanOrEqual(2);
+      const second = stateObserver.events[1];
 
       expect(second.generation).toBeGreaterThan(first.generation);
       expect(second.tick).toBeGreaterThan(first.tick);
@@ -105,10 +131,14 @@ describe('GameServer', () => {
 
   stateRequestMatchTest(
     'responds to on-demand grid requests only to requester',
-    async ({ activeMatch }) => {
+    async ({ activeMatch, integration }) => {
       const setup = activeMatch;
 
-      await waitForNoEvent(setup.guest, 'state:grid', 120);
+      await integration.clock.advanceMs(STATE_REQUEST_ADVANCE_MS);
+      const guestGridObserver = observeEvents<RoomGridStatePayload>(
+        setup.guest,
+        'state:grid',
+      );
 
       setup.host.emit('state:request', { sections: ['grid'] });
       const requestedState = await waitForEvent<RoomGridStatePayload>(
@@ -118,19 +148,26 @@ describe('GameServer', () => {
       );
 
       expect(requestedState.roomId).toBe(setup.roomId);
+      await integration.clock.flush();
+      expect(guestGridObserver.events).toHaveLength(0);
+
+      const duplicateGridObserver = observeEvents<RoomGridStatePayload>(
+        setup.host,
+        'state:grid',
+      );
 
       setup.host.emit('state:request', { sections: ['grid'] });
-      await expect(
-        waitForEvent<RoomGridStatePayload>(setup.host, 'state:grid', 80),
-      ).rejects.toThrow(/timed out/i);
+      await integration.clock.flush();
+      expect(duplicateGridObserver.events).toHaveLength(0);
 
-      await waitForNoEvent(setup.host, 'state:grid', 120);
+      await integration.clock.advanceMs(120);
       setup.host.emit('state:request', { sections: ['grid'] });
-      await expect(
-        waitForEvent<RoomGridStatePayload>(setup.host, 'state:grid', 120),
-      ).rejects.toThrow(/timed out/i);
+      await integration.clock.flush();
+      expect(duplicateGridObserver.events).toHaveLength(0);
+      duplicateGridObserver.stop();
 
-      await waitForNoEvent(setup.guest, 'state:grid', 250);
+      expect(guestGridObserver.events).toHaveLength(0);
+      guestGridObserver.stop();
     },
     20_000,
   );
