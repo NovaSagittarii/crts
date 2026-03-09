@@ -17,6 +17,7 @@ import {
   collectBuildQueuedEvents,
   collectCandidatePlacements,
   expectBuildQueueRejected,
+  observeEvents,
   waitForBuildQueueResponse,
   waitForDestroyOutcome,
   waitForDestroyQueueResponse,
@@ -29,6 +30,8 @@ import {
 
 const PRIMARY_BOUNDARY_TICK_MS = 30;
 const PRIMARY_BOUNDARY_TURN_TICKS = 20;
+const PRIMARY_STATE_REQUEST_ADVANCE_MS = 100;
+const PRIMARY_FLUSH_ADVANCE_LIMIT_TICKS = 5;
 
 const primaryTest = createLockstepTest(
   {
@@ -44,6 +47,8 @@ const primaryTest = createLockstepTest(
     hostSessionId: 'primary-host',
     guestSessionId: 'primary-guest',
   },
+  {},
+  { clockMode: 'manual' },
 );
 const boundaryTest = createLockstepTest(
   {
@@ -60,6 +65,8 @@ const boundaryTest = createLockstepTest(
     hostSessionId: 'primary-boundary-host',
     guestSessionId: 'primary-boundary-guest',
   },
+  {},
+  { clockMode: 'manual' },
 );
 const overflowTest = createLockstepTest(
   {
@@ -151,16 +158,18 @@ describe('lockstep primary mode', () => {
         fallbackEvents.push(payload);
       });
 
-      const firstCheckpoint = await waitForEvent<LockstepCheckpointPayload>(
+      const firstCheckpointPromise = waitForEvent<LockstepCheckpointPayload>(
         match.host,
         'lockstep:checkpoint',
         4_000,
       );
+      await connectedRoom.clock.advanceTicks(1);
+      const firstCheckpoint = await firstCheckpointPromise;
       expect(firstCheckpoint.roomId).toBe(match.roomId);
       expect(firstCheckpoint.mode).toBe('primary');
       expect(firstCheckpoint.hashHex).toMatch(/^[0-9a-f]{8}$/);
 
-      const state = await waitForState(
+      const statePromise = waitForState(
         match.host,
         (payload) =>
           payload.roomId === match.roomId &&
@@ -173,7 +182,19 @@ describe('lockstep primary mode', () => {
           timeoutMs: 2_000,
         },
       );
+      await connectedRoom.clock.advanceMs(PRIMARY_STATE_REQUEST_ADVANCE_MS);
+      const state = await statePromise;
       const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
+      const queuedObserver = observeEvents<BuildQueuedPayload>(
+        match.host,
+        'build:queued',
+      );
+      const secondCheckpointPromise = waitForEvent<LockstepCheckpointPayload>(
+        match.host,
+        'lockstep:checkpoint',
+        4_000,
+      );
+      const queuedPromise = waitForBuildQueueResponse(match.host, 4_000);
 
       match.host.emit('build:queue', {
         templateId: 'block',
@@ -181,18 +202,26 @@ describe('lockstep primary mode', () => {
         y: team.baseTopLeft.y + 8,
       });
 
-      const queued = await waitForBuildQueueResponse(match.host, 4_000);
+      for (
+        let advancedTicks = 0;
+        advancedTicks < PRIMARY_FLUSH_ADVANCE_LIMIT_TICKS &&
+        queuedObserver.events.length === 0;
+        advancedTicks += 1
+      ) {
+        await connectedRoom.clock.advanceTicks(1);
+      }
+
+      expect(queuedObserver.events.length).toBeGreaterThan(0);
+      queuedObserver.stop();
+
+      const queued = await queuedPromise;
       if ('error' in queued) {
         throw new Error(
           `Build queue rejected: ${queued.error.reason ?? queued.error.message}`,
         );
       }
 
-      const secondCheckpoint = await waitForEvent<LockstepCheckpointPayload>(
-        match.host,
-        'lockstep:checkpoint',
-        4_000,
-      );
+      const secondCheckpoint = await secondCheckpointPromise;
       expect(secondCheckpoint.tick).toBeGreaterThanOrEqual(
         firstCheckpoint.tick,
       );
@@ -209,7 +238,7 @@ describe('lockstep primary mode', () => {
     'uses turn boundaries for primary queue flush when turn ticks > 1',
     async ({ connectedRoom, startLockstepMatch }) => {
       const match = await startLockstepMatch(connectedRoom);
-      const state = await waitForState(
+      const statePromise = waitForState(
         match.host,
         (payload) =>
           payload.roomId === match.roomId &&
@@ -222,6 +251,8 @@ describe('lockstep primary mode', () => {
           timeoutMs: 2_000,
         },
       );
+      await connectedRoom.clock.advanceMs(PRIMARY_STATE_REQUEST_ADVANCE_MS);
+      const state = await statePromise;
       const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
       const generatorTemplate = match.hostJoined.templates.find(
         ({ id }) => id === 'generator',
@@ -246,12 +277,10 @@ describe('lockstep primary mode', () => {
         ticksIntoTurn === 0
           ? PRIMARY_BOUNDARY_TURN_TICKS
           : PRIMARY_BOUNDARY_TURN_TICKS - ticksIntoTurn;
-      const quietWindowMs =
-        PRIMARY_BOUNDARY_TICK_MS * Math.max(1, ticksUntilTurnFlush - 2);
-      const earlyQueuedPromise = waitForEvent<BuildQueuedPayload>(
+      const preFlushTicks = Math.max(1, ticksUntilTurnFlush - 2);
+      const queuedObserver = observeEvents<BuildQueuedPayload>(
         match.host,
         'build:queued',
-        quietWindowMs,
       );
       const queuedPromise = waitForBuildQueueResponse(match.host, 5_000);
 
@@ -261,7 +290,9 @@ describe('lockstep primary mode', () => {
         y: placement.y,
       });
 
-      await expect(earlyQueuedPromise).rejects.toThrow(/timed out/i);
+      await connectedRoom.clock.advanceTicks(preFlushTicks);
+
+      expect(queuedObserver.events).toHaveLength(0);
 
       const preFlushState = await waitForState(
         match.host,
@@ -289,6 +320,19 @@ describe('lockstep primary mode', () => {
           .resources,
       ).toBe(initialResources);
 
+      await connectedRoom.clock.advanceTicks(2);
+      for (
+        let advancedTicks = 0;
+        advancedTicks < PRIMARY_FLUSH_ADVANCE_LIMIT_TICKS &&
+        queuedObserver.events.length === 0;
+        advancedTicks += 1
+      ) {
+        await connectedRoom.clock.advanceTicks(1);
+      }
+
+      expect(queuedObserver.events.length).toBeGreaterThan(0);
+      queuedObserver.stop();
+
       const queued = await queuedPromise;
       if ('error' in queued) {
         throw new Error(
@@ -300,7 +344,7 @@ describe('lockstep primary mode', () => {
       expect(queued.queued.eventId).toBeGreaterThan(0);
       expect(queued.queued.executeTick).toBeGreaterThan(0);
 
-      const queuedState = await waitForState(
+      const queuedStatePromise = waitForState(
         match.host,
         (payload) => {
           if (payload.roomId !== match.roomId) {
@@ -323,6 +367,8 @@ describe('lockstep primary mode', () => {
           timeoutMs: 2_000,
         },
       );
+      await connectedRoom.clock.advanceMs(PRIMARY_STATE_REQUEST_ADVANCE_MS);
+      const queuedState = await queuedStatePromise;
       expect(
         resolveTeamForPlayer(queuedState.teams, match.hostJoined.playerId)
           .resources,
