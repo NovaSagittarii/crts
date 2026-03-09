@@ -98,6 +98,30 @@ describe('structure grid overlay view model', () => {
     expect(overlays[0]?.integrityRatio).toBe(1);
   });
 
+  it('scales integrity ratio proportionally to template starting hp', () => {
+    const overlays = StructureGridOverlayModel.deriveOverlayItems(
+      createOverlayInput({
+        structures: [
+          {
+            key: 'core',
+            x: 4,
+            y: 4,
+            width: 4,
+            height: 4,
+            hp: 250,
+            templateId: 'core-template',
+            templateName: 'Core',
+          },
+        ],
+        maxHpByTemplateId: {
+          'core-template': 500,
+        },
+      }),
+    );
+
+    expect(overlays[0]?.integrityRatio).toBe(0.5);
+  });
+
   it('returns null integrity ratio when max hp is unavailable', () => {
     const overlays = StructureGridOverlayModel.deriveOverlayItems(
       createOverlayInput({
@@ -117,5 +141,21 @@ describe('structure grid overlay view model', () => {
     );
 
     expect(overlays[0]?.integrityRatio).toBeNull();
+  });
+
+  it('derives render integrity ratio without hp/100 fallback', () => {
+    expect(
+      StructureGridOverlayModel.deriveRenderIntegrityRatio({
+        integrityRatio: null,
+        hp: 87,
+      }),
+    ).toBe(1);
+
+    expect(
+      StructureGridOverlayModel.deriveRenderIntegrityRatio({
+        integrityRatio: null,
+        hp: 0,
+      }),
+    ).toBe(0);
   });
 });

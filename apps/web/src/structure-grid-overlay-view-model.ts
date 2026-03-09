@@ -35,6 +35,11 @@ export interface StructureGridOverlayItem {
   showLabel: boolean;
 }
 
+export interface StructureIntegrityRenderInput {
+  integrityRatio: number | null;
+  hp: number;
+}
+
 function clampRatio(value: number): number {
   return Math.max(0, Math.min(value, 1));
 }
@@ -112,5 +117,15 @@ export class StructureGridOverlayModel {
     }
 
     return clampRatio(structure.hp / templateMaxHp);
+  }
+
+  public static deriveRenderIntegrityRatio(
+    input: StructureIntegrityRenderInput,
+  ): number {
+    if (input.integrityRatio !== null) {
+      return clampRatio(input.integrityRatio);
+    }
+
+    return input.hp > 0 ? 1 : 0;
   }
 }
