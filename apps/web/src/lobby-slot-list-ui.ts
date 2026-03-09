@@ -73,6 +73,10 @@ export class LobbySlotListUi {
   }
 
   public render(slots: readonly LobbySlotViewModel[]): void {
+    this.rootEl.classList.toggle(
+      'slot-list--compact',
+      slots.length > 0 && slots.length <= 4,
+    );
     this.rootEl.innerHTML = '';
 
     if (slots.length === 0) {

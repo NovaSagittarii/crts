@@ -96,19 +96,9 @@
 
           <div class="screen-stack">
             <section id="lobby-screen" class="match-screen is-active">
-              <div class="controls controls--lobby">
-                <div class="control">
-                  <h2>Player</h2>
-                  <label>
-                    Display name
-                    <input id="player-name" maxlength="24" value="Commander" />
-                  </label>
-                  <button id="set-name" type="button">Set Name</button>
-                  <div id="lobby-status" class="lobby-status"></div>
-                </div>
-
-                <div class="control">
-                  <h2>Rooms</h2>
+              <div class="controls controls--lobby controls--lobby-primary">
+                <div class="control control--lobby-room">
+                  <h2>Room Controls</h2>
                   <label>
                     New room name
                     <input id="new-room-name" maxlength="32" value="Skirmish" />
@@ -139,10 +129,14 @@
                     <button id="leave-room" type="button">Leave Room</button>
                   </div>
                   <button id="refresh-rooms" type="button">Refresh List</button>
-                  <div id="room-list" class="room-list"></div>
                 </div>
 
-                <div class="control control--wide">
+                <div class="control control--lobby-teams">
+                  <h2>Teams</h2>
+                  <div id="lobby-player-slots" class="slot-list"></div>
+                </div>
+
+                <div class="control control--lobby-match">
                   <h2>Lobby</h2>
                   <div class="button-row">
                     <button id="toggle-ready" type="button">Set Ready</button>
@@ -153,14 +147,32 @@
                   <div id="lobby-countdown" class="lobby-status">
                     Waiting for host
                   </div>
+                </div>
 
-                  <h3>Teams</h3>
-                  <div id="lobby-player-slots" class="slot-list"></div>
+                <div class="control control--lobby-player">
+                  <h2>Player</h2>
+                  <label>
+                    Display name
+                    <input id="player-name" maxlength="24" value="Commander" />
+                  </label>
+                  <button id="set-name" type="button">Set Name</button>
+                  <div id="lobby-status" class="lobby-status"></div>
+                </div>
+              </div>
 
-                  <h3>Spectators</h3>
+              <div class="controls controls--lobby-details">
+                <div class="control">
+                  <h2>Room Directory</h2>
+                  <div id="room-list" class="room-list"></div>
+                </div>
+
+                <div class="control">
+                  <h2>Spectators</h2>
                   <div id="lobby-spectators" class="spectator-list"></div>
+                </div>
 
-                  <h3>Spawn Markers</h3>
+                <div class="control">
+                  <h2>Spawn Markers</h2>
                   <div id="spawn-markers" class="spawn-list"></div>
                 </div>
               </div>
