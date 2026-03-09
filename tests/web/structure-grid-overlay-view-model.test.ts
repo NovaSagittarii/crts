@@ -122,6 +122,31 @@ describe('structure grid overlay view model', () => {
     expect(overlays[0]?.integrityRatio).toBe(0.5);
   });
 
+  it('prefers structure starting hp over template starting hp', () => {
+    const overlays = StructureGridOverlayModel.deriveOverlayItems(
+      createOverlayInput({
+        structures: [
+          {
+            key: 'node',
+            x: 5,
+            y: 5,
+            width: 2,
+            height: 2,
+            hp: 100,
+            startingHp: 200,
+            templateId: 'node-template',
+            templateName: 'Node',
+          },
+        ],
+        maxHpByTemplateId: {
+          'node-template': 500,
+        },
+      }),
+    );
+
+    expect(overlays[0]?.integrityRatio).toBe(0.5);
+  });
+
   it('returns null integrity ratio when max hp is unavailable', () => {
     const overlays = StructureGridOverlayModel.deriveOverlayItems(
       createOverlayInput({

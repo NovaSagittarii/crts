@@ -12,6 +12,7 @@ export interface StructureOverlayStructure {
   width: number;
   height: number;
   hp: number;
+  startingHp?: number;
   templateName: string;
   templateId?: string;
 }
@@ -50,6 +51,13 @@ function normalizeKey(key: string | null | undefined): string | null {
   }
   const normalized = key.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeMaxHp(value: number | null | undefined): number | null {
+  if (!Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  return value;
 }
 
 export class StructureGridOverlayModel {
@@ -106,13 +114,18 @@ export class StructureGridOverlayModel {
     structure: StructureOverlayStructure,
     maxHpByTemplateId: Readonly<Record<string, number>>,
   ): number | null {
+    const structureStartingHp = normalizeMaxHp(structure.startingHp);
+    if (structureStartingHp !== null) {
+      return clampRatio(structure.hp / structureStartingHp);
+    }
+
     const templateId = normalizeKey(structure.templateId);
     if (templateId === null) {
       return null;
     }
 
-    const templateMaxHp = maxHpByTemplateId[templateId];
-    if (!Number.isFinite(templateMaxHp) || templateMaxHp <= 0) {
+    const templateMaxHp = normalizeMaxHp(maxHpByTemplateId[templateId]);
+    if (templateMaxHp === null) {
       return null;
     }
 
