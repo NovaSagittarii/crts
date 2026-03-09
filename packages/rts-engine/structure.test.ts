@@ -141,7 +141,7 @@ describe('structure', () => {
       grid: new Grid(1, 1, [{ x: 0, y: 0 }], 'flat'),
       activationCost: 1,
       income: 0,
-      buildArea: 2,
+      buildRadius: 2,
       startingHp: 37,
       checks: [],
     });
