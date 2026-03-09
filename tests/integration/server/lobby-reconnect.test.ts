@@ -498,82 +498,95 @@ describe('lobby reconnect reliability', () => {
     ).toHaveLength(1);
   });
 
-  test('expires active disconnects after reconnect grace period', async ({
-    connectClient,
-    restartServer,
-  }) => {
-    await restartServer({
-      ...DEFAULT_SERVER_OPTIONS,
-      reconnectHoldMs: 250,
-    });
+  deterministicTest(
+    'expires active disconnects after reconnect grace period',
+    async ({ clock, connectClient, restartServer }) => {
+      await restartServer({
+        ...DEFAULT_SERVER_OPTIONS,
+        countdownSeconds: 0,
+        reconnectHoldMs: 250,
+      });
 
-    const host = connectClient({ sessionId: 'host-active-expiry' });
-    await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
+      const host = connectClient({ sessionId: 'host-active-expiry' });
+      await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
 
-    host.emit('room:create', {
-      name: 'Active Disconnect Expiry Room',
-      width: 48,
-      height: 48,
-    });
-    const created = await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
+      host.emit('room:create', {
+        name: 'Active Disconnect Expiry Room',
+        width: 48,
+        height: 48,
+      });
+      const created = await waitForEvent<RoomJoinedPayload>(
+        host,
+        'room:joined',
+      );
 
-    const player = connectClient({ sessionId: 'session-active-expiry' });
-    await waitForEvent<RoomJoinedPayload>(player, 'room:joined');
-    player.emit('room:join', { roomId: created.roomId, slotId: 'team-1' });
-    await waitForMembership(
-      host,
-      created.roomId,
-      (payload) => payload.slots['team-1'] === 'session-active-expiry',
-    );
+      const player = connectClient({ sessionId: 'session-active-expiry' });
+      await waitForEvent<RoomJoinedPayload>(player, 'room:joined');
+      player.emit('room:join', { roomId: created.roomId, slotId: 'team-1' });
+      await waitForMembership(
+        host,
+        created.roomId,
+        (payload) => payload.slots['team-1'] === 'session-active-expiry',
+      );
 
-    host.emit('room:claim-slot', { slotId: 'team-2' });
-    await waitForMembership(
-      host,
-      created.roomId,
-      (payload) => payload.slots['team-2'] === 'host-active-expiry',
-    );
+      host.emit('room:claim-slot', { slotId: 'team-2' });
+      await waitForMembership(
+        host,
+        created.roomId,
+        (payload) => payload.slots['team-2'] === 'host-active-expiry',
+      );
 
-    player.emit('room:set-ready', { ready: true });
-    host.emit('room:set-ready', { ready: true });
-    await waitForMembership(
-      host,
-      created.roomId,
-      (payload) =>
-        payload.participants.filter(({ ready }) => ready).length >= 2,
-    );
+      player.emit('room:set-ready', { ready: true });
+      host.emit('room:set-ready', { ready: true });
+      await waitForMembership(
+        host,
+        created.roomId,
+        (payload) =>
+          payload.participants.filter(({ ready }) => ready).length >= 2,
+      );
 
-    host.emit('room:start', {});
-    await waitForEvent<{ roomId: string }>(host, 'room:match-started', 15_000);
-    await waitForMembership(
-      host,
-      created.roomId,
-      (payload) => payload.status === 'active',
-      { overallTimeoutMs: 15_000 },
-    );
+      host.emit('room:start', {});
+      await waitForEvent<{ roomId: string }>(
+        host,
+        'room:match-started',
+        15_000,
+      );
+      await waitForMembership(
+        host,
+        created.roomId,
+        (payload) => payload.status === 'active',
+        { attempts: 200, overallTimeoutMs: 15_000 },
+      );
 
-    player.disconnect();
-    const heldMembership = await waitForMembership(
-      host,
-      created.roomId,
-      (payload) =>
-        payload.participants.some(
-          ({ sessionId, connectionStatus }) =>
-            sessionId === 'session-active-expiry' &&
-            connectionStatus === 'held',
-        ),
-    );
-    expect(heldMembership.heldSlots['team-1']).toBeNull();
+      player.disconnect();
+      const heldMembership = await waitForMembership(
+        host,
+        created.roomId,
+        (payload) =>
+          payload.participants.some(
+            ({ sessionId, connectionStatus }) =>
+              sessionId === 'session-active-expiry' &&
+              connectionStatus === 'held',
+          ),
+      );
+      expect(heldMembership.heldSlots['team-1']).toBeNull();
 
-    const expiredMembership = await waitForMembership(
-      host,
-      created.roomId,
-      (payload) =>
-        payload.slots['team-1'] === null &&
-        payload.participants.every(
-          ({ sessionId }) => sessionId !== 'session-active-expiry',
-        ),
-      { overallTimeoutMs: 15_000 },
-    );
-    expect(expiredMembership.slots['team-1']).toBeNull();
-  }, 30_000);
+      const expiredMembershipPromise = waitForMembership(
+        host,
+        created.roomId,
+        (payload) =>
+          payload.slots['team-1'] === null &&
+          payload.participants.every(
+            ({ sessionId }) => sessionId !== 'session-active-expiry',
+          ),
+        { attempts: 500, overallTimeoutMs: 15_000 },
+      );
+
+      await clock.advanceMs(251);
+
+      const expiredMembership = await expiredMembershipPromise;
+      expect(expiredMembership.slots['team-1']).toBeNull();
+    },
+    30_000,
+  );
 });
