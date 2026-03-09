@@ -47,6 +47,10 @@ export interface WaitForRequestedStateOptions extends WaitForPredicateOptions {
   requestIntervalMs?: number;
 }
 
+export interface SocketAdvanceDriver {
+  subscribe(listener: () => void): () => void;
+}
+
 export interface CandidatePlacementOptions {
   transform?: PlacementTransformInput;
   searchRadius?: number;
@@ -77,7 +81,11 @@ export type QueueResponse<TQueued, TRejected extends { reason: string }> =
   | { error: QueueErrorPayload<TRejected> };
 
 const MAX_BUFFERED_EVENTS_PER_NAME = 32;
-const BUFFERED_EVENT_NAMES = new Set(['room:joined', 'lockstep:checkpoint']);
+const BUFFERED_EVENT_NAMES = new Set([
+  'lockstep:checkpoint',
+  'room:joined',
+  'room:membership',
+]);
 
 type BufferedEventStore = Map<string, unknown[]>;
 
@@ -85,6 +93,26 @@ const bufferedSocketEvents = new WeakMap<Socket, BufferedEventStore>();
 const socketPlayerIds = new WeakMap<Socket, string>();
 const socketSessionIds = new WeakMap<Socket, string>();
 const pendingQueueResponseKinds = new WeakMap<Socket, Set<string>>();
+const socketAdvanceDrivers = new WeakMap<Socket, SocketAdvanceDriver>();
+
+function shouldBufferEvent(socket: Socket, event: string): boolean {
+  if (!BUFFERED_EVENT_NAMES.has(event)) {
+    return false;
+  }
+
+  if (event !== 'room:membership') {
+    return true;
+  }
+
+  return socketAdvanceDrivers.has(socket);
+}
+
+export function registerSocketAdvanceDriver(
+  socket: Socket,
+  driver: SocketAdvanceDriver,
+): void {
+  socketAdvanceDrivers.set(socket, driver);
+}
 
 function extractPlayerId(payload: unknown): string | null {
   if (typeof payload !== 'object' || payload === null) {
@@ -102,7 +130,7 @@ function attachBufferedEventStore(socket: Socket): void {
   // Capture server events before the test starts awaiting them.
   socket.onAny((eventName, payload) => {
     const event = typeof eventName === 'string' ? eventName : null;
-    if (event === null || !BUFFERED_EVENT_NAMES.has(event)) {
+    if (event === null || !shouldBufferEvent(socket, event)) {
       return;
     }
 
@@ -232,7 +260,7 @@ export function waitForEvent<T>(
   event: string,
   timeoutMs = 2500,
 ): Promise<T> {
-  if (BUFFERED_EVENT_NAMES.has(event)) {
+  if (shouldBufferEvent(socket, event)) {
     const bufferedEvent = takeBufferedEvent<T>(socket, event);
     if (bufferedEvent !== null) {
       return Promise.resolve(bufferedEvent);
@@ -286,6 +314,13 @@ export function waitForEventWithPredicate<T>(
   predicate: (payload: T) => boolean,
   options: WaitForPredicateOptions = {},
 ): Promise<T> {
+  if (shouldBufferEvent(socket, event)) {
+    const bufferedEvent = takeBufferedEvent<T>(socket, event, predicate);
+    if (bufferedEvent !== null) {
+      return Promise.resolve(bufferedEvent);
+    }
+  }
+
   const attempts = options.attempts ?? 20;
   const timeoutMs = options.timeoutMs ?? 2500;
   const overallTimeoutMs = options.overallTimeoutMs ?? attempts * timeoutMs;
@@ -396,13 +431,23 @@ function waitForRequestedStateEvent<T>(
   }
 
   const intervalMs = Math.max(20, Math.floor(requestIntervalMs));
-  socket.emit('state:request', {
-    sections,
-  } satisfies StateRequestPayload);
-  const requestTimer = setInterval(() => {
+  const emitRequest = (): void => {
     socket.emit('state:request', {
       sections,
     } satisfies StateRequestPayload);
+  };
+  const advanceDriver = socketAdvanceDrivers.get(socket);
+
+  emitRequest();
+  if (advanceDriver) {
+    const unsubscribe = advanceDriver.subscribe(emitRequest);
+    return waitPromise.finally(() => {
+      unsubscribe();
+    });
+  }
+
+  const requestTimer = setInterval(() => {
+    emitRequest();
   }, intervalMs);
 
   return waitPromise.finally(() => {

@@ -1,4 +1,5 @@
 import type { ServerOptions } from '../../../apps/server/src/server.js';
+import type { CreateIntegrationTestOptions } from './fixtures.js';
 import {
   type StartMatchOptions,
   startMatchAndWaitForActive,
@@ -14,10 +15,12 @@ export function createMatchTest(
   defaultServerOptions: ServerOptions,
   defaultRoomOptions: RoomFixtureOptions,
   defaultMatchOptions: StartMatchOptions = {},
+  testOptions: CreateIntegrationTestOptions = {},
 ) {
   return createRoomTest(
     defaultServerOptions,
     defaultRoomOptions,
+    testOptions,
   ).extend<MatchFixtures>({
     activeMatch: async ({ connectedRoom }, use) => {
       const activeMatch = await startMatchAndWaitForActive(

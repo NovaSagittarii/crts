@@ -30,8 +30,13 @@ const test = createRoomTest(
   { port: 0, width: 52, height: 52, tickMs: 40 },
   { roomName: 'Lifecycle Room' },
 );
+const instantActiveTest = createRoomTest(
+  { port: 0, width: 52, height: 52, tickMs: 40, countdownSeconds: 0 },
+  { roomName: 'Lifecycle Room' },
+);
 
 interface ConnectedPair {
+  clock: ConnectedRoomSetup['clock'];
   host: Socket;
   guest: Socket;
   room: RoomJoinedPayload;
@@ -48,6 +53,7 @@ interface ActiveMatch extends ConnectedPair {
 
 function setupConnectedPair(setup: ConnectedRoomSetup): ConnectedPair {
   return {
+    clock: setup.clock,
     host: setup.host,
     guest: setup.guest,
     room: setup.hostJoined,
@@ -58,6 +64,7 @@ function setupConnectedPair(setup: ConnectedRoomSetup): ConnectedPair {
 async function moveToActive(pair: ConnectedPair): Promise<ActiveMatch> {
   const activeSetup = await startMatchAndWaitForActive(
     {
+      clock: pair.clock,
       host: pair.host,
       guest: pair.guest,
       roomId: pair.room.roomId,
@@ -65,7 +72,6 @@ async function moveToActive(pair: ConnectedPair): Promise<ActiveMatch> {
       guestJoined: pair.guestJoined,
     },
     {
-      startMode: 'fake-timers',
       waitForActiveMembership: true,
       membershipAttempts: 40,
     },
@@ -412,6 +418,7 @@ describe('server match lifecycle contract', () => {
     expect(guestTeam).toBeDefined();
 
     const match: ActiveMatch = {
+      clock: setup.clock,
       host: setup.host,
       guest: guestReconnect,
       room: setup.room,
@@ -481,207 +488,216 @@ describe('server match lifecycle contract', () => {
     expect(finishedChat.message).toBe('still chatting while defeated');
   }, 35_000);
 
-  test('supports host-only restart from finished and resets prior match state', async ({
-    connectedRoom,
-    connectClient,
-  }) => {
-    const setup = setupConnectedPair(connectedRoom);
-    const match = await moveToActive(setup);
+  instantActiveTest(
+    'supports host-only restart from finished and resets prior match state',
+    async ({ connectedRoom, connectClient }) => {
+      const setup = setupConnectedPair(connectedRoom);
+      const match = await moveToActive(setup);
 
-    match.host.emit('room:start');
-    const restartWhileActive = await waitForEvent<RoomErrorPayload>(
-      match.host,
-      'room:error',
-    );
-    expect(restartWhileActive.reason).toBe('invalid-transition');
-
-    const builtStructureKey = await queueAppliedHostBlock(match);
-
-    match.host.emit('build:queue', {
-      templateId: 'block',
-      x: match.hostBaseTopLeft.x + 4,
-      y: match.hostBaseTopLeft.y + 4,
-      delayTicks: 80,
-    });
-    const queuedBuild = await waitForBuildQueueResponse(match.host, 4_000);
-    if ('error' in queuedBuild) {
-      throw new Error(
-        `Expected delayed build queue acceptance, received ${queuedBuild.error.reason}`,
-      );
-    }
-
-    match.host.emit('destroy:queue', {
-      structureKey: builtStructureKey,
-      delayTicks: 80,
-    });
-    const queuedDestroy = await waitForDestroyQueueResponse(match.host, 4_000);
-    if ('error' in queuedDestroy) {
-      throw new Error(
-        `Expected delayed destroy queue acceptance, received ${queuedDestroy.error.reason}`,
-      );
-    }
-
-    const buildOutcomePromise = waitForBuildOutcome(
-      match.host,
-      queuedBuild.queued.eventId,
-      12_000,
-    );
-    const destroyOutcomePromise = waitForDestroyOutcome(
-      match.host,
-      queuedDestroy.queued.eventId,
-      12_000,
-    );
-
-    const firstFinished = await breachGuestCore(match);
-    expect(
-      firstFinished.ranked.some(({ queuedBuildCount }) => queuedBuildCount > 0),
-    ).toBe(true);
-
-    const [buildOutcome, destroyOutcome, finishedState] = await Promise.all([
-      buildOutcomePromise,
-      destroyOutcomePromise,
-      waitForRoomState(
-        match.host,
-        match.room.roomId,
-        (payload) => payload.roomId === match.room.roomId,
-        { attempts: 40, timeoutMs: 2_000 },
-      ),
-    ]);
-
-    expect(buildOutcome.outcome).toBe('rejected');
-    expect(buildOutcome.reason).toBe('match-finished');
-    expect(buildOutcome.resolvedTick).toBeLessThan(buildOutcome.executeTick);
-    expect(destroyOutcome.outcome).toBe('rejected');
-    expect(destroyOutcome.reason).toBe('match-finished');
-    expect(destroyOutcome.resolvedTick).toBeLessThan(
-      destroyOutcome.executeTick,
-    );
-
-    const hostTeam = finishedState.teams.find(
-      ({ id }) => id === match.hostTeamId,
-    );
-    if (!hostTeam) {
-      throw new Error('Expected host team in finished room state');
-    }
-    expect(
-      hostTeam.pendingBuilds.some(
-        ({ eventId }) => eventId === queuedBuild.queued.eventId,
-      ),
-    ).toBe(false);
-    expect(
-      hostTeam.pendingDestroys.some(
-        ({ eventId }) => eventId === queuedDestroy.queued.eventId,
-      ),
-    ).toBe(false);
-
-    match.guest.emit('room:start');
-    const nonHostRestart = await waitForEvent<RoomErrorPayload>(
-      match.guest,
-      'room:error',
-    );
-    expect(nonHostRestart.reason).toBe('not-host');
-
-    match.guest.disconnect();
-    await waitForMembership(match.host, setup.room.roomId, (payload) =>
-      payload.participants.some(
-        ({ sessionId, connectionStatus }) =>
-          sessionId === setup.guestJoined.playerId &&
-          connectionStatus === 'held',
-      ),
-    );
-
-    match.host.emit('room:start');
-    const heldRestart = await waitForEvent<RoomErrorPayload>(
-      match.host,
-      'room:error',
-    );
-    expect(heldRestart.reason).toBe('not-ready');
-
-    const reconnectedGuest = connectClient({
-      sessionId: setup.guestJoined.playerId,
-    });
-    await waitForEvent<RoomJoinedPayload>(reconnectedGuest, 'room:joined');
-    reconnectedGuest.emit('room:join', { roomId: setup.room.roomId });
-    await waitForMembership(match.host, setup.room.roomId, (payload) =>
-      payload.participants.some(
-        ({ sessionId, connectionStatus }) =>
-          sessionId === setup.guestJoined.playerId &&
-          connectionStatus === 'connected',
-      ),
-    );
-
-    const restartCountdownMembershipPromise = waitForMembership(
-      match.host,
-      setup.room.roomId,
-      (payload) => payload.status === 'countdown',
-      { attempts: 35 },
-    );
-    const restartMatchStartedPromise = waitForEvent<MatchStartedPayload>(
-      match.host,
-      'room:match-started',
-      7000,
-    );
-
-    vi.useFakeTimers();
-    try {
       match.host.emit('room:start');
-      await restartCountdownMembershipPromise;
-      await vi.advanceTimersByTimeAsync(3_100);
-      await restartMatchStartedPromise;
-    } finally {
-      vi.useRealTimers();
-    }
+      const restartWhileActive = await waitForEvent<RoomErrorPayload>(
+        match.host,
+        'room:error',
+      );
+      expect(restartWhileActive.reason).toBe('invalid-transition');
 
-    const restartedState = await waitForRoomState(
-      match.host,
-      setup.room.roomId,
-      (payload) => payload.roomId === setup.room.roomId,
-      { attempts: 40 },
-    );
-    expect(restartedState.grid).toStrictEqual(match.initialGrid);
-    expect(restartedState.tick).toBeLessThan(4);
-    expect(
-      restartedState.teams.every(({ resources }) => resources === 40),
-    ).toBe(true);
-    expect(restartedState.teams.every(({ defeated }) => !defeated)).toBe(true);
-    expect(restartedState.teams.every(({ baseIntact }) => baseIntact)).toBe(
-      true,
-    );
+      const builtStructureKey = await queueAppliedHostBlock(match);
 
-    const restartedHostTeam = restartedState.teams.find(({ playerIds }) =>
-      playerIds.includes(setup.room.playerId),
-    );
-    const restartedGuestTeam = restartedState.teams.find(({ playerIds }) =>
-      playerIds.includes(setup.guestJoined.playerId),
-    );
-    expect(restartedHostTeam).toBeDefined();
-    expect(restartedGuestTeam).toBeDefined();
+      match.host.emit('build:queue', {
+        templateId: 'block',
+        x: match.hostBaseTopLeft.x + 4,
+        y: match.hostBaseTopLeft.y + 4,
+        delayTicks: 80,
+      });
+      const queuedBuild = await waitForBuildQueueResponse(match.host, 4_000);
+      if ('error' in queuedBuild) {
+        throw new Error(
+          `Expected delayed build queue acceptance, received ${queuedBuild.error.reason}`,
+        );
+      }
 
-    const restartedMatch: ActiveMatch = {
-      host: match.host,
-      guest: reconnectedGuest,
-      room: setup.room,
-      guestJoined: setup.guestJoined,
-      hostTeamId: restartedHostTeam?.id ?? 0,
-      guestTeamId: restartedGuestTeam?.id ?? 0,
-      hostBaseTopLeft: {
-        x: restartedHostTeam?.baseTopLeft.x ?? 0,
-        y: restartedHostTeam?.baseTopLeft.y ?? 0,
-      },
-      guestBaseTopLeft: {
-        x: restartedGuestTeam?.baseTopLeft.x ?? 0,
-        y: restartedGuestTeam?.baseTopLeft.y ?? 0,
-      },
-      initialGrid: restartedState.grid,
-    };
+      match.host.emit('destroy:queue', {
+        structureKey: builtStructureKey,
+        delayTicks: 80,
+      });
+      const queuedDestroy = await waitForDestroyQueueResponse(
+        match.host,
+        4_000,
+      );
+      if ('error' in queuedDestroy) {
+        throw new Error(
+          `Expected delayed destroy queue acceptance, received ${queuedDestroy.error.reason}`,
+        );
+      }
 
-    const secondFinished = await breachGuestCore(restartedMatch);
-    expect(
-      secondFinished.ranked.some(
-        ({ teamId, coreState }) =>
-          teamId === restartedMatch.guestTeamId && coreState === 'destroyed',
-      ),
-    ).toBe(true);
-    expect(secondFinished.winner.teamId).toBe(restartedMatch.hostTeamId);
-  }, 60_000);
+      const buildOutcomePromise = waitForBuildOutcome(
+        match.host,
+        queuedBuild.queued.eventId,
+        12_000,
+      );
+      const destroyOutcomePromise = waitForDestroyOutcome(
+        match.host,
+        queuedDestroy.queued.eventId,
+        12_000,
+      );
+
+      const firstFinished = await breachGuestCore(match);
+      expect(
+        firstFinished.ranked.some(
+          ({ queuedBuildCount }) => queuedBuildCount > 0,
+        ),
+      ).toBe(true);
+
+      const [buildOutcome, destroyOutcome, finishedState] = await Promise.all([
+        buildOutcomePromise,
+        destroyOutcomePromise,
+        waitForRoomState(
+          match.host,
+          match.room.roomId,
+          (payload) => payload.roomId === match.room.roomId,
+          { attempts: 40, timeoutMs: 2_000 },
+        ),
+      ]);
+
+      expect(buildOutcome.outcome).toBe('rejected');
+      expect(buildOutcome.reason).toBe('match-finished');
+      expect(buildOutcome.resolvedTick).toBeLessThan(buildOutcome.executeTick);
+      expect(destroyOutcome.outcome).toBe('rejected');
+      expect(destroyOutcome.reason).toBe('match-finished');
+      expect(destroyOutcome.resolvedTick).toBeLessThan(
+        destroyOutcome.executeTick,
+      );
+
+      const hostTeam = finishedState.teams.find(
+        ({ id }) => id === match.hostTeamId,
+      );
+      if (!hostTeam) {
+        throw new Error('Expected host team in finished room state');
+      }
+      expect(
+        hostTeam.pendingBuilds.some(
+          ({ eventId }) => eventId === queuedBuild.queued.eventId,
+        ),
+      ).toBe(false);
+      expect(
+        hostTeam.pendingDestroys.some(
+          ({ eventId }) => eventId === queuedDestroy.queued.eventId,
+        ),
+      ).toBe(false);
+
+      match.guest.emit('room:start');
+      const nonHostRestart = await waitForEvent<RoomErrorPayload>(
+        match.guest,
+        'room:error',
+      );
+      expect(nonHostRestart.reason).toBe('not-host');
+
+      match.guest.disconnect();
+      await waitForMembership(match.host, setup.room.roomId, (payload) =>
+        payload.participants.some(
+          ({ sessionId, connectionStatus }) =>
+            sessionId === setup.guestJoined.playerId &&
+            connectionStatus === 'held',
+        ),
+      );
+
+      match.host.emit('room:start');
+      const heldRestart = await waitForEvent<RoomErrorPayload>(
+        match.host,
+        'room:error',
+      );
+      expect(heldRestart.reason).toBe('not-ready');
+
+      const reconnectedGuest = connectClient({
+        sessionId: setup.guestJoined.playerId,
+      });
+      await waitForEvent<RoomJoinedPayload>(reconnectedGuest, 'room:joined');
+      reconnectedGuest.emit('room:join', { roomId: setup.room.roomId });
+      await waitForMembership(match.host, setup.room.roomId, (payload) =>
+        payload.participants.some(
+          ({ sessionId, connectionStatus }) =>
+            sessionId === setup.guestJoined.playerId &&
+            connectionStatus === 'connected',
+        ),
+      );
+
+      const restartCountdownMembershipPromise = waitForMembership(
+        match.host,
+        setup.room.roomId,
+        (payload) => payload.status === 'countdown',
+        { attempts: 35 },
+      );
+      const restartMatchStartedPromise = waitForEvent<MatchStartedPayload>(
+        match.host,
+        'room:match-started',
+        7000,
+      );
+
+      vi.useFakeTimers();
+      try {
+        match.host.emit('room:start');
+        await restartCountdownMembershipPromise;
+        await vi.advanceTimersByTimeAsync(3_100);
+        await restartMatchStartedPromise;
+      } finally {
+        vi.useRealTimers();
+      }
+
+      const restartedState = await waitForRoomState(
+        match.host,
+        setup.room.roomId,
+        (payload) => payload.roomId === setup.room.roomId,
+        { attempts: 40 },
+      );
+      expect(restartedState.grid).toStrictEqual(match.initialGrid);
+      expect(restartedState.tick).toBeLessThan(4);
+      expect(
+        restartedState.teams.every(({ resources }) => resources === 40),
+      ).toBe(true);
+      expect(restartedState.teams.every(({ defeated }) => !defeated)).toBe(
+        true,
+      );
+      expect(restartedState.teams.every(({ baseIntact }) => baseIntact)).toBe(
+        true,
+      );
+
+      const restartedHostTeam = restartedState.teams.find(({ playerIds }) =>
+        playerIds.includes(setup.room.playerId),
+      );
+      const restartedGuestTeam = restartedState.teams.find(({ playerIds }) =>
+        playerIds.includes(setup.guestJoined.playerId),
+      );
+      expect(restartedHostTeam).toBeDefined();
+      expect(restartedGuestTeam).toBeDefined();
+
+      const restartedMatch: ActiveMatch = {
+        clock: match.clock,
+        host: match.host,
+        guest: reconnectedGuest,
+        room: setup.room,
+        guestJoined: setup.guestJoined,
+        hostTeamId: restartedHostTeam?.id ?? 0,
+        guestTeamId: restartedGuestTeam?.id ?? 0,
+        hostBaseTopLeft: {
+          x: restartedHostTeam?.baseTopLeft.x ?? 0,
+          y: restartedHostTeam?.baseTopLeft.y ?? 0,
+        },
+        guestBaseTopLeft: {
+          x: restartedGuestTeam?.baseTopLeft.x ?? 0,
+          y: restartedGuestTeam?.baseTopLeft.y ?? 0,
+        },
+        initialGrid: restartedState.grid,
+      };
+
+      const secondFinished = await breachGuestCore(restartedMatch);
+      expect(
+        secondFinished.ranked.some(
+          ({ teamId, coreState }) =>
+            teamId === restartedMatch.guestTeamId && coreState === 'destroyed',
+        ),
+      ).toBe(true);
+      expect(secondFinished.winner.teamId).toBe(restartedMatch.hostTeamId);
+    },
+    60_000,
+  );
 });

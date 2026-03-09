@@ -1,4 +1,4 @@
-import { describe, expect, vi } from 'vitest';
+import { describe, expect } from 'vitest';
 
 import type {
   RoomErrorPayload,
@@ -36,37 +36,39 @@ const INVALID_RECONNECT_HOLD_MS_CASES = [
 ] as const;
 
 const test = createIntegrationTest(DEFAULT_SERVER_OPTIONS);
+const deterministicTest = createIntegrationTest(DEFAULT_SERVER_OPTIONS, {
+  clockMode: 'manual',
+});
 
 describe('lobby reconnect reliability', () => {
-  test('holds disconnected slot for reclaim, releases it after timeout, and keeps late return as spectator', async ({
-    connectClient,
-  }) => {
-    const host = connectClient({ sessionId: 'host-hold-timeout' });
-    await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
+  deterministicTest(
+    'holds disconnected slot for reclaim, releases it after timeout, and keeps late return as spectator',
+    async ({ clock, connectClient }) => {
+      const host = connectClient({ sessionId: 'host-hold-timeout' });
+      await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
 
-    host.emit('room:create', {
-      name: 'Reconnect Hold Room',
-      width: 52,
-      height: 52,
-    });
-    const created = await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
+      host.emit('room:create', {
+        name: 'Reconnect Hold Room',
+        width: 52,
+        height: 52,
+      });
+      const created = await waitForEvent<RoomJoinedPayload>(
+        host,
+        'room:joined',
+      );
 
-    const player = connectClient({ sessionId: 'session-reclaim-timeout' });
-    await waitForEvent<RoomJoinedPayload>(player, 'room:joined');
-    player.emit('room:join', { roomId: created.roomId });
-    await waitForEvent<RoomJoinedPayload>(player, 'room:joined');
+      const player = connectClient({ sessionId: 'session-reclaim-timeout' });
+      await waitForEvent<RoomJoinedPayload>(player, 'room:joined');
+      player.emit('room:join', { roomId: created.roomId });
+      await waitForEvent<RoomJoinedPayload>(player, 'room:joined');
 
-    player.emit('room:claim-slot', { slotId: 'team-1' });
-    await waitForMembership(
-      host,
-      created.roomId,
-      (payload) => payload.slots['team-1'] === 'session-reclaim-timeout',
-    );
+      player.emit('room:claim-slot', { slotId: 'team-1' });
+      await waitForMembership(
+        host,
+        created.roomId,
+        (payload) => payload.slots['team-1'] === 'session-reclaim-timeout',
+      );
 
-    let usingFakeTimers = false;
-    try {
-      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-      usingFakeTimers = true;
       player.disconnect();
 
       const heldMembership = await waitForMembership(
@@ -86,10 +88,11 @@ describe('lobby reconnect reliability', () => {
       expect(heldParticipant?.role).toBe('player');
       expect(heldParticipant?.slotId).toBe('team-1');
       expect(heldParticipant?.connectionStatus).toBe('held');
-      expect(heldParticipant?.holdExpiresAt).toBeGreaterThan(Date.now());
+      expect(heldParticipant?.holdExpiresAt).toBe(DEFAULT_RECONNECT_HOLD_MS);
       expect(heldMembership.heldSlots['team-1']?.sessionId).toBe(
         'session-reclaim-timeout',
       );
+      expect(clock.nowMs).toBe(0);
 
       const expiredMembershipPromise = waitForMembership(
         host,
@@ -99,65 +102,63 @@ describe('lobby reconnect reliability', () => {
           !payload.participants.some(
             ({ sessionId }) => sessionId === 'session-reclaim-timeout',
           ),
-        { overallTimeoutMs: 40_000 },
+        { attempts: 1_000, overallTimeoutMs: 40_000 },
       );
 
-      await vi.advanceTimersByTimeAsync(HOLD_EXPIRY_ADVANCE_MS);
+      await clock.advanceMs(HOLD_EXPIRY_ADVANCE_MS);
 
       const expiredMembership = await expiredMembershipPromise;
       expect(expiredMembership.heldSlots['team-1']).toBeNull();
-    } finally {
-      if (usingFakeTimers) {
-        vi.useRealTimers();
-      }
-    }
+      expect(clock.nowMs).toBe(HOLD_EXPIRY_ADVANCE_MS);
 
-    const replacementPlayer = connectClient({
-      sessionId: 'replacement-player',
-    });
-    await waitForEvent<RoomJoinedPayload>(replacementPlayer, 'room:joined');
-    replacementPlayer.emit('room:join', { roomId: created.roomId });
-    await waitForEvent<RoomJoinedPayload>(replacementPlayer, 'room:joined');
-    replacementPlayer.emit('room:claim-slot', { slotId: 'team-1' });
-    await waitForMembership(
-      host,
-      created.roomId,
-      (payload) => payload.slots['team-1'] === 'replacement-player',
-    );
+      const replacementPlayer = connectClient({
+        sessionId: 'replacement-player',
+      });
+      await waitForEvent<RoomJoinedPayload>(replacementPlayer, 'room:joined');
+      replacementPlayer.emit('room:join', { roomId: created.roomId });
+      await waitForEvent<RoomJoinedPayload>(replacementPlayer, 'room:joined');
+      replacementPlayer.emit('room:claim-slot', { slotId: 'team-1' });
+      await waitForMembership(
+        host,
+        created.roomId,
+        (payload) => payload.slots['team-1'] === 'replacement-player',
+      );
 
-    const lateReconnect = connectClient({
-      sessionId: 'session-reclaim-timeout',
-    });
-    await waitForEvent<RoomJoinedPayload>(lateReconnect, 'room:joined');
-    lateReconnect.emit('room:join', {
-      roomId: created.roomId,
-      slotId: 'team-1',
-    });
+      const lateReconnect = connectClient({
+        sessionId: 'session-reclaim-timeout',
+      });
+      await waitForEvent<RoomJoinedPayload>(lateReconnect, 'room:joined');
+      lateReconnect.emit('room:join', {
+        roomId: created.roomId,
+        slotId: 'team-1',
+      });
 
-    const lateError = await waitForEvent<RoomErrorPayload>(
-      lateReconnect,
-      'room:error',
-    );
-    expect(lateError.reason).toBe('slot-full');
+      const lateError = await waitForEvent<RoomErrorPayload>(
+        lateReconnect,
+        'room:error',
+      );
+      expect(lateError.reason).toBe('slot-full');
 
-    const finalMembership = await waitForMembership(
-      host,
-      created.roomId,
-      (payload) =>
-        payload.participants.some(
-          ({ sessionId, role, slotId }) =>
-            sessionId === 'session-reclaim-timeout' &&
-            role === 'spectator' &&
-            slotId === null,
-        ),
-    );
+      const finalMembership = await waitForMembership(
+        host,
+        created.roomId,
+        (payload) =>
+          payload.participants.some(
+            ({ sessionId, role, slotId }) =>
+              sessionId === 'session-reclaim-timeout' &&
+              role === 'spectator' &&
+              slotId === null,
+          ),
+      );
 
-    const lateParticipant = finalMembership.participants.find(
-      ({ sessionId }) => sessionId === 'session-reclaim-timeout',
-    );
-    expect(lateParticipant?.role).toBe('spectator');
-    expect(finalMembership.slots['team-1']).toBe('replacement-player');
-  }, 50_000);
+      const lateParticipant = finalMembership.participants.find(
+        ({ sessionId }) => sessionId === 'session-reclaim-timeout',
+      );
+      expect(lateParticipant?.role).toBe('spectator');
+      expect(finalMembership.slots['team-1']).toBe('replacement-player');
+    },
+    50_000,
+  );
 
   for (const { label, reconnectHoldMs } of INVALID_RECONNECT_HOLD_MS_CASES) {
     test(`falls back to default hold window when reconnectHoldMs is ${label}`, async ({

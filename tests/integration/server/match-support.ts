@@ -3,6 +3,7 @@ import { vi } from 'vitest';
 
 import type { MatchStartedPayload, RoomJoinedPayload } from '#rts-engine';
 
+import type { IntegrationClock } from './fixtures.js';
 import {
   type ActiveMatchSetup,
   type TestClientOptions,
@@ -14,6 +15,7 @@ import {
 } from './test-support.js';
 
 export interface ConnectedRoomSetup {
+  clock: IntegrationClock;
   host: Socket;
   guest: Socket;
   roomId: string;
@@ -22,6 +24,7 @@ export interface ConnectedRoomSetup {
 }
 
 export interface SetupConnectedRoomOptions {
+  clock: IntegrationClock;
   connectClient: (options?: TestClientOptions) => Socket;
   roomName: string;
   width?: number;
@@ -33,7 +36,7 @@ export interface SetupConnectedRoomOptions {
 export interface StartMatchOptions {
   hostSlotId?: string;
   guestSlotId?: string;
-  startMode?: 'real-time' | 'fake-timers';
+  startMode?: 'fake-timers' | 'manual-clock' | 'real-time';
   countdownAdvanceMs?: number;
   membershipAttempts?: number;
   membershipTimeoutMs?: number;
@@ -70,6 +73,7 @@ export async function setupConnectedRoom(
   const guestJoined = await guestJoinedPromise;
 
   return {
+    clock: options.clock,
     host,
     guest,
     roomId: hostJoined.roomId,
@@ -123,7 +127,24 @@ export async function startMatchAndWaitForActive(
     'room:match-started',
     7000,
   );
-  if (options.startMode === 'fake-timers') {
+  const activeMembershipPromise = options.waitForActiveMembership
+    ? waitForMembership(
+        setup.host,
+        setup.roomId,
+        (payload) => payload.status === 'active',
+        {
+          attempts: options.membershipAttempts ?? 40,
+          timeoutMs: membershipTimeoutMs,
+        },
+      )
+    : null;
+  if (options.startMode === 'manual-clock') {
+    const countdownPromise = waitForEvent(setup.host, 'room:countdown', 3500);
+    setup.host.emit('room:start');
+    await countdownPromise;
+    await setup.clock.advanceMs(options.countdownAdvanceMs ?? 3_100);
+    await matchStartedPromise;
+  } else if (options.startMode === 'fake-timers') {
     const countdownPromise = waitForEvent(setup.host, 'room:countdown', 3500);
     vi.useFakeTimers();
     try {
@@ -139,16 +160,8 @@ export async function startMatchAndWaitForActive(
     await matchStartedPromise;
   }
 
-  if (options.waitForActiveMembership) {
-    await waitForMembership(
-      setup.host,
-      setup.roomId,
-      (payload) => payload.status === 'active',
-      {
-        attempts: options.membershipAttempts ?? 40,
-        timeoutMs: membershipTimeoutMs,
-      },
-    );
+  if (activeMembershipPromise) {
+    await activeMembershipPromise;
   }
 
   const activeState = await waitForRoomState(
