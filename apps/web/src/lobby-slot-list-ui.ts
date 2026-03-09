@@ -44,6 +44,22 @@ function renderMemberRow(member: LobbySlotMemberViewModel): HTMLElement {
   return item;
 }
 
+function renderCompactSummary(slot: LobbySlotViewModel): HTMLElement {
+  const summary = document.createElement('div');
+  summary.className = 'slot-member-summary';
+
+  if (slot.members.length === 0) {
+    summary.textContent = 'Open team. No commanders assigned.';
+    return summary;
+  }
+
+  const readyCount = slot.members.filter(
+    (member) => member.readyCopy === 'Ready',
+  ).length;
+  summary.textContent = `${slot.members.length}/${slot.capacity} commanders joined, ${readyCount} ready.`;
+  return summary;
+}
+
 export class LobbySlotListUi {
   private claimHandler: ((slotId: string) => void) | null = null;
 
@@ -73,10 +89,8 @@ export class LobbySlotListUi {
   }
 
   public render(slots: readonly LobbySlotViewModel[]): void {
-    this.rootEl.classList.toggle(
-      'slot-list--compact',
-      slots.length > 0 && slots.length <= 4,
-    );
+    const compactMode = slots.length > 0 && slots.length <= 4;
+    this.rootEl.classList.toggle('slot-list--compact', compactMode);
     this.rootEl.innerHTML = '';
 
     if (slots.length === 0) {
@@ -107,23 +121,12 @@ export class LobbySlotListUi {
       teamInfo.append(chip, label);
 
       const capacity = createBadge(
-        `${slot.members.length}/${slot.capacity} commanders`,
+        compactMode
+          ? `${slot.members.length}/${slot.capacity}`
+          : `${slot.members.length}/${slot.capacity} commanders`,
         'badge--slot',
       );
       head.append(teamInfo, capacity);
-
-      const memberList = document.createElement('div');
-      memberList.className = 'slot-member-list';
-      if (slot.members.length === 0) {
-        const emptySeat = document.createElement('div');
-        emptySeat.className = 'slot-meta';
-        emptySeat.textContent = 'No commanders assigned yet.';
-        memberList.append(emptySeat);
-      } else {
-        for (const member of slot.members) {
-          memberList.append(renderMemberRow(member));
-        }
-      }
 
       const actionRow = document.createElement('div');
       actionRow.className = 'slot-claim-row';
@@ -132,17 +135,40 @@ export class LobbySlotListUi {
       availability.className = 'slot-open-copy';
       availability.textContent =
         slot.openSeatCount > 0
-          ? `${slot.openSeatCount} open seat${slot.openSeatCount === 1 ? '' : 's'}`
-          : 'Team full';
+          ? compactMode
+            ? `${slot.openSeatCount} open`
+            : `${slot.openSeatCount} open seat${slot.openSeatCount === 1 ? '' : 's'}`
+          : compactMode
+            ? 'Full'
+            : 'Team full';
 
       const claimButton = document.createElement('button');
       claimButton.type = 'button';
-      claimButton.textContent = slot.claimLabel;
+      claimButton.textContent = compactMode ? 'Join' : slot.claimLabel;
       claimButton.dataset.slotClaim = slot.slotId;
       claimButton.disabled = !slot.canClaim;
 
       actionRow.append(availability, claimButton);
-      item.append(head, memberList, actionRow);
+
+      if (compactMode) {
+        const summary = renderCompactSummary(slot);
+        item.append(head, actionRow, summary);
+      } else {
+        const memberList = document.createElement('div');
+        memberList.className = 'slot-member-list';
+        if (slot.members.length === 0) {
+          const emptySeat = document.createElement('div');
+          emptySeat.className = 'slot-meta';
+          emptySeat.textContent = 'No commanders assigned yet.';
+          memberList.append(emptySeat);
+        } else {
+          for (const member of slot.members) {
+            memberList.append(renderMemberRow(member));
+          }
+        }
+        item.append(head, memberList, actionRow);
+      }
+
       this.rootEl.append(item);
     }
   }

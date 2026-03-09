@@ -708,11 +708,14 @@ body.app--ingame .grid-viewport {
   gap: 8px;
 }
 
-.slot-list--compact .slot-member-list {
+.slot-member-summary {
   order: 3;
-  gap: 6px;
-  max-height: 72px;
-  overflow: auto;
+  min-width: 0;
+  border-top: 1px solid rgba(154, 167, 189, 0.22);
+  padding-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .slot-member {
@@ -720,10 +723,6 @@ body.app--ingame .grid-viewport {
   border-radius: 10px;
   padding: 8px;
   background: rgba(6, 10, 19, 0.32);
-}
-
-.slot-list--compact .slot-member {
-  padding: 6px;
 }
 
 .slot-member__header {
