@@ -114,22 +114,20 @@ export class StructureGridOverlayModel {
     structure: StructureOverlayStructure,
     maxHpByTemplateId: Readonly<Record<string, number>>,
   ): number | null {
+    const templateId = normalizeKey(structure.templateId);
+    if (templateId !== null) {
+      const templateMaxHp = normalizeMaxHp(maxHpByTemplateId[templateId]);
+      if (templateMaxHp !== null) {
+        return clampRatio(structure.hp / templateMaxHp);
+      }
+    }
+
     const structureStartingHp = normalizeMaxHp(structure.startingHp);
     if (structureStartingHp !== null) {
       return clampRatio(structure.hp / structureStartingHp);
     }
 
-    const templateId = normalizeKey(structure.templateId);
-    if (templateId === null) {
-      return null;
-    }
-
-    const templateMaxHp = normalizeMaxHp(maxHpByTemplateId[templateId]);
-    if (templateMaxHp === null) {
-      return null;
-    }
-
-    return clampRatio(structure.hp / templateMaxHp);
+    return null;
   }
 
   public static deriveRenderIntegrityRatio(
