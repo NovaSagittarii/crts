@@ -3549,6 +3549,7 @@ window.addEventListener('keydown', (event) => {
 
   if (
     event.key === '+' ||
+    event.key === '=' || // +/= key
     (event.key === '=' && event.shiftKey) ||
     event.code === 'NumpadAdd'
   ) {
