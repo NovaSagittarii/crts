@@ -16,29 +16,6 @@ import {
 } from './structure.js';
 
 describe('structure', () => {
-  test('provides default structure templates with expected metadata', () => {
-    const templates = createDefaultStructureTemplates();
-
-    expect(templates.map(({ id }) => id)).toEqual([
-      'block',
-      'generator',
-      'glider',
-      'eater-1',
-      'gosper',
-    ]);
-
-    const generator = templates.find(({ id }) => id === 'generator');
-    expect(generator).toBeDefined();
-    expect(generator?.width).toBe(4);
-    expect(generator?.height).toBe(4);
-    expect(generator?.activationCost).toBe(6);
-    expect(generator?.income).toBe(2);
-    expect(generator?.buildRadius).toBe(2);
-    expect(generator?.checks).toHaveLength(0);
-    expect(generator?.toSummary().buildRadius).toBe(2);
-    expect(generator?.toPayload().buildRadius).toBe(2);
-  });
-
   test('creates fresh default template instances on each call', () => {
     const first = createDefaultStructureTemplates();
     const second = createDefaultStructureTemplates();

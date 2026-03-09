@@ -191,7 +191,8 @@ export class StructureTemplate {
     this.activationCost = options.activationCost;
     this.income = options.income;
     this.buildRadius = options.buildRadius;
-    if (!Number.isFinite(options.startingHp) || options.startingHp <= 0) {
+    // startingHp == 0 just means this is a non-structure (just a template)
+    if (!Number.isFinite(options.startingHp) || options.startingHp < 0) {
       throw new Error('Template starting HP must be greater than zero');
     }
     this.startingHp = options.startingHp;
@@ -413,7 +414,7 @@ interface StructureTemplateRowsOptions {
   activationCost?: number;
   income?: number;
   buildRadius?: number;
-  startingHp: number;
+  startingHp?: number;
   requiresDestroyConfirm?: boolean;
   padding?: number;
   checked?: boolean;
@@ -439,7 +440,7 @@ function createTemplateFromRows({
   activationCost = 0,
   income = 0,
   buildRadius = 0,
-  startingHp,
+  startingHp = 0,
   requiresDestroyConfirm = false,
   padding = 0,
   checked: _checked = false,
@@ -466,6 +467,7 @@ export const CORE_STRUCTURE_TEMPLATE = createTemplateFromRows({
   rows: CORE_TEMPLATE_ROWS,
   buildRadius: 14.9,
   startingHp: 500,
+  income: 1,
   requiresDestroyConfirm: true,
   padding: CORE_TEMPLATE_PADDING,
 });
@@ -478,17 +480,16 @@ export function createDefaultStructureTemplates(): StructureTemplate[] {
       rows: ['##', '##'],
       activationCost: 0,
       income: 0,
-      buildRadius: 0,
-      startingHp: 2,
+      buildRadius: 20,
+      startingHp: 20,
     }),
     createTemplateFromRows({
       id: 'generator',
       name: 'Generator Block',
       rows: ['##', '##'],
-      activationCost: 6,
-      income: 2,
-      buildRadius: 2,
-      startingHp: 2,
+      activationCost: 10,
+      income: 1,
+      startingHp: 20,
       padding: 1,
       checked: true,
     }),
@@ -497,18 +498,12 @@ export function createDefaultStructureTemplates(): StructureTemplate[] {
       name: 'Glider',
       rows: ['.#.', '..#', '###'],
       activationCost: 2,
-      income: 0,
-      buildRadius: 0,
-      startingHp: 2,
     }),
     createTemplateFromRows({
       id: 'eater-1',
       name: 'Eater 1',
       rows: ['##..', '#.##', '.###', '..#.'],
       activationCost: 4,
-      income: 0,
-      buildRadius: 1,
-      startingHp: 2,
     }),
     createTemplateFromRows({
       id: 'gosper',
@@ -524,7 +519,6 @@ export function createDefaultStructureTemplates(): StructureTemplate[] {
         '...........#...#....................',
         '............##......................',
       ],
-      startingHp: 2,
     }),
   ];
 }
