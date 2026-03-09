@@ -141,6 +141,7 @@ import {
   type StructureCardState,
 } from './structure-card-overlay.js';
 import { StructureGridOverlayModel } from './structure-grid-overlay-view-model.js';
+import { StructureHitAreaModel } from './structure-hit-area-view-model.js';
 import {
   DEFAULT_HOVER_LEAVE_GRACE_MS,
   type StructureInteractionAction,
@@ -1288,7 +1289,9 @@ function resetDestroyInteractionState(): void {
   structureInteractionState = createStructureInteractionState();
   clearStructureHoverTickTimeout();
   visibleStructures = [];
-  structureCellIndex = new Map<string, VisibleStructure>();
+  structureCellIndex = StructureHitAreaModel.buildCellIndex<VisibleStructure>(
+    [],
+  );
   clearLocalBuildZoneOverlay();
   resetDestroyFeedbackOverride();
   renderStructureInspector();
@@ -1311,7 +1314,7 @@ function getVisibleStructureByKey(key: string): VisibleStructure | null {
 }
 
 function getStructureAtCell(cell: Cell): VisibleStructure | null {
-  return structureCellIndex.get(`${cell.x},${cell.y}`) ?? null;
+  return StructureHitAreaModel.getStructureAtCell(cell, structureCellIndex);
 }
 
 function formatStructureOwnerLabel(structure: VisibleStructure): string {
@@ -1912,7 +1915,6 @@ function syncVisibleStructures(
   refreshUi = true,
 ): void {
   const nextStructures: VisibleStructure[] = [];
-  const nextIndex = new Map<string, VisibleStructure>();
   const nextTeamBuildZoneProjectionInputs = new Map<
     number,
     TeamBuildZoneProjectionInput[]
@@ -1956,18 +1958,11 @@ function syncVisibleStructures(
           teamBuildZoneProjectionInputs,
         );
       }
-
-      for (const footprintCell of visible.footprint) {
-        const indexKey = `${footprintCell.x},${footprintCell.y}`;
-        if (!nextIndex.has(indexKey)) {
-          nextIndex.set(indexKey, visible);
-        }
-      }
     }
   }
 
   visibleStructures = nextStructures;
-  structureCellIndex = nextIndex;
+  structureCellIndex = StructureHitAreaModel.buildCellIndex(nextStructures);
   teamBuildZoneProjectionInputsByTeamId = nextTeamBuildZoneProjectionInputs;
 
   structureInteractionState = reduceStructureInteraction(
@@ -3023,18 +3018,6 @@ function renderBuildPreviewOverlay(
   }
 }
 
-function deriveStructureIntegrityRatio(overlay: {
-  integrityRatio: number | null;
-  hp: number;
-}): number {
-  if (overlay.integrityRatio !== null) {
-    return Math.max(0, Math.min(overlay.integrityRatio, 1));
-  }
-
-  // Fallback until template max HP is provided to the client.
-  return Math.max(0.08, Math.min(overlay.hp / 100, 1));
-}
-
 function pickStructureIntegrityColor(ratio: number): string {
   if (ratio <= 0.3) {
     return STRUCTURE_BAR_FILL_BAD;
@@ -3106,7 +3089,8 @@ function renderStructureOverlayLayer(
     const barX = worldX + barInset;
     const barY = worldY + barInset;
     const barWidth = Math.max(worldWidth - barInset * 2, 4 / cameraState.zoom);
-    const integrityRatio = deriveStructureIntegrityRatio(overlay);
+    const integrityRatio =
+      StructureGridOverlayModel.deriveRenderIntegrityRatio(overlay);
 
     ctx.fillStyle = STRUCTURE_BAR_TRACK_COLOR;
     ctx.fillRect(barX, barY, barWidth, barHeight);
