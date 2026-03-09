@@ -182,6 +182,7 @@ interface VisibleStructure {
   width: number;
   height: number;
   hp: number;
+  startingHp?: number;
   buildRadius: number;
   active: boolean;
   isCore: boolean;
@@ -1925,6 +1926,7 @@ function syncVisibleStructures(
   );
   for (const team of sortedTeams) {
     for (const structure of team.structures) {
+      const structureStartingHp = readStructureStartingHp(structure);
       const visible: VisibleStructure = {
         teamId: team.id,
         key: structure.key,
@@ -1935,6 +1937,7 @@ function syncVisibleStructures(
         width: structure.width,
         height: structure.height,
         hp: structure.hp,
+        startingHp: structureStartingHp,
         buildRadius: structure.buildRadius,
         active: structure.active,
         isCore: structure.isCore,
@@ -1988,6 +1991,25 @@ function syncVisibleStructures(
     refreshActionUi(nowMs);
   }
   requestRender();
+}
+
+function readStructureStartingHp(
+  structure: RoomStatePayload['teams'][number]['structures'][number],
+): number | undefined {
+  if (!('startingHp' in structure)) {
+    return undefined;
+  }
+
+  const startingHp = structure.startingHp;
+  if (
+    typeof startingHp !== 'number' ||
+    !Number.isFinite(startingHp) ||
+    startingHp <= 0
+  ) {
+    return undefined;
+  }
+
+  return startingHp;
 }
 
 function cellKey(x: number, y: number): number {
