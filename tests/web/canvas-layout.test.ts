@@ -8,8 +8,9 @@ describe('chooseGridCellSize', () => {
     expect(chooseGridCellSize(20, 0, 1200, 900)).toBe(3);
   });
 
-  test('caps cell size at maximum when viewport can fit large cells', () => {
-    expect(chooseGridCellSize(12, 10, 1800, 1200)).toBe(24);
+  test('uses full viewport budget for small grids', () => {
+    expect(chooseGridCellSize(12, 10, 1800, 1200)).toBe(118);
+    expect(chooseGridCellSize(16, 16, 1920, 1080)).toBe(66);
   });
 
   test('uses viewport width budget after horizontal padding', () => {

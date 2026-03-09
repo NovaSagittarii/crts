@@ -109,7 +109,7 @@ body.app--ingame #app-footer {
 
 body.app--ingame #app-main {
   height: 100%;
-  padding: 8px;
+  padding: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
@@ -125,9 +125,10 @@ body.app--ingame .match-layout {
 }
 
 body.app--ingame .match-stage {
+  position: relative;
   height: 100%;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 8px;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
   min-height: 0;
 }
 
@@ -157,8 +158,17 @@ body.app--ingame .ingame-layout {
 }
 
 body.app--ingame .edge-status-strip {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: min(420px, calc(100% - 24px));
+  max-height: min(38dvh, 220px);
+  overflow: auto;
+  z-index: 7;
+  pointer-events: none;
   padding: 6px 8px;
   gap: 6px;
+  background: rgba(11, 16, 29, 0.88);
 }
 
 body.app--ingame #message,
@@ -167,14 +177,38 @@ body.app--ingame .camera-hint {
 }
 
 body.app--ingame .board {
-  border-radius: 16px;
-  padding: 8px;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr);
 }
 
 body.app--ingame .camera-shell {
-  grid-template-rows: auto minmax(0, 1fr);
+  position: relative;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+}
+
+body.app--ingame .camera-strip {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  z-index: 8;
+  pointer-events: none;
+}
+
+body.app--ingame .camera-strip > * {
+  pointer-events: auto;
+}
+
+body.app--ingame .grid-viewport {
+  width: 100%;
+  border-radius: 0;
+  border: 0;
 }
 
 .match-layout {
