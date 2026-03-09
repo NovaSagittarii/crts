@@ -4,6 +4,7 @@ import type {
   BuildQueueRejectedPayload,
   BuildQueuedPayload,
   DestroyQueueRejectedPayload,
+  DestroyQueuedPayload,
   LockstepCheckpointPayload,
   LockstepFallbackPayload,
   MatchFinishedPayload,
@@ -30,8 +31,26 @@ import {
 
 const PRIMARY_BOUNDARY_TICK_MS = 30;
 const PRIMARY_BOUNDARY_TURN_TICKS = 20;
+const PRIMARY_FINISH_ADVANCE_LIMIT_TICKS = 55;
 const PRIMARY_STATE_REQUEST_ADVANCE_MS = 100;
 const PRIMARY_FLUSH_ADVANCE_LIMIT_TICKS = 5;
+
+async function advanceUntilObservedCount(
+  clock: { advanceTicks(ticks: number): Promise<void> },
+  observer: { events: unknown[] },
+  count: number,
+  maxTicks: number,
+): Promise<void> {
+  for (
+    let advancedTicks = 0;
+    advancedTicks < maxTicks && observer.events.length < count;
+    advancedTicks += 1
+  ) {
+    await clock.advanceTicks(1);
+  }
+
+  expect(observer.events.length).toBeGreaterThanOrEqual(count);
+}
 
 const primaryTest = createLockstepTest(
   {
@@ -100,6 +119,8 @@ const finishTest = createLockstepTest(
     hostSessionId: 'primary-finish-host',
     guestSessionId: 'primary-finish-guest',
   },
+  {},
+  { clockMode: 'manual' },
 );
 const finishDestroyTest = createLockstepTest(
   {
@@ -116,6 +137,8 @@ const finishDestroyTest = createLockstepTest(
     hostSessionId: 'primary-finish-destroy-host',
     guestSessionId: 'primary-finish-destroy-guest',
   },
+  {},
+  { clockMode: 'manual' },
 );
 const rejectTest = createLockstepTest(
   {
@@ -471,7 +494,7 @@ describe('lockstep primary mode', () => {
 
   finishTest(
     'rejects later buffered build commands when gameplay finish resolves first',
-    async ({ connectedRoom, startLockstepMatch, connectClient }) => {
+    async ({ clock, connectedRoom, startLockstepMatch, connectClient }) => {
       const spectator = connectClient({
         sessionId: 'primary-gameplay-finish-spectator',
       });
@@ -480,7 +503,7 @@ describe('lockstep primary mode', () => {
       await waitForEvent<RoomJoinedPayload>(spectator, 'room:joined');
 
       const match = await startLockstepMatch(connectedRoom);
-      const structures = await waitForStateStructures(
+      const structuresPromise = waitForStateStructures(
         match.host,
         (payload) =>
           payload.roomId === match.roomId &&
@@ -495,6 +518,8 @@ describe('lockstep primary mode', () => {
           timeoutMs: 2_000,
         },
       );
+      await clock.advanceMs(PRIMARY_STATE_REQUEST_ADVANCE_MS);
+      const structures = await structuresPromise;
       const guestTeam = resolveTeamForPlayer(
         structures.teams,
         match.guestJoined.playerId,
@@ -508,6 +533,10 @@ describe('lockstep primary mode', () => {
         throw new Error('Expected guest core structure to be present');
       }
 
+      const destroyQueuedObserver = observeEvents<DestroyQueuedPayload>(
+        match.guest,
+        'destroy:queued',
+      );
       const destroyResponsePromise = waitForDestroyQueueResponse(
         match.guest,
         5_000,
@@ -515,6 +544,15 @@ describe('lockstep primary mode', () => {
       match.guest.emit('destroy:queue', {
         structureKey: guestCore.key,
       });
+
+      await advanceUntilObservedCount(
+        clock,
+        destroyQueuedObserver,
+        1,
+        PRIMARY_FINISH_ADVANCE_LIMIT_TICKS,
+      );
+      destroyQueuedObserver.stop();
+
       const destroyResponse = await destroyResponsePromise;
       if ('error' in destroyResponse) {
         throw new Error(
@@ -522,6 +560,18 @@ describe('lockstep primary mode', () => {
         );
       }
 
+      const queuedObserver = observeEvents<BuildQueuedPayload>(
+        spectator,
+        'build:queued',
+      );
+      const rejectedObserver = observeEvents<BuildQueueRejectedPayload>(
+        spectator,
+        'build:queue-rejected',
+      );
+      const matchFinishedObserver = observeEvents<MatchFinishedPayload>(
+        spectator,
+        'room:match-finished',
+      );
       const destroyOutcomePromise = waitForDestroyOutcome(
         match.guest,
         destroyResponse.queued.eventId,
@@ -544,7 +594,22 @@ describe('lockstep primary mode', () => {
         y: hostTeam.baseTopLeft.y + 8,
       });
 
-      await waitForNoEvent(spectator, 'build:queued', 750);
+      for (
+        let advancedTicks = 0;
+        advancedTicks < PRIMARY_FINISH_ADVANCE_LIMIT_TICKS &&
+        (rejectedObserver.events.length === 0 ||
+          matchFinishedObserver.events.length === 0);
+        advancedTicks += 1
+      ) {
+        await clock.advanceTicks(1);
+      }
+
+      queuedObserver.stop();
+      rejectedObserver.stop();
+      matchFinishedObserver.stop();
+      expect(queuedObserver.events).toHaveLength(0);
+      expect(rejectedObserver.events.length).toBeGreaterThan(0);
+      expect(matchFinishedObserver.events.length).toBeGreaterThan(0);
 
       const [destroyOutcome, rejected, matchFinished] = await Promise.all([
         destroyOutcomePromise,
@@ -564,7 +629,7 @@ describe('lockstep primary mode', () => {
 
   finishTest(
     'drops buffered primary build commands when all players leave before turn flush',
-    async ({ connectedRoom, startLockstepMatch, connectClient }) => {
+    async ({ clock, connectedRoom, startLockstepMatch, connectClient }) => {
       const spectator = connectClient({
         sessionId: 'primary-finish-spectator',
       });
@@ -573,7 +638,7 @@ describe('lockstep primary mode', () => {
       await waitForEvent<RoomJoinedPayload>(spectator, 'room:joined');
 
       const match = await startLockstepMatch(connectedRoom);
-      const state = await waitForState(
+      const statePromise = waitForState(
         match.host,
         (payload) =>
           payload.roomId === match.roomId &&
@@ -586,22 +651,26 @@ describe('lockstep primary mode', () => {
           timeoutMs: 2_000,
         },
       );
+      await clock.advanceMs(PRIMARY_STATE_REQUEST_ADVANCE_MS);
+      const state = await statePromise;
       const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
-      const queuedPromise = waitForEvent<BuildQueuedPayload>(
+      const queuedObserver = observeEvents<BuildQueuedPayload>(
         spectator,
         'build:queued',
-        2_000,
-      ).catch((error: unknown) => error);
+      );
+      const rejectedObserver = observeEvents<BuildQueueRejectedPayload>(
+        spectator,
+        'build:queue-rejected',
+      );
+      const matchFinishedObserver = observeEvents<MatchFinishedPayload>(
+        spectator,
+        'room:match-finished',
+      );
       const rejectedPromise = waitForEvent<BuildQueueRejectedPayload>(
         spectator,
         'build:queue-rejected',
         2_000,
       );
-      const matchFinishedPromise = waitForEvent<MatchFinishedPayload>(
-        spectator,
-        'room:match-finished',
-        2_000,
-      ).catch((error: unknown) => error);
 
       match.host.emit('build:queue', {
         templateId: 'block',
@@ -612,20 +681,30 @@ describe('lockstep primary mode', () => {
       match.host.emit('room:leave');
       match.guest.emit('room:leave');
 
-      await expect(queuedPromise).resolves.toBeInstanceOf(Error);
+      await advanceUntilObservedCount(
+        clock,
+        rejectedObserver,
+        1,
+        PRIMARY_FINISH_ADVANCE_LIMIT_TICKS,
+      );
+
       const rejected = await rejectedPromise;
+      queuedObserver.stop();
+      rejectedObserver.stop();
+      matchFinishedObserver.stop();
+      expect(queuedObserver.events).toHaveLength(0);
       expect(rejected.roomId).toBe(match.roomId);
       expect(rejected.intentId).toMatch(/^intent-/);
       expect(rejected.teamId).toBe(team.id);
       expect(rejected.reason).toBe('match-finished');
-      await expect(matchFinishedPromise).resolves.toBeInstanceOf(Error);
+      expect(matchFinishedObserver.events).toHaveLength(0);
     },
     30_000,
   );
 
   finishDestroyTest(
     'drops buffered primary destroy intents when all players leave before turn flush',
-    async ({ connectedRoom, startLockstepMatch, connectClient }) => {
+    async ({ clock, connectedRoom, startLockstepMatch, connectClient }) => {
       const spectator = connectClient({
         sessionId: 'primary-finish-destroy-spectator',
       });
@@ -634,7 +713,7 @@ describe('lockstep primary mode', () => {
       await waitForEvent<RoomJoinedPayload>(spectator, 'room:joined');
 
       const match = await startLockstepMatch(connectedRoom);
-      const state = await waitForState(
+      const statePromise = waitForState(
         match.host,
         (payload) =>
           payload.roomId === match.roomId &&
@@ -647,8 +726,10 @@ describe('lockstep primary mode', () => {
           timeoutMs: 2_000,
         },
       );
+      await clock.advanceMs(PRIMARY_STATE_REQUEST_ADVANCE_MS);
+      const state = await statePromise;
       const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
-      const structures = await waitForStateStructures(
+      const structuresPromise = waitForStateStructures(
         match.host,
         (payload) =>
           payload.roomId === match.roomId &&
@@ -662,6 +743,8 @@ describe('lockstep primary mode', () => {
           timeoutMs: 2_000,
         },
       );
+      await clock.advanceMs(PRIMARY_STATE_REQUEST_ADVANCE_MS);
+      const structures = await structuresPromise;
       const ownStructure = structures.teams
         .find((teamState) => teamState.id === team.id)
         ?.structures.at(0);
@@ -669,21 +752,22 @@ describe('lockstep primary mode', () => {
         throw new Error('Expected an owned structure to destroy');
       }
 
-      const queuedPromise = waitForEvent(
+      const queuedObserver = observeEvents<
+        DestroyQueueRejectedPayload | BuildQueuedPayload
+      >(spectator, 'destroy:queued');
+      const rejectedObserver = observeEvents<DestroyQueueRejectedPayload>(
         spectator,
-        'destroy:queued',
-        2_000,
-      ).catch((error: unknown) => error);
+        'destroy:queue-rejected',
+      );
+      const matchFinishedObserver = observeEvents<MatchFinishedPayload>(
+        spectator,
+        'room:match-finished',
+      );
       const rejectedPromise = waitForEvent<DestroyQueueRejectedPayload>(
         spectator,
         'destroy:queue-rejected',
         2_000,
       );
-      const matchFinishedPromise = waitForEvent<MatchFinishedPayload>(
-        spectator,
-        'room:match-finished',
-        2_000,
-      ).catch((error: unknown) => error);
 
       match.host.emit('destroy:queue', {
         structureKey: ownStructure.key,
@@ -692,14 +776,24 @@ describe('lockstep primary mode', () => {
       match.host.emit('room:leave');
       match.guest.emit('room:leave');
 
-      await expect(queuedPromise).resolves.toBeInstanceOf(Error);
+      await advanceUntilObservedCount(
+        clock,
+        rejectedObserver,
+        1,
+        PRIMARY_FINISH_ADVANCE_LIMIT_TICKS,
+      );
+
       const rejected = await rejectedPromise;
+      queuedObserver.stop();
+      rejectedObserver.stop();
+      matchFinishedObserver.stop();
+      expect(queuedObserver.events).toHaveLength(0);
       expect(rejected.roomId).toBe(match.roomId);
       expect(rejected.intentId).toMatch(/^intent-/);
       expect(rejected.teamId).toBe(team.id);
       expect(rejected.structureKey).toBe(ownStructure.key);
       expect(rejected.reason).toBe('match-finished');
-      await expect(matchFinishedPromise).resolves.toBeInstanceOf(Error);
+      expect(matchFinishedObserver.events).toHaveLength(0);
     },
     30_000,
   );
