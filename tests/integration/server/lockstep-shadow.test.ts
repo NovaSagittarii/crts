@@ -1,6 +1,7 @@
 import { describe, expect } from 'vitest';
 
 import type {
+  BuildQueuedPayload,
   LockstepCheckpointPayload,
   LockstepFallbackPayload,
   RoomJoinedPayload,
@@ -11,11 +12,15 @@ import type {
 import { createLockstepTest } from './lockstep-fixtures.js';
 import {
   claimSlot,
+  observeEvents,
   waitForBuildQueueResponse,
   waitForEvent,
   waitForMembership,
   waitForState,
 } from './test-support.js';
+
+const SHADOW_QUEUE_ADVANCE_LIMIT_TICKS = 5;
+const SHADOW_STATE_REQUEST_ADVANCE_MS = 100;
 
 const test = createLockstepTest(
   {
@@ -31,6 +36,8 @@ const test = createLockstepTest(
     hostSessionId: 'shadow-host',
     guestSessionId: 'shadow-guest',
   },
+  {},
+  { clockMode: 'manual' },
 );
 
 function resolveTeamForPlayer(
@@ -46,6 +53,7 @@ function resolveTeamForPlayer(
 
 describe('lockstep shadow mode', () => {
   test('emits checkpoints and avoids fallback during normal queue flow', async ({
+    clock,
     connectedRoom,
   }) => {
     const host = connectedRoom.host;
@@ -99,16 +107,18 @@ describe('lockstep shadow mode', () => {
     guest.emit('room:start');
     await waitForEvent(host, 'room:match-started', 7_000);
 
-    const firstCheckpoint = await waitForEvent<LockstepCheckpointPayload>(
+    const firstCheckpointPromise = waitForEvent<LockstepCheckpointPayload>(
       host,
       'lockstep:checkpoint',
       4_000,
     );
+    await clock.advanceTicks(1);
+    const firstCheckpoint = await firstCheckpointPromise;
     expect(firstCheckpoint.roomId).toBe(connectedRoom.roomId);
     expect(firstCheckpoint.mode).toBe('shadow');
     expect(firstCheckpoint.hashHex).toMatch(/^[0-9a-f]{8}$/);
 
-    const state = await waitForState(
+    const statePromise = waitForState(
       host,
       (payload) =>
         payload.roomId === connectedRoom.roomId &&
@@ -121,25 +131,47 @@ describe('lockstep shadow mode', () => {
         timeoutMs: 2_000,
       },
     );
+    await clock.advanceMs(SHADOW_STATE_REQUEST_ADVANCE_MS);
+    const state = await statePromise;
     const team = resolveTeamForPlayer(state.teams, hostRejoined.playerId);
+
+    const queuedObserver = observeEvents<BuildQueuedPayload>(
+      host,
+      'build:queued',
+    );
+    const queuedPromise = waitForBuildQueueResponse(host, 3_000);
+    const secondCheckpointPromise = waitForEvent<LockstepCheckpointPayload>(
+      host,
+      'lockstep:checkpoint',
+      4_000,
+    );
 
     host.emit('build:queue', {
       templateId: 'block',
       x: team.baseTopLeft.x + 8,
       y: team.baseTopLeft.y + 8,
     });
-    const queued = await waitForBuildQueueResponse(host, 3_000);
+
+    for (
+      let advancedTicks = 0;
+      advancedTicks < SHADOW_QUEUE_ADVANCE_LIMIT_TICKS &&
+      queuedObserver.events.length === 0;
+      advancedTicks += 1
+    ) {
+      await clock.advanceTicks(1);
+    }
+
+    queuedObserver.stop();
+    expect(queuedObserver.events.length).toBeGreaterThan(0);
+
+    const queued = await queuedPromise;
     if ('error' in queued) {
       throw new Error(
         `Build queue rejected: ${queued.error.reason ?? queued.error.message}`,
       );
     }
 
-    const secondCheckpoint = await waitForEvent<LockstepCheckpointPayload>(
-      host,
-      'lockstep:checkpoint',
-      4_000,
-    );
+    const secondCheckpoint = await secondCheckpointPromise;
     expect(secondCheckpoint.tick).toBeGreaterThanOrEqual(firstCheckpoint.tick);
     expect(secondCheckpoint.mode).toBe('shadow');
 
