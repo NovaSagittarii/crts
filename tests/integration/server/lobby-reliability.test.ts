@@ -1,5 +1,5 @@
 import type { Socket } from 'socket.io-client';
-import { describe, expect, vi } from 'vitest';
+import { describe, expect } from 'vitest';
 
 import type {
   ChatMessagePayload,
@@ -14,12 +14,17 @@ import { createIntegrationTest } from './fixtures.js';
 import { waitForEvent, waitForMembership } from './test-support.js';
 
 const HOLD_EXPIRY_ADVANCE_MS = 31_000;
-const test = createIntegrationTest({
-  port: 0,
-  width: 58,
-  height: 58,
-  tickMs: 40,
-});
+const test = createIntegrationTest(
+  {
+    port: 0,
+    width: 58,
+    height: 58,
+    tickMs: 40,
+  },
+  {
+    clockMode: 'manual',
+  },
+);
 
 function normalizeMembership(payload: RoomMembershipPayload): object {
   const sortedSlots: Record<string, string | null> = {};
@@ -60,9 +65,16 @@ async function waitForConsistentMembership(
   sockets: Socket[],
   roomId: string,
   predicate: (payload: RoomMembershipPayload) => boolean,
+  label: string,
 ): Promise<RoomMembershipPayload[]> {
   const snapshots = await Promise.all(
-    sockets.map((socket) => waitForMembership(socket, roomId, predicate)),
+    sockets.map((socket, index) =>
+      waitForMembership(socket, roomId, predicate, {
+        attempts: 500,
+        overallTimeoutMs: 10_000,
+        timeoutMessage: `${label}: initial snapshot ${index}`,
+      }),
+    ),
   );
 
   const targetRevision = Math.max(...snapshots.map(({ revision }) => revision));
@@ -76,6 +88,11 @@ async function waitForConsistentMembership(
         sockets[index],
         roomId,
         (payload) => payload.revision === targetRevision && predicate(payload),
+        {
+          attempts: 500,
+          overallTimeoutMs: 10_000,
+          timeoutMessage: `${label}: converge socket ${index}`,
+        },
       );
     }),
   );
@@ -90,6 +107,7 @@ async function waitForConsistentMembership(
 
 describe('lobby reliability regression', () => {
   test('keeps room state deterministic across host transfer, countdown guards, spectator chat, and reconnect reclaim races', async ({
+    clock,
     connectClient,
   }) => {
     const host = connectClient({ sessionId: 'host-main' });
@@ -129,6 +147,7 @@ describe('lobby reliability regression', () => {
       [host, playerTwo, observer],
       created.roomId,
       (payload) => payload.participants.length === 3,
+      'all participants joined',
     );
     previousRevision = joinedMembership[0].revision;
 
@@ -140,6 +159,7 @@ describe('lobby reliability regression', () => {
       (payload) =>
         payload.slots['team-1'] === 'host-main' &&
         payload.slots['team-2'] === 'player-two',
+      'both players claimed slots',
     );
     expect(claimedMembership[0].revision).toBeGreaterThan(previousRevision);
     previousRevision = claimedMembership[0].revision;
@@ -159,6 +179,7 @@ describe('lobby reliability regression', () => {
         payload.participants.length === 2 &&
         payload.hostSessionId === 'player-two' &&
         payload.slots['team-1'] === null,
+      'host transfer after leave',
     );
     expect(hostTransferred[0].revision).toBeGreaterThan(previousRevision);
     previousRevision = hostTransferred[0].revision;
@@ -171,6 +192,7 @@ describe('lobby reliability regression', () => {
         payload.slots['team-1'] === 'observer' &&
         payload.participants.filter(({ role }) => role === 'player').length ===
           2,
+      'observer claims open slot',
     );
     expect(explicitClaim[0].revision).toBeGreaterThan(previousRevision);
     previousRevision = explicitClaim[0].revision;
@@ -182,45 +204,34 @@ describe('lobby reliability regression', () => {
     );
     expect(notReadyError.reason).toBe('not-ready');
 
-    let usingFakeTimers = false;
-    try {
-      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-      usingFakeTimers = true;
-      observer.disconnect();
+    observer.disconnect();
 
-      const observerHeld = await waitForMembership(
-        playerTwo,
-        created.roomId,
-        (payload) =>
-          payload.slots['team-1'] === 'observer' &&
-          payload.participants.some(
-            ({ sessionId, connectionStatus }) =>
-              sessionId === 'observer' && connectionStatus === 'held',
-          ),
-        { attempts: 1000, timeoutMs: 1000 },
-      );
-      expect(observerHeld.heldSlots['team-1']?.sessionId).toBe('observer');
+    const observerHeld = await waitForMembership(
+      playerTwo,
+      created.roomId,
+      (payload) =>
+        payload.slots['team-1'] === 'observer' &&
+        payload.participants.some(
+          ({ sessionId, connectionStatus }) =>
+            sessionId === 'observer' && connectionStatus === 'held',
+        ),
+      { attempts: 1000, timeoutMs: 1000 },
+    );
+    expect(observerHeld.heldSlots['team-1']?.sessionId).toBe('observer');
 
-      const observerExpiredPromise = waitForMembership(
-        playerTwo,
-        created.roomId,
-        (payload) =>
-          payload.slots['team-1'] === null &&
-          !payload.participants.some(
-            ({ sessionId }) => sessionId === 'observer',
-          ),
-        { attempts: 2000, timeoutMs: 1000 },
-      );
+    const observerExpiredPromise = waitForMembership(
+      playerTwo,
+      created.roomId,
+      (payload) =>
+        payload.slots['team-1'] === null &&
+        !payload.participants.some(({ sessionId }) => sessionId === 'observer'),
+      { attempts: 2000, timeoutMs: 1000 },
+    );
 
-      await vi.advanceTimersByTimeAsync(HOLD_EXPIRY_ADVANCE_MS);
+    await clock.advanceMs(HOLD_EXPIRY_ADVANCE_MS);
 
-      const observerExpired = await observerExpiredPromise;
-      expect(observerExpired.heldSlots['team-1']).toBeNull();
-    } finally {
-      if (usingFakeTimers) {
-        vi.useRealTimers();
-      }
-    }
+    const observerExpired = await observerExpiredPromise;
+    expect(observerExpired.heldSlots['team-1']).toBeNull();
 
     const replacement = connectClient({ sessionId: 'replacement' });
     await waitForEvent<RoomJoinedPayload>(replacement, 'room:joined');
@@ -232,6 +243,7 @@ describe('lobby reliability regression', () => {
       [playerTwo, replacement],
       created.roomId,
       (payload) => payload.slots['team-1'] === 'replacement',
+      'replacement claims released slot',
     );
     expect(replacementClaimed[0].revision).toBeGreaterThan(previousRevision);
     previousRevision = replacementClaimed[0].revision;
@@ -263,19 +275,33 @@ describe('lobby reliability regression', () => {
         payload.participants.filter(
           ({ role, ready }) => role === 'player' && ready,
         ).length === 2,
+      'players ready before countdown',
     );
     expect(readyMembership[0].revision).toBeGreaterThan(previousRevision);
     previousRevision = readyMembership[0].revision;
 
-    playerTwo.emit('room:start');
-    await waitForMembership(
+    const countdownMembershipPromise = waitForMembership(
       playerTwo,
       created.roomId,
       (payload) =>
         payload.status === 'countdown' &&
         payload.countdownSecondsRemaining !== null,
-      { attempts: 30, timeoutMs: 1500 },
+      { attempts: 200, timeoutMs: 1500 },
     );
+    const startedPromise = waitForEvent<MatchStartedPayload>(
+      playerTwo,
+      'room:match-started',
+      5000,
+    );
+    const activeMembershipPromise = waitForMembership(
+      playerTwo,
+      created.roomId,
+      (payload) => payload.status === 'active',
+      { attempts: 200, timeoutMs: 1500 },
+    );
+
+    playerTwo.emit('room:start');
+    await countdownMembershipPromise;
 
     const countdownLockedPromise = waitForEvent<RoomErrorPayload>(
       replacement,
@@ -285,19 +311,12 @@ describe('lobby reliability regression', () => {
     const countdownLocked = await countdownLockedPromise;
     expect(countdownLocked.reason).toBe('countdown-locked');
 
-    const started = await waitForEvent<MatchStartedPayload>(
-      playerTwo,
-      'room:match-started',
-      5000,
-    );
+    await clock.advanceMs(3_100);
+
+    const started = await startedPromise;
     expect(started.roomId).toBe(created.roomId);
 
-    await waitForMembership(
-      playerTwo,
-      created.roomId,
-      (payload) => payload.status === 'active',
-      { attempts: 20, timeoutMs: 1500 },
-    );
+    await activeMembershipPromise;
 
     observerLate.emit('chat:send', { message: 'spectator visibility check' });
     const playerChat = await waitForEvent<ChatMessagePayload>(
@@ -355,6 +374,7 @@ describe('lobby reliability regression', () => {
           ({ sessionId, role, slotId }) =>
             sessionId === 'observer' && role === 'spectator' && slotId === null,
         ),
+      'final membership converges after reconnect',
     );
 
     expect(finalMembership[0].revision).toBeGreaterThan(previousRevision);

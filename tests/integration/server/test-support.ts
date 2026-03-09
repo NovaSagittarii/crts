@@ -81,7 +81,11 @@ export type QueueResponse<TQueued, TRejected extends { reason: string }> =
   | { error: QueueErrorPayload<TRejected> };
 
 const MAX_BUFFERED_EVENTS_PER_NAME = 32;
-const BUFFERED_EVENT_NAMES = new Set(['room:joined', 'lockstep:checkpoint']);
+const BUFFERED_EVENT_NAMES = new Set([
+  'lockstep:checkpoint',
+  'room:joined',
+  'room:membership',
+]);
 
 type BufferedEventStore = Map<string, unknown[]>;
 
@@ -298,6 +302,13 @@ export function waitForEventWithPredicate<T>(
   predicate: (payload: T) => boolean,
   options: WaitForPredicateOptions = {},
 ): Promise<T> {
+  if (BUFFERED_EVENT_NAMES.has(event)) {
+    const bufferedEvent = takeBufferedEvent<T>(socket, event, predicate);
+    if (bufferedEvent !== null) {
+      return Promise.resolve(bufferedEvent);
+    }
+  }
+
   const attempts = options.attempts ?? 20;
   const timeoutMs = options.timeoutMs ?? 2500;
   const overallTimeoutMs = options.overallTimeoutMs ?? attempts * timeoutMs;
