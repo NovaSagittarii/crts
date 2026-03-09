@@ -54,7 +54,7 @@ function normalizeKey(key: string | null | undefined): string | null {
 }
 
 function normalizeMaxHp(value: number | null | undefined): number | null {
-  if (!Number.isFinite(value) || value <= 0) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
     return null;
   }
   return value;
