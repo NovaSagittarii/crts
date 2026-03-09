@@ -95,6 +95,18 @@ const socketSessionIds = new WeakMap<Socket, string>();
 const pendingQueueResponseKinds = new WeakMap<Socket, Set<string>>();
 const socketAdvanceDrivers = new WeakMap<Socket, SocketAdvanceDriver>();
 
+function shouldBufferEvent(socket: Socket, event: string): boolean {
+  if (!BUFFERED_EVENT_NAMES.has(event)) {
+    return false;
+  }
+
+  if (event !== 'room:membership') {
+    return true;
+  }
+
+  return socketAdvanceDrivers.has(socket);
+}
+
 export function registerSocketAdvanceDriver(
   socket: Socket,
   driver: SocketAdvanceDriver,
@@ -118,7 +130,7 @@ function attachBufferedEventStore(socket: Socket): void {
   // Capture server events before the test starts awaiting them.
   socket.onAny((eventName, payload) => {
     const event = typeof eventName === 'string' ? eventName : null;
-    if (event === null || !BUFFERED_EVENT_NAMES.has(event)) {
+    if (event === null || !shouldBufferEvent(socket, event)) {
       return;
     }
 
@@ -248,7 +260,7 @@ export function waitForEvent<T>(
   event: string,
   timeoutMs = 2500,
 ): Promise<T> {
-  if (BUFFERED_EVENT_NAMES.has(event)) {
+  if (shouldBufferEvent(socket, event)) {
     const bufferedEvent = takeBufferedEvent<T>(socket, event);
     if (bufferedEvent !== null) {
       return Promise.resolve(bufferedEvent);
@@ -302,7 +314,7 @@ export function waitForEventWithPredicate<T>(
   predicate: (payload: T) => boolean,
   options: WaitForPredicateOptions = {},
 ): Promise<T> {
-  if (BUFFERED_EVENT_NAMES.has(event)) {
+  if (shouldBufferEvent(socket, event)) {
     const bufferedEvent = takeBufferedEvent<T>(socket, event, predicate);
     if (bufferedEvent !== null) {
       return Promise.resolve(bufferedEvent);
