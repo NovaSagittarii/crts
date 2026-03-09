@@ -47,6 +47,10 @@ export interface WaitForRequestedStateOptions extends WaitForPredicateOptions {
   requestIntervalMs?: number;
 }
 
+export interface SocketAdvanceDriver {
+  subscribe(listener: () => void): () => void;
+}
+
 export interface CandidatePlacementOptions {
   transform?: PlacementTransformInput;
   searchRadius?: number;
@@ -85,6 +89,14 @@ const bufferedSocketEvents = new WeakMap<Socket, BufferedEventStore>();
 const socketPlayerIds = new WeakMap<Socket, string>();
 const socketSessionIds = new WeakMap<Socket, string>();
 const pendingQueueResponseKinds = new WeakMap<Socket, Set<string>>();
+const socketAdvanceDrivers = new WeakMap<Socket, SocketAdvanceDriver>();
+
+export function registerSocketAdvanceDriver(
+  socket: Socket,
+  driver: SocketAdvanceDriver,
+): void {
+  socketAdvanceDrivers.set(socket, driver);
+}
 
 function extractPlayerId(payload: unknown): string | null {
   if (typeof payload !== 'object' || payload === null) {
@@ -396,13 +408,23 @@ function waitForRequestedStateEvent<T>(
   }
 
   const intervalMs = Math.max(20, Math.floor(requestIntervalMs));
-  socket.emit('state:request', {
-    sections,
-  } satisfies StateRequestPayload);
-  const requestTimer = setInterval(() => {
+  const emitRequest = (): void => {
     socket.emit('state:request', {
       sections,
     } satisfies StateRequestPayload);
+  };
+  const advanceDriver = socketAdvanceDrivers.get(socket);
+
+  emitRequest();
+  if (advanceDriver) {
+    const unsubscribe = advanceDriver.subscribe(emitRequest);
+    return waitPromise.finally(() => {
+      unsubscribe();
+    });
+  }
+
+  const requestTimer = setInterval(() => {
+    emitRequest();
   }, intervalMs);
 
   return waitPromise.finally(() => {
