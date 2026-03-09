@@ -17,11 +17,16 @@ import {
   waitForRoomState,
 } from './test-support.js';
 
-const test = createIntegrationTest({
+const defaultServerOptions = {
   port: 0,
   width: 50,
   height: 50,
   tickMs: 40,
+};
+
+const test = createIntegrationTest(defaultServerOptions);
+const deterministicTest = createIntegrationTest(defaultServerOptions, {
+  clockMode: 'manual',
 });
 
 function countPlayers(payload: RoomMembershipPayload): number {
@@ -367,147 +372,181 @@ describe('lobby room/team contract', () => {
     expect(transferred.hostSessionId).toBe(guestJoined.playerId);
   });
 
-  test('guards start preconditions and continues countdown when a player disconnects', async ({
-    connectClient,
-  }) => {
-    const owner = connectClient();
-    await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
+  deterministicTest(
+    'guards start preconditions and continues countdown when a player disconnects',
+    async ({ clock, connectClient }) => {
+      const owner = connectClient();
+      await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
 
-    owner.emit('room:create', {
-      name: 'Countdown Room',
-      width: 52,
-      height: 52,
-    });
-    const created = await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
+      owner.emit('room:create', {
+        name: 'Countdown Room',
+        width: 52,
+        height: 52,
+      });
+      const created = await waitForEvent<RoomJoinedPayload>(
+        owner,
+        'room:joined',
+      );
 
-    const guest = connectClient();
-    await waitForEvent<RoomJoinedPayload>(guest, 'room:joined');
-    guest.emit('room:join', { roomId: created.roomId });
-    const guestJoined = await waitForEvent<RoomJoinedPayload>(
-      guest,
-      'room:joined',
-    );
+      const guest = connectClient();
+      await waitForEvent<RoomJoinedPayload>(guest, 'room:joined');
+      guest.emit('room:join', { roomId: created.roomId });
+      const guestJoined = await waitForEvent<RoomJoinedPayload>(
+        guest,
+        'room:joined',
+      );
 
-    owner.emit('room:claim-slot', { slotId: 'team-1' });
-    guest.emit('room:claim-slot', { slotId: 'team-2' });
-    await waitForMembership(
-      owner,
-      created.roomId,
-      (payload) => countPlayers(payload) === 2,
-    );
+      owner.emit('room:claim-slot', { slotId: 'team-1' });
+      guest.emit('room:claim-slot', { slotId: 'team-2' });
+      await waitForMembership(
+        owner,
+        created.roomId,
+        (payload) => countPlayers(payload) === 2,
+      );
 
-    owner.emit('room:set-ready', { ready: true });
-    await waitForMembership(owner, created.roomId, (payload) =>
-      payload.participants.some(
-        ({ sessionId, ready }) => sessionId === created.playerId && ready,
-      ),
-    );
+      owner.emit('room:set-ready', { ready: true });
+      await waitForMembership(owner, created.roomId, (payload) =>
+        payload.participants.some(
+          ({ sessionId, ready }) => sessionId === created.playerId && ready,
+        ),
+      );
 
-    owner.emit('room:start', { force: true });
-    const preconditionError = await waitForEvent<RoomErrorPayload>(
-      owner,
-      'room:error',
-    );
-    expect(preconditionError.reason).toBe('not-ready');
+      owner.emit('room:start', { force: true });
+      const preconditionError = await waitForEvent<RoomErrorPayload>(
+        owner,
+        'room:error',
+      );
+      expect(preconditionError.reason).toBe('not-ready');
 
-    guest.emit('room:set-ready', { ready: true });
-    await waitForMembership(owner, created.roomId, (payload) =>
-      payload.participants.some(
-        ({ sessionId, ready }) => sessionId === guestJoined.playerId && ready,
-      ),
-    );
+      guest.emit('room:set-ready', { ready: true });
+      await waitForMembership(owner, created.roomId, (payload) =>
+        payload.participants.some(
+          ({ sessionId, ready }) => sessionId === guestJoined.playerId && ready,
+        ),
+      );
 
-    owner.emit('room:start');
-    await waitForMembership(
-      owner,
-      created.roomId,
-      (payload) => payload.status === 'countdown',
-      { attempts: 20 },
-    );
+      owner.emit('room:start');
+      await waitForMembership(
+        owner,
+        created.roomId,
+        (payload) => payload.status === 'countdown',
+        { attempts: 20 },
+      );
 
-    guest.emit('room:set-ready', { ready: false });
-    const readyLocked = await waitForEvent<RoomErrorPayload>(
-      guest,
-      'room:error',
-    );
-    expect(readyLocked.reason).toBe('countdown-locked');
+      guest.emit('room:set-ready', { ready: false });
+      const readyLocked = await waitForEvent<RoomErrorPayload>(
+        guest,
+        'room:error',
+      );
+      expect(readyLocked.reason).toBe('countdown-locked');
 
-    guest.close();
+      const startedPromise = waitForEvent<MatchStartedPayload>(
+        owner,
+        'room:match-started',
+        5000,
+      );
+      const activeMembershipPromise = waitForMembership(
+        owner,
+        created.roomId,
+        (payload) => payload.status === 'active',
+        { attempts: 200 },
+      );
 
-    const started = await waitForEvent<MatchStartedPayload>(
-      owner,
-      'room:match-started',
-      5000,
-    );
-    expect(started.roomId).toBe(created.roomId);
+      guest.close();
 
-    const activeMembership = await waitForMembership(
-      owner,
-      created.roomId,
-      (payload) => payload.status === 'active',
-      { attempts: 20 },
-    );
-    expect(activeMembership.status).toBe('active');
-  });
+      await clock.advanceMs(3_100);
 
-  test('broadcasts room chat to players and spectators during active match', async ({
-    connectClient,
-  }) => {
-    const owner = connectClient();
-    await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
+      const started = await startedPromise;
+      expect(started.roomId).toBe(created.roomId);
 
-    owner.emit('room:create', { name: 'Chat Room', width: 54, height: 54 });
-    const created = await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
+      const activeMembership = await activeMembershipPromise;
+      expect(activeMembership.status).toBe('active');
+    },
+  );
 
-    const secondPlayer = connectClient();
-    await waitForEvent<RoomJoinedPayload>(secondPlayer, 'room:joined');
-    secondPlayer.emit('room:join', { roomId: created.roomId });
-    await waitForEvent<RoomJoinedPayload>(secondPlayer, 'room:joined');
+  deterministicTest(
+    'broadcasts room chat to players and spectators during active match',
+    async ({ clock, connectClient }) => {
+      const owner = connectClient();
+      await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
 
-    const spectator = connectClient();
-    await waitForEvent<RoomJoinedPayload>(spectator, 'room:joined');
-    spectator.emit('room:join', { roomCode: created.roomCode });
-    const spectatorJoined = await waitForEvent<RoomJoinedPayload>(
-      spectator,
-      'room:joined',
-    );
+      owner.emit('room:create', { name: 'Chat Room', width: 54, height: 54 });
+      const created = await waitForEvent<RoomJoinedPayload>(
+        owner,
+        'room:joined',
+      );
 
-    owner.emit('room:claim-slot', { slotId: 'team-1' });
-    secondPlayer.emit('room:claim-slot', { slotId: 'team-2' });
-    owner.emit('room:set-ready', { ready: true });
-    secondPlayer.emit('room:set-ready', { ready: true });
+      const secondPlayer = connectClient();
+      await waitForEvent<RoomJoinedPayload>(secondPlayer, 'room:joined');
+      secondPlayer.emit('room:join', { roomId: created.roomId });
+      await waitForEvent<RoomJoinedPayload>(secondPlayer, 'room:joined');
 
-    await waitForMembership(
-      owner,
-      created.roomId,
-      (payload) =>
-        payload.participants.filter(
-          ({ role, ready }) => role === 'player' && ready,
-        ).length === 2,
-      { attempts: 20 },
-    );
+      const spectator = connectClient();
+      await waitForEvent<RoomJoinedPayload>(spectator, 'room:joined');
+      spectator.emit('room:join', { roomCode: created.roomCode });
+      const spectatorJoined = await waitForEvent<RoomJoinedPayload>(
+        spectator,
+        'room:joined',
+      );
 
-    owner.emit('room:start');
-    await waitForEvent<MatchStartedPayload>(owner, 'room:match-started', 5000);
+      owner.emit('room:claim-slot', { slotId: 'team-1' });
+      secondPlayer.emit('room:claim-slot', { slotId: 'team-2' });
+      owner.emit('room:set-ready', { ready: true });
+      secondPlayer.emit('room:set-ready', { ready: true });
 
-    spectator.emit('chat:send', { message: 'glhf from spectator' });
+      await waitForMembership(
+        owner,
+        created.roomId,
+        (payload) =>
+          payload.participants.filter(
+            ({ role, ready }) => role === 'player' && ready,
+          ).length === 2,
+        { attempts: 20 },
+      );
 
-    const ownerChat = await waitForEvent<ChatMessagePayload>(
-      owner,
-      'chat:message',
-    );
-    const secondPlayerChat = await waitForEvent<ChatMessagePayload>(
-      secondPlayer,
-      'chat:message',
-    );
-    const spectatorChat = await waitForEvent<ChatMessagePayload>(
-      spectator,
-      'chat:message',
-    );
+      const startedPromise = waitForEvent<MatchStartedPayload>(
+        owner,
+        'room:match-started',
+        5000,
+      );
+      const countdownMembershipPromise = waitForMembership(
+        owner,
+        created.roomId,
+        (payload) => payload.status === 'countdown',
+        { attempts: 200 },
+      );
+      const activeMembershipPromise = waitForMembership(
+        owner,
+        created.roomId,
+        (payload) => payload.status === 'active',
+        { attempts: 200 },
+      );
 
-    expect(ownerChat.message).toBe('glhf from spectator');
-    expect(secondPlayerChat.message).toBe('glhf from spectator');
-    expect(spectatorChat.message).toBe('glhf from spectator');
-    expect(ownerChat.senderSessionId).toBe(spectatorJoined.playerId);
-  });
+      owner.emit('room:start');
+      await countdownMembershipPromise;
+      await clock.advanceMs(3_100);
+      await startedPromise;
+      await activeMembershipPromise;
+
+      spectator.emit('chat:send', { message: 'glhf from spectator' });
+
+      const ownerChat = await waitForEvent<ChatMessagePayload>(
+        owner,
+        'chat:message',
+      );
+      const secondPlayerChat = await waitForEvent<ChatMessagePayload>(
+        secondPlayer,
+        'chat:message',
+      );
+      const spectatorChat = await waitForEvent<ChatMessagePayload>(
+        spectator,
+        'chat:message',
+      );
+
+      expect(ownerChat.message).toBe('glhf from spectator');
+      expect(secondPlayerChat.message).toBe('glhf from spectator');
+      expect(spectatorChat.message).toBe('glhf from spectator');
+      expect(ownerChat.senderSessionId).toBe(spectatorJoined.playerId);
+    },
+  );
 });
