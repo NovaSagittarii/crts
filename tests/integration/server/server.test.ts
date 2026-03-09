@@ -12,7 +12,7 @@ import {
   normalizePlacementTransform,
 } from '#rts-engine';
 
-import { createIntegrationTest } from './fixtures.js';
+import { type IntegrationClock, createIntegrationTest } from './fixtures.js';
 import { createMatchTest } from './match-fixtures.js';
 import {
   claimSlot,
@@ -36,6 +36,7 @@ import {
 const SNAPSHOT_INTERVAL_TICKS = 50;
 const SNAPSHOT_ADVANCE_LIMIT_TICKS = 5;
 const QUEUE_FANOUT_ADVANCE_LIMIT_TICKS = 5;
+const OUTCOME_ADVANCE_MARGIN_TICKS = 2;
 const STATE_REQUEST_ADVANCE_MS = 100;
 
 const defaultServerOptions = { port: 0, width: 52, height: 52, tickMs: 40 };
@@ -96,6 +97,23 @@ function getTeam(state: RoomStatePayload, teamId: number): TeamPayload {
     throw new Error(`Unable to find team ${teamId}`);
   }
   return team;
+}
+
+async function advanceUntilObservedCount(
+  clock: IntegrationClock,
+  observer: { events: unknown[] },
+  count: number,
+  maxTicks: number,
+): Promise<void> {
+  for (
+    let advancedTicks = 0;
+    advancedTicks < maxTicks && observer.events.length < count;
+    advancedTicks += 1
+  ) {
+    await clock.advanceTicks(1);
+  }
+
+  expect(observer.events.length).toBeGreaterThanOrEqual(count);
 }
 
 describe('GameServer', () => {
@@ -183,9 +201,9 @@ describe('GameServer', () => {
     20_000,
   );
 
-  matchTest(
+  fanoutMatchTest(
     'queues buffered builds and emits one terminal outcome per queued event',
-    async ({ activeMatch }) => {
+    async ({ activeMatch, integration }) => {
       const setup = activeMatch;
 
       const blockTemplate = setup.hostJoined.templates.find(
@@ -207,7 +225,15 @@ describe('GameServer', () => {
         throw new Error('Expected at least two valid block placements');
       }
 
-      const queuedIntents: BuildQueuedPayload[] = [];
+      const queuedObserver = observeEvents<BuildQueuedPayload>(
+        setup.host,
+        'build:queued',
+      );
+      const queuedIntentsPromise = collectBuildQueuedEvents(
+        setup.host,
+        3,
+        4_000,
+      );
       for (const placement of [
         duplicatePlacement,
         duplicatePlacement,
@@ -219,29 +245,30 @@ describe('GameServer', () => {
           y: placement.y,
           delayTicks: 8,
         });
-
-        const response = await waitForBuildQueueResponse(setup.host);
-        if ('queued' in response) {
-          queuedIntents.push(response.queued);
-          continue;
-        }
-
-        throw new Error(
-          `Expected build queue acceptance, received ${response.error.reason}`,
-        );
       }
+
+      await advanceUntilObservedCount(
+        integration.clock,
+        queuedObserver,
+        3,
+        QUEUE_FANOUT_ADVANCE_LIMIT_TICKS,
+      );
+      queuedObserver.stop();
+
+      const queuedIntents = await queuedIntentsPromise;
 
       expect(queuedIntents).toHaveLength(3);
 
       const queuedById = new Map(
         queuedIntents.map((queued) => [queued.eventId, queued]),
       );
-      const outcomesById = await collectBuildOutcomes(
+      const outcomesByIdPromise = collectBuildOutcomes(
         setup.host,
         [...queuedById.keys()],
         10_000,
-        200,
       );
+      await integration.clock.advanceTicks(8 + OUTCOME_ADVANCE_MARGIN_TICKS);
+      const outcomesById = await outcomesByIdPromise;
 
       expect(outcomesById.size).toBe(queuedById.size);
 
@@ -276,9 +303,9 @@ describe('GameServer', () => {
     25_000,
   );
 
-  matchTest(
+  fanoutMatchTest(
     'emits one terminal outcome to both clients for overlapping queued builds',
-    async ({ activeMatch }) => {
+    async ({ activeMatch, integration }) => {
       const setup = activeMatch;
 
       const blockTemplate = setup.hostJoined.templates.find(
@@ -308,12 +335,11 @@ describe('GameServer', () => {
         BuildQueuedPayload & { source: 'host' | 'guest' }
       > = [];
       for (let index = 0; index < hostPlacements.length; index += 1) {
-        const queuedPromise = collectBuildQueuedEvents(
+        const queuedObserver = observeEvents<BuildQueuedPayload>(
           setup.host,
-          2,
-          4_000,
-          50,
+          'build:queued',
         );
+        const queuedPromise = collectBuildQueuedEvents(setup.host, 2, 4_000);
 
         setup.host.emit('build:queue', {
           templateId: blockTemplate.id,
@@ -327,6 +353,14 @@ describe('GameServer', () => {
           y: guestPlacements[index].y,
           delayTicks: 40,
         });
+
+        await advanceUntilObservedCount(
+          integration.clock,
+          queuedObserver,
+          2,
+          QUEUE_FANOUT_ADVANCE_LIMIT_TICKS,
+        );
+        queuedObserver.stop();
 
         const roundQueued = await queuedPromise;
         queuedEvents.push(
@@ -350,9 +384,20 @@ describe('GameServer', () => {
       const queuedById = new Map(
         queuedEvents.map((queued) => [queued.eventId, queued]),
       );
+      const hostOutcomesByIdPromise = collectBuildOutcomes(
+        setup.host,
+        eventIds,
+        12_000,
+      );
+      const guestOutcomesByIdPromise = collectBuildOutcomes(
+        setup.guest,
+        eventIds,
+        12_000,
+      );
+      await integration.clock.advanceTicks(40 + OUTCOME_ADVANCE_MARGIN_TICKS);
       const [hostOutcomesById, guestOutcomesById] = await Promise.all([
-        collectBuildOutcomes(setup.host, eventIds, 12_000, 200),
-        collectBuildOutcomes(setup.guest, eventIds, 12_000, 200),
+        hostOutcomesByIdPromise,
+        guestOutcomesByIdPromise,
       ]);
 
       for (const eventId of eventIds) {
@@ -529,9 +574,9 @@ describe('GameServer', () => {
     25_000,
   );
 
-  matchTest(
+  fanoutMatchTest(
     'projects pending queue rows in sorted state order and removes rows after resolution',
-    async ({ activeMatch }) => {
+    async ({ activeMatch, integration }) => {
       const setup = activeMatch;
 
       const blockTemplate = setup.hostJoined.templates.find(
@@ -549,8 +594,16 @@ describe('GameServer', () => {
       ).slice(0, 3);
       expect(placements).toHaveLength(3);
 
-      const queuedPayloads: BuildQueuedPayload[] = [];
       const delays = [18, 14, 18];
+      const queuedObserver = observeEvents<BuildQueuedPayload>(
+        setup.host,
+        'build:queued',
+      );
+      const queuedPayloadsPromise = collectBuildQueuedEvents(
+        setup.host,
+        placements.length,
+        4_000,
+      );
 
       for (let index = 0; index < placements.length; index += 1) {
         const placement = placements[index];
@@ -560,23 +613,24 @@ describe('GameServer', () => {
           y: placement.y,
           delayTicks: delays[index],
         });
-
-        const response = await waitForBuildQueueResponse(setup.host, 4_000);
-        if ('error' in response) {
-          throw new Error(
-            `Expected queued build response, received error: ${response.error.reason}`,
-          );
-        }
-
-        queuedPayloads.push(response.queued);
       }
+
+      await advanceUntilObservedCount(
+        integration.clock,
+        queuedObserver,
+        placements.length,
+        QUEUE_FANOUT_ADVANCE_LIMIT_TICKS,
+      );
+      queuedObserver.stop();
+
+      const queuedPayloads = await queuedPayloadsPromise;
 
       const queuedEventIds = queuedPayloads.map(({ eventId }) => eventId);
       const expectedPendingOrder = [...queuedPayloads]
         .sort((a, b) => a.executeTick - b.executeTick || a.eventId - b.eventId)
         .map(({ eventId }) => eventId);
 
-      const pendingState = await waitForRoomState(
+      const pendingStatePromise = waitForRoomState(
         setup.host,
         setup.roomId,
         (state) => {
@@ -592,6 +646,8 @@ describe('GameServer', () => {
         },
         { attempts: 30 },
       );
+      await integration.clock.advanceMs(STATE_REQUEST_ADVANCE_MS);
+      const pendingState = await pendingStatePromise;
 
       const pendingTeam = getTeamByPlayerId(
         pendingState,
@@ -603,9 +659,15 @@ describe('GameServer', () => {
 
       expect(observedPendingOrder).toEqual(expectedPendingOrder);
 
-      await collectBuildOutcomes(setup.host, queuedEventIds, 12_000);
+      const outcomesPromise = collectBuildOutcomes(
+        setup.host,
+        queuedEventIds,
+        12_000,
+      );
+      await integration.clock.advanceTicks(18 + OUTCOME_ADVANCE_MARGIN_TICKS);
+      await outcomesPromise;
 
-      const clearedState = await waitForRoomState(
+      const clearedStatePromise = waitForRoomState(
         setup.host,
         setup.roomId,
         (state) => {
@@ -621,6 +683,8 @@ describe('GameServer', () => {
         },
         { attempts: 40 },
       );
+      await integration.clock.advanceMs(STATE_REQUEST_ADVANCE_MS);
+      const clearedState = await clearedStatePromise;
 
       const clearedTeam = getTeamByPlayerId(
         clearedState,
