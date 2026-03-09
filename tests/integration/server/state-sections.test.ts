@@ -11,13 +11,18 @@ import { createLockstepTest } from './lockstep-fixtures.js';
 import { createMatchTest } from './match-fixtures.js';
 import {
   collectCandidatePlacements,
+  observeEvents,
   waitForBuildQueueResponse,
   waitForEvent,
-  waitForNoEvent,
+  waitForState,
   waitForStateGrid,
   waitForStateHashes,
   waitForStateStructures,
 } from './test-support.js';
+
+const LOCKSTEP_SECTIONS_TURN_TICKS = 20;
+const STATE_REQUEST_ADVANCE_MS = 100;
+const LOCKSTEP_FLUSH_ADVANCE_LIMIT_TICKS = 5;
 
 const sectionsMatchTest = createMatchTest(
   {
@@ -25,6 +30,7 @@ const sectionsMatchTest = createMatchTest(
     width: 52,
     height: 52,
     tickMs: 40,
+    countdownSeconds: 0,
     activeStateSnapshotIntervalTicks: 1000,
   },
   {
@@ -32,6 +38,8 @@ const sectionsMatchTest = createMatchTest(
     hostSessionId: 'sections-host',
     guestSessionId: 'sections-guest',
   },
+  {},
+  { clockMode: 'manual' },
 );
 
 const lockstepSectionsTest = createLockstepTest(
@@ -49,12 +57,14 @@ const lockstepSectionsTest = createLockstepTest(
     hostSessionId: 'sections-host',
     guestSessionId: 'sections-guest',
   },
+  {},
+  { clockMode: 'manual' },
 );
 
 describe('section sync and queued fanout', () => {
   sectionsMatchTest(
     'serves grid and structures sections only to the requester',
-    async ({ activeMatch }) => {
+    async ({ activeMatch, integration }) => {
       const setup = activeMatch;
       const generatorTemplate = setup.hostJoined.templates.find(
         ({ id }) => id === 'generator',
@@ -63,21 +73,39 @@ describe('section sync and queued fanout', () => {
         throw new Error('Expected generator template to be available');
       }
 
-      const initialGrid = await waitForStateGrid(
+      const guestInitialGridObserver = observeEvents<RoomGridStatePayload>(
+        setup.guest,
+        'state:grid',
+      );
+      const initialGridPromise = waitForStateGrid(
         setup.host,
         (payload: RoomGridStatePayload) => payload.roomId === setup?.roomId,
         {
           roomId: setup.roomId,
         },
       );
+      await integration.clock.advanceMs(STATE_REQUEST_ADVANCE_MS);
+      const initialGrid = await initialGridPromise;
+      await integration.clock.flush();
+      guestInitialGridObserver.stop();
+      expect(guestInitialGridObserver.events).toHaveLength(0);
       expect(initialGrid.hashHex).toMatch(/^[0-9a-f]{8}$/);
 
+      const duplicateGridObserver = observeEvents<RoomGridStatePayload>(
+        setup.host,
+        'state:grid',
+      );
       setup.host.emit('state:request', { sections: ['grid'] });
-      await expect(
-        waitForEvent<RoomGridStatePayload>(setup.host, 'state:grid', 120),
-      ).rejects.toThrow(/timed out/i);
+      await integration.clock.flush();
+      duplicateGridObserver.stop();
+      expect(duplicateGridObserver.events).toHaveLength(0);
 
-      const initialStructures = await waitForStateStructures(
+      const guestInitialStructuresObserver =
+        observeEvents<RoomStructuresStatePayload>(
+          setup.guest,
+          'state:structures',
+        );
+      const initialStructuresPromise = waitForStateStructures(
         setup.host,
         (payload: RoomStructuresStatePayload) =>
           payload.roomId === setup?.roomId,
@@ -85,6 +113,11 @@ describe('section sync and queued fanout', () => {
           roomId: setup.roomId,
         },
       );
+      await integration.clock.advanceMs(STATE_REQUEST_ADVANCE_MS);
+      const initialStructures = await initialStructuresPromise;
+      await integration.clock.flush();
+      guestInitialStructuresObserver.stop();
+      expect(guestInitialStructuresObserver.events).toHaveLength(0);
       const initialHostTeam = initialStructures.teams.find(
         (team) => team.id === setup.hostTeam.id,
       );
@@ -130,7 +163,12 @@ describe('section sync and queued fanout', () => {
       expect(hashes.gridHash).toBe(initialGrid.hashHex);
       expect(hashes.structuresHash).not.toBe(initialStructures.hashHex);
 
-      const updatedStructures = await waitForStateStructures(
+      const guestUpdatedStructuresObserver =
+        observeEvents<RoomStructuresStatePayload>(
+          setup.guest,
+          'state:structures',
+        );
+      const updatedStructuresPromise = waitForStateStructures(
         setup.host,
         (payload: RoomStructuresStatePayload) =>
           payload.roomId === setup?.roomId &&
@@ -139,6 +177,11 @@ describe('section sync and queued fanout', () => {
           roomId: setup.roomId,
         },
       );
+      await integration.clock.advanceMs(STATE_REQUEST_ADVANCE_MS);
+      const updatedStructures = await updatedStructuresPromise;
+      await integration.clock.flush();
+      guestUpdatedStructuresObserver.stop();
+      expect(guestUpdatedStructuresObserver.events).toHaveLength(0);
       expect(updatedStructures.hashHex).toBe(hashes.structuresHash);
       const updatedHostTeam = updatedStructures.teams.find(
         (team) => team.id === setup.hostTeam.id,
@@ -152,11 +195,6 @@ describe('section sync and queued fanout', () => {
           ({ eventId }) => eventId === queued.queued.eventId,
         ),
       ).toBe(true);
-
-      await Promise.all([
-        waitForNoEvent(setup.guest, 'state:grid', 250),
-        waitForNoEvent(setup.guest, 'state:structures', 250),
-      ]);
     },
     25_000,
   );
@@ -184,7 +222,7 @@ describe('section sync and queued fanout', () => {
         throw new Error('Expected a valid generator placement');
       }
 
-      const initialStructures = await waitForStateStructures(
+      const initialStatePromise = waitForState(
         setup.host,
         (payload) => payload.roomId === setup.roomId,
         {
@@ -193,28 +231,34 @@ describe('section sync and queued fanout', () => {
           timeoutMs: 2_000,
         },
       );
-      const initialHostTeam = initialStructures.teams.find(
+      await connectedRoom.clock.advanceMs(STATE_REQUEST_ADVANCE_MS);
+      const initialState = await initialStatePromise;
+      const initialHostTeam = initialState.teams.find(
         (team) => team.id === setup.hostTeam.id,
       );
       if (!initialHostTeam) {
         throw new Error('Expected host team in initial structures state');
       }
+      const ticksIntoTurn = initialState.tick % LOCKSTEP_SECTIONS_TURN_TICKS;
+      const ticksUntilTurnFlush =
+        ticksIntoTurn === 0
+          ? LOCKSTEP_SECTIONS_TURN_TICKS
+          : LOCKSTEP_SECTIONS_TURN_TICKS - ticksIntoTurn;
+      const preFlushTicks = Math.max(1, ticksUntilTurnFlush - 2);
 
+      const hostQueuedObserver = observeEvents<BuildQueuedPayload>(
+        setup.host,
+        'build:queued',
+      );
+      const guestQueuedObserver = observeEvents<BuildQueuedPayload>(
+        setup.guest,
+        'build:queued',
+      );
       const hostQueuedPromise = waitForBuildQueueResponse(setup.host, 4_000);
       const guestQueuedPromise = waitForEvent<BuildQueuedPayload>(
         setup.guest,
         'build:queued',
         4_000,
-      );
-      const earlyHostQueuedPromise = waitForEvent<BuildQueuedPayload>(
-        setup.host,
-        'build:queued',
-        250,
-      );
-      const earlyGuestQueuedPromise = waitForEvent<BuildQueuedPayload>(
-        setup.guest,
-        'build:queued',
-        250,
       );
 
       setup.host.emit('build:queue', {
@@ -223,13 +267,52 @@ describe('section sync and queued fanout', () => {
         y: placement.y,
       });
 
-      await expect(earlyHostQueuedPromise).rejects.toThrow(/timed out/i);
-      await expect(earlyGuestQueuedPromise).rejects.toThrow(/timed out/i);
+      await connectedRoom.clock.advanceTicks(preFlushTicks);
+
+      expect(hostQueuedObserver.events).toHaveLength(0);
+      expect(guestQueuedObserver.events).toHaveLength(0);
+
+      const preFlushState = await waitForState(
+        setup.host,
+        (payload) =>
+          payload.roomId === setup.roomId &&
+          payload.teams.some(
+            (team) =>
+              team.id === setup.hostTeam.id &&
+              team.resources === initialHostTeam.resources &&
+              team.pendingBuilds.length === 0,
+          ),
+        {
+          roomId: setup.roomId,
+          attempts: 10,
+          timeoutMs: 1_000,
+        },
+      );
+      expect(
+        preFlushState.teams.find((team) => team.id === setup.hostTeam.id)
+          ?.resources,
+      ).toBe(initialHostTeam.resources);
+
+      await connectedRoom.clock.advanceTicks(2);
+      for (
+        let advancedTicks = 0;
+        advancedTicks < LOCKSTEP_FLUSH_ADVANCE_LIMIT_TICKS &&
+        (hostQueuedObserver.events.length === 0 ||
+          guestQueuedObserver.events.length === 0);
+        advancedTicks += 1
+      ) {
+        await connectedRoom.clock.advanceTicks(1);
+      }
+
+      expect(hostQueuedObserver.events.length).toBeGreaterThan(0);
+      expect(guestQueuedObserver.events.length).toBeGreaterThan(0);
 
       const [hostQueuedResponse, guestQueued] = await Promise.all([
         hostQueuedPromise,
         guestQueuedPromise,
       ]);
+      hostQueuedObserver.stop();
+      guestQueuedObserver.stop();
       if ('error' in hostQueuedResponse) {
         throw new Error(
           'Expected both clients to observe a buffered build intent',
@@ -244,7 +327,7 @@ describe('section sync and queued fanout', () => {
         hostQueued.bufferedTurn,
       );
 
-      const hostStructures = await waitForStateStructures(
+      const hostStructuresPromise = waitForStateStructures(
         setup.host,
         (payload) =>
           payload.roomId === setup.roomId &&
@@ -257,12 +340,11 @@ describe('section sync and queued fanout', () => {
           ),
         {
           roomId: setup.roomId,
-          attempts: 60,
-          timeoutMs: 2_000,
-          overallTimeoutMs: 6_000,
+          attempts: 10,
+          timeoutMs: 1_000,
         },
       );
-      const guestStructures = await waitForStateStructures(
+      const guestStructuresPromise = waitForStateStructures(
         setup.guest,
         (payload) =>
           payload.roomId === setup.roomId &&
@@ -275,11 +357,15 @@ describe('section sync and queued fanout', () => {
           ),
         {
           roomId: setup.roomId,
-          attempts: 60,
-          timeoutMs: 2_000,
-          overallTimeoutMs: 6_000,
+          attempts: 10,
+          timeoutMs: 1_000,
         },
       );
+      await connectedRoom.clock.advanceMs(STATE_REQUEST_ADVANCE_MS);
+      const [hostStructures, guestStructures] = await Promise.all([
+        hostStructuresPromise,
+        guestStructuresPromise,
+      ]);
 
       const hostPendingBuilds =
         hostStructures.teams.find((team) => team.id === setup.hostTeam.id)
