@@ -674,7 +674,7 @@ body.app--ingame .grid-viewport {
 }
 
 .slot-list--compact {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(170px, 1fr));
   gap: 6px;
 }
 
@@ -1648,6 +1648,16 @@ footer {
   font-size: 14px;
 }
 
+@media (max-width: 1240px) {
+  .controls--lobby {
+    grid-template-columns: minmax(240px, 1fr) minmax(280px, 1.35fr);
+  }
+
+  .control--lobby-teams {
+    grid-column: 1 / -1;
+  }
+}
+
 @media (max-width: 980px) {
   .match-layout {
     grid-template-columns: 1fr;
@@ -1723,6 +1733,10 @@ footer {
 
   .control--lobby-teams {
     grid-column: auto;
+  }
+
+  .slot-list--compact {
+    grid-template-columns: 1fr;
   }
 
   .button-row {
