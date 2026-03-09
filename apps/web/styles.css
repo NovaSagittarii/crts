@@ -110,19 +110,25 @@ body.app--ingame #app-footer {
 body.app--ingame #app-main {
   height: 100%;
   padding: 8px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
 }
 
 body.app--ingame .match-layout {
   position: relative;
   height: 100%;
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 0;
+  align-items: stretch;
 }
 
 body.app--ingame .match-stage {
   height: 100%;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 8px;
+  min-height: 0;
 }
 
 body.app--ingame .screen-stack,
@@ -132,10 +138,22 @@ body.app--ingame .board,
 body.app--ingame .camera-shell,
 body.app--ingame .grid-viewport {
   height: 100%;
+  min-height: 0;
 }
 
 body.app--ingame .screen-stack {
-  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+body.app--ingame #ingame-screen.match-screen.is-active {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+body.app--ingame .ingame-layout {
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
 }
 
 body.app--ingame .edge-status-strip {
@@ -151,6 +169,12 @@ body.app--ingame .camera-hint {
 body.app--ingame .board {
   border-radius: 16px;
   padding: 8px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+body.app--ingame .camera-shell {
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .match-layout {

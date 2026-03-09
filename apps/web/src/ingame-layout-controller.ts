@@ -15,6 +15,7 @@ export class IngameLayoutController {
   readonly #onModeChanged: (() => void) | null;
 
   #isIngameMode = false;
+  #lastLobbyScrollTop = 0;
 
   constructor(
     elements: IngameLayoutControllerElements,
@@ -33,10 +34,26 @@ export class IngameLayoutController {
       return;
     }
 
+    if (nextIngameMode) {
+      this.#lastLobbyScrollTop = Math.max(
+        window.scrollY,
+        document.documentElement.scrollTop,
+      );
+      if (this.#lastLobbyScrollTop > 0) {
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        this.#bodyEl.scrollTop = 0;
+      }
+    }
+
     this.#isIngameMode = nextIngameMode;
     this.#bodyEl.classList.toggle(INGAME_CLASS_NAME, nextIngameMode);
     this.#bodyEl.dataset.matchScreen = screen;
     this.#onModeChanged?.();
+
+    if (!nextIngameMode && this.#lastLobbyScrollTop > 0) {
+      window.scrollTo(0, this.#lastLobbyScrollTop);
+    }
   }
 
   reset(): void {

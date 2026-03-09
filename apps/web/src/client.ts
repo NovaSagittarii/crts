@@ -511,14 +511,21 @@ const ingameLayoutController = new IngameLayoutController(
   { bodyEl: document.body },
   {
     onModeChanged: () => {
-      const previousCellSize = cellSize;
-      resizeCanvas();
-      if (gridWidth > 0 && gridHeight > 0 && cellSize !== previousCellSize) {
-        resetCameraForCurrentTeam();
-      }
-      if (gridWidth > 0 && gridHeight > 0) {
-        requestRender();
-      }
+      const refreshLayoutSizedCanvas = (): void => {
+        const previousCellSize = cellSize;
+        resizeCanvas();
+        if (gridWidth > 0 && gridHeight > 0 && cellSize !== previousCellSize) {
+          resetCameraForCurrentTeam();
+        }
+        if (gridWidth > 0 && gridHeight > 0) {
+          requestRender();
+        }
+      };
+
+      refreshLayoutSizedCanvas();
+      window.requestAnimationFrame(() => {
+        refreshLayoutSizedCanvas();
+      });
     },
   },
 );
