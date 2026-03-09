@@ -294,11 +294,10 @@ body.app--ingame .grid-viewport {
 }
 
 .controls--lobby {
-  grid-template-columns:
-    minmax(240px, 1.2fr)
-    minmax(220px, 1fr)
-    minmax(300px, 1.45fr)
-    minmax(200px, 0.95fr);
+  grid-template-columns: minmax(250px, 1.1fr) minmax(360px, 1.6fr) minmax(
+      220px,
+      1fr
+    );
 }
 
 .controls--lobby-primary {
@@ -313,7 +312,7 @@ body.app--ingame .grid-viewport {
 }
 
 .controls--lobby-details {
-  grid-template-columns: repeat(3, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
 .controls--ingame {
