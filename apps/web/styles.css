@@ -325,6 +325,7 @@ body.app--ingame .grid-viewport {
   border-radius: 14px;
   padding: 12px;
   min-height: 100%;
+  min-width: 0;
 }
 
 .control--wide {
@@ -685,6 +686,7 @@ body.app--ingame .grid-viewport {
   border: 1px solid var(--panel-border);
   border-radius: 10px;
   padding: 8px;
+  min-width: 0;
 }
 
 .slot-item {
@@ -694,6 +696,7 @@ body.app--ingame .grid-viewport {
 .slot-card {
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 
 .slot-list--compact .slot-card {
@@ -726,14 +729,21 @@ body.app--ingame .grid-viewport {
 .slot-member__header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.slot-member__header strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .slot-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -742,6 +752,12 @@ body.app--ingame .grid-viewport {
   align-items: center;
   gap: 6px;
   font-size: 13px;
+  flex: 1 1 170px;
+  min-width: 0;
+}
+
+.slot-team strong {
+  overflow-wrap: anywhere;
 }
 
 .team-chip {
@@ -765,6 +781,7 @@ body.app--ingame .grid-viewport {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
 }
 
 .badge {
@@ -776,6 +793,8 @@ body.app--ingame .grid-viewport {
   padding: 2px 8px;
   font-size: 11px;
   letter-spacing: 0.03em;
+  max-width: 100%;
+  white-space: normal;
 }
 
 .badge--ready {
@@ -814,9 +833,8 @@ body.app--ingame .grid-viewport {
 }
 
 .slot-claim-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
 }
@@ -824,16 +842,27 @@ body.app--ingame .grid-viewport {
 .slot-list--compact .slot-claim-row {
   order: 2;
   margin-top: 2px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .slot-claim-row button {
-  width: auto;
+  justify-self: end;
+  min-width: 120px;
+  max-width: 100%;
   margin-top: 0;
+}
+
+.slot-list--compact .slot-claim-row button {
+  justify-self: stretch;
+  min-width: 0;
+  width: 100%;
 }
 
 .slot-open-copy {
   color: var(--muted);
   font-size: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .lobby-status {
