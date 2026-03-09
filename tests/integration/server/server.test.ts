@@ -6,6 +6,7 @@ import {
   type RoomGridStatePayload,
   type RoomJoinedPayload,
   type RoomLeftPayload,
+  type RoomStateHashesPayload,
   type RoomStatePayload,
   type TeamPayload,
   normalizePlacementTransform,
@@ -34,6 +35,7 @@ import {
 
 const SNAPSHOT_INTERVAL_TICKS = 50;
 const SNAPSHOT_ADVANCE_LIMIT_TICKS = 5;
+const QUEUE_FANOUT_ADVANCE_LIMIT_TICKS = 5;
 const STATE_REQUEST_ADVANCE_MS = 100;
 
 const defaultServerOptions = { port: 0, width: 52, height: 52, tickMs: 40 };
@@ -61,6 +63,15 @@ const stateRequestMatchTest = createMatchTest(
     ...defaultServerOptions,
     countdownSeconds: 0,
     activeStateSnapshotIntervalTicks: 1000,
+  },
+  buildQueueRoomOptions,
+  {},
+  { clockMode: 'manual' },
+);
+const fanoutMatchTest = createMatchTest(
+  {
+    ...defaultServerOptions,
+    countdownSeconds: 0,
   },
   buildQueueRoomOptions,
   {},
@@ -996,9 +1007,9 @@ describe('GameServer', () => {
     20_000,
   );
 
-  matchTest(
+  fanoutMatchTest(
     'broadcasts build:queued to peers after authoritative queue fanout',
-    async ({ activeMatch }) => {
+    async ({ activeMatch, integration }) => {
       const setup = activeMatch;
       const blockTemplate = setup.hostJoined.templates.find(
         ({ id }) => id === 'block',
@@ -1024,6 +1035,14 @@ describe('GameServer', () => {
         'build:queued',
         4_000,
       );
+      const hostQueuedObserver = observeEvents<BuildQueuedPayload>(
+        setup.host,
+        'build:queued',
+      );
+      const guestQueuedObserver = observeEvents<BuildQueuedPayload>(
+        setup.guest,
+        'build:queued',
+      );
 
       setup.host.emit('build:queue', {
         templateId: blockTemplate.id,
@@ -1031,6 +1050,21 @@ describe('GameServer', () => {
         y: selectedPlacement.y,
         delayTicks: 1,
       });
+
+      for (
+        let advancedTicks = 0;
+        advancedTicks < QUEUE_FANOUT_ADVANCE_LIMIT_TICKS &&
+        (hostQueuedObserver.events.length === 0 ||
+          guestQueuedObserver.events.length === 0);
+        advancedTicks += 1
+      ) {
+        await integration.clock.advanceTicks(1);
+      }
+
+      hostQueuedObserver.stop();
+      guestQueuedObserver.stop();
+      expect(hostQueuedObserver.events.length).toBeGreaterThan(0);
+      expect(guestQueuedObserver.events.length).toBeGreaterThan(0);
 
       const [hostQueuedResponse, guestQueued] = await Promise.all([
         hostQueuedPromise,
@@ -1047,9 +1081,9 @@ describe('GameServer', () => {
     20_000,
   );
 
-  matchTest(
+  fanoutMatchTest(
     'emits queue-state hashes after authoritative queue fanout',
-    async ({ activeMatch }) => {
+    async ({ activeMatch, integration }) => {
       const setup = activeMatch;
       const blockTemplate = setup.hostJoined.templates.find(
         ({ id }) => id === 'block',
@@ -1079,6 +1113,19 @@ describe('GameServer', () => {
         (payload) => payload.roomId === setup.roomId,
         { timeoutMs: 4_000, overallTimeoutMs: 4_000 },
       );
+      const hostQueuedPromise = waitForBuildQueueResponse(setup.host, 4_000);
+      const hostQueuedObserver = observeEvents<BuildQueuedPayload>(
+        setup.host,
+        'build:queued',
+      );
+      const hostHashesObserver = observeEvents<RoomStateHashesPayload>(
+        setup.host,
+        'state:hashes',
+      );
+      const guestHashesObserver = observeEvents<RoomStateHashesPayload>(
+        setup.guest,
+        'state:hashes',
+      );
 
       setup.host.emit('build:queue', {
         templateId: blockTemplate.id,
@@ -1087,10 +1134,25 @@ describe('GameServer', () => {
         delayTicks: 1,
       });
 
-      const hostQueuedResponse = await waitForBuildQueueResponse(
-        setup.host,
-        4_000,
-      );
+      for (
+        let advancedTicks = 0;
+        advancedTicks < QUEUE_FANOUT_ADVANCE_LIMIT_TICKS &&
+        (hostQueuedObserver.events.length === 0 ||
+          hostHashesObserver.events.length === 0 ||
+          guestHashesObserver.events.length === 0);
+        advancedTicks += 1
+      ) {
+        await integration.clock.advanceTicks(1);
+      }
+
+      hostQueuedObserver.stop();
+      hostHashesObserver.stop();
+      guestHashesObserver.stop();
+      expect(hostQueuedObserver.events.length).toBeGreaterThan(0);
+      expect(hostHashesObserver.events.length).toBeGreaterThan(0);
+      expect(guestHashesObserver.events.length).toBeGreaterThan(0);
+
+      const hostQueuedResponse = await hostQueuedPromise;
       if ('error' in hostQueuedResponse) {
         throw new Error(
           `Expected build queue acceptance, received ${hostQueuedResponse.error.reason}`,
