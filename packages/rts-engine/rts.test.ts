@@ -3,7 +3,6 @@ import { describe, expect, test } from 'vitest';
 import { Grid } from '#conway-core';
 
 import {
-  BUILD_ZONE_RADIUS,
   DEFAULT_QUEUE_DELAY_TICKS,
   MAX_DELAY_TICKS,
 } from './gameplay-rules.js';
@@ -73,7 +72,7 @@ function toPreviewSnapshotInput(
           y: structure.y,
           width: projectedTemplate.width,
           height: projectedTemplate.height,
-          hp: structure.hp,
+          buildRadius: structure.buildRadius,
         };
       }),
     template:
@@ -297,7 +296,8 @@ describe('rts', () => {
     const blockWidth = blockTemplate?.width ?? 0;
     const blockHeight = blockTemplate?.height ?? 0;
     const baseCenter = getBaseCenter(team.baseTopLeft);
-    const outsideOffset = Math.floor(BUILD_ZONE_RADIUS) + 1;
+    const outsideOffset =
+      Math.floor(RtsEngine.CORE_STRUCTURE_TEMPLATE.buildRadius) + 1;
 
     let outsideTerritoryCoordinate: Cell | null = null;
     for (const direction of [1, -1] as const) {
@@ -379,14 +379,14 @@ describe('rts', () => {
     ]);
   });
 
-  test('[BUILD-02] enforces inclusive radius-15 union-zone checks', () => {
+  test('[BUILD-02] uses contributor template build radius for union-zone checks', () => {
     const probeTemplate = new StructureTemplate({
       id: 'probe',
       name: 'Probe',
       grid: createTemplateGrid(1, 1, [1]),
       activationCost: 0,
       income: 0,
-      buildArea: 0,
+      buildRadius: 0,
       startingHp: 2,
       checks: [],
     });
@@ -402,7 +402,9 @@ describe('rts', () => {
     const baseCenter = getBaseCenter(team.baseTopLeft);
     const blockTemplate = RtsEngine.getRoomTemplate(room, 'block');
     expect(blockTemplate).toBeDefined();
-    const insideOffset = Math.floor(BUILD_ZONE_RADIUS);
+    const insideOffset = Math.floor(
+      RtsEngine.CORE_STRUCTURE_TEMPLATE.buildRadius,
+    );
     const outsideOffset = insideOffset + 1;
 
     let direction: 1 | -1 | null = null;
@@ -467,7 +469,7 @@ describe('rts', () => {
       grid: createTemplateGrid(13, 1, [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]),
       activationCost: 0,
       income: 0,
-      buildArea: 0,
+      buildRadius: 0,
       startingHp: 2,
       checks: [],
     });
@@ -550,7 +552,9 @@ describe('rts', () => {
     const baseCenter = getBaseCenter(team.baseTopLeft);
     const payload = {
       templateId: 'block',
-      x: baseCenter.x + Math.floor(BUILD_ZONE_RADIUS),
+      x:
+        baseCenter.x +
+        Math.floor(RtsEngine.CORE_STRUCTURE_TEMPLATE.buildRadius),
       y: baseCenter.y,
       transform: {
         operations: ['rotate' as const],
@@ -630,7 +634,7 @@ describe('rts', () => {
       grid: createTemplateGrid(1, 1, [1]),
       activationCost: 0,
       income: 0,
-      buildArea: 0,
+      buildRadius: 0,
       startingHp: 2,
       checks: [],
     });
@@ -644,7 +648,9 @@ describe('rts', () => {
     });
     const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
     const baseCenter = getBaseCenter(team.baseTopLeft);
-    const insideOffset = Math.floor(BUILD_ZONE_RADIUS);
+    const insideOffset = Math.floor(
+      RtsEngine.CORE_STRUCTURE_TEMPLATE.buildRadius,
+    );
 
     let x: number | null = null;
     for (const direction of [1, -1] as const) {
@@ -750,7 +756,17 @@ describe('rts', () => {
       grid: createTemplateGrid(1, 1, [1]),
       activationCost: 0,
       income: 0,
-      buildArea: 0,
+      buildRadius: 0,
+      startingHp: 2,
+      checks: [],
+    });
+    const relayTemplate = new StructureTemplate({
+      id: 'relay',
+      name: 'Relay',
+      grid: createTemplateGrid(2, 2, [1, 1, 1, 1]),
+      activationCost: 0,
+      income: 0,
+      buildRadius: 6,
       startingHp: 2,
       checks: [],
     });
@@ -760,11 +776,15 @@ describe('rts', () => {
       name: 'Alpha',
       width: 120,
       height: 120,
-      templates: [...RtsEngine.createDefaultTemplates(), probeTemplate],
+      templates: [
+        ...RtsEngine.createDefaultTemplates(),
+        probeTemplate,
+        relayTemplate,
+      ],
     });
     const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
     const baseCenter = getBaseCenter(team.baseTopLeft);
-    const remoteOffset = Math.floor(BUILD_ZONE_RADIUS);
+    const remoteOffset = Math.floor(relayTemplate.buildRadius);
 
     let setup: {
       contributorX: number;
@@ -815,7 +835,7 @@ describe('rts', () => {
     expect(beforeExpansion.reason).toBe('outside-territory');
 
     const contributor = RtsEngine.queueBuildEvent(room, 'p1', {
-      templateId: 'block',
+      templateId: 'relay',
       x: setup.contributorX,
       y: setup.contributorY,
       delayTicks: 1,
@@ -825,19 +845,31 @@ describe('rts', () => {
     RtsEngine.tickRoom(room);
     RtsEngine.tickRoom(room);
 
-    const afterExpansion = probeQueueBuild(room, 'p1', {
+    const whileInactive = probeQueueBuild(room, 'p1', {
       templateId: 'probe',
       x: setup.remoteX,
       y: setup.remoteY,
       delayTicks: 1,
     });
-    expect(afterExpansion.accepted).toBe(true);
+    expect(whileInactive.accepted).toBe(false);
+    expect(whileInactive.reason).toBe('outside-territory');
 
-    const builtContributor = getStructureByTemplateId(room, team.id, 'block');
+    const builtContributor = getStructureByTemplateId(room, team.id, 'relay');
     expect(builtContributor).not.toBeNull();
     if (!builtContributor) {
       throw new Error('Expected contributor structure to exist before destroy');
     }
+    expect(builtContributor.active).toBe(false);
+
+    RtsEngine.tickRoom(room);
+
+    const afterActivation = probeQueueBuild(room, 'p1', {
+      templateId: 'probe',
+      x: setup.remoteX,
+      y: setup.remoteY,
+      delayTicks: 1,
+    });
+    expect(afterActivation.accepted).toBe(true);
 
     const queuedDestroy = RtsEngine.queueDestroyEvent(room, 'p1', {
       structureKey: builtContributor.key,
@@ -851,7 +883,7 @@ describe('rts', () => {
     const destroyedContributor = getStructureByTemplateId(
       room,
       team.id,
-      'block',
+      'relay',
     );
 
     expect(destroyedContributor).toBeNull();
@@ -1014,7 +1046,17 @@ describe('rts', () => {
       grid: createTemplateGrid(1, 1, [1]),
       activationCost: 0,
       income: 0,
-      buildArea: 0,
+      buildRadius: 0,
+      startingHp: 2,
+      checks: [],
+    });
+    const relayTemplate = new StructureTemplate({
+      id: 'relay',
+      name: 'Relay',
+      grid: createTemplateGrid(2, 2, [1, 1, 1, 1]),
+      activationCost: 0,
+      income: 0,
+      buildRadius: 6,
       startingHp: 2,
       checks: [],
     });
@@ -1024,11 +1066,15 @@ describe('rts', () => {
       name: 'Alpha',
       width: 120,
       height: 120,
-      templates: [...RtsEngine.createDefaultTemplates(), probeTemplate],
+      templates: [
+        ...RtsEngine.createDefaultTemplates(),
+        probeTemplate,
+        relayTemplate,
+      ],
     });
     const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
     const baseCenter = getBaseCenter(team.baseTopLeft);
-    const remoteOffset = Math.floor(BUILD_ZONE_RADIUS);
+    const remoteOffset = Math.floor(relayTemplate.buildRadius);
 
     let setup: {
       contributorX: number;
@@ -1070,7 +1116,7 @@ describe('rts', () => {
     }
 
     const contributor = RtsEngine.queueBuildEvent(room, 'p1', {
-      templateId: 'block',
+      templateId: 'relay',
       x: setup.contributorX,
       y: setup.contributorY,
       delayTicks: 1,
@@ -1078,6 +1124,16 @@ describe('rts', () => {
     expect(contributor.accepted).toBe(true);
 
     RtsEngine.tickRoom(room);
+    RtsEngine.tickRoom(room);
+    expect(
+      probeQueueBuild(room, 'p1', {
+        templateId: 'probe',
+        x: setup.remoteX,
+        y: setup.remoteY,
+        delayTicks: 1,
+      }).accepted,
+    ).toBe(false);
+
     RtsEngine.tickRoom(room);
 
     const expanded = probeQueueBuild(room, 'p1', {
@@ -1088,7 +1144,7 @@ describe('rts', () => {
     });
     expect(expanded.accepted).toBe(true);
 
-    const builtContributor = getStructureByTemplateId(room, team.id, 'block');
+    const builtContributor = getStructureByTemplateId(room, team.id, 'relay');
     expect(builtContributor).not.toBeNull();
     if (!builtContributor) {
       throw new Error('Expected contributor structure to exist before destroy');
@@ -1109,7 +1165,7 @@ describe('rts', () => {
         eventId: queuedDestroy.eventId,
         teamId: team.id,
         structureKey: builtContributor.key,
-        templateId: 'block',
+        templateId: 'relay',
         outcome: 'destroyed',
         executeTick: queuedDestroy.executeTick,
         resolvedTick: queuedDestroy.executeTick,
@@ -1968,7 +2024,7 @@ describe('rts', () => {
       grid: createTemplateGrid(1, 1, [1]),
       activationCost: 0,
       income: 0,
-      buildArea: 0,
+      buildRadius: 0,
       startingHp: 2,
       checks: [],
     });
@@ -2037,11 +2093,11 @@ describe('rts', () => {
     const durableTemplate = new StructureTemplate({
       id: 'durable',
       name: 'Durable',
-      grid: createTemplateGrid(1, 1, [1]),
+      grid: createTemplateGrid(2, 2, [1, 1, 1, 1]),
       activationCost: 0,
       income: 0,
-      buildArea: 0,
-      startingHp: 7,
+      buildRadius: 0,
+      startingHp: 2,
       checks: [],
     });
     const room = RtsEngine.createRoomState({
@@ -2056,10 +2112,29 @@ describe('rts', () => {
     expect(core).not.toBeNull();
     expect(core?.hp).toBe(RtsEngine.CORE_STRUCTURE_TEMPLATE.startingHp);
 
-    const durablePlacement = {
-      x: team.baseTopLeft.x + 6,
-      y: team.baseTopLeft.y + 8,
-    };
+    let durablePlacement: { x: number; y: number } | null = null;
+    for (let y = 0; y <= getRoomHeight(room) - 2 && !durablePlacement; y += 1) {
+      for (let x = 0; x <= getRoomWidth(room) - 2; x += 1) {
+        if (
+          !probeQueueBuild(room, 'p1', {
+            templateId: 'durable',
+            x,
+            y,
+            delayTicks: 1,
+          }).accepted
+        ) {
+          continue;
+        }
+
+        durablePlacement = { x, y };
+        break;
+      }
+    }
+    expect(durablePlacement).not.toBeNull();
+    if (!durablePlacement) {
+      throw new Error('Expected a legal placement for durable structure');
+    }
+
     const durableQueued = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'durable',
       x: durablePlacement.x,
@@ -2073,46 +2148,27 @@ describe('rts', () => {
 
     const durable = getStructureByTemplateId(room, team.id, 'durable');
     expect(durable).not.toBeNull();
-    expect(durable?.hp).toBe(7);
+    expect(durable?.hp).toBe(2);
 
-    const placement = {
-      x: team.baseTopLeft.x + 8,
-      y: team.baseTopLeft.y + 8,
-    };
-    const queued = RtsEngine.queueBuildEvent(room, 'p1', {
-      templateId: 'block',
-      x: placement.x,
-      y: placement.y,
-      delayTicks: 1,
-    });
-    expect(queued.accepted).toBe(true);
-
-    RtsEngine.tickRoom(room);
-    RtsEngine.tickRoom(room);
-
-    const placed = getStructureByTemplateId(room, team.id, 'block');
-    expect(placed).not.toBeNull();
-    expect(placed?.hp).toBe(2);
-
-    const blockCells = [
-      { x: placement.x, y: placement.y },
-      { x: placement.x + 1, y: placement.y },
-      { x: placement.x, y: placement.y + 1 },
-      { x: placement.x + 1, y: placement.y + 1 },
+    const durableCells = [
+      { x: durablePlacement.x, y: durablePlacement.y },
+      { x: durablePlacement.x + 1, y: durablePlacement.y },
+      { x: durablePlacement.x, y: durablePlacement.y + 1 },
+      { x: durablePlacement.x + 1, y: durablePlacement.y + 1 },
     ];
-    clearCells(room, blockCells);
+    clearCells(room, durableCells);
 
-    let destroyed = getStructureByTemplateId(room, team.id, 'block');
+    let destroyed = getStructureByTemplateId(room, team.id, 'durable');
     for (let index = 0; index < 8 && destroyed; index += 1) {
-      clearCells(room, blockCells);
+      clearCells(room, durableCells);
       RtsEngine.tickRoom(room);
-      destroyed = getStructureByTemplateId(room, team.id, 'block');
+      destroyed = getStructureByTemplateId(room, team.id, 'durable');
     }
 
     expect(destroyed).toBeNull();
 
     const payload = RtsEngine.createRoomStatePayload(room);
-    for (const cell of blockCells) {
+    for (const cell of durableCells) {
       expect(
         getCellAlive(
           payload.grid,

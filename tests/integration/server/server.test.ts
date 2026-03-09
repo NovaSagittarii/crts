@@ -385,10 +385,10 @@ describe('GameServer', () => {
       );
 
       const expensiveTemplate = setup.hostJoined.templates.find(
-        ({ id }) => id === 'eater-1',
+        ({ id }) => id === 'generator',
       );
       if (!expensiveTemplate) {
-        throw new Error('Expected eater-1 template to be available');
+        throw new Error('Expected generator template to be available');
       }
 
       const placements = collectCandidatePlacements(
@@ -396,6 +396,7 @@ describe('GameServer', () => {
         expensiveTemplate,
         setup.hostJoined.state.width,
         setup.hostJoined.state.height,
+        { searchRadius: 18, step: 1 },
       );
       expect(placements.length).toBeGreaterThan(0);
 

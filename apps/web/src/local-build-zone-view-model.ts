@@ -1,5 +1,4 @@
 import {
-  BUILD_ZONE_RADIUS,
   isBuildZoneCoveredByContributor,
   projectBuildZoneContributor,
 } from '#rts-engine';
@@ -10,7 +9,7 @@ export interface LocalBuildZoneStructureSnapshot {
   y: number;
   width: number;
   height: number;
-  hp: number;
+  buildRadius: number;
 }
 
 export interface ComputeLocalBuildZoneOverlayInput {
@@ -46,7 +45,7 @@ function buildSignatureFromSortedStructures(
   return structures
     .map(
       (structure) =>
-        `${structure.key}:${structure.x},${structure.y},${structure.width},${structure.height},${structure.hp}`,
+        `${structure.key}:${structure.x},${structure.y},${structure.width},${structure.height},${structure.buildRadius}`,
     )
     .join('|');
 }
@@ -56,7 +55,7 @@ function buildCoverageCacheKey(
   gridWidth: number,
   gridHeight: number,
 ): string {
-  return `${gridWidth}x${gridHeight}:${structure.x},${structure.y},${structure.width},${structure.height},${structure.hp}`;
+  return `${gridWidth}x${gridHeight}:${structure.x},${structure.y},${structure.width},${structure.height},${structure.buildRadius}`;
 }
 
 function deriveStructureCoverageCellKeys(
@@ -64,7 +63,11 @@ function deriveStructureCoverageCellKeys(
   gridWidth: number,
   gridHeight: number,
 ): number[] {
-  if (structure.hp <= 0 || structure.width <= 0 || structure.height <= 0) {
+  if (
+    structure.buildRadius <= 0 ||
+    structure.width <= 0 ||
+    structure.height <= 0
+  ) {
     return [];
   }
 
@@ -73,18 +76,24 @@ function deriveStructureCoverageCellKeys(
     y: structure.y,
     width: structure.width,
     height: structure.height,
-    hp: structure.hp,
+    buildRadius: structure.buildRadius,
   });
 
-  const minX = Math.max(0, Math.ceil(contributor.centerX - BUILD_ZONE_RADIUS));
+  const minX = Math.max(
+    0,
+    Math.ceil(contributor.centerX - contributor.buildRadius),
+  );
   const maxX = Math.min(
     gridWidth - 1,
-    Math.floor(contributor.centerX + BUILD_ZONE_RADIUS),
+    Math.floor(contributor.centerX + contributor.buildRadius),
   );
-  const minY = Math.max(0, Math.ceil(contributor.centerY - BUILD_ZONE_RADIUS));
+  const minY = Math.max(
+    0,
+    Math.ceil(contributor.centerY - contributor.buildRadius),
+  );
   const maxY = Math.min(
     gridHeight - 1,
-    Math.floor(contributor.centerY + BUILD_ZONE_RADIUS),
+    Math.floor(contributor.centerY + contributor.buildRadius),
   );
 
   const coverageCellKeys: number[] = [];
