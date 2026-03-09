@@ -34,28 +34,29 @@ import {
 
 const defaultServerOptions = { port: 0, width: 52, height: 52, tickMs: 40 };
 const buildQueueRoomOptions = { roomName: 'Build Queue Contract Room' };
-const bufferedMatchOptions = { startMode: 'fake-timers' as const };
 
 const matchTest = createMatchTest(
-  defaultServerOptions,
+  {
+    ...defaultServerOptions,
+    countdownSeconds: 0,
+  },
   buildQueueRoomOptions,
-  bufferedMatchOptions,
 );
 const snapshotMatchTest = createMatchTest(
   {
     ...defaultServerOptions,
+    countdownSeconds: 0,
     activeStateSnapshotIntervalTicks: 50,
   },
   buildQueueRoomOptions,
-  bufferedMatchOptions,
 );
 const stateRequestMatchTest = createMatchTest(
   {
     ...defaultServerOptions,
+    countdownSeconds: 0,
     activeStateSnapshotIntervalTicks: 1000,
   },
   buildQueueRoomOptions,
-  bufferedMatchOptions,
 );
 const skirmishRoomTest = createIntegrationTest({
   port: 0,
