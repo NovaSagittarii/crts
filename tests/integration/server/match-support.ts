@@ -1,7 +1,10 @@
 import type { Socket } from 'socket.io-client';
-import { vi } from 'vitest';
 
-import type { MatchStartedPayload, RoomJoinedPayload } from '#rts-engine';
+import type {
+  MatchStartedPayload,
+  RoomCountdownPayload,
+  RoomJoinedPayload,
+} from '#rts-engine';
 
 import type { IntegrationClock } from './fixtures.js';
 import {
@@ -36,7 +39,7 @@ export interface SetupConnectedRoomOptions {
 export interface StartMatchOptions {
   hostSlotId?: string;
   guestSlotId?: string;
-  startMode?: 'fake-timers' | 'manual-clock' | 'real-time';
+  startMode?: 'manual-clock' | 'real-time';
   countdownAdvanceMs?: number;
   membershipAttempts?: number;
   membershipTimeoutMs?: number;
@@ -139,22 +142,19 @@ export async function startMatchAndWaitForActive(
       )
     : null;
   if (options.startMode === 'manual-clock') {
-    const countdownPromise = waitForEvent(setup.host, 'room:countdown', 3500);
+    const countdownPromise = waitForEvent<RoomCountdownPayload>(
+      setup.host,
+      'room:countdown',
+      3500,
+    );
     setup.host.emit('room:start');
-    await countdownPromise;
-    await setup.clock.advanceMs(options.countdownAdvanceMs ?? 3_100);
-    await matchStartedPromise;
-  } else if (options.startMode === 'fake-timers') {
-    const countdownPromise = waitForEvent(setup.host, 'room:countdown', 3500);
-    vi.useFakeTimers();
-    try {
-      setup.host.emit('room:start');
-      await countdownPromise;
-      await vi.advanceTimersByTimeAsync(options.countdownAdvanceMs ?? 3_100);
-      await matchStartedPromise;
-    } finally {
-      vi.useRealTimers();
+    const countdown = await countdownPromise;
+    if (countdown.secondsRemaining > 0) {
+      const countdownAdvanceMs =
+        options.countdownAdvanceMs ?? countdown.secondsRemaining * 1_000 + 100;
+      await setup.clock.advanceMs(countdownAdvanceMs);
     }
+    await matchStartedPromise;
   } else {
     setup.host.emit('room:start');
     await matchStartedPromise;
