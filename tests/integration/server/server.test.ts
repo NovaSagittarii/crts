@@ -699,9 +699,9 @@ describe('GameServer', () => {
     30_000,
   );
 
-  matchTest(
+  fanoutMatchTest(
     'queues owned destroys, rejects invalid requests, and emits one terminal outcome to both clients',
-    async ({ activeMatch }) => {
+    async ({ activeMatch, integration }) => {
       const setup = activeMatch;
 
       const blockTemplate = setup.hostJoined.templates.find(
@@ -722,6 +722,15 @@ describe('GameServer', () => {
       let targetStructureKey: string | null = null;
 
       for (const placement of placements) {
+        const queueResponsePromise = waitForBuildQueueResponse(
+          setup.host,
+          4_000,
+        );
+        const queueObserver = observeEvents<BuildQueuedPayload>(
+          setup.host,
+          'build:queued',
+        );
+
         setup.host.emit('build:queue', {
           templateId: blockTemplate.id,
           x: placement.x,
@@ -729,22 +738,37 @@ describe('GameServer', () => {
           delayTicks: 1,
         });
 
-        const response = await waitForBuildQueueResponse(setup.host, 4_000);
+        for (
+          let advancedTicks = 0;
+          advancedTicks < QUEUE_FANOUT_ADVANCE_LIMIT_TICKS &&
+          queueObserver.events.length === 0;
+          advancedTicks += 1
+        ) {
+          await integration.clock.advanceTicks(1);
+        }
+
+        const response = await queueResponsePromise;
+        queueObserver.stop();
         if ('error' in response) {
           continue;
         }
+        expect(queueObserver.events.length).toBeGreaterThan(0);
 
-        const outcomesById = await collectBuildOutcomes(
+        const outcomesByIdPromise = collectBuildOutcomes(
           setup.host,
           [response.queued.eventId],
           8_000,
         );
+        await integration.clock.advanceTicks(
+          response.queued.delayTicks + OUTCOME_ADVANCE_MARGIN_TICKS,
+        );
+        const outcomesById = await outcomesByIdPromise;
         const outcome = outcomesById.get(response.queued.eventId)?.[0];
         if (!outcome || outcome.outcome !== 'applied') {
           continue;
         }
 
-        const builtState = await waitForRoomState(
+        const builtStatePromise = waitForRoomState(
           setup.host,
           setup.roomId,
           (state) => {
@@ -761,6 +785,8 @@ describe('GameServer', () => {
           },
           { attempts: 30 },
         );
+        await integration.clock.advanceMs(STATE_REQUEST_ADVANCE_MS);
+        const builtState = await builtStatePromise;
         const builtTeam = getTeamByPlayerId(
           builtState,
           setup.hostJoined.playerId,
@@ -797,13 +823,24 @@ describe('GameServer', () => {
       );
       expect(wrongOwnerRejected.reason).toBe('wrong-owner');
 
+      const destroyQueuedObserver = observeEvents<DestroyQueuedPayload>(
+        setup.host,
+        'destroy:queued',
+      );
+      const firstDestroyResponsePromise = waitForDestroyQueueResponse(
+        setup.host,
+      );
       setup.host.emit('destroy:queue', {
         structureKey: targetStructureKey,
         delayTicks: 8,
       });
-      const firstDestroyResponse = await waitForDestroyQueueResponse(
-        setup.host,
+      await advanceUntilObservedCount(
+        integration.clock,
+        destroyQueuedObserver,
+        1,
+        QUEUE_FANOUT_ADVANCE_LIMIT_TICKS,
       );
+      const firstDestroyResponse = await firstDestroyResponsePromise;
       if ('error' in firstDestroyResponse) {
         throw new Error(
           `Expected first destroy queue request to be accepted, received ${firstDestroyResponse.error.reason}`,
@@ -814,13 +851,21 @@ describe('GameServer', () => {
         firstDestroyResponse.queued;
       expect(firstDestroyQueued.idempotent).toBe(false);
 
+      const duplicateDestroyResponsePromise = waitForDestroyQueueResponse(
+        setup.host,
+      );
       setup.host.emit('destroy:queue', {
         structureKey: targetStructureKey,
         delayTicks: 8,
       });
-      const duplicateDestroyResponse = await waitForDestroyQueueResponse(
-        setup.host,
+      await advanceUntilObservedCount(
+        integration.clock,
+        destroyQueuedObserver,
+        2,
+        QUEUE_FANOUT_ADVANCE_LIMIT_TICKS,
       );
+      destroyQueuedObserver.stop();
+      const duplicateDestroyResponse = await duplicateDestroyResponsePromise;
       if ('error' in duplicateDestroyResponse) {
         throw new Error(
           `Expected duplicate destroy queue request to be idempotent, received ${duplicateDestroyResponse.error.reason}`,
@@ -847,19 +892,22 @@ describe('GameServer', () => {
       );
       expect(invalidTargetRejected.reason).toBe('invalid-target');
 
+      const hostOutcomesByIdPromise = collectDestroyOutcomes(
+        setup.host,
+        [firstDestroyQueued.eventId],
+        12_000,
+      );
+      const guestOutcomesByIdPromise = collectDestroyOutcomes(
+        setup.guest,
+        [firstDestroyQueued.eventId],
+        12_000,
+      );
+      await integration.clock.advanceTicks(
+        firstDestroyQueued.delayTicks + OUTCOME_ADVANCE_MARGIN_TICKS,
+      );
       const [hostOutcomesById, guestOutcomesById] = await Promise.all([
-        collectDestroyOutcomes(
-          setup.host,
-          [firstDestroyQueued.eventId],
-          12_000,
-          200,
-        ),
-        collectDestroyOutcomes(
-          setup.guest,
-          [firstDestroyQueued.eventId],
-          12_000,
-          200,
-        ),
+        hostOutcomesByIdPromise,
+        guestOutcomesByIdPromise,
       ]);
 
       const hostOutcomes =
