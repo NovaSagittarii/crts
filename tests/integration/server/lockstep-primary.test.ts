@@ -24,7 +24,6 @@ import {
   waitForDestroyQueueResponse,
   waitForEvent,
   waitForMembership,
-  waitForNoEvent,
   waitForState,
   waitForStateStructures,
 } from './test-support.js';
