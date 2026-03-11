@@ -4,8 +4,8 @@ import {
   BASE_FOOTPRINT_HEIGHT,
   BASE_FOOTPRINT_WIDTH,
   CORE_STRUCTURE_TEMPLATE,
+  getTransformedTemplateSize,
   isBuildZoneCoveredByContributor,
-  normalizePlacementTransform,
   projectBuildZoneContributor,
 } from '#rts-engine';
 import type {
@@ -594,37 +594,6 @@ export function getTeamByPlayerId(
   return team;
 }
 
-function getTransformedTemplateSize(
-  template: Pick<RoomJoinedPayload['templates'][number], 'width' | 'height'>,
-  transform?: PlacementTransformInput,
-): { width: number; height: number } {
-  const { matrix } = normalizePlacementTransform(transform);
-  const corners = [
-    { x: 0, y: 0 },
-    { x: template.width - 1, y: 0 },
-    { x: 0, y: template.height - 1 },
-    { x: template.width - 1, y: template.height - 1 },
-  ];
-
-  let minX = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-  for (const corner of corners) {
-    const projectedX = matrix.xx * corner.x + matrix.xy * corner.y;
-    const projectedY = matrix.yx * corner.x + matrix.yy * corner.y;
-    minX = Math.min(minX, projectedX);
-    maxX = Math.max(maxX, projectedX);
-    minY = Math.min(minY, projectedY);
-    maxY = Math.max(maxY, projectedY);
-  }
-
-  return {
-    width: maxX - minX + 1,
-    height: maxY - minY + 1,
-  };
-}
-
 export function collectCandidatePlacements(
   team: Pick<TeamPayload, 'baseTopLeft'>,
   template: Pick<RoomJoinedPayload['templates'][number], 'width' | 'height'>,
@@ -647,7 +616,8 @@ export function collectCandidatePlacements(
   const baseRight = baseLeft + BASE_FOOTPRINT_WIDTH;
   const baseBottom = baseTop + BASE_FOOTPRINT_HEIGHT;
   const transformedSize = getTransformedTemplateSize(
-    template,
+    template.width,
+    template.height,
     options.transform,
   );
 

@@ -1,4 +1,3 @@
-import type { Socket } from 'socket.io-client';
 import { describe, expect } from 'vitest';
 
 import type {
@@ -7,8 +6,9 @@ import type {
   RoomLeftPayload,
 } from '#rts-engine';
 
-import { type ConnectClient, createIntegrationTest } from './fixtures.js';
+import { createIntegrationTest } from './fixtures.js';
 import { createMatchTest } from './match-fixtures.js';
+import { setupLobbyRoom } from './match-support.js';
 import {
   collectCandidatePlacements,
   waitForBuildQueueResponse,
@@ -77,31 +77,18 @@ const tinyMapMatchTest = createMatchTest(
 );
 
 describe('socket payload validation', () => {
-  async function createLobbyRoom(
-    connectClient: ConnectClient,
-    sessionId: string,
-  ): Promise<{ owner: Socket; created: RoomJoinedPayload }> {
-    const owner = connectClient({ sessionId });
-    await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
-
-    owner.emit('room:create', {
-      name: `${sessionId} room`,
-      width: 50,
-      height: 50,
-    });
-
-    const created = await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
-    return { owner, created };
-  }
-
   for (const { label, payload } of INVALID_READY_CASES) {
     integrationTest(
       `rejects malformed room:set-ready payloads: ${label}`,
-      async ({ connectClient }) => {
-        const { owner } = await createLobbyRoom(
+      async ({ clock, connectClient }) => {
+        const { owner } = await setupLobbyRoom({
+          clock,
           connectClient,
-          'ready-validation-owner',
-        );
+          roomName: 'ready-validation-owner room',
+          width: 50,
+          height: 50,
+          ownerSessionId: 'ready-validation-owner',
+        });
         const errorPromise = waitForEvent<RoomErrorPayload>(
           owner,
           'room:error',
@@ -120,11 +107,15 @@ describe('socket payload validation', () => {
   for (const { label, payload } of INVALID_CHAT_CASES) {
     integrationTest(
       `rejects malformed chat:send payloads: ${label}`,
-      async ({ connectClient }) => {
-        const { owner } = await createLobbyRoom(
+      async ({ clock, connectClient }) => {
+        const { owner } = await setupLobbyRoom({
+          clock,
           connectClient,
-          'chat-validation-owner',
-        );
+          roomName: 'chat-validation-owner room',
+          width: 50,
+          height: 50,
+          ownerSessionId: 'chat-validation-owner',
+        });
         const errorPromise = waitForEvent<RoomErrorPayload>(
           owner,
           'room:error',
@@ -142,11 +133,15 @@ describe('socket payload validation', () => {
 
   integrationTest(
     'scopes room:error payloads for room and lobby rejections',
-    async ({ connectClient }) => {
-      const { owner, created } = await createLobbyRoom(
+    async ({ clock, connectClient }) => {
+      const { owner, created } = await setupLobbyRoom({
+        clock,
         connectClient,
-        'room-error-owner',
-      );
+        roomName: 'room-error-owner room',
+        width: 50,
+        height: 50,
+        ownerSessionId: 'room-error-owner',
+      });
 
       const roomScopedErrorPromise = waitForEvent<RoomErrorPayload>(
         owner,

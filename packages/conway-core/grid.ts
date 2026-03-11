@@ -1,3 +1,5 @@
+import { wrapCoordinate } from './wrap.js';
+
 export type GridTopology = 'torus' | 'flat';
 
 export interface Vector2 {
@@ -15,11 +17,6 @@ function assertValidDimension(value: number, name: 'width' | 'height'): void {
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`Grid ${name} must be a positive integer.`);
   }
-}
-
-function wrapCoordinate(value: number, size: number): number {
-  const wrapped = value % size;
-  return wrapped >= 0 ? wrapped : wrapped + size;
 }
 
 export class Grid {

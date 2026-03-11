@@ -1,3 +1,5 @@
+import { wrapCoordinate } from '#conway-core';
+
 import type { Vector2 } from './geometry.js';
 
 export interface TorusSpawnPoint {
@@ -19,10 +21,6 @@ export interface CreateTorusSpawnLayoutOptions {
 
 const UINT32_MAX = 0x1_0000_0000;
 
-function wrap(value: number, modulo: number): number {
-  return ((value % modulo) + modulo) % modulo;
-}
-
 function wrapTopLeft(
   value: number,
   axisLength: number,
@@ -32,7 +30,7 @@ function wrapTopLeft(
   if (span <= 0) {
     throw new Error('Spawn object does not fit in map axis');
   }
-  return wrap(value, span);
+  return wrapCoordinate(value, span);
 }
 
 function toUint32(seed: number): number {

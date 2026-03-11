@@ -1,67 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { TacticalRailController } from '../../apps/web/src/tactical-rail-controller.js';
-
-interface FakeElementHandle<T extends HTMLElement> {
-  element: T;
-  classNames: Set<string>;
-  attributes: Map<string, string>;
-  dataset: DOMStringMap;
-}
-
-function createFakeElement<T extends HTMLElement>(): FakeElementHandle<T> {
-  const classNames = new Set<string>();
-  const attributes = new Map<string, string>();
-  const dataset = {} as DOMStringMap;
-
-  const element = {
-    classList: {
-      add: (...tokens: string[]) => {
-        for (const token of tokens) {
-          classNames.add(token);
-        }
-      },
-      remove: (...tokens: string[]) => {
-        for (const token of tokens) {
-          classNames.delete(token);
-        }
-      },
-      contains: (token: string) => classNames.has(token),
-      toggle: (token: string, force?: boolean) => {
-        if (force === undefined) {
-          if (classNames.has(token)) {
-            classNames.delete(token);
-            return false;
-          }
-          classNames.add(token);
-          return true;
-        }
-
-        if (force) {
-          classNames.add(token);
-          return true;
-        }
-
-        classNames.delete(token);
-        return false;
-      },
-    },
-    setAttribute: (name: string, value: string) => {
-      attributes.set(name, value);
-    },
-    hidden: false,
-    disabled: false,
-    textContent: '',
-    dataset,
-  } as unknown as T;
-
-  return {
-    element,
-    classNames,
-    attributes,
-    dataset,
-  };
-}
+import { createFakeElement } from './test-dom-support.js';
 
 function createFixture() {
   const rail = createFakeElement<HTMLElement>();
