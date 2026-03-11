@@ -1,3 +1,5 @@
+import { wrapCoordinate } from '#conway-core';
+
 export interface WrappedGridBounds {
   x: number;
   y: number;
@@ -8,11 +10,6 @@ export interface WrappedGridBounds {
 interface SpanSegment {
   start: number;
   length: number;
-}
-
-function wrapCoordinate(value: number, dimension: number): number {
-  const wrapped = value % dimension;
-  return wrapped < 0 ? wrapped + dimension : wrapped;
 }
 
 function splitWrappedSpan(

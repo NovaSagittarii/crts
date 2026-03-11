@@ -3,20 +3,24 @@ import { describe, expect, test } from 'vitest';
 import type { RoomMembershipPayload } from '#rts-engine';
 
 import { deriveLobbyControlsViewModel } from '../../apps/web/src/lobby-controls-view-model.js';
+import {
+  createMembershipParticipant,
+  createMembershipPayload,
+  createSlotDefinition,
+} from './membership-fixtures.js';
 
-function createMembershipPayload(
+function createControlsMembershipPayload(
   overrides: Partial<RoomMembershipPayload> = {},
 ): RoomMembershipPayload {
-  return {
+  return createMembershipPayload({
     roomId: 'room-controls',
     roomCode: 'ROOM3',
     roomName: 'Control Room',
     revision: 6,
-    status: 'lobby',
     hostSessionId: 'host-1',
     slotDefinitions: [
-      { slotId: 'team-1', capacity: 2 },
-      { slotId: 'team-2', capacity: 2 },
+      createSlotDefinition('team-1', 2),
+      createSlotDefinition('team-2', 2),
     ],
     slots: {
       'team-1': 'host-1',
@@ -27,36 +31,27 @@ function createMembershipPayload(
       'team-2': ['rival-1'],
     },
     participants: [
-      {
+      createMembershipParticipant({
         sessionId: 'host-1',
         displayName: 'Host',
         role: 'player',
         slotId: 'team-1',
         ready: true,
-        connectionStatus: 'connected',
-        holdExpiresAt: null,
-        disconnectReason: null,
-      },
-      {
+      }),
+      createMembershipParticipant({
         sessionId: 'ally-1',
         displayName: 'Ally',
         role: 'player',
         slotId: 'team-1',
         ready: true,
-        connectionStatus: 'connected',
-        holdExpiresAt: null,
-        disconnectReason: null,
-      },
-      {
+      }),
+      createMembershipParticipant({
         sessionId: 'rival-1',
         displayName: 'Rival',
         role: 'player',
         slotId: 'team-2',
         ready: false,
-        connectionStatus: 'connected',
-        holdExpiresAt: null,
-        disconnectReason: null,
-      },
+      }),
     ],
     heldSlots: {
       'team-1': null,
@@ -66,17 +61,15 @@ function createMembershipPayload(
       'team-1': [],
       'team-2': [],
     },
-    countdownSecondsRemaining: null,
-    hashAlgorithm: 'fnv1a-32',
     membershipHash: 'membership-6',
     ...overrides,
-  };
+  });
 }
 
 describe('lobby controls view model', () => {
   test('keeps host start disabled until every claimed seat is ready', () => {
     const viewModel = deriveLobbyControlsViewModel(
-      createMembershipPayload(),
+      createControlsMembershipPayload(),
       'host-1',
     );
 
@@ -92,7 +85,7 @@ describe('lobby controls view model', () => {
 
   test('enables restart copy for the host after a finished match', () => {
     const viewModel = deriveLobbyControlsViewModel(
-      createMembershipPayload({ status: 'finished' }),
+      createControlsMembershipPayload({ status: 'finished' }),
       'host-1',
     );
 
@@ -103,9 +96,9 @@ describe('lobby controls view model', () => {
 
   test('disables ready actions for spectators', () => {
     const viewModel = deriveLobbyControlsViewModel(
-      createMembershipPayload({
+      createControlsMembershipPayload({
         participants: [
-          ...createMembershipPayload().participants,
+          ...createControlsMembershipPayload().participants,
           {
             sessionId: 'spectator-1',
             displayName: 'Spectator',

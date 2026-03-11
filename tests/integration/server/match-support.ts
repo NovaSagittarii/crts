@@ -26,6 +26,13 @@ export interface ConnectedRoomSetup {
   guestJoined: RoomJoinedPayload;
 }
 
+export interface LobbyRoomSetup {
+  clock: IntegrationClock;
+  owner: Socket;
+  roomId: string;
+  created: RoomJoinedPayload;
+}
+
 export interface SetupConnectedRoomOptions {
   clock: IntegrationClock;
   connectClient: (options?: TestClientOptions) => Socket;
@@ -34,6 +41,15 @@ export interface SetupConnectedRoomOptions {
   height?: number;
   hostSessionId?: string;
   guestSessionId?: string;
+}
+
+export interface SetupLobbyRoomOptions {
+  clock: IntegrationClock;
+  connectClient: (options?: TestClientOptions) => Socket;
+  roomName: string;
+  width?: number;
+  height?: number;
+  ownerSessionId?: string;
 }
 
 export interface StartMatchOptions {
@@ -48,22 +64,39 @@ export interface StartMatchOptions {
   waitForActiveMembership?: boolean;
 }
 
-export async function setupConnectedRoom(
-  options: SetupConnectedRoomOptions,
-): Promise<ConnectedRoomSetup> {
-  const host = options.connectClient({ sessionId: options.hostSessionId });
-  await waitForEvent<RoomJoinedPayload>(host, 'room:joined');
+export async function setupLobbyRoom(
+  options: SetupLobbyRoomOptions,
+): Promise<LobbyRoomSetup> {
+  const owner = options.connectClient({ sessionId: options.ownerSessionId });
+  await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
 
-  const hostCreatedPromise = waitForEvent<RoomJoinedPayload>(
-    host,
-    'room:joined',
-  );
-  host.emit('room:create', {
+  const createdPromise = waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
+  owner.emit('room:create', {
     name: options.roomName,
     width: options.width ?? 52,
     height: options.height ?? 52,
   });
-  const hostJoined = await hostCreatedPromise;
+  const created = await createdPromise;
+
+  return {
+    clock: options.clock,
+    owner,
+    roomId: created.roomId,
+    created,
+  };
+}
+
+export async function setupConnectedRoom(
+  options: SetupConnectedRoomOptions,
+): Promise<ConnectedRoomSetup> {
+  const lobby = await setupLobbyRoom({
+    clock: options.clock,
+    connectClient: options.connectClient,
+    roomName: options.roomName,
+    width: options.width,
+    height: options.height,
+    ownerSessionId: options.hostSessionId,
+  });
 
   const guest = options.connectClient({ sessionId: options.guestSessionId });
   await waitForEvent<RoomJoinedPayload>(guest, 'room:joined');
@@ -72,15 +105,15 @@ export async function setupConnectedRoom(
     guest,
     'room:joined',
   );
-  guest.emit('room:join', { roomId: hostJoined.roomId });
+  guest.emit('room:join', { roomId: lobby.roomId });
   const guestJoined = await guestJoinedPromise;
 
   return {
     clock: options.clock,
-    host,
+    host: lobby.owner,
     guest,
-    roomId: hostJoined.roomId,
-    hostJoined,
+    roomId: lobby.roomId,
+    hostJoined: lobby.created,
     guestJoined,
   };
 }

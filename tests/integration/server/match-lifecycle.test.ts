@@ -1,4 +1,3 @@
-import type { Socket } from 'socket.io-client';
 import { describe, expect } from 'vitest';
 
 import type {
@@ -41,13 +40,9 @@ const instantActiveTest = createRoomTest(
 );
 const OUTCOME_ADVANCE_TICKS = 5;
 
-interface ConnectedPair {
-  clock: ConnectedRoomSetup['clock'];
-  host: Socket;
-  guest: Socket;
+type ConnectedPair = ConnectedRoomSetup & {
   room: RoomJoinedPayload;
-  guestJoined: RoomJoinedPayload;
-}
+};
 
 interface ActiveMatch extends ConnectedPair {
   hostTeamId: number;
@@ -56,16 +51,6 @@ interface ActiveMatch extends ConnectedPair {
   hostBaseTopLeft: { x: number; y: number };
   guestBaseTopLeft: { x: number; y: number };
   initialGrid: ArrayBuffer;
-}
-
-function setupConnectedPair(setup: ConnectedRoomSetup): ConnectedPair {
-  return {
-    clock: setup.clock,
-    host: setup.host,
-    guest: setup.guest,
-    room: setup.hostJoined,
-    guestJoined: setup.guestJoined,
-  };
 }
 
 async function moveToActive(pair: ConnectedPair): Promise<ActiveMatch> {
@@ -238,7 +223,10 @@ describe('server match lifecycle contract', () => {
     connectedRoom,
     connectClient,
   }) => {
-    const setup = setupConnectedPair(connectedRoom);
+    const setup: ConnectedPair = {
+      ...connectedRoom,
+      room: connectedRoom.hostJoined,
+    };
 
     setup.host.emit('room:claim-slot', { slotId: 'team-1' });
     await waitForMembership(
@@ -351,7 +339,10 @@ describe('server match lifecycle contract', () => {
   manualCountdownTest(
     'keeps countdown running through disconnect and finishes through breach-only outcomes',
     async ({ connectedRoom, connectClient }) => {
-      const setup = setupConnectedPair(connectedRoom);
+      const setup: ConnectedPair = {
+        ...connectedRoom,
+        room: connectedRoom.hostJoined,
+      };
 
       setup.host.emit('room:claim-slot', { slotId: 'team-1' });
       setup.guest.emit('room:claim-slot', { slotId: 'team-2' });
@@ -432,6 +423,8 @@ describe('server match lifecycle contract', () => {
         clock: setup.clock,
         host: setup.host,
         guest: guestReconnect,
+        roomId: setup.roomId,
+        hostJoined: setup.hostJoined,
         room: setup.room,
         guestJoined: setup.guestJoined,
         hostTeamId: hostTeam?.id ?? 0,
@@ -505,7 +498,10 @@ describe('server match lifecycle contract', () => {
   instantActiveTest(
     'supports host-only restart from finished and resets prior match state',
     async ({ connectedRoom, connectClient }) => {
-      const setup = setupConnectedPair(connectedRoom);
+      const setup: ConnectedPair = {
+        ...connectedRoom,
+        room: connectedRoom.hostJoined,
+      };
       const match = await moveToActive(setup);
 
       match.host.emit('room:start');
@@ -519,8 +515,8 @@ describe('server match lifecycle contract', () => {
 
       match.host.emit('build:queue', {
         templateId: 'block',
-        x: match.hostBaseTopLeft.x + 4,
-        y: match.hostBaseTopLeft.y + 4,
+        x: match.hostBaseTopLeft.x + 8,
+        y: match.hostBaseTopLeft.y + 8,
         delayTicks: 80,
       });
       const queuedBuild = await waitForBuildQueueResponse(match.host, 4_000);
@@ -682,6 +678,8 @@ describe('server match lifecycle contract', () => {
         clock: match.clock,
         host: match.host,
         guest: reconnectedGuest,
+        roomId: match.roomId,
+        hostJoined: match.hostJoined,
         room: setup.room,
         guestJoined: setup.guestJoined,
         hostTeamId: restartedHostTeam?.id ?? 0,

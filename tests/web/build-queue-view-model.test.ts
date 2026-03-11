@@ -228,6 +228,25 @@ describe('build queue view model helpers', () => {
       queueFeedbackIsError: true,
       queueDisabled: true,
     });
+
+    expect(
+      deriveBuildQueueUi(
+        createUiInput({
+          latestBuildPreview: createPreview({
+            affordable: false,
+            current: 10,
+            deficit: 0,
+            needed: 6,
+            reason: 'occupied-site',
+          }),
+        }),
+      ),
+    ).toMatchObject({
+      previewReasonCopy: 'Preview reason: occupied site',
+      queueFeedbackCopy: 'Cannot queue here: occupied site.',
+      queueFeedbackIsError: true,
+      queueDisabled: true,
+    });
   });
 
   it('treats stale previews as unavailable for the active placement', () => {

@@ -9,18 +9,22 @@ import {
   selectIsHost,
   selectSelfParticipant,
 } from '../../apps/web/src/player-identity-view-model.js';
+import {
+  createMembershipParticipant,
+  createMembershipPayload,
+  createSlotDefinition,
+} from './membership-fixtures.js';
 
-function createMembershipPayload(): RoomMembershipPayload {
-  return {
+function createIdentityMembershipPayload(): RoomMembershipPayload {
+  return createMembershipPayload({
     roomId: 'room-1',
     roomCode: 'ROOM1',
     roomName: 'Identity Room',
     revision: 2,
-    status: 'lobby',
     hostSessionId: 'server-session',
     slotDefinitions: [
-      { slotId: 'team-1', capacity: 2 },
-      { slotId: 'team-2', capacity: 2 },
+      createSlotDefinition('team-1', 2),
+      createSlotDefinition('team-2', 2),
     ],
     slots: {
       'team-1': 'server-session',
@@ -31,26 +35,17 @@ function createMembershipPayload(): RoomMembershipPayload {
       'team-2': [],
     },
     participants: [
-      {
+      createMembershipParticipant({
         sessionId: 'server-session',
         displayName: 'Alicia',
         role: 'player',
         slotId: 'team-1',
         ready: true,
-        connectionStatus: 'connected',
-        holdExpiresAt: null,
-        disconnectReason: null,
-      },
-      {
+      }),
+      createMembershipParticipant({
         sessionId: 'spectator-session',
         displayName: 'Byron',
-        role: 'spectator',
-        slotId: null,
-        ready: false,
-        connectionStatus: 'connected',
-        holdExpiresAt: null,
-        disconnectReason: null,
-      },
+      }),
     ],
     heldSlots: {
       'team-1': null,
@@ -60,10 +55,7 @@ function createMembershipPayload(): RoomMembershipPayload {
       'team-1': [],
       'team-2': [],
     },
-    countdownSecondsRemaining: null,
-    hashAlgorithm: 'fnv1a-32',
-    membershipHash: 'membership-1',
-  };
+  });
 }
 
 function createRoomStatePayload(): RoomStatePayload {
@@ -120,7 +112,7 @@ function createRoomStatePayload(): RoomStatePayload {
 
 describe('player identity view model', () => {
   test('applies authoritative identity and uses the updated session for lookups', () => {
-    const membership = createMembershipPayload();
+    const membership = createIdentityMembershipPayload();
     const state = createRoomStatePayload();
 
     const identity = applyAuthoritativeIdentity(
@@ -144,7 +136,7 @@ describe('player identity view model', () => {
   });
 
   test('returns null and false when the session is missing from membership or teams', () => {
-    const membership = createMembershipPayload();
+    const membership = createIdentityMembershipPayload();
     const state = createRoomStatePayload();
 
     expect(selectSelfParticipant(membership, null)).toBeNull();

@@ -114,6 +114,7 @@ export interface BuildPreviewSnapshotInput {
   width: number;
   height: number;
   grid: Grid;
+  structures: readonly StructurePayload[];
   teamResources: number;
   teamDefeated: boolean;
   teamBuildZoneProjectionInputs: readonly BuildZoneContributorProjectionInput[];
@@ -455,6 +456,7 @@ interface BuildPlacementSnapshotProjectionInput {
 
 interface BuildPlacementSnapshotEvaluationInput extends BuildPlacementSnapshotProjectionInput {
   grid: Grid;
+  structures: readonly StructurePayload[];
   teamResources: number;
   templateActivationCost: number;
 }
@@ -827,6 +829,54 @@ export class RtsEngine {
     }
 
     return projected;
+  }
+
+  private static projectAllStructures(room: RoomState): StructurePayload[] {
+    const projected: StructurePayload[] = [];
+
+    for (const team of RtsEngine.sortTeamsById(room.teams.values())) {
+      projected.push(...RtsEngine.projectStructures(room, team));
+    }
+
+    return projected;
+  }
+
+  private static createFootprintCellKey(cell: Vector2): string {
+    return `${cell.x},${cell.y}`;
+  }
+
+  private static addFootprintToCellSet(
+    occupiedCells: Set<string>,
+    footprint: readonly Vector2[],
+  ): void {
+    for (const cell of footprint) {
+      occupiedCells.add(RtsEngine.createFootprintCellKey(cell));
+    }
+  }
+
+  private static createOccupiedStructureFootprintSet(
+    structures: readonly StructurePayload[],
+  ): Set<string> {
+    const occupiedCells = new Set<string>();
+
+    for (const structure of structures) {
+      RtsEngine.addFootprintToCellSet(occupiedCells, structure.footprint);
+    }
+
+    return occupiedCells;
+  }
+
+  private static hasFootprintOverlap(
+    footprint: readonly Vector2[],
+    occupiedCells: ReadonlySet<string>,
+  ): boolean {
+    for (const cell of footprint) {
+      if (occupiedCells.has(RtsEngine.createFootprintCellKey(cell))) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private static createTeamStructuresStatePayload(
@@ -1659,6 +1709,20 @@ export class RtsEngine {
       };
     }
 
+    const occupiedStructureCells =
+      RtsEngine.createOccupiedStructureFootprintSet(input.structures);
+    if (
+      RtsEngine.hasFootprintOverlap(
+        projectedPlacement.projection.footprint,
+        occupiedStructureCells,
+      )
+    ) {
+      return {
+        projection: projectedPlacement.projection,
+        reason: 'occupied-site',
+      };
+    }
+
     let diffCells: number;
     try {
       diffCells = RtsEngine.compareTemplateAgainstGrid(
@@ -1707,6 +1771,7 @@ export class RtsEngine {
       width: room.width,
       height: room.height,
       grid: room.grid,
+      structures: RtsEngine.projectAllStructures(room),
       teamResources: team.resources,
       teamBuildZoneProjectionInputs:
         RtsEngine.collectTeamBuildZoneProjectionInputs(team),
@@ -1843,6 +1908,15 @@ export class RtsEngine {
     buildOutcomes: BuildOutcome[],
   ): void {
     const deferredBuilds: BuildEvent[] = [];
+    const reservedFootprintCells = new Set<string>();
+
+    for (const acceptedEvent of acceptedEvents) {
+      RtsEngine.addFootprintToCellSet(
+        reservedFootprintCells,
+        acceptedEvent.projection.footprint,
+      );
+    }
+
     for (const event of team.pendingBuildEvents) {
       if (event.executeTick > room.tick) {
         deferredBuilds.push(event);
@@ -1891,7 +1965,13 @@ export class RtsEngine {
       const isReservedInTick = acceptedEvents.some((candidate) => {
         return candidate.structureKey === key;
       });
-      if (RtsEngine.findStructureOwnerTeam(room, key) || isReservedInTick) {
+      if (
+        isReservedInTick ||
+        RtsEngine.hasFootprintOverlap(
+          evaluation.projection.footprint,
+          reservedFootprintCells,
+        )
+      ) {
         RtsEngine.refundReservedBuildCost(team, event);
         RtsEngine.rejectBuild(room, team, 'occupied-site', event.id);
         RtsEngine.recordRejectedBuildOutcome(
@@ -1910,6 +1990,10 @@ export class RtsEngine {
         structureKey: key,
         projection: evaluation.projection,
       });
+      RtsEngine.addFootprintToCellSet(
+        reservedFootprintCells,
+        evaluation.projection.footprint,
+      );
     }
 
     team.pendingBuildEvents = deferredBuilds;
@@ -2272,6 +2356,9 @@ export class RtsEngine {
     if (reason === 'template-compare-failed') {
       return 'Unable to compare template with current state';
     }
+    if (reason === 'occupied-site') {
+      return 'Occupied site - choose a different footprint.';
+    }
 
     return undefined;
   }
@@ -2362,6 +2449,7 @@ export class RtsEngine {
       width: input.width,
       height: input.height,
       grid: input.grid,
+      structures: input.structures,
       teamResources: input.teamResources,
       teamBuildZoneProjectionInputs: input.teamBuildZoneProjectionInputs,
       template: input.template,

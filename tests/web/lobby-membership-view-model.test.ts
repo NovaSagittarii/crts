@@ -1,21 +1,25 @@
 import { describe, expect, test } from 'vitest';
 
-import type { RoomMembershipPayload } from '#rts-engine';
-
 import { deriveLobbyMembershipViewModel } from '../../apps/web/src/lobby-membership-view-model.js';
+import {
+  createHeldSlot,
+  createHeldSlotMember,
+  createMembershipParticipant,
+  createMembershipPayload,
+  createSlotDefinition,
+} from './membership-fixtures.js';
 
-function createMembershipPayload(): RoomMembershipPayload {
-  return {
+function createSharedLobbyPayload() {
+  return createMembershipPayload({
     roomId: 'room-shared',
     roomCode: 'ROOM2',
     roomName: 'Shared Lobby',
     revision: 4,
-    status: 'lobby',
     hostSessionId: 'host-1',
     slotDefinitions: [
-      { slotId: 'team-1', capacity: 2 },
-      { slotId: 'team-2', capacity: 1 },
-      { slotId: 'team-3', capacity: 2 },
+      createSlotDefinition('team-1', 2),
+      createSlotDefinition('team-2', 1),
+      createSlotDefinition('team-3', 2),
     ],
     slots: {
       'team-1': 'host-1',
@@ -28,87 +32,68 @@ function createMembershipPayload(): RoomMembershipPayload {
       'team-3': ['held-1'],
     },
     participants: [
-      {
+      createMembershipParticipant({
         sessionId: 'host-1',
         displayName: 'Alicia',
         role: 'player',
         slotId: 'team-1',
         ready: true,
-        connectionStatus: 'connected',
-        holdExpiresAt: null,
-        disconnectReason: null,
-      },
-      {
+      }),
+      createMembershipParticipant({
         sessionId: 'ally-1',
         displayName: 'Byron',
         role: 'player',
         slotId: 'team-1',
-        ready: false,
-        connectionStatus: 'connected',
-        holdExpiresAt: null,
-        disconnectReason: null,
-      },
-      {
+      }),
+      createMembershipParticipant({
         sessionId: 'rival-1',
         displayName: 'Cara',
         role: 'player',
         slotId: 'team-2',
         ready: true,
-        connectionStatus: 'connected',
-        holdExpiresAt: null,
-        disconnectReason: null,
-      },
-      {
+      }),
+      createMembershipParticipant({
         sessionId: 'held-1',
         displayName: 'Drew',
         role: 'player',
         slotId: 'team-3',
-        ready: false,
         connectionStatus: 'held',
         holdExpiresAt: 15_000,
         disconnectReason: 'transport close',
-      },
-      {
+      }),
+      createMembershipParticipant({
         sessionId: 'spectator-1',
         displayName: 'Evan',
-        role: 'spectator',
-        slotId: null,
-        ready: false,
-        connectionStatus: 'connected',
-        holdExpiresAt: null,
-        disconnectReason: null,
-      },
+      }),
     ],
     heldSlots: {
       'team-1': null,
       'team-2': null,
-      'team-3': {
+      'team-3': createHeldSlot({
         sessionId: 'held-1',
         holdExpiresAt: 15_000,
         disconnectReason: 'transport close',
-      },
+      }),
     },
     heldSlotMembers: {
       'team-1': [],
       'team-2': [],
       'team-3': [
-        {
+        createHeldSlotMember({
           sessionId: 'held-1',
           holdExpiresAt: 15_000,
           disconnectReason: 'transport close',
-        },
+        }),
       ],
     },
-    countdownSecondsRemaining: null,
-    hashAlgorithm: 'fnv1a-32',
     membershipHash: 'membership-4',
-  };
+  });
 }
 
 describe('lobby membership view model', () => {
   test('orders slots from slot definitions and renders members from slotMembers', () => {
     const viewModel = deriveLobbyMembershipViewModel(
-      createMembershipPayload(),
+      createSharedLobbyPayload(),
       'spectator-1',
       10_000,
     );
@@ -130,7 +115,7 @@ describe('lobby membership view model', () => {
 
   test('annotates held members from heldSlotMembers and tracks spectators separately', () => {
     const viewModel = deriveLobbyMembershipViewModel(
-      createMembershipPayload(),
+      createSharedLobbyPayload(),
       'spectator-1',
       12_100,
     );
@@ -150,7 +135,7 @@ describe('lobby membership view model', () => {
 
   test('disables claim actions once the current user is already a player', () => {
     const viewModel = deriveLobbyMembershipViewModel(
-      createMembershipPayload(),
+      createSharedLobbyPayload(),
       'ally-1',
       10_000,
     );

@@ -1,4 +1,4 @@
-import { Grid } from '#conway-core';
+import { Grid, wrapCoordinate as wrapCoordinateOnTorus } from '#conway-core';
 
 import type { Vector2 } from './geometry.js';
 
@@ -202,6 +202,19 @@ export function normalizePlacementTransform(
   };
 }
 
+export function getTransformedTemplateSize(
+  width: number,
+  height: number,
+  transform: PlacementTransformInput | null | undefined,
+): { width: number; height: number } {
+  const { matrix } = normalizePlacementTransform(transform);
+  const extents = deriveMatrixExtents(width, height, matrix);
+  return {
+    width: extents.maxX - extents.minX + 1,
+    height: extents.maxY - extents.minY + 1,
+  };
+}
+
 export function createIdentityPlacementTransform(): PlacementTransformState {
   return {
     operations: [],
@@ -275,7 +288,7 @@ export function projectTemplateWithTransform(
 }
 
 export function wrapCoordinate(value: number, size: number): number {
-  return ((value % size) + size) % size;
+  return wrapCoordinateOnTorus(value, size);
 }
 
 export function projectPlacementToWorld(
