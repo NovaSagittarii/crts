@@ -61,6 +61,9 @@ function toPreviewSnapshotInput(
     width: room.width,
     height: room.height,
     grid: room.grid,
+    structures: RtsEngine.createRoomStatePayload(room).teams.flatMap(
+      (candidateTeam) => candidateTeam.structures,
+    ),
     teamResources: team.resources,
     teamDefeated: team.defeated,
     teamBuildZoneProjectionInputs: [...team.structures.values()]
@@ -335,8 +338,8 @@ describe('rts', () => {
 
     const invalidDelay = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
-      x: team.baseTopLeft.x + 6,
-      y: team.baseTopLeft.y + 6,
+      x: team.baseTopLeft.x + 8,
+      y: team.baseTopLeft.y + 8,
       delayTicks: 1.5,
     });
     expect(invalidDelay.accepted).toBe(false);
@@ -347,8 +350,8 @@ describe('rts', () => {
 
     const defaultDelay = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
-      x: team.baseTopLeft.x + 6,
-      y: team.baseTopLeft.y + 6,
+      x: team.baseTopLeft.x + 8,
+      y: team.baseTopLeft.y + 8,
     });
     expect(defaultDelay.accepted).toBe(true);
     expect(defaultDelay.executeTick).toBe(DEFAULT_QUEUE_DELAY_TICKS);
@@ -627,6 +630,62 @@ describe('rts', () => {
     expect(unknownSnapshotPreview).toEqual(unknownRoomPreview);
   });
 
+  test('rejects overlapping existing structure footprints in room and snapshot previews', () => {
+    const probeTemplate = new StructureTemplate({
+      id: 'probe',
+      name: 'Probe',
+      grid: createTemplateGrid(1, 1, [1]),
+      activationCost: 0,
+      income: 0,
+      buildRadius: 0,
+      startingHp: 2,
+      checks: [],
+    });
+
+    const room = RtsEngine.createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 40,
+      height: 40,
+      templates: [...RtsEngine.createDefaultTemplates(), probeTemplate],
+    });
+    const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+    const core = getCoreStructure(room, team.id);
+
+    expect(core).not.toBeNull();
+    if (core === null) {
+      throw new Error('Expected core structure to exist');
+    }
+
+    const occupiedCell = core.footprint[0];
+    expect(occupiedCell).toBeDefined();
+    if (!occupiedCell) {
+      throw new Error('Expected core footprint to include at least one cell');
+    }
+
+    const payload = {
+      templateId: 'probe',
+      x: occupiedCell.x,
+      y: occupiedCell.y,
+    };
+
+    const roomPreview = RtsEngine.previewBuildPlacement(room, 'p1', payload);
+    const snapshotPreview = RtsEngine.previewBuildPlacementFromSnapshot(
+      toPreviewSnapshotInput(room, team.id, payload),
+    );
+    const queued = RtsEngine.queueBuildEvent(room, 'p1', payload);
+
+    expect(roomPreview).toMatchObject({
+      accepted: false,
+      reason: 'occupied-site',
+    });
+    expect(snapshotPreview).toEqual(roomPreview);
+    expect(queued).toMatchObject({
+      accepted: false,
+      reason: 'occupied-site',
+    });
+  });
+
   test('normalizes wrapped-equivalent anchors to one occupied site key', () => {
     const probeTemplate = new StructureTemplate({
       id: 'probe',
@@ -710,8 +769,8 @@ describe('rts', () => {
     });
     const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
     const initialResources = team.resources;
-    const x = team.baseTopLeft.x + 6;
-    const y = team.baseTopLeft.y + 6;
+    const x = team.baseTopLeft.x + 8;
+    const y = team.baseTopLeft.y + 8;
 
     const first = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
@@ -747,6 +806,68 @@ describe('rts', () => {
       reason: 'occupied-site',
     });
     expect(team.resources).toBe(initialResources - firstCost);
+  });
+
+  test('rejects same-tick builds whose footprints overlap different structure bounds', () => {
+    const probeTemplate = new StructureTemplate({
+      id: 'probe',
+      name: 'Probe',
+      grid: createTemplateGrid(1, 1, [1]),
+      activationCost: 0,
+      income: 0,
+      buildRadius: 0,
+      startingHp: 2,
+      checks: [],
+    });
+
+    const room = RtsEngine.createRoomState({
+      id: '1',
+      name: 'Alpha',
+      width: 40,
+      height: 40,
+      templates: [...RtsEngine.createDefaultTemplates(), probeTemplate],
+    });
+    const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+    const initialResources = team.resources;
+    const x = team.baseTopLeft.x + 8;
+    const y = team.baseTopLeft.y + 8;
+
+    const block = RtsEngine.queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x,
+      y,
+      delayTicks: 1,
+    });
+    const overlappingProbe = RtsEngine.queueBuildEvent(room, 'p1', {
+      templateId: 'probe',
+      x: x + 1,
+      y: y + 1,
+      delayTicks: 1,
+    });
+
+    expect(block.accepted).toBe(true);
+    expect(overlappingProbe.accepted).toBe(true);
+
+    const blockCost = block.needed ?? 0;
+    const probeCost = overlappingProbe.needed ?? 0;
+    expect(team.resources).toBe(initialResources - blockCost - probeCost);
+
+    RtsEngine.tickRoom(room);
+    const result = RtsEngine.tickRoom(room);
+    const probeOutcome = result.buildOutcomes.find(
+      ({ eventId }) => eventId === overlappingProbe.eventId,
+    );
+
+    expect(result.appliedBuilds).toBe(1);
+    expect(probeOutcome).toMatchObject({
+      eventId: overlappingProbe.eventId,
+      teamId: team.id,
+      outcome: 'rejected',
+      reason: 'occupied-site',
+    });
+    expect(countStructuresByTemplateId(room, team.id, 'block')).toBe(1);
+    expect(countStructuresByTemplateId(room, team.id, 'probe')).toBe(0);
+    expect(team.resources).toBe(initialResources - blockCost);
   });
 
   test('[BUILD-01] updates union-zone eligibility after build completion and structure destruction', () => {
@@ -1268,8 +1389,8 @@ describe('rts', () => {
 
     const queuedBuild = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
-      x: team.baseTopLeft.x + 4,
-      y: team.baseTopLeft.y + 4,
+      x: team.baseTopLeft.x + 8,
+      y: team.baseTopLeft.y + 8,
       delayTicks: 5,
     });
     expect(queuedBuild.accepted).toBe(true);
@@ -1307,8 +1428,8 @@ describe('rts', () => {
 
     const queuedBuild = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
-      x: team.baseTopLeft.x + 4,
-      y: team.baseTopLeft.y + 4,
+      x: team.baseTopLeft.x + 8,
+      y: team.baseTopLeft.y + 8,
       delayTicks: 5,
     });
     expect(queuedBuild.accepted).toBe(true);
@@ -1339,8 +1460,8 @@ describe('rts', () => {
     team.resources = 9;
     const result = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'generator',
-      x: team.baseTopLeft.x + 6,
-      y: team.baseTopLeft.y + 6,
+      x: team.baseTopLeft.x + 10,
+      y: team.baseTopLeft.y + 10,
       delayTicks: 1,
     });
 
@@ -1377,14 +1498,14 @@ describe('rts', () => {
 
     const queueA = RtsEngine.queueBuildEvent(roomA, 'p1', {
       templateId: 'block',
-      x: teamA.baseTopLeft.x + 4,
-      y: teamA.baseTopLeft.y + 4,
+      x: teamA.baseTopLeft.x + 8,
+      y: teamA.baseTopLeft.y + 8,
       delayTicks: 1,
     });
     const queueB = RtsEngine.queueBuildEvent(roomB, 'p1', {
       templateId: 'block',
-      x: teamB.baseTopLeft.x + 4,
-      y: teamB.baseTopLeft.y + 4,
+      x: teamB.baseTopLeft.x + 8,
+      y: teamB.baseTopLeft.y + 8,
       delayTicks: 1,
     });
 
@@ -1418,8 +1539,8 @@ describe('rts', () => {
     const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
     const transform = normalizePlacementTransform({ operations: ['rotate'] });
 
-    const buildX = team.baseTopLeft.x + 6;
-    const buildY = team.baseTopLeft.y + 6;
+    const buildX = team.baseTopLeft.x + 8;
+    const buildY = team.baseTopLeft.y + 8;
     const buildResult = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
       x: buildX,
@@ -1537,20 +1658,20 @@ describe('rts', () => {
 
     const first = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
-      x: team.baseTopLeft.x + 4,
-      y: team.baseTopLeft.y + 4,
+      x: team.baseTopLeft.x + 8,
+      y: team.baseTopLeft.y + 8,
       delayTicks: 5,
     });
     const second = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'glider',
-      x: team.baseTopLeft.x + 7,
-      y: team.baseTopLeft.y + 4,
+      x: team.baseTopLeft.x + 12,
+      y: team.baseTopLeft.y + 8,
       delayTicks: 3,
     });
     const third = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'generator',
-      x: team.baseTopLeft.x + 10,
-      y: team.baseTopLeft.y + 4,
+      x: team.baseTopLeft.x + 12,
+      y: team.baseTopLeft.y + 12,
       delayTicks: 5,
     });
 
@@ -1612,8 +1733,8 @@ describe('rts', () => {
     });
 
     const position = {
-      x: team.baseTopLeft.x + 5,
-      y: team.baseTopLeft.y + 5,
+      x: team.baseTopLeft.x + 8,
+      y: team.baseTopLeft.y + 8,
     };
     const generatorPreview = RtsEngine.previewBuildPlacement(room, 'p1', {
       templateId: 'generator',
@@ -1677,8 +1798,8 @@ describe('rts', () => {
 
     const queued = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
-      x: team.baseTopLeft.x + 6,
-      y: team.baseTopLeft.y + 6,
+      x: team.baseTopLeft.x + 8,
+      y: team.baseTopLeft.y + 8,
       delayTicks: 1,
     });
     expect(queued.accepted).toBe(true);
@@ -1713,14 +1834,14 @@ describe('rts', () => {
 
     const teamTwoQueued = RtsEngine.queueBuildEvent(room, 'p2', {
       templateId: 'block',
-      x: teamTwo.baseTopLeft.x + 6,
-      y: teamTwo.baseTopLeft.y + 6,
+      x: teamTwo.baseTopLeft.x + 8,
+      y: teamTwo.baseTopLeft.y + 8,
       delayTicks: 1,
     });
     const teamOneQueued = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
-      x: teamOne.baseTopLeft.x + 6,
-      y: teamOne.baseTopLeft.y + 6,
+      x: teamOne.baseTopLeft.x + 8,
+      y: teamOne.baseTopLeft.y + 8,
       delayTicks: 1,
     });
 
@@ -1869,8 +1990,8 @@ describe('rts', () => {
 
     const queued = RtsEngine.queueBuildEvent(room, 'p2', {
       templateId: 'block',
-      x: team.baseTopLeft.x + 6,
-      y: team.baseTopLeft.y + 6,
+      x: team.baseTopLeft.x + 8,
+      y: team.baseTopLeft.y + 8,
       delayTicks: 1,
     });
     expect(queued.accepted).toBe(true);
@@ -1900,8 +2021,8 @@ describe('rts', () => {
     const initialResources = team.resources;
 
     const buildPosition = {
-      x: team.baseTopLeft.x + 6,
-      y: team.baseTopLeft.y + 6,
+      x: team.baseTopLeft.x + 10,
+      y: team.baseTopLeft.y + 10,
     };
     const queued = RtsEngine.queueBuildEvent(room, 'p1', {
       templateId: 'block',
@@ -1947,8 +2068,8 @@ describe('rts', () => {
     const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
 
     const position = {
-      x: team.baseTopLeft.x + 5,
-      y: team.baseTopLeft.y + 5,
+      x: team.baseTopLeft.x + 8,
+      y: team.baseTopLeft.y + 8,
     };
     const generatorPreview = RtsEngine.previewBuildPlacement(room, 'p1', {
       templateId: 'generator',
@@ -2007,8 +2128,8 @@ describe('rts', () => {
     const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
 
     const position = {
-      x: team.baseTopLeft.x + 6,
-      y: team.baseTopLeft.y + 6,
+      x: team.baseTopLeft.x + 8,
+      y: team.baseTopLeft.y + 8,
     };
     const generatorPreview = RtsEngine.previewBuildPlacement(room, 'p1', {
       templateId: 'generator',

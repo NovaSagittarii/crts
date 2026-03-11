@@ -519,8 +519,8 @@ describe('server match lifecycle contract', () => {
 
       match.host.emit('build:queue', {
         templateId: 'block',
-        x: match.hostBaseTopLeft.x + 4,
-        y: match.hostBaseTopLeft.y + 4,
+        x: match.hostBaseTopLeft.x + 8,
+        y: match.hostBaseTopLeft.y + 8,
         delayTicks: 80,
       });
       const queuedBuild = await waitForBuildQueueResponse(match.host, 4_000);

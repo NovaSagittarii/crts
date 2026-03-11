@@ -628,6 +628,7 @@ let tacticalOverlayState: TacticalOverlayState = createTacticalOverlayState();
 let tacticalOverlayTickTimeoutId: number | null = null;
 let activeOverlayTab: 'economy' | 'build' | 'team' = 'economy';
 let latestTacticalTeamSnapshot: TeamPayload | null = null;
+let latestRoomStatePayload: RoomStatePayload | null = null;
 let lastAuthoritativeStateAtMs: number | null = null;
 let overlayBuildFeedbackCopy = 'No recent build action.';
 let overlayBuildFeedbackPending = false;
@@ -831,6 +832,7 @@ function applyStatePayload(payload: RoomStatePayload): void {
   const previousGridWidth = gridWidth;
   const previousGridHeight = gridHeight;
 
+  latestRoomStatePayload = payload;
   gridWidth = payload.width;
   gridHeight = payload.height;
   gridPackedBytes = payload.grid.slice(0);
@@ -863,6 +865,20 @@ function applyGridStatePayload(payload: RoomGridStatePayload): void {
   const previousGridWidth = gridWidth;
   const previousGridHeight = gridHeight;
 
+  if (
+    latestRoomStatePayload !== null &&
+    latestRoomStatePayload.roomId === payload.roomId
+  ) {
+    latestRoomStatePayload = {
+      ...latestRoomStatePayload,
+      width: payload.width,
+      height: payload.height,
+      generation: payload.generation,
+      tick: payload.tick,
+      grid: payload.grid,
+    };
+  }
+
   gridWidth = payload.width;
   gridHeight = payload.height;
   gridPackedBytes = payload.grid.slice(0);
@@ -887,14 +903,24 @@ function applyStructuresStatePayload(
   payload: RoomStructuresStatePayload,
 ): void {
   const syntheticPayload = createSyntheticStatePayload(payload);
+  const mergedPayload =
+    latestRoomStatePayload !== null &&
+    latestRoomStatePayload.roomId === syntheticPayload.roomId
+      ? {
+          ...latestRoomStatePayload,
+          ...syntheticPayload,
+          grid: latestRoomStatePayload.grid,
+        }
+      : syntheticPayload;
   const previousCanMutate = canMutateGameplay();
   const previousDefeatReason = persistentDefeatReason;
 
+  latestRoomStatePayload = mergedPayload;
   lastAuthoritativeStateAtMs = Date.now();
-  updateTeamStats(syntheticPayload, false);
-  syncVisibleStructures(syntheticPayload, false);
-  syncLocalBuildZoneOverlay(syntheticPayload);
-  renderSpawnMarkers(syntheticPayload);
+  updateTeamStats(mergedPayload, false);
+  syncVisibleStructures(mergedPayload, false);
+  syncLocalBuildZoneOverlay(mergedPayload);
+  renderSpawnMarkers(mergedPayload);
   renderTacticalOverlay(Date.now());
   requestRender();
 
@@ -2314,17 +2340,26 @@ function deriveLocalBuildPreview(
   }
 
   const currentTeam = latestTacticalTeamSnapshot;
-  if (!currentTeam || currentTeam.id !== currentTeamId) {
+  const currentRoomSnapshot = latestRoomStatePayload;
+  if (
+    !currentTeam ||
+    currentTeam.id !== currentTeamId ||
+    currentRoomSnapshot === null
+  ) {
     return null;
   }
 
   const teamBuildZoneProjectionInputs =
     teamBuildZoneProjectionInputsByTeamId.get(currentTeamId) ?? [];
+  const structures = currentRoomSnapshot.teams.flatMap(
+    (team) => team.structures,
+  );
 
   const previewResult = RtsEngine.previewBuildPlacementFromSnapshot({
     width: gridWidth,
     height: gridHeight,
     grid: authoritativeGrid,
+    structures,
     teamResources: currentTeam.resources,
     teamDefeated: currentTeam.defeated,
     teamBuildZoneProjectionInputs,
