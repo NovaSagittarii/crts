@@ -30,6 +30,7 @@ function createOverlayInput(
       },
     ],
     hoveredStructureKey: null,
+    pinnedStructureKey: null,
     maxHpByTemplateId: {},
     visibleBounds: {
       minX: 0,
@@ -67,10 +68,36 @@ describe('structure grid overlay view model', () => {
       overlays.map((overlay) => ({
         key: overlay.key,
         showLabel: overlay.showLabel,
+        interactionState: overlay.interactionState,
       })),
     ).toEqual([
-      { key: 'alpha', showLabel: false },
-      { key: 'bravo', showLabel: true },
+      { key: 'alpha', showLabel: false, interactionState: 'idle' },
+      { key: 'bravo', showLabel: true, interactionState: 'hovered' },
+    ]);
+  });
+
+  it('marks pinned structures separately from hovered ones', () => {
+    const overlays = StructureGridOverlayModel.deriveOverlayItems(
+      createOverlayInput({
+        hoveredStructureKey: 'bravo',
+        pinnedStructureKey: 'alpha',
+        visibleBounds: {
+          minX: 0,
+          maxX: 30,
+          minY: 0,
+          maxY: 20,
+        },
+      }),
+    );
+
+    expect(
+      overlays.map((overlay) => ({
+        key: overlay.key,
+        interactionState: overlay.interactionState,
+      })),
+    ).toEqual([
+      { key: 'alpha', interactionState: 'pinned' },
+      { key: 'bravo', interactionState: 'hovered' },
     ]);
   });
 

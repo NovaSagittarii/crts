@@ -37,6 +37,7 @@ import {
   TeamPayload,
 } from '#rts-engine';
 
+import { resolvePrimaryBoardPointerAction } from './board-pointer-interaction.js';
 import { BuildModeController } from './build-mode-controller.js';
 import {
   type BuildQueueFeedbackOverride,
@@ -660,6 +661,8 @@ const STATE_REQUEST_MIN_INTERVAL_MS = 120;
 const STRUCTURE_OUTLINE_COLOR = 'rgba(154, 167, 189, 0.72)';
 const STRUCTURE_OUTLINE_ACTIVE_COLOR = 'rgba(94, 201, 255, 0.9)';
 const STRUCTURE_OUTLINE_PINNED_COLOR = 'rgba(248, 192, 108, 0.96)';
+const STRUCTURE_FILL_ACTIVE_COLOR = 'rgba(94, 201, 255, 0.16)';
+const STRUCTURE_FILL_PINNED_COLOR = 'rgba(248, 192, 108, 0.2)';
 const STRUCTURE_BAR_TRACK_COLOR = 'rgba(5, 7, 13, 0.76)';
 const STRUCTURE_BAR_FILL_GOOD = 'rgba(92, 216, 164, 0.95)';
 const STRUCTURE_BAR_FILL_WARN = 'rgba(248, 192, 108, 0.95)';
@@ -3063,6 +3066,7 @@ function renderStructureOverlayLayer(
   const overlayItems = StructureGridOverlayModel.deriveOverlayItems({
     structures: visibleStructures,
     hoveredStructureKey: hoverStructure?.key ?? null,
+    pinnedStructureKey: structureInteractionState.pinnedKey,
     maxHpByTemplateId: templateMaxHpLookup,
     visibleBounds,
   });
@@ -3071,7 +3075,6 @@ function renderStructureOverlayLayer(
     return;
   }
 
-  const pinnedKey = structureInteractionState.pinnedKey;
   const outlineWidth = 1 / cameraState.zoom;
   const pinnedOutlineWidth = 1.8 / cameraState.zoom;
   const barInset = 1.5 / cameraState.zoom;
@@ -3092,13 +3095,20 @@ function renderStructureOverlayLayer(
       continue;
     }
 
-    const isPinned = pinnedKey === overlay.key;
-    const isHovered = overlay.showLabel;
+    const isPinned = overlay.interactionState === 'pinned';
+    const isHovered = overlay.interactionState === 'hovered';
     const outlineColor = isPinned
       ? STRUCTURE_OUTLINE_PINNED_COLOR
       : isHovered
         ? STRUCTURE_OUTLINE_ACTIVE_COLOR
         : STRUCTURE_OUTLINE_COLOR;
+
+    if (overlay.interactionState !== 'idle') {
+      ctx.fillStyle = isPinned
+        ? STRUCTURE_FILL_PINNED_COLOR
+        : STRUCTURE_FILL_ACTIVE_COLOR;
+      ctx.fillRect(worldX, worldY, worldWidth, worldHeight);
+    }
 
     ctx.strokeStyle = outlineColor;
     ctx.lineWidth = isPinned ? pinnedOutlineWidth : outlineWidth;
@@ -3211,6 +3221,17 @@ function pointerToCell(event: PointerEvent): Cell | null {
       height: gridHeight,
     },
   });
+}
+
+function beginCameraPan(event: PointerEvent): void {
+  canvas.setPointerCapture(event.pointerId);
+  isCameraPanning = true;
+  cameraPanPointerId = event.pointerId;
+  lastCameraPanClientPoint = {
+    x: event.clientX,
+    y: event.clientY,
+  };
+  updateCameraStatus();
 }
 
 function queueBuildAtCell(cell: Cell): void {
@@ -3408,14 +3429,7 @@ canvas.addEventListener('pointerdown', (event) => {
     }
 
     event.preventDefault();
-    canvas.setPointerCapture(event.pointerId);
-    isCameraPanning = true;
-    cameraPanPointerId = event.pointerId;
-    lastCameraPanClientPoint = {
-      x: event.clientX,
-      y: event.clientY,
-    };
-    updateCameraStatus();
+    beginCameraPan(event);
     return;
   }
 
@@ -3424,35 +3438,38 @@ canvas.addEventListener('pointerdown', (event) => {
   }
 
   const cell = pointerToCell(event);
-  if (!cell) {
-    return;
-  }
-
   buildModeController.recordHover(cell);
 
-  if (buildModeController.active) {
+  const structure = cell ? getStructureAtCell(cell) : null;
+  const primaryAction = resolvePrimaryBoardPointerAction({
+    cell,
+    structureHit: structure !== null,
+    buildModeActive: buildModeController.active,
+    canUseCameraControls: canUseCameraControls(),
+  });
+
+  if (primaryAction === 'queue-build') {
+    if (!cell) {
+      return;
+    }
     queueBuildAtCell(cell);
     return;
   }
 
-  if (selectDestroyStructureAtCell(cell)) {
+  if (primaryAction === 'select-structure') {
+    if (!cell) {
+      return;
+    }
+
+    selectDestroyStructureAtCell(cell);
     return;
   }
 
-  if (structureInteractionState.pinnedKey) {
-    applyStructureInteraction({ type: 'clear' });
-    resetDestroyFeedbackOverride();
-  }
-
-  if (!canMutateGameplay()) {
-    setMessage(
-      'Build placement is read-only until you are an active, non-defeated player.',
-      true,
-    );
+  if (primaryAction === 'start-pan') {
+    event.preventDefault();
+    beginCameraPan(event);
     return;
   }
-
-  setMessage('Click a template button to enter build mode.');
 });
 
 canvas.addEventListener('pointermove', (event) => {
