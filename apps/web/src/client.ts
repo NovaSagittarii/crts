@@ -44,8 +44,6 @@ import {
   type BuildQueuePreview,
   buildPreviewRequestFromSelection,
   deriveBuildQueueUi,
-  describeBuildFailureReason,
-  formatDeficitCopy,
   previewMatchesSelection,
 } from './build-queue-view-model.js';
 import {
@@ -72,8 +70,8 @@ import {
   type AuthoritativePreviewRefreshState,
   type AuthoritativePreviewSection,
   createAuthoritativePreviewRefreshState,
-  getStateRequestSectionsForGameplayEvent,
   recordAuthoritativePreviewRefresh,
+  resolveGameplayEventRouting,
   shouldApplyRoomScopedPayload,
   shouldRefreshAuthoritativePreview,
 } from './client-sync-helpers.js';
@@ -91,6 +89,18 @@ import {
   syncDestroyPending,
 } from './destroy-view-model.js';
 import { EconomyHudController } from './economy-hud-controller.js';
+import {
+  type GameplayFeedbackPresentation,
+  createBuildOutcomeFeedback,
+  createBuildQueueRejectedFeedback,
+  createBuildQueuedFeedback,
+  createBuildRoomErrorFeedback,
+  createDestroyOutcomeFeedback,
+  createDestroyQueueRejectedFeedback,
+  createDestroyQueuedFeedback,
+  createDestroyRoomErrorFeedback,
+  createPendingGameplayFeedback,
+} from './gameplay-event-feedback.js';
 import { IngameLayoutController } from './ingame-layout-controller.js';
 import { deriveLobbyControlsViewModel } from './lobby-controls-view-model.js';
 import { deriveLobbyMembershipViewModel } from './lobby-membership-view-model.js';
@@ -1211,28 +1221,6 @@ function readDelayTicks(): number {
   return normalized;
 }
 
-function describeDestroyFailureReason(reason: string | undefined): string {
-  if (reason === 'wrong-owner') {
-    return 'wrong owner';
-  }
-  if (reason === 'invalid-target') {
-    return 'invalid target';
-  }
-  if (reason === 'invalid-lifecycle-state') {
-    return 'invalid lifecycle state';
-  }
-  if (reason === 'invalid-delay') {
-    return 'invalid delay';
-  }
-  if (reason === 'team-defeated') {
-    return 'team defeated';
-  }
-  if (reason === 'match-finished') {
-    return 'match finished';
-  }
-  return 'destroy rejected';
-}
-
 function resetQueueFeedbackOverride(): void {
   queueFeedbackOverride = null;
 }
@@ -1247,6 +1235,66 @@ function resetDestroyFeedbackOverride(): void {
 
 function setDestroyFeedbackOverride(message: string, isError: boolean): void {
   destroyFeedbackOverride = { text: message, isError };
+}
+
+function applyBuildFeedbackPresentation(
+  presentation: GameplayFeedbackPresentation,
+  options: { includeNotifications?: boolean } = {},
+): void {
+  const { includeNotifications = true } = options;
+  if (presentation.override) {
+    setQueueFeedbackOverride(
+      presentation.override.text,
+      presentation.override.isError,
+    );
+  } else {
+    resetQueueFeedbackOverride();
+  }
+
+  overlayBuildFeedbackPending = presentation.overlayPending;
+  overlayBuildFeedbackCopy = presentation.overlayCopy;
+  overlayBuildFeedbackIsError = presentation.overlayIsError;
+
+  if (!includeNotifications) {
+    return;
+  }
+
+  if (presentation.message) {
+    setMessage(presentation.message.text, presentation.message.isError);
+  }
+  if (presentation.toast) {
+    addToast(presentation.toast.text, presentation.toast.isError);
+  }
+}
+
+function applyDestroyFeedbackPresentation(
+  presentation: GameplayFeedbackPresentation,
+  options: { includeNotifications?: boolean } = {},
+): void {
+  const { includeNotifications = true } = options;
+  if (presentation.override) {
+    setDestroyFeedbackOverride(
+      presentation.override.text,
+      presentation.override.isError,
+    );
+  } else {
+    resetDestroyFeedbackOverride();
+  }
+
+  overlayTeamFeedbackPending = presentation.overlayPending;
+  overlayTeamFeedbackCopy = presentation.overlayCopy;
+  overlayTeamFeedbackIsError = presentation.overlayIsError;
+
+  if (!includeNotifications) {
+    return;
+  }
+
+  if (presentation.message) {
+    setMessage(presentation.message.text, presentation.message.isError);
+  }
+  if (presentation.toast) {
+    addToast(presentation.toast.text, presentation.toast.isError);
+  }
 }
 
 function shouldDeduplicateBuildErrorToast(
@@ -2382,10 +2430,9 @@ function emitDestroyQueueForSelection(): void {
   }
 
   resetDestroyFeedbackOverride();
-  setDestroyFeedbackOverride('Submitting destroy request...', false);
-  overlayTeamFeedbackPending = true;
-  overlayTeamFeedbackIsError = false;
-  overlayTeamFeedbackCopy = 'Submitting destroy request...';
+  applyDestroyFeedbackPresentation(
+    createPendingGameplayFeedback('Submitting destroy request...'),
+  );
   socket.emit('destroy:queue', {
     structureKey,
   });
@@ -3287,10 +3334,9 @@ function queueBuildAtCell(cell: Cell): void {
   }
 
   resetQueueFeedbackOverride();
-  setQueueFeedbackOverride('Submitting build queue request...', false);
-  overlayBuildFeedbackPending = true;
-  overlayBuildFeedbackIsError = false;
-  overlayBuildFeedbackCopy = 'Submitting build queue request...';
+  applyBuildFeedbackPresentation(
+    createPendingGameplayFeedback('Submitting build queue request...'),
+  );
   socket.emit('build:queue', {
     templateId: queueRequest.templateId,
     x: queueRequest.x,
@@ -3815,50 +3861,35 @@ socket.on('room:error', (payload: RoomErrorPayload) => {
   }
 
   let message = getClaimFailureMessage(payload);
+  let toastMessage = message;
+  let toastIsError = true;
 
-  if (
-    payload.reason === 'insufficient-resources' &&
-    typeof payload.needed === 'number' &&
-    typeof payload.current === 'number' &&
-    typeof payload.deficit === 'number'
-  ) {
-    const deficitCopy = formatDeficitCopy(
-      payload.needed,
-      payload.current,
-      payload.deficit,
-    );
-    message = `Queue rejected. ${deficitCopy}`;
-    setQueueFeedbackOverride(deficitCopy, true);
-    overlayBuildFeedbackPending = false;
-    overlayBuildFeedbackCopy = deficitCopy;
-    overlayBuildFeedbackIsError = true;
-  } else if (
-    payload.reason === 'outside-territory' ||
-    payload.reason === 'template-exceeds-map-size' ||
-    payload.reason === 'occupied-site' ||
-    payload.reason === 'unknown-template' ||
-    payload.reason === 'invalid-coordinates'
-  ) {
-    setQueueFeedbackOverride(
-      `Cannot queue here: ${describeBuildFailureReason(payload.reason)}.`,
-      true,
-    );
-    overlayBuildFeedbackPending = false;
-    overlayBuildFeedbackCopy = `Cannot queue here: ${describeBuildFailureReason(payload.reason)}.`;
-    overlayBuildFeedbackIsError = true;
-  } else if (
-    payload.reason === 'wrong-owner' ||
-    payload.reason === 'invalid-target' ||
-    payload.reason === 'invalid-lifecycle-state' ||
-    payload.reason === 'invalid-delay'
-  ) {
-    setDestroyFeedbackOverride(
-      `Destroy rejected: ${describeDestroyFailureReason(payload.reason)}.`,
-      true,
-    );
-    overlayTeamFeedbackPending = false;
-    overlayTeamFeedbackCopy = `Destroy rejected: ${describeDestroyFailureReason(payload.reason)}.`;
-    overlayTeamFeedbackIsError = true;
+  const buildFeedback = createBuildRoomErrorFeedback(payload);
+  if (buildFeedback) {
+    applyBuildFeedbackPresentation(buildFeedback, {
+      includeNotifications: false,
+    });
+    if (buildFeedback.message) {
+      message = buildFeedback.message.text;
+    }
+    if (buildFeedback.toast) {
+      toastMessage = buildFeedback.toast.text;
+      toastIsError = buildFeedback.toast.isError;
+    }
+  }
+
+  const destroyFeedback = createDestroyRoomErrorFeedback(payload);
+  if (destroyFeedback) {
+    applyDestroyFeedbackPresentation(destroyFeedback, {
+      includeNotifications: false,
+    });
+    if (destroyFeedback.message) {
+      message = destroyFeedback.message.text;
+    }
+    if (destroyFeedback.toast) {
+      toastMessage = destroyFeedback.toast.text;
+      toastIsError = destroyFeedback.toast.isError;
+    }
   }
 
   if (payload.reason === 'defeated') {
@@ -3873,7 +3904,7 @@ socket.on('room:error', (payload: RoomErrorPayload) => {
 
   setMessage(message, true);
   if (!suppressToast) {
-    addToast(message, true);
+    addToast(toastMessage, toastIsError);
   }
   refreshActionUi();
 });
@@ -4010,66 +4041,49 @@ socket.on('player:profile', (payload: PlayerProfilePayload) => {
 });
 
 socket.on('build:outcome', (payload: BuildOutcomePayload) => {
-  if (payload.roomId !== currentRoomId) {
+  const routing = resolveGameplayEventRouting(
+    'build:outcome',
+    payload,
+    currentRoomId,
+    currentTeamId,
+  );
+  if (!routing.appliesToRoom) {
     return;
   }
 
-  const sections = getStateRequestSectionsForGameplayEvent('build:outcome');
-  if (sections) {
-    requestStateSections(sections);
+  if (routing.sections) {
+    requestStateSections(routing.sections);
   }
 
-  if (currentTeamId === null || payload.teamId !== currentTeamId) {
+  if (!routing.appliesToCurrentTeam) {
     return;
   }
 
-  if (payload.outcome === 'rejected') {
-    const rejectionCopy =
-      payload.reason === 'insufficient-resources' &&
-      typeof payload.needed === 'number' &&
-      typeof payload.current === 'number' &&
-      typeof payload.deficit === 'number'
-        ? formatDeficitCopy(payload.needed, payload.current, payload.deficit)
-        : `Build #${payload.eventId} rejected: ${describeBuildFailureReason(payload.reason)}.`;
-
-    setQueueFeedbackOverride(rejectionCopy, true);
-    overlayBuildFeedbackPending = false;
-    overlayBuildFeedbackCopy = rejectionCopy;
-    overlayBuildFeedbackIsError = true;
-    setMessage(rejectionCopy, true);
-  } else {
-    resetQueueFeedbackOverride();
-    overlayBuildFeedbackPending = false;
-    overlayBuildFeedbackCopy = `Build #${payload.eventId} applied.`;
-    overlayBuildFeedbackIsError = false;
-    setQueueFeedbackOverride(overlayBuildFeedbackCopy, false);
-  }
+  applyBuildFeedbackPresentation(createBuildOutcomeFeedback(payload));
 
   refreshActionUi();
 });
 
 socket.on('build:queued', (payload: BuildQueuedPayload) => {
-  if (payload.roomId !== currentRoomId) {
+  const routing = resolveGameplayEventRouting(
+    'build:queued',
+    payload,
+    currentRoomId,
+    currentTeamId,
+  );
+  if (!routing.appliesToRoom) {
     return;
   }
 
-  const sections = getStateRequestSectionsForGameplayEvent('build:queued');
-  if (sections) {
-    requestStateSections(sections);
+  if (routing.sections) {
+    requestStateSections(routing.sections);
   }
 
-  if (currentTeamId === null || payload.teamId !== currentTeamId) {
+  if (!routing.appliesToCurrentTeam) {
     return;
   }
 
-  const feedback = `Build queued (#${payload.eventId}) for tick ${payload.executeTick}.`;
-
-  overlayBuildFeedbackPending = false;
-  overlayBuildFeedbackIsError = false;
-  overlayBuildFeedbackCopy = feedback;
-  setQueueFeedbackOverride(feedback, false);
-  setMessage(feedback);
-  addToast(feedback);
+  applyBuildFeedbackPresentation(createBuildQueuedFeedback(payload));
   refreshActionUi();
 });
 
@@ -4082,36 +4096,26 @@ socket.on('build:queue-rejected', (payload: BuildQueueRejectedPayload) => {
     return;
   }
 
-  const rejectionCopy =
-    payload.reason === 'insufficient-resources' &&
-    typeof payload.needed === 'number' &&
-    typeof payload.current === 'number' &&
-    typeof payload.deficit === 'number'
-      ? formatDeficitCopy(payload.needed, payload.current, payload.deficit)
-      : `Build intent rejected: ${describeBuildFailureReason(
-          payload.reason as Parameters<typeof describeBuildFailureReason>[0],
-        )}.`;
-
-  setQueueFeedbackOverride(rejectionCopy, true);
-  overlayBuildFeedbackPending = false;
-  overlayBuildFeedbackCopy = rejectionCopy;
-  overlayBuildFeedbackIsError = true;
-  setMessage(rejectionCopy, true);
-  addToast(rejectionCopy, true);
+  applyBuildFeedbackPresentation(createBuildQueueRejectedFeedback(payload));
   refreshActionUi();
 });
 
 socket.on('destroy:outcome', (payload: DestroyOutcomePayload) => {
-  if (payload.roomId !== currentRoomId) {
+  const routing = resolveGameplayEventRouting(
+    'destroy:outcome',
+    payload,
+    currentRoomId,
+    currentTeamId,
+  );
+  if (!routing.appliesToRoom) {
     return;
   }
 
-  const sections = getStateRequestSectionsForGameplayEvent('destroy:outcome');
-  if (sections) {
-    requestStateSections(sections);
+  if (routing.sections) {
+    requestStateSections(routing.sections);
   }
 
-  if (currentTeamId === null || payload.teamId !== currentTeamId) {
+  if (!routing.appliesToCurrentTeam) {
     return;
   }
 
@@ -4120,38 +4124,27 @@ socket.on('destroy:outcome', (payload: DestroyOutcomePayload) => {
     outcome: payload.outcome,
   });
 
-  if (payload.outcome === 'rejected') {
-    const rejectionCopy = `Destroy #${payload.eventId} rejected: ${describeDestroyFailureReason(payload.reason)}.`;
-    setDestroyFeedbackOverride(rejectionCopy, true);
-    overlayTeamFeedbackPending = false;
-    overlayTeamFeedbackCopy = rejectionCopy;
-    overlayTeamFeedbackIsError = true;
-    setMessage(rejectionCopy, true);
-    addToast(rejectionCopy, true);
-  } else {
-    const successCopy = `Destroy applied for ${payload.structureKey}.`;
-    setDestroyFeedbackOverride(successCopy, false);
-    overlayTeamFeedbackPending = false;
-    overlayTeamFeedbackCopy = successCopy;
-    overlayTeamFeedbackIsError = false;
-    setMessage(successCopy);
-    addToast('Structure destroyed.');
-  }
+  applyDestroyFeedbackPresentation(createDestroyOutcomeFeedback(payload));
 
   refreshActionUi();
 });
 
 socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
-  if (payload.roomId !== currentRoomId) {
+  const routing = resolveGameplayEventRouting(
+    'destroy:queued',
+    payload,
+    currentRoomId,
+    currentTeamId,
+  );
+  if (!routing.appliesToRoom) {
     return;
   }
 
-  const sections = getStateRequestSectionsForGameplayEvent('destroy:queued');
-  if (sections) {
-    requestStateSections(sections);
+  if (routing.sections) {
+    requestStateSections(routing.sections);
   }
 
-  if (currentTeamId === null || payload.teamId !== currentTeamId) {
+  if (!routing.appliesToCurrentTeam) {
     return;
   }
 
@@ -4160,18 +4153,7 @@ socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
     payload.structureKey,
   );
 
-  const feedback = payload.idempotent
-    ? `Destroy already pending for ${payload.structureKey}.`
-    : `Destroy queued (#${payload.eventId}) for tick ${payload.executeTick}.`;
-
-  overlayTeamFeedbackPending = false;
-  overlayTeamFeedbackCopy = feedback;
-  overlayTeamFeedbackIsError = false;
-  setDestroyFeedbackOverride(feedback, false);
-  setMessage(feedback);
-  if (!payload.idempotent) {
-    addToast(feedback);
-  }
+  applyDestroyFeedbackPresentation(createDestroyQueuedFeedback(payload));
   refreshActionUi();
 });
 
@@ -4184,14 +4166,7 @@ socket.on('destroy:queue-rejected', (payload: DestroyQueueRejectedPayload) => {
     return;
   }
 
-  const rejectionCopy = `Destroy intent rejected: ${describeDestroyFailureReason(payload.reason)}.`;
-
-  setDestroyFeedbackOverride(rejectionCopy, true);
-  overlayTeamFeedbackPending = false;
-  overlayTeamFeedbackCopy = rejectionCopy;
-  overlayTeamFeedbackIsError = true;
-  setMessage(rejectionCopy, true);
-  addToast(rejectionCopy, true);
+  applyDestroyFeedbackPresentation(createDestroyQueueRejectedFeedback(payload));
   refreshActionUi();
 });
 

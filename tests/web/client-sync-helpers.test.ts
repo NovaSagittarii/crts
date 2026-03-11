@@ -4,6 +4,7 @@ import {
   createAuthoritativePreviewRefreshState,
   getStateRequestSectionsForGameplayEvent,
   recordAuthoritativePreviewRefresh,
+  resolveGameplayEventRouting,
   shouldApplyRoomScopedPayload,
   shouldRefreshAuthoritativePreview,
 } from '../../apps/web/src/client-sync-helpers.js';
@@ -93,5 +94,46 @@ describe('client sync helpers', () => {
     expect(
       getStateRequestSectionsForGameplayEvent('destroy:outcome'),
     ).toBeUndefined();
+  });
+
+  it('routes gameplay events by room before checking current team', () => {
+    expect(
+      resolveGameplayEventRouting(
+        'build:queued',
+        { roomId: 'room-a', teamId: 2 },
+        'room-a',
+        2,
+      ),
+    ).toEqual({
+      appliesToRoom: true,
+      appliesToCurrentTeam: true,
+      sections: undefined,
+    });
+
+    expect(
+      resolveGameplayEventRouting(
+        'destroy:outcome',
+        { roomId: 'room-a', teamId: 3 },
+        'room-a',
+        2,
+      ),
+    ).toEqual({
+      appliesToRoom: true,
+      appliesToCurrentTeam: false,
+      sections: undefined,
+    });
+
+    expect(
+      resolveGameplayEventRouting(
+        'build:outcome',
+        { roomId: 'room-b', teamId: 2 },
+        'room-a',
+        2,
+      ),
+    ).toEqual({
+      appliesToRoom: false,
+      appliesToCurrentTeam: false,
+      sections: undefined,
+    });
   });
 });
