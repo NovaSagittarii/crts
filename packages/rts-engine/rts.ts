@@ -1,10 +1,26 @@
 import { Grid } from '#conway-core';
 
 import {
+  type BuildPlacementProjectionResult,
+  type BuildPlacementSnapshotEvaluationInput,
+  type BuildPlacementSnapshotProjectionInput,
+  type BuildPlacementValidationResult,
+  type EvaluatedBuildPlacement,
+  canonicalizePlacementAnchorForDimensions as canonicalizePlacementAnchorForDimensionsKernel,
+  collectBuildZoneContributorsFromProjectionInputs as collectBuildZoneContributorsFromProjectionInputsKernel,
+  compareTemplateAgainstGrid as compareTemplateAgainstGridKernel,
+  createBuildPreviewResult as createBuildPreviewResultKernel,
+  createEmptyBuildProjection as createEmptyBuildProjectionKernel,
+  createRejectedBuildPreviewResult as createRejectedBuildPreviewResultKernel,
+  evaluateAffordability as evaluateAffordabilityKernel,
+  evaluateBuildPlacementFromSnapshot as evaluateBuildPlacementFromSnapshotKernel,
+  getBuildPreviewErrorMessage as getBuildPreviewErrorMessageKernel,
+  projectBuildPlacementFromSnapshot as projectBuildPlacementFromSnapshotKernel,
+  transformedTemplateFitsDimensions as transformedTemplateFitsDimensionsKernel,
+} from './build-placement-evaluator.js';
+import {
   type BuildZoneContributor,
   type BuildZoneContributorProjectionInput,
-  collectBuildZoneContributors,
-  collectIllegalBuildZoneCells,
 } from './build-zone.js';
 import {
   FNV1A_32_OFFSET_BASIS,
@@ -43,9 +59,6 @@ import {
   type TransformTemplateInput,
   type TransformedTemplate,
   createIdentityPlacementTransform,
-  normalizePlacementTransform,
-  projectPlacementToWorld,
-  projectTemplateWithTransform,
 } from './placement-transform.js';
 import {
   INVALID_ROOM_STATE_ERROR_MESSAGE,
@@ -416,22 +429,6 @@ export interface AddPlayerToRoomOptions {
   teamName?: string;
 }
 
-interface BuildPlacementProjectionResult {
-  transform: PlacementTransformState;
-  transformedTemplate: TransformedTemplate;
-  templateGrid: Grid;
-  bounds: PlacementBounds;
-  areaCells: Vector2[];
-  footprint: Vector2[];
-  checks: Vector2[];
-  illegalCells: Vector2[];
-}
-
-interface BuildPlacementValidationResult {
-  projection: BuildPlacementProjectionResult;
-  reason?: BuildRejectionReason;
-}
-
 interface IntegrityMaskCell {
   x: number;
   y: number;
@@ -442,29 +439,6 @@ interface IntegrityMismatchCell {
   x: number;
   y: number;
   expected: number;
-}
-
-interface EvaluatedBuildPlacement {
-  projection: BuildPlacementProjectionResult;
-  affordability?: AffordabilityResult;
-  diffCells?: number;
-  reason?: BuildRejectionReason;
-}
-
-interface BuildPlacementSnapshotProjectionInput {
-  width: number;
-  height: number;
-  teamBuildZoneProjectionInputs: readonly BuildZoneContributorProjectionInput[];
-  template: TransformTemplateInput;
-  x: number;
-  y: number;
-  transformInput: PlacementTransformInput | null | undefined;
-}
-
-interface BuildPlacementSnapshotEvaluationInput extends BuildPlacementSnapshotProjectionInput {
-  grid: Grid;
-  teamResources: number;
-  templateActivationCost: number;
 }
 
 type IntegrityOutcomeCategory = 'repaired' | 'destroyed-debris' | 'core-defeat';
@@ -632,13 +606,7 @@ export class RtsEngine {
     needed: number,
     current: number,
   ): AffordabilityResult {
-    const deficit = Math.max(0, needed - current);
-    return {
-      affordable: deficit === 0,
-      needed,
-      current,
-      deficit,
-    };
+    return evaluateAffordabilityKernel(needed, current);
   }
 
   private static rejectBuild(
@@ -1110,8 +1078,10 @@ export class RtsEngine {
     height: number,
     transformedTemplate: Pick<TransformedTemplate, 'width' | 'height'>,
   ): boolean {
-    return (
-      transformedTemplate.width <= width && transformedTemplate.height <= height
+    return transformedTemplateFitsDimensionsKernel(
+      width,
+      height,
+      transformedTemplate,
     );
   }
 
@@ -1135,29 +1105,12 @@ export class RtsEngine {
     return `${x},${y},${width},${height}`;
   }
 
-  private static wrapAnchorCoordinate(value: number, size: number): number {
-    const remainder = value % size;
-    return remainder >= 0 ? remainder : remainder + size;
-  }
-
-  private static canonicalizePlacementAnchorForDimensions(
-    width: number,
-    height: number,
-    x: number,
-    y: number,
-  ): Vector2 {
-    return {
-      x: RtsEngine.wrapAnchorCoordinate(x, width),
-      y: RtsEngine.wrapAnchorCoordinate(y, height),
-    };
-  }
-
   private static canonicalizePlacementAnchor(
     room: RoomState,
     x: number,
     y: number,
   ): Vector2 {
-    return RtsEngine.canonicalizePlacementAnchorForDimensions(
+    return canonicalizePlacementAnchorForDimensionsKernel(
       room.width,
       room.height,
       x,
@@ -1196,7 +1149,9 @@ export class RtsEngine {
   private static collectBuildZoneContributorsFromProjectionInputs(
     projectionInputs: readonly BuildZoneContributorProjectionInput[],
   ): BuildZoneContributor[] {
-    return collectBuildZoneContributors(projectionInputs);
+    return collectBuildZoneContributorsFromProjectionInputsKernel(
+      projectionInputs,
+    );
   }
 
   private static createTemplateProjectionInput(
@@ -1225,74 +1180,7 @@ export class RtsEngine {
   private static projectBuildPlacementFromSnapshot(
     input: BuildPlacementSnapshotProjectionInput,
   ): BuildPlacementValidationResult {
-    const transform = normalizePlacementTransform(input.transformInput);
-    const anchor = RtsEngine.canonicalizePlacementAnchorForDimensions(
-      input.width,
-      input.height,
-      input.x,
-      input.y,
-    );
-    const transformedTemplate = projectTemplateWithTransform(
-      input.template,
-      transform,
-    );
-    const templateGrid = transformedTemplate.grid;
-    const bounds: PlacementBounds = {
-      x: anchor.x,
-      y: anchor.y,
-      width: transformedTemplate.width,
-      height: transformedTemplate.height,
-    };
-
-    if (
-      !RtsEngine.transformedTemplateFitsDimensions(
-        input.width,
-        input.height,
-        transformedTemplate,
-      )
-    ) {
-      return {
-        projection: {
-          transform,
-          transformedTemplate,
-          templateGrid,
-          bounds,
-          areaCells: [],
-          footprint: [],
-          checks: [],
-          illegalCells: [],
-        },
-        reason: 'template-exceeds-map-size',
-      };
-    }
-
-    const projected = projectPlacementToWorld(
-      transformedTemplate,
-      anchor.x,
-      anchor.y,
-      input.width,
-      input.height,
-    );
-    const illegalCells = collectIllegalBuildZoneCells(
-      projected.areaCells,
-      RtsEngine.collectBuildZoneContributorsFromProjectionInputs(
-        input.teamBuildZoneProjectionInputs,
-      ),
-    );
-
-    return {
-      projection: {
-        transform,
-        transformedTemplate,
-        templateGrid,
-        bounds,
-        areaCells: projected.areaCells,
-        footprint: projected.occupiedCells,
-        checks: projected.checks,
-        illegalCells,
-      },
-      reason: illegalCells.length > 0 ? 'outside-territory' : undefined,
-    };
+    return projectBuildPlacementFromSnapshotKernel(input);
   }
 
   private static projectBuildPlacement(
@@ -1320,7 +1208,7 @@ export class RtsEngine {
     templateGrid: Grid,
     bounds: PlacementBounds,
   ): number {
-    return grid.compare(templateGrid, { x: bounds.x, y: bounds.y });
+    return compareTemplateAgainstGridKernel(grid, templateGrid, bounds);
   }
 
   private static compareTemplate(
@@ -1623,75 +1511,13 @@ export class RtsEngine {
     y: number,
     transformInput: PlacementTransformInput | null | undefined,
   ): BuildPreviewProjection {
-    const safeX = Number.isFinite(x) ? x : 0;
-    const safeY = Number.isFinite(y) ? y : 0;
-    return {
-      transform: normalizePlacementTransform(transformInput),
-      footprint: [],
-      illegalCells: [],
-      bounds: {
-        x: safeX,
-        y: safeY,
-        width: 0,
-        height: 0,
-      },
-    };
+    return createEmptyBuildProjectionKernel(x, y, transformInput);
   }
 
   private static evaluateBuildPlacementFromSnapshot(
     input: BuildPlacementSnapshotEvaluationInput,
   ): EvaluatedBuildPlacement {
-    const projectedPlacement = RtsEngine.projectBuildPlacementFromSnapshot({
-      width: input.width,
-      height: input.height,
-      teamBuildZoneProjectionInputs: input.teamBuildZoneProjectionInputs,
-      template: input.template,
-      x: input.x,
-      y: input.y,
-      transformInput: input.transformInput,
-    });
-
-    if (projectedPlacement.reason) {
-      return {
-        projection: projectedPlacement.projection,
-        reason: projectedPlacement.reason,
-      };
-    }
-
-    let diffCells: number;
-    try {
-      diffCells = RtsEngine.compareTemplateAgainstGrid(
-        input.grid,
-        projectedPlacement.projection.templateGrid,
-        projectedPlacement.projection.bounds,
-      );
-    } catch {
-      return {
-        projection: projectedPlacement.projection,
-        reason: 'template-compare-failed',
-      };
-    }
-
-    const needed = diffCells + input.templateActivationCost;
-    const affordability = RtsEngine.evaluateAffordability(
-      needed,
-      input.teamResources,
-    );
-
-    if (!affordability.affordable) {
-      return {
-        projection: projectedPlacement.projection,
-        diffCells,
-        affordability,
-        reason: 'insufficient-resources',
-      };
-    }
-
-    return {
-      projection: projectedPlacement.projection,
-      diffCells,
-      affordability,
-    };
+    return evaluateBuildPlacementFromSnapshotKernel(input);
   }
 
   private static evaluateBuildPlacement(
@@ -2259,20 +2085,7 @@ export class RtsEngine {
   private static getBuildPreviewErrorMessage(
     reason: BuildRejectionReason | undefined,
   ): string | undefined {
-    if (reason === 'outside-territory') {
-      return 'Outside build zone - build closer to your structures.';
-    }
-    if (reason === 'template-exceeds-map-size') {
-      return 'Template exceeds map size';
-    }
-    if (reason === 'insufficient-resources') {
-      return 'Insufficient resources';
-    }
-    if (reason === 'template-compare-failed') {
-      return 'Unable to compare template with current state';
-    }
-
-    return undefined;
+    return getBuildPreviewErrorMessageKernel(reason);
   }
 
   private static createRejectedBuildPreviewResult(options: {
@@ -2283,39 +2096,14 @@ export class RtsEngine {
     y: number;
     transformInput: PlacementTransformInput | null | undefined;
   }): BuildPreviewResult {
-    return {
-      accepted: false,
-      error: options.error,
-      reason: options.reason,
-      ...RtsEngine.createEmptyBuildProjection(
-        options.x,
-        options.y,
-        options.transformInput,
-      ),
-      affordable: false,
-      needed: 0,
-      current: options.currentResources,
-      deficit: 0,
-    };
+    return createRejectedBuildPreviewResultKernel(options);
   }
 
   private static createBuildPreviewResult(
     evaluation: EvaluatedBuildPlacement,
     currentResources: number,
   ): BuildPreviewResult {
-    return {
-      accepted: evaluation.reason === undefined,
-      reason: evaluation.reason,
-      error: RtsEngine.getBuildPreviewErrorMessage(evaluation.reason),
-      transform: evaluation.projection.transform,
-      footprint: evaluation.projection.footprint,
-      illegalCells: evaluation.projection.illegalCells,
-      bounds: evaluation.projection.bounds,
-      affordable: evaluation.affordability?.affordable ?? false,
-      needed: evaluation.affordability?.needed ?? 0,
-      current: evaluation.affordability?.current ?? currentResources,
-      deficit: evaluation.affordability?.deficit ?? 0,
-    };
+    return createBuildPreviewResultKernel(evaluation, currentResources);
   }
 
   public static previewBuildPlacementFromSnapshot(
