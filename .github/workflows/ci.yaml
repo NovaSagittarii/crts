@@ -21,7 +21,6 @@ jobs:
         # suppress prepare script, pre-commit install; prefer-offline to use cache?
 
   format:
-    needs: [setup]
     runs-on: ubuntu-latest
     steps:
       - *checkout
@@ -30,7 +29,6 @@ jobs:
       - run: npm run format:check # fairly quick, needs prettier installed
 
   lint:
-    needs: [setup]
     runs-on: ubuntu-latest
     steps:
       - *checkout
@@ -39,7 +37,6 @@ jobs:
       - run: npm run lint # kind of slow compared to tests
 
   test:
-    needs: [setup]
     runs-on: ubuntu-latest
     steps:
       - *checkout
