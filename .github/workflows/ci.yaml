@@ -17,7 +17,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
       - &npmci
-        run: npm ci --ignore-scripts # suppress prepare script, pre-commit install
+        run: npm ci --ignore-scripts --prefer-offline
+        # suppress prepare script, pre-commit install; prefer-offline to use cache?
 
   format:
     needs: [setup]
