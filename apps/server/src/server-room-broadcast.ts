@@ -9,6 +9,7 @@ import {
   type DestroyQueueRejectedPayload,
   type DestroyQueuedPayload,
   type DeterminismHashAlgorithm,
+  FNV1A_32_OFFSET_BASIS,
   type LobbyRoom,
   type LockstepCheckpointPayload,
   type LockstepFallbackPayload,
@@ -20,6 +21,8 @@ import {
   type RoomStatus,
   type RtsRoom,
   type ServerToClientEvents,
+  formatDeterminismHashHex,
+  hashUtf16StringBytes,
 } from '#rts-engine';
 
 import { LobbySessionCoordinator } from './lobby-session.js';
@@ -49,19 +52,10 @@ export interface RoomMembershipHash {
   hashHex: string;
 }
 
-const FNV_OFFSET_BASIS = 2166136261;
-const FNV_PRIME = 16777619;
-
 function hashMembershipString(value: string): string {
-  let hash = FNV_OFFSET_BASIS;
-
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    hash = Math.imul((hash ^ (code & 0xff)) >>> 0, FNV_PRIME) >>> 0;
-    hash = Math.imul((hash ^ ((code >>> 8) & 0xff)) >>> 0, FNV_PRIME) >>> 0;
-  }
-
-  return hash.toString(16).padStart(8, '0');
+  return formatDeterminismHashHex(
+    hashUtf16StringBytes(FNV1A_32_OFFSET_BASIS, value),
+  );
 }
 
 function compareKeys(left: string, right: string): number {

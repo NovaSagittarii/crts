@@ -1,5 +1,6 @@
 export * from './geometry.js';
 export * from './gameplay-rules.js';
+export * from './determinism-hash.js';
 export * from './build-zone.js';
 export * from './structure.js';
 export * from './lobby.js';

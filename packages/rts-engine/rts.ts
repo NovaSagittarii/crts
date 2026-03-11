@@ -7,6 +7,14 @@ import {
   collectIllegalBuildZoneCells,
 } from './build-zone.js';
 import {
+  FNV1A_32_OFFSET_BASIS,
+  FNV1A_32_PRIME,
+  formatDeterminismHashHex,
+  hashFNV1aByte,
+  hashUtf16CodeUnits,
+  hashUtf16StringBytes,
+} from './determinism-hash.js';
+import {
   DEFAULT_QUEUE_DELAY_TICKS,
   DEFAULT_SPAWN_CAPACITY,
   DEFAULT_STARTING_RESOURCES,
@@ -462,9 +470,9 @@ interface BuildPlacementSnapshotEvaluationInput extends BuildPlacementSnapshotPr
 type IntegrityOutcomeCategory = 'repaired' | 'destroyed-debris' | 'core-defeat';
 
 export class RtsEngine {
-  private static readonly FNV_OFFSET_BASIS = 2166136261;
+  private static readonly FNV_OFFSET_BASIS = FNV1A_32_OFFSET_BASIS;
 
-  private static readonly FNV_PRIME = 16777619;
+  private static readonly FNV_PRIME = FNV1A_32_PRIME;
 
   private static readonly aliveIntegrityPatch = new Grid(
     1,
@@ -516,17 +524,14 @@ export class RtsEngine {
     width: number,
     height: number,
   ): number {
-    let hash = 2166136261;
-    const input = `${roomId}:${width}x${height}`;
-    for (let index = 0; index < input.length; index += 1) {
-      hash ^= input.charCodeAt(index);
-      hash = Math.imul(hash, 16777619);
-    }
-    return hash >>> 0;
+    return hashUtf16CodeUnits(
+      RtsEngine.FNV_OFFSET_BASIS,
+      `${roomId}:${width}x${height}`,
+    );
   }
 
   private static hashByte(hash: number, value: number): number {
-    return Math.imul((hash ^ (value & 0xff)) >>> 0, RtsEngine.FNV_PRIME) >>> 0;
+    return hashFNV1aByte(hash, value);
   }
 
   private static hashInt32(hash: number, value: number): number {
@@ -556,13 +561,7 @@ export class RtsEngine {
   }
 
   private static hashString(hash: number, value: string): number {
-    let next = RtsEngine.hashInt32(hash, value.length);
-    for (let index = 0; index < value.length; index += 1) {
-      const code = value.charCodeAt(index);
-      next = RtsEngine.hashByte(next, code & 0xff);
-      next = RtsEngine.hashByte(next, (code >>> 8) & 0xff);
-    }
-    return next;
+    return hashUtf16StringBytes(RtsEngine.hashInt32(hash, value.length), value);
   }
 
   private static hashBytes(hash: number, values: Uint8Array): number {
@@ -626,7 +625,7 @@ export class RtsEngine {
   }
 
   private static formatHashHex(hash: number): string {
-    return hash.toString(16).padStart(8, '0');
+    return formatDeterminismHashHex(hash);
   }
 
   private static evaluateAffordability(
