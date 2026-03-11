@@ -3,7 +3,6 @@ import { describe, expect } from 'vitest';
 import type {
   BuildOutcomePayload,
   BuildQueuedPayload,
-  DestroyOutcomePayload,
   DestroyQueuedPayload,
   LockstepCheckpointPayload,
   LockstepFallbackPayload,
