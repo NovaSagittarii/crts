@@ -14,6 +14,7 @@ import { createIntegrationTest } from './fixtures.js';
 import {
   waitForEvent,
   waitForMembership,
+  waitForRoomList,
   waitForRoomState,
 } from './test-support.js';
 
@@ -150,6 +151,177 @@ describe('lobby room/team contract', () => {
         ({ sessionId }) => sessionId === spectatorJoined.playerId,
       )?.role,
     ).toBe('spectator');
+  });
+
+  test('rejects unknown room joins and invalid slot claims', async ({
+    connectClient,
+  }) => {
+    const owner = connectClient();
+    await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
+
+    owner.emit('room:join', { roomId: 'missing-room-id' });
+    const missingRoomById = await waitForEvent<RoomErrorPayload>(
+      owner,
+      'room:error',
+    );
+    expect(missingRoomById).toMatchObject({
+      roomId: null,
+      reason: 'room-not-found',
+      message: 'Room not found',
+    });
+
+    owner.emit('room:join', { roomCode: 'ZZZZZZ' });
+    const missingRoomByCode = await waitForEvent<RoomErrorPayload>(
+      owner,
+      'room:error',
+    );
+    expect(missingRoomByCode).toMatchObject({
+      roomId: null,
+      reason: 'room-not-found',
+      message: 'Room not found',
+    });
+
+    owner.emit('room:create', {
+      name: 'Invalid Slot Room',
+      width: 48,
+      height: 48,
+    });
+    const created = await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
+
+    owner.emit('room:claim-slot', { slotId: 'missing-slot' });
+    const missingSlot = await waitForEvent<RoomErrorPayload>(
+      owner,
+      'room:error',
+    );
+    expect(missingSlot).toMatchObject({
+      roomId: created.roomId,
+      reason: 'invalid-slot',
+      message: 'Selected team slot does not exist',
+    });
+
+    owner.emit('room:claim-slot', { slotId: '   ' });
+    const malformedSlot = await waitForEvent<RoomErrorPayload>(
+      owner,
+      'room:error',
+    );
+    expect(malformedSlot).toMatchObject({
+      reason: 'invalid-slot',
+      message: 'Invalid slot id',
+    });
+  });
+
+  test('auto-claims requested slots during room:join and updates room membership', async ({
+    connectClient,
+  }) => {
+    const owner = connectClient();
+    await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
+
+    owner.emit('room:create', {
+      name: 'Auto Claim Room',
+      width: 48,
+      height: 48,
+    });
+    const created = await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
+
+    owner.emit('room:claim-slot', { slotId: 'team-1' });
+    const ownerClaimed = await waitForEvent<RoomSlotClaimedPayload>(
+      owner,
+      'room:slot-claimed',
+    );
+    expect(ownerClaimed.slotId).toBe('team-1');
+
+    const guest = connectClient();
+    await waitForEvent<RoomJoinedPayload>(guest, 'room:joined');
+
+    const guestClaimedPromise = waitForEvent<RoomSlotClaimedPayload>(
+      guest,
+      'room:slot-claimed',
+    );
+    guest.emit('room:join', { roomId: created.roomId, slotId: 'team-2' });
+    const guestJoined = await waitForEvent<RoomJoinedPayload>(
+      guest,
+      'room:joined',
+    );
+    const guestClaimed = await guestClaimedPromise;
+
+    expect(guestJoined.roomId).toBe(created.roomId);
+    expect(guestClaimed).toMatchObject({
+      roomId: created.roomId,
+      slotId: 'team-2',
+    });
+    expect(guestClaimed.teamId).not.toBeNull();
+
+    const membership = await waitForMembership(
+      owner,
+      created.roomId,
+      (payload) =>
+        payload.slots['team-1'] === created.playerId &&
+        payload.slots['team-2'] === guestJoined.playerId,
+    );
+    expect(
+      membership.participants.find(
+        ({ sessionId }) => sessionId === guestJoined.playerId,
+      )?.role,
+    ).toBe('player');
+
+    const roomState = await waitForRoomState(owner, created.roomId, (payload) =>
+      payload.teams.some(({ playerIds }) =>
+        playerIds.includes(guestJoined.playerId),
+      ),
+    );
+    expect(
+      roomState.teams.some(({ playerIds }) =>
+        playerIds.includes(guestJoined.playerId),
+      ),
+    ).toBe(true);
+  });
+
+  test('removes empty custom rooms from room:list broadcasts and refreshes', async ({
+    connectClient,
+  }) => {
+    const owner = connectClient();
+    await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
+
+    const watcher = connectClient();
+    await waitForEvent<RoomJoinedPayload>(watcher, 'room:joined');
+
+    owner.emit('room:create', {
+      name: 'Temporary Room',
+      width: 48,
+      height: 48,
+    });
+    const created = await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
+
+    watcher.emit('room:list');
+    const listedRooms = await waitForRoomList(
+      watcher,
+      (entries) => entries.some(({ roomId }) => roomId === created.roomId),
+      { attempts: 8 },
+    );
+    expect(listedRooms.some(({ roomId }) => roomId === created.roomId)).toBe(
+      true,
+    );
+
+    const removedBroadcastPromise = waitForRoomList(
+      watcher,
+      (entries) => !entries.some(({ roomId }) => roomId === created.roomId),
+      { attempts: 12 },
+    );
+    owner.emit('room:leave');
+    const removedBroadcast = await removedBroadcastPromise;
+    expect(
+      removedBroadcast.some(({ roomId }) => roomId === created.roomId),
+    ).toBe(false);
+
+    watcher.emit('room:list');
+    const removedRefresh = await waitForRoomList(
+      watcher,
+      (entries) => !entries.some(({ roomId }) => roomId === created.roomId),
+      { attempts: 8 },
+    );
+    expect(removedRefresh.some(({ roomId }) => roomId === created.roomId)).toBe(
+      false,
+    );
   });
 
   test('supports configured multi-seat teams with shared team ids', async ({

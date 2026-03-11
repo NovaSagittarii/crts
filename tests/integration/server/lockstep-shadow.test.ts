@@ -48,6 +48,50 @@ const test = createLockstepTest(
   {},
   { clockMode: 'manual' },
 );
+const shadowUnavailableTest = createLockstepTest(
+  {
+    port: 0,
+    width: 52,
+    height: 52,
+    tickMs: 40,
+    lockstepMode: 'shadow',
+    lockstepCheckpointIntervalTicks: 1,
+    testHooks: {
+      lockstep: {
+        forceFallbackReason: 'shadow-unavailable',
+      },
+    },
+  },
+  {
+    roomName: 'Shadow Unavailable Room',
+    hostSessionId: 'shadow-unavailable-host',
+    guestSessionId: 'shadow-unavailable-guest',
+  },
+  {},
+  { clockMode: 'manual' },
+);
+const hashMismatchTest = createLockstepTest(
+  {
+    port: 0,
+    width: 52,
+    height: 52,
+    tickMs: 40,
+    lockstepMode: 'shadow',
+    lockstepCheckpointIntervalTicks: 1,
+    testHooks: {
+      lockstep: {
+        forceFallbackReason: 'hash-mismatch',
+      },
+    },
+  },
+  {
+    roomName: 'Hash Mismatch Room',
+    hostSessionId: 'hash-mismatch-host',
+    guestSessionId: 'hash-mismatch-guest',
+  },
+  {},
+  { clockMode: 'manual' },
+);
 
 function resolveTeamForPlayer(
   teams: TeamPayload[],
@@ -61,6 +105,108 @@ function resolveTeamForPlayer(
 }
 
 describe('lockstep shadow mode', () => {
+  shadowUnavailableTest(
+    'falls back when the shadow runtime is unavailable at match start',
+    async ({ connectedRoom, startLockstepMatch }) => {
+      const fallbackPromise = waitForEvent<LockstepFallbackPayload>(
+        connectedRoom.host,
+        'lockstep:fallback',
+        4_000,
+      );
+      const guestFallbackPromise = waitForEvent<LockstepFallbackPayload>(
+        connectedRoom.guest,
+        'lockstep:fallback',
+        4_000,
+      );
+      const membershipPromise = waitForMembership(
+        connectedRoom.host,
+        connectedRoom.roomId,
+        (payload) =>
+          payload.status === 'active' &&
+          payload.lockstep?.mode === 'off' &&
+          payload.lockstep.status === 'fallback' &&
+          payload.lockstep.lastFallbackReason === 'shadow-unavailable' &&
+          payload.lockstep.mismatchCount === 0,
+      );
+
+      await startLockstepMatch(connectedRoom);
+
+      const fallback = await fallbackPromise;
+      expect(fallback).toMatchObject({
+        roomId: connectedRoom.roomId,
+        fromMode: 'shadow',
+        reason: 'shadow-unavailable',
+        mismatchCount: 0,
+      });
+      expect(fallback.checkpoint).toBeUndefined();
+      await expect(guestFallbackPromise).resolves.toMatchObject({
+        roomId: connectedRoom.roomId,
+        fromMode: 'shadow',
+        reason: 'shadow-unavailable',
+        mismatchCount: 0,
+      });
+
+      await membershipPromise;
+    },
+    20_000,
+  );
+
+  hashMismatchTest(
+    'falls back when the shadow checkpoint hash mismatches',
+    async ({ clock, connectedRoom, startLockstepMatch }) => {
+      const match = await startLockstepMatch(connectedRoom);
+      const fallbackPromise = waitForEvent<LockstepFallbackPayload>(
+        match.host,
+        'lockstep:fallback',
+        4_000,
+      );
+      const guestFallbackPromise = waitForEvent<LockstepFallbackPayload>(
+        match.guest,
+        'lockstep:fallback',
+        4_000,
+      );
+
+      await clock.advanceTicks(1);
+
+      const fallback = await fallbackPromise;
+      expect(fallback).toMatchObject({
+        roomId: match.roomId,
+        fromMode: 'shadow',
+        reason: 'hash-mismatch',
+        mismatchCount: 1,
+      });
+      expect(fallback.checkpoint?.hashHex).toMatch(/^[0-9a-f]{8}$/);
+      await expect(guestFallbackPromise).resolves.toMatchObject({
+        roomId: match.roomId,
+        fromMode: 'shadow',
+        reason: 'hash-mismatch',
+        mismatchCount: 1,
+      });
+
+      await clock.advanceMs(SHADOW_STATE_REQUEST_ADVANCE_MS);
+      const membershipPromise = waitForMembership(
+        match.host,
+        match.roomId,
+        (payload) =>
+          payload.status === 'active' &&
+          payload.lockstep?.mode === 'off' &&
+          payload.lockstep.status === 'fallback' &&
+          payload.lockstep.lastFallbackReason === 'hash-mismatch' &&
+          payload.lockstep.mismatchCount === 1,
+      );
+      match.host.emit('state:request', { sections: ['membership'] });
+
+      const membership = await membershipPromise;
+      expect(membership.lockstep?.lastPrimaryHash).toBe(
+        fallback.checkpoint?.hashHex,
+      );
+      expect(membership.lockstep?.lastShadowHash).not.toBe(
+        membership.lockstep?.lastPrimaryHash,
+      );
+    },
+    20_000,
+  );
+
   test('keeps a two-player match in lockstep during normal queue flow', async ({
     clock,
     connectedRoom,

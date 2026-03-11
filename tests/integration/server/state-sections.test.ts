@@ -3,6 +3,8 @@ import { describe, expect } from 'vitest';
 import type {
   BuildQueuedPayload,
   RoomGridStatePayload,
+  RoomJoinedPayload,
+  RoomMembershipPayload,
   RoomStateHashesPayload,
   RoomStructuresStatePayload,
 } from '#rts-engine';
@@ -14,6 +16,7 @@ import {
   observeEvents,
   waitForBuildQueueResponse,
   waitForEvent,
+  waitForMembership,
   waitForNoEvent,
   waitForState,
   waitForStateGrid,
@@ -193,6 +196,98 @@ describe('section sync and queued fanout', () => {
           ({ eventId }) => eventId === queued.queued.eventId,
         ),
       ).toBe(true);
+    },
+    25_000,
+  );
+
+  sectionsMatchTest(
+    'serves membership sections only to the requester and re-serves after membership hash changes',
+    async ({ activeMatch, connectClient, integration }) => {
+      const setup = activeMatch;
+
+      await integration.clock.advanceMs(STATE_REQUEST_ADVANCE_MS);
+      await integration.clock.flush();
+      const guestMembershipObserver = observeEvents<RoomMembershipPayload>(
+        setup.guest,
+        'room:membership',
+      );
+      const requestedMembershipObserver = observeEvents<RoomMembershipPayload>(
+        setup.host,
+        'room:membership',
+      );
+
+      setup.host.emit('state:request', { sections: ['membership'] });
+      await integration.clock.flush();
+
+      expect(requestedMembershipObserver.events).toHaveLength(1);
+      const initialMembership = requestedMembershipObserver.events[0];
+
+      expect(initialMembership.roomId).toBe(setup.roomId);
+      requestedMembershipObserver.stop();
+      expect(guestMembershipObserver.events).toHaveLength(0);
+      guestMembershipObserver.stop();
+
+      const duplicateMembershipObserver = observeEvents<RoomMembershipPayload>(
+        setup.host,
+        'room:membership',
+      );
+      setup.host.emit('state:request', { sections: ['membership'] });
+      await integration.clock.flush();
+      expect(duplicateMembershipObserver.events).toHaveLength(0);
+
+      await integration.clock.advanceMs(120);
+      setup.host.emit('state:request', { sections: ['membership'] });
+      await integration.clock.flush();
+      expect(duplicateMembershipObserver.events).toHaveLength(0);
+      duplicateMembershipObserver.stop();
+
+      const spectator = connectClient({ sessionId: 'sections-spectator' });
+      await waitForEvent<RoomJoinedPayload>(spectator, 'room:joined');
+      spectator.emit('room:join', { roomId: setup.roomId });
+      const spectatorJoined = await waitForEvent<RoomJoinedPayload>(
+        spectator,
+        'room:joined',
+      );
+
+      const updatedMembership = await waitForMembership(
+        setup.host,
+        setup.roomId,
+        (payload) =>
+          payload.participants.some(
+            ({ sessionId }) => sessionId === spectatorJoined.playerId,
+          ),
+        { overallTimeoutMs: 8_000 },
+      );
+      expect(updatedMembership.membershipHash).not.toBe(
+        initialMembership.membershipHash,
+      );
+
+      await integration.clock.advanceMs(120);
+      const guestUpdatedMembershipObserver =
+        observeEvents<RoomMembershipPayload>(setup.guest, 'room:membership');
+      const refreshedMembershipObserver = observeEvents<RoomMembershipPayload>(
+        setup.host,
+        'room:membership',
+      );
+      setup.host.emit('state:request', { sections: ['membership'] });
+      await integration.clock.flush();
+
+      expect(refreshedMembershipObserver.events).toHaveLength(1);
+      const refreshedMembership = refreshedMembershipObserver.events[0];
+
+      expect(refreshedMembership.membershipHash).toBe(
+        updatedMembership.membershipHash,
+      );
+      expect(
+        refreshedMembership.participants.some(
+          ({ sessionId }) => sessionId === spectatorJoined.playerId,
+        ),
+      ).toBe(true);
+
+      await integration.clock.flush();
+      expect(guestUpdatedMembershipObserver.events).toHaveLength(0);
+      refreshedMembershipObserver.stop();
+      guestUpdatedMembershipObserver.stop();
     },
     25_000,
   );
