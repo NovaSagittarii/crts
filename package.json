@@ -25,7 +25,7 @@
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "prelint": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
-    "lint": "eslint .",
+    "lint": "eslint --cache .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run --config vitest.config.ts",
     "test:unit": "vitest run --config vitest.config.ts --dir packages",

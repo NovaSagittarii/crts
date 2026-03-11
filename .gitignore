@@ -5,3 +5,5 @@ opencode.jsonc
 node_modules/
 coverage/
 dist/
+
+.eslintcache
