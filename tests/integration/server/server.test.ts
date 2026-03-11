@@ -3,6 +3,7 @@ import { describe, expect } from 'vitest';
 import {
   type BuildQueuedPayload,
   type DestroyQueuedPayload,
+  type RoomErrorPayload,
   type RoomGridStatePayload,
   type RoomJoinedPayload,
   type RoomLeftPayload,
@@ -89,6 +90,10 @@ const partyRoomTest = createIntegrationTest({
   width: 40,
   height: 40,
   tickMs: 40,
+});
+const lobbyMutationTest = createIntegrationTest({
+  ...defaultServerOptions,
+  countdownSeconds: 3,
 });
 
 function getTeam(state: RoomStatePayload, teamId: number): TeamPayload {
@@ -197,6 +202,75 @@ describe('GameServer', () => {
 
       expect(guestGridObserver.events).toHaveLength(0);
       guestGridObserver.stop();
+    },
+    20_000,
+  );
+
+  lobbyMutationTest(
+    'rejects gameplay mutations before the match becomes active',
+    async ({ connectClient }) => {
+      const owner = connectClient({ sessionId: 'lobby-mutation-owner' });
+      await waitForEvent<RoomJoinedPayload>(owner, 'room:joined');
+
+      owner.emit('room:create', {
+        name: 'Lobby Mutation Room',
+        width: 52,
+        height: 52,
+      });
+      const created = await waitForEvent<RoomJoinedPayload>(
+        owner,
+        'room:joined',
+      );
+
+      await claimSlot(owner, 'team-1');
+
+      const claimedState = await waitForRoomState(
+        owner,
+        created.roomId,
+        (state) =>
+          state.roomId === created.roomId &&
+          state.teams.some(({ playerIds }) =>
+            playerIds.includes(created.playerId),
+          ),
+      );
+      const ownedTeam = claimedState.teams.find(({ playerIds }) =>
+        playerIds.includes(created.playerId),
+      );
+      const ownedStructure = ownedTeam?.structures[0];
+      const blockTemplate = created.templates.find(({ id }) => id === 'block');
+      if (!ownedStructure || !blockTemplate) {
+        throw new Error('Expected claimed team structure and block template');
+      }
+
+      const buildErrorPromise = waitForEvent<RoomErrorPayload>(
+        owner,
+        'room:error',
+      );
+      owner.emit('build:queue', {
+        templateId: blockTemplate.id,
+        x: 1,
+        y: 1,
+        delayTicks: 1,
+      });
+      await expect(buildErrorPromise).resolves.toMatchObject({
+        roomId: created.roomId,
+        reason: 'invalid-state',
+        message: 'Gameplay mutations are only allowed during active matches',
+      });
+
+      const destroyErrorPromise = waitForEvent<RoomErrorPayload>(
+        owner,
+        'room:error',
+      );
+      owner.emit('destroy:queue', {
+        structureKey: ownedStructure.key,
+        delayTicks: 1,
+      });
+      await expect(destroyErrorPromise).resolves.toMatchObject({
+        roomId: created.roomId,
+        reason: 'invalid-state',
+        message: 'Gameplay mutations are only allowed during active matches',
+      });
     },
     20_000,
   );
@@ -940,6 +1014,80 @@ describe('GameServer', () => {
       expect(staleDestroyRejected.reason).toBe('invalid-lifecycle-state');
     },
     40_000,
+  );
+
+  matchTest(
+    'rejects gameplay mutations from spectators during active matches',
+    async ({ activeMatch, connectClient }) => {
+      const setup = activeMatch;
+      const spectator = connectClient({ sessionId: 'active-match-spectator' });
+      await waitForEvent<RoomJoinedPayload>(spectator, 'room:joined');
+
+      spectator.emit('room:join', { roomId: setup.roomId });
+      await waitForEvent<RoomJoinedPayload>(spectator, 'room:joined');
+
+      const blockTemplate = setup.hostJoined.templates.find(
+        ({ id }) => id === 'block',
+      );
+      if (!blockTemplate) {
+        throw new Error('Expected block template to be available');
+      }
+
+      const [placement] = collectCandidatePlacements(
+        setup.hostTeam,
+        blockTemplate,
+        setup.hostJoined.state.width,
+        setup.hostJoined.state.height,
+      );
+      if (!placement) {
+        throw new Error('Expected a valid block placement');
+      }
+
+      const currentState = await waitForRoomState(
+        setup.host,
+        setup.roomId,
+        (state) =>
+          state.roomId === setup.roomId &&
+          state.teams.some(({ id }) => id === setup.hostTeam.id),
+        { attempts: 20 },
+      );
+      const hostStructure = getTeam(currentState, setup.hostTeam.id)
+        .structures[0];
+      if (!hostStructure) {
+        throw new Error('Expected host team to own at least one structure');
+      }
+
+      const buildErrorPromise = waitForEvent<RoomErrorPayload>(
+        spectator,
+        'room:error',
+      );
+      spectator.emit('build:queue', {
+        templateId: blockTemplate.id,
+        x: placement.x,
+        y: placement.y,
+        delayTicks: 1,
+      });
+      await expect(buildErrorPromise).resolves.toMatchObject({
+        roomId: setup.roomId,
+        reason: 'not-player',
+        message: 'Only assigned players can issue gameplay mutations',
+      });
+
+      const destroyErrorPromise = waitForEvent<RoomErrorPayload>(
+        spectator,
+        'room:error',
+      );
+      spectator.emit('destroy:queue', {
+        structureKey: hostStructure.key,
+        delayTicks: 1,
+      });
+      await expect(destroyErrorPromise).resolves.toMatchObject({
+        roomId: setup.roomId,
+        reason: 'not-player',
+        message: 'Only assigned players can issue gameplay mutations',
+      });
+    },
+    20_000,
   );
 
   matchTest(

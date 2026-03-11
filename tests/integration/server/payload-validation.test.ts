@@ -10,6 +10,7 @@ import type {
 import { type ConnectClient, createIntegrationTest } from './fixtures.js';
 import { createMatchTest } from './match-fixtures.js';
 import {
+  collectCandidatePlacements,
   waitForBuildQueueResponse,
   waitForDestroyQueueResponse,
   waitForEvent,
@@ -60,6 +61,20 @@ const matchTest = createMatchTest(serverOptions, {
   hostSessionId: 'validation-host',
   guestSessionId: 'validation-guest',
 });
+const tinyMapMatchTest = createMatchTest(
+  {
+    ...serverOptions,
+    width: 24,
+    height: 24,
+  },
+  {
+    roomName: 'Validation Tiny Match Room',
+    width: 24,
+    height: 24,
+    hostSessionId: 'validation-tiny-host',
+    guestSessionId: 'validation-tiny-guest',
+  },
+);
 
 describe('socket payload validation', () => {
   async function createLobbyRoom(
@@ -183,6 +198,103 @@ describe('socket payload validation', () => {
       10_000,
     );
   }
+
+  matchTest(
+    'emits semantic build rejection reasons for valid-but-unqueueable payloads',
+    async ({ activeMatch }) => {
+      const blockTemplate = activeMatch.hostJoined.templates.find(
+        ({ id }) => id === 'block',
+      );
+      if (!blockTemplate) {
+        throw new Error('Expected block template to be available');
+      }
+
+      const [validPlacement] = collectCandidatePlacements(
+        activeMatch.hostTeam,
+        blockTemplate,
+        serverOptions.width,
+        serverOptions.height,
+      );
+      if (!validPlacement) {
+        throw new Error('Expected a valid block placement');
+      }
+
+      const { x: validX, y: validY } = validPlacement;
+
+      const semanticCases = [
+        {
+          label: 'unknown template',
+          payload: {
+            templateId: 'not-a-template',
+            x: validX,
+            y: validY,
+          },
+          reason: 'unknown-template',
+        },
+        {
+          label: 'invalid coordinates',
+          payload: {
+            templateId: 'block',
+            x: validX + 0.5,
+            y: validY,
+          },
+          reason: 'invalid-coordinates',
+        },
+        {
+          label: 'invalid delay',
+          payload: {
+            templateId: 'block',
+            x: validX,
+            y: validY,
+            delayTicks: 1.5,
+          },
+          reason: 'invalid-delay',
+        },
+      ] as const;
+
+      for (const semanticCase of semanticCases) {
+        const responsePromise = waitForBuildQueueResponse(
+          activeMatch.host,
+          4_000,
+        );
+
+        activeMatch.host.emit('build:queue', semanticCase.payload);
+
+        const response = await responsePromise;
+        expect('error' in response, semanticCase.label).toBe(true);
+        if ('error' in response) {
+          expect(response.error.reason, semanticCase.label).toBe(
+            semanticCase.reason,
+          );
+        }
+      }
+    },
+    10_000,
+  );
+
+  tinyMapMatchTest(
+    'rejects templates that exceed the map size with semantic queue errors',
+    async ({ activeMatch }) => {
+      const responsePromise = waitForBuildQueueResponse(
+        activeMatch.host,
+        4_000,
+      );
+
+      activeMatch.host.emit('build:queue', {
+        templateId: 'gosper',
+        x: 0,
+        y: 0,
+        delayTicks: 1,
+      });
+
+      const response = await responsePromise;
+      expect('error' in response).toBe(true);
+      if ('error' in response) {
+        expect(response.error.reason).toBe('template-exceeds-map-size');
+      }
+    },
+    10_000,
+  );
 
   for (const { label, payload } of INVALID_DESTROY_CASES) {
     matchTest(

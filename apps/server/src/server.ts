@@ -92,6 +92,17 @@ type ClearTimeoutHook = (timer: TimeoutHandle) => void;
 
 type ClientAssetsMode = 'optional' | 'strict';
 
+interface LockstepTestHooks {
+  forceFallbackReason?: Extract<
+    LockstepFallbackReason,
+    'hash-mismatch' | 'shadow-unavailable'
+  >;
+}
+
+export interface ServerTestHooks {
+  lockstep?: LockstepTestHooks;
+}
+
 export interface ServerOptions {
   port?: number;
   width?: number;
@@ -112,6 +123,7 @@ export interface ServerOptions {
   clearInterval?: ClearIntervalHook;
   setTimeout?: SetTimeoutHook;
   clearTimeout?: ClearTimeoutHook;
+  testHooks?: ServerTestHooks;
 }
 
 type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
@@ -207,6 +219,15 @@ function sanitizePlayerName(value: unknown, fallback: string): string {
   }
 
   return trimmed.slice(0, 24);
+}
+
+function perturbHashHex(hashHex: string): string {
+  if (hashHex.length === 0) {
+    return '1';
+  }
+
+  const firstChar = hashHex[0] === '0' ? '1' : '0';
+  return `${firstChar}${hashHex.slice(1)}`;
 }
 
 function parseRoomDimension(value: unknown, fallback: number): number {
@@ -504,6 +525,8 @@ export function createServer(options: ServerOptions = {}): GameServer {
     4,
     512,
   );
+  const forcedLockstepFallbackReason =
+    options.testHooks?.lockstep?.forceFallbackReason ?? null;
   const activeStateSnapshotIntervalTicks = parseBoundedInteger(
     options.activeStateSnapshotIntervalTicks,
     DEFAULT_ACTIVE_STATE_SNAPSHOT_INTERVAL_TICKS,
@@ -1140,6 +1163,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
     lockstepRuntime.checkpoints = [];
 
     if (lockstepRuntime.mode === 'shadow') {
+      if (forcedLockstepFallbackReason === 'shadow-unavailable') {
+        fallbackToLegacyLockstep(room, 'shadow-unavailable');
+        return;
+      }
+
       try {
         lockstepRuntime.shadowRoom = createShadowRoom(room);
       } catch {
@@ -1359,8 +1387,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
       }
 
       const shadowCheckpoint = shadowRoom.createDeterminismCheckpoint();
-      lockstepRuntime.lastShadowHash = shadowCheckpoint.hashHex;
-      if (shadowCheckpoint.hashHex !== checkpoint.hashHex) {
+      const effectiveShadowHash =
+        forcedLockstepFallbackReason === 'hash-mismatch'
+          ? perturbHashHex(shadowCheckpoint.hashHex)
+          : shadowCheckpoint.hashHex;
+      lockstepRuntime.lastShadowHash = effectiveShadowHash;
+      if (effectiveShadowHash !== checkpoint.hashHex) {
         lockstepRuntime.mismatchCount += 1;
         fallbackToLegacyLockstep(room, 'hash-mismatch', checkpoint);
         return;
