@@ -27,8 +27,6 @@ import {
   type LockstepFallbackReason,
   type LockstepMode,
   type LockstepStatusPayload,
-  type PlacementTransformInput,
-  type PlacementTransformOperation,
   type PlayerProfilePayload,
   type QueueBuildResult,
   type QueueDestroyResult,
@@ -52,6 +50,7 @@ import {
   transitionMatchLifecycle,
 } from '#rts-engine';
 
+import { parseBuildPayload } from './build-payload.js';
 import {
   LobbySessionCoordinator,
   type PlayerSession,
@@ -320,70 +319,6 @@ function parseReadyPayload(payload: unknown): boolean | null {
 
   const value = (payload as Partial<RoomSetReadyPayload>).ready;
   return typeof value === 'boolean' ? value : null;
-}
-
-const PLACEMENT_TRANSFORM_OPERATIONS = new Set<PlacementTransformOperation>([
-  'rotate',
-  'mirror-horizontal',
-  'mirror-vertical',
-]);
-
-function parsePlacementTransformInput(
-  value: unknown,
-): PlacementTransformInput | undefined | null {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-
-  const operationsValue = (value as { operations?: unknown }).operations;
-  if (!Array.isArray(operationsValue)) {
-    return null;
-  }
-
-  const operations: PlacementTransformOperation[] = [];
-  for (const candidate of operationsValue) {
-    if (typeof candidate !== 'string') {
-      return null;
-    }
-    if (
-      !PLACEMENT_TRANSFORM_OPERATIONS.has(
-        candidate as PlacementTransformOperation,
-      )
-    ) {
-      return null;
-    }
-    operations.push(candidate as PlacementTransformOperation);
-  }
-
-  return { operations };
-}
-
-function parseBuildPayload(payload: unknown): BuildQueuePayload | null {
-  if (!payload || typeof payload !== 'object') {
-    return null;
-  }
-
-  const templateIdValue = (payload as { templateId?: unknown }).templateId;
-  const transform = parsePlacementTransformInput(
-    (payload as { transform?: unknown }).transform,
-  );
-  if (transform === null) {
-    return null;
-  }
-
-  return {
-    templateId: typeof templateIdValue === 'string' ? templateIdValue : '',
-    x: Number((payload as { x?: unknown }).x),
-    y: Number((payload as { y?: unknown }).y),
-    delayTicks:
-      (payload as { delayTicks?: unknown }).delayTicks === undefined
-        ? undefined
-        : Number((payload as { delayTicks?: unknown }).delayTicks),
-    transform,
-  };
 }
 
 function parseDestroyPayload(payload: unknown): DestroyQueuePayload | null {
