@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  setup-and-build-server:
+  npmci:
     runs-on: ubuntu-latest
     steps:
       - &checkout
@@ -14,14 +14,20 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 22
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
+          # cache: 'npm'
+          # cache-dependency-path: package-lock.json
       - &npmci
-        run: npm ci --ignore-scripts --prefer-offline
-        # suppress prepare script, pre-commit install; prefer-offline to use cache?
-      - run: npm run build:server # not really used in tests, but server should build
+        uses: actions/cache@v4
+        id: cache-node_modules
+        with:
+          path: node_modules/
+          key: ${{ runner.os }}-node_modules-${{ hashFiles('**/package-lock.json') }}
+      - if: steps.cache-node_modules.outputs.cache-hit != 'true'
+        run: npm ci --ignore-scripts
+        # suppress prepare script, pre-commit install
 
   format:
+    needs: [npmci]
     runs-on: ubuntu-latest
     steps:
       - *checkout
@@ -30,6 +36,7 @@ jobs:
       - run: npm run format:check # fairly quick, needs prettier installed
 
   lint:
+    needs: [npmci]
     runs-on: ubuntu-latest
     steps:
       - *checkout
@@ -38,6 +45,7 @@ jobs:
       - run: npm run lint # kind of slow compared to tests
 
   test:
+    needs: [npmci]
     runs-on: ubuntu-latest
     steps:
       - *checkout
@@ -45,3 +53,12 @@ jobs:
       - *npmci
       - run: npm run build # build artifacts used for server smoke-test
       - run: npm run test
+
+  build-server:
+    needs: [npmci]
+    runs-on: ubuntu-latest
+    steps:
+      - *checkout
+      - *setupnode
+      - *npmci
+      - run: npm run build:server # not really used in tests, but server should build

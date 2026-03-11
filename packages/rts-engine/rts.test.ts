@@ -5,6 +5,7 @@ import { Grid } from '#conway-core';
 import {
   DEFAULT_QUEUE_DELAY_TICKS,
   MAX_DELAY_TICKS,
+  SPAWN_MIN_WRAPPED_DISTANCE,
 } from './gameplay-rules.js';
 import {
   BASE_FOOTPRINT_HEIGHT,
@@ -32,6 +33,7 @@ import {
   requireTeamPayload,
 } from './rts-test-support.js';
 import { type BuildPreviewSnapshotInput, RtsEngine, RtsRoom } from './rts.js';
+import { wrappedDelta } from './spawn.js';
 import { StructureTemplate } from './structure.js';
 
 type RoomState = ReturnType<typeof RtsEngine.createRoomState>;
@@ -230,6 +232,41 @@ describe('rts', () => {
         teams: 1,
       },
     ]);
+  });
+
+  test('keeps spawned team bases separated by the gameplay minimum distance', () => {
+    const room = RtsEngine.createRoomState({
+      id: 'spawn-separation',
+      name: 'Spawn Separation',
+      width: 80,
+      height: 80,
+    });
+
+    RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+    RtsEngine.addPlayerToRoom(room, 'p2', 'Bob');
+    RtsEngine.addPlayerToRoom(room, 'p3', 'Cory');
+    RtsEngine.addPlayerToRoom(room, 'p4', 'Dana');
+
+    const teams = [...room.teams.values()];
+    for (let index = 0; index < teams.length; index += 1) {
+      for (let other = index + 1; other < teams.length; other += 1) {
+        const current = teams[index];
+        const candidate = teams[other];
+        const dx = wrappedDelta(
+          current.baseTopLeft.x + BASE_FOOTPRINT_WIDTH / 2,
+          candidate.baseTopLeft.x + BASE_FOOTPRINT_WIDTH / 2,
+          room.width,
+        );
+        const dy = wrappedDelta(
+          current.baseTopLeft.y + BASE_FOOTPRINT_HEIGHT / 2,
+          candidate.baseTopLeft.y + BASE_FOOTPRINT_HEIGHT / 2,
+          room.height,
+        );
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        expect(distance).toBeGreaterThanOrEqual(SPAWN_MIN_WRAPPED_DISTANCE);
+      }
+    }
   });
 
   test('renames and removes room players with team cleanup', () => {

@@ -1,4 +1,5 @@
-// import { BASE_FOOTPRINT_WIDTH } from './geometry.js';
+import { BASE_FOOTPRINT_HEIGHT, BASE_FOOTPRINT_WIDTH } from './geometry.js';
+import { CORE_TEMPLATE_PADDING } from './structure.js';
 
 export const DEFAULT_STARTING_RESOURCES = 40;
 export const DEFAULT_TEAM_TERRITORY_RADIUS = 12;
@@ -11,5 +12,16 @@ export const BUILD_ZONE_DISTANCE_SHAPE: BuildZoneDistanceShape = 'euclidean';
 export const INTEGRITY_CHECK_INTERVAL_TICKS = 4;
 export const INTEGRITY_HP_COST_PER_CELL = 1;
 
-// export const SPAWN_MIN_WRAPPED_DISTANCE = BASE_FOOTPRINT_WIDTH * 3;
-export const SPAWN_MIN_WRAPPED_DISTANCE = 25;
+export function calculateSpawnMinWrappedDistance(
+  baseWidth: number,
+  baseHeight: number,
+  basePadding: number,
+): number {
+  return baseWidth + baseHeight + basePadding;
+}
+
+export const SPAWN_MIN_WRAPPED_DISTANCE = calculateSpawnMinWrappedDistance(
+  BASE_FOOTPRINT_WIDTH,
+  BASE_FOOTPRINT_HEIGHT,
+  CORE_TEMPLATE_PADDING,
+);
