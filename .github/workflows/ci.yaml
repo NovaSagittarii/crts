@@ -14,11 +14,16 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 22
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
+          # cache: 'npm'
+          # cache-dependency-path: package-lock.json
+      - run: npm ci --ignore-scripts
+        # suppress prepare script, pre-commit install
       - &npmci
-        run: npm ci --ignore-scripts --prefer-offline
-        # suppress prepare script, pre-commit install; prefer-offline to use cache?
+        uses: actions/cache@v4
+        id: cache-node_modules
+        with:
+          path: node_modules/
+          key: ${{ runner.os }}-node_modules-${{ hashFiles('**/package-lock.json') }}
       - run: npm run build:server # not really used in tests, but server should build
 
   format:
