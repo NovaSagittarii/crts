@@ -5,14 +5,43 @@ on:
   pull_request:
 
 jobs:
-  node-ci:
+  setup-and-build-server:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
-      - run: npm ci --ignore-scripts # suppress prepare script, pre-commit install
+      - &checkout
+        uses: actions/checkout@v6
+      - &setupnode
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - &npmci
+        run: npm ci --ignore-scripts --prefer-offline
+        # suppress prepare script, pre-commit install; prefer-offline to use cache?
+      - run: npm run build:server # not really used in tests, but server should build
+
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - *checkout
+      - *setupnode
+      - *npmci
       - run: npm run format:check # fairly quick, needs prettier installed
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - *checkout
+      - *setupnode
+      - *npmci
+      - run: npm run lint # kind of slow compared to tests
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - *checkout
+      - *setupnode
+      - *npmci
       - run: npm run build # build artifacts used for server smoke-test
       - run: npm run test
-      - run: npm run lint # kind of slow compared to tests
-      - run: npm run build:server # not really used in tests, but server should build
