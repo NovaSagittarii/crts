@@ -25,6 +25,16 @@ describe('structure', () => {
     expect(first[0]).not.toBe(second[0]);
   });
 
+  test('keeps default generator templates on the empty checks path', () => {
+    const generator = createDefaultStructureTemplates().find(
+      (template) => template.id === 'generator',
+    );
+
+    expect(generator).toBeDefined();
+    expect(generator?.checks).toEqual([]);
+    expect(generator?.toPayload().checks).toEqual([]);
+  });
+
   test('clones grid-backed template input during construction', () => {
     const sourceGrid = new Grid(2, 2, [{ x: 0, y: 0 }], 'flat');
 

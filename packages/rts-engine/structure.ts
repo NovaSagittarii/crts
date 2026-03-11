@@ -417,7 +417,6 @@ interface StructureTemplateRowsOptions {
   startingHp?: number;
   requiresDestroyConfirm?: boolean;
   padding?: number;
-  checked?: boolean;
 }
 
 function createGridFromPackedTemplate(template: PackedTemplateGrid): Grid {
@@ -443,7 +442,6 @@ function createTemplateFromRows({
   startingHp = 0,
   requiresDestroyConfirm = false,
   padding = 0,
-  checked: _checked = false,
 }: StructureTemplateRowsOptions): StructureTemplate {
   const parsed = parseTemplateRows(rows);
   const padded = padTemplateGrid(parsed, padding);
@@ -456,7 +454,7 @@ function createTemplateFromRows({
     income,
     buildRadius,
     startingHp,
-    checks: [], // TODO: wire checked/checks behavior if needed.
+    checks: [],
     requiresDestroyConfirm,
   });
 }
@@ -491,7 +489,6 @@ export function createDefaultStructureTemplates(): StructureTemplate[] {
       income: 1,
       startingHp: 20,
       padding: 1,
-      checked: true,
     }),
     createTemplateFromRows({
       id: 'glider',
