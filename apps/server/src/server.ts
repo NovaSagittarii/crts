@@ -738,38 +738,118 @@ export function createServer(options: ServerOptions = {}): GameServer {
       : bufferedTurn;
   }
 
-  function requirePendingBuildEvent(
-    room: RuntimeRoom,
-    teamId: number,
+  interface QueueRequestContext<TPayload> {
+    room: RuntimeRoom;
+    sessionId: string;
+    team: TeamState;
+    parsedPayload: TPayload;
+    intentId: string;
+    bufferedTurn: number;
+    scheduledByTurn: number;
+  }
+
+  function requirePendingQueueEvent<TEvent extends { id: number }>(
+    events: readonly TEvent[] | undefined,
     eventId: number,
-  ) {
-    const team = room.rtsRoom.state.teams.get(teamId);
-    const event = team?.pendingBuildEvents.find(
-      (candidate) => candidate.id === eventId,
-    );
+    errorMessage: string,
+  ): TEvent {
+    const event = events?.find((candidate) => candidate.id === eventId);
     if (!event) {
-      throw new Error(
-        `Missing pending build event ${eventId} for team ${teamId}`,
-      );
+      throw new Error(errorMessage);
     }
+
     return event;
   }
 
-  function requirePendingDestroyEvent(
-    room: RuntimeRoom,
-    teamId: number,
-    eventId: number,
-  ) {
-    const team = room.rtsRoom.state.teams.get(teamId);
-    const event = team?.pendingDestroyEvents.find(
-      (candidate) => candidate.id === eventId,
-    );
-    if (!event) {
+  function requireAcceptedQueueMetadata(
+    kind: 'build' | 'destroy',
+    result: Pick<
+      QueueBuildResult | QueueDestroyResult,
+      'eventId' | 'executeTick'
+    >,
+  ): { eventId: number; executeTick: number } {
+    if (result.eventId === undefined || result.executeTick === undefined) {
       throw new Error(
-        `Missing pending destroy event ${eventId} for team ${teamId}`,
+        `Accepted ${kind} queue result is missing canonical event metadata`,
       );
     }
-    return event;
+
+    return {
+      eventId: result.eventId,
+      executeTick: result.executeTick,
+    };
+  }
+
+  function validateQueueRequest<TPayload>(
+    socket: GameSocket,
+    session: PlayerSession,
+    payload: unknown,
+    options: {
+      parsePayload: (value: unknown) => TPayload | null;
+      invalidPayloadMessage: string;
+      invalidPayloadReason: RoomErrorPayload['reason'];
+    },
+  ): QueueRequestContext<TPayload> | null {
+    if (!ensureCurrentSocket(socket, session)) {
+      return null;
+    }
+
+    const room = getRoomOrNull(session.roomId);
+    if (!room) {
+      roomError(socket, 'Join a room first', 'not-in-room');
+      return null;
+    }
+
+    const gate = assertGameplayMutationAllowed(room, session.id);
+    if (!gate.allowed) {
+      roomError(
+        socket,
+        gate.message ?? 'Gameplay mutation rejected',
+        gate.reason,
+        getRuntimeRoomId(room),
+      );
+      return null;
+    }
+
+    if (!gate.team) {
+      roomError(
+        socket,
+        'Only assigned players can issue gameplay mutations',
+        'not-player',
+        getRuntimeRoomId(room),
+      );
+      return null;
+    }
+
+    const parsedPayload = options.parsePayload(payload);
+    if (!parsedPayload) {
+      roomError(
+        socket,
+        options.invalidPayloadMessage,
+        options.invalidPayloadReason,
+        getRuntimeRoomId(room),
+      );
+      return null;
+    }
+
+    const bufferedTurn = getBufferedTurn(room);
+
+    return {
+      room,
+      sessionId: session.id,
+      team: gate.team,
+      parsedPayload,
+      intentId: allocateIntentId(room.lockstepRuntime),
+      bufferedTurn,
+      scheduledByTurn: getScheduledByTurn(room, bufferedTurn),
+    };
+  }
+
+  function createQueueDelayTicks(
+    room: RuntimeRoom,
+    executeTick: number,
+  ): number {
+    return Math.max(1, executeTick - room.rtsRoom.state.tick);
   }
 
   function createBuildQueuedPayload(
@@ -780,13 +860,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
     scheduledByTurn: number,
     result: QueueBuildResult,
   ): BuildQueuedPayload {
-    if (result.eventId === undefined || result.executeTick === undefined) {
-      throw new Error(
-        'Accepted build queue result is missing canonical event metadata',
-      );
-    }
-
-    const event = requirePendingBuildEvent(room, teamId, result.eventId);
+    const { eventId } = requireAcceptedQueueMetadata('build', result);
+    const event = requirePendingQueueEvent(
+      room.rtsRoom.state.teams.get(teamId)?.pendingBuildEvents,
+      eventId,
+      `Missing pending build event ${eventId} for team ${teamId}`,
+    );
 
     return {
       roomId: room.rtsRoom.id,
@@ -799,7 +878,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       x: event.x,
       y: event.y,
       transform: event.transform,
-      delayTicks: Math.max(1, event.executeTick - room.rtsRoom.state.tick),
+      delayTicks: createQueueDelayTicks(room, event.executeTick),
       eventId: event.id,
       executeTick: event.executeTick,
     };
@@ -813,13 +892,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
     scheduledByTurn: number,
     result: QueueDestroyResult,
   ): DestroyQueuedPayload {
-    if (result.eventId === undefined || result.executeTick === undefined) {
-      throw new Error(
-        'Accepted destroy queue result is missing canonical event metadata',
-      );
-    }
-
-    const event = requirePendingDestroyEvent(room, teamId, result.eventId);
+    const { eventId } = requireAcceptedQueueMetadata('destroy', result);
+    const event = requirePendingQueueEvent(
+      room.rtsRoom.state.teams.get(teamId)?.pendingDestroyEvents,
+      eventId,
+      `Missing pending destroy event ${eventId} for team ${teamId}`,
+    );
 
     return {
       roomId: room.rtsRoom.id,
@@ -828,7 +906,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       teamId: event.teamId,
       bufferedTurn,
       scheduledByTurn,
-      delayTicks: Math.max(1, event.executeTick - room.rtsRoom.state.tick),
+      delayTicks: createQueueDelayTicks(room, event.executeTick),
       structureKey: event.structureKey,
       eventId: event.id,
       executeTick: event.executeTick,
@@ -2115,6 +2193,36 @@ export function createServer(options: ServerOptions = {}): GameServer {
     return 'destroy-rejected';
   }
 
+  function bufferQueuedMutationCommand<
+    TPayload extends BuildQueuePayload | DestroyQueuePayload,
+  >(
+    room: RuntimeRoom,
+    context: QueueRequestContext<TPayload>,
+    options: {
+      kind: 'build' | 'destroy';
+      clonePayload: (payload: TPayload) => TPayload;
+      result: Pick<
+        QueueBuildResult | QueueDestroyResult,
+        'accepted' | 'executeTick' | 'reason'
+      >;
+    },
+  ): void {
+    bufferLockstepCommand(room, {
+      intentId: context.intentId,
+      bufferedTurn: context.bufferedTurn,
+      scheduledByTurn: context.scheduledByTurn,
+      kind: options.kind,
+      sessionId: context.sessionId,
+      teamId: context.team.id,
+      payload: options.clonePayload(context.parsedPayload),
+      expectedAccepted: options.result.accepted,
+      expectedExecuteTick: options.result.executeTick ?? null,
+      expectedReason: options.result.accepted
+        ? null
+        : (options.result.reason ?? null),
+    });
+  }
+
   function createRoomFromPayload(payload: unknown): RuntimeRoom {
     const roomPayload = (payload ?? {}) as RoomCreatePayload;
     const roomId = roomCounter.toString();
@@ -2497,67 +2605,32 @@ export function createServer(options: ServerOptions = {}): GameServer {
     });
 
     socket.on('build:queue', (payload: unknown) => {
-      if (!ensureCurrentSocket(socket, session)) {
+      const queueRequest = validateQueueRequest(socket, session, payload, {
+        parsePayload: parseBuildPayload,
+        invalidPayloadMessage: 'Invalid build payload',
+        invalidPayloadReason: 'invalid-build',
+      });
+      if (!queueRequest) {
         return;
       }
 
-      const room = getRoomOrNull(session.roomId);
-      if (!room) {
-        roomError(socket, 'Join a room first', 'not-in-room');
-        return;
-      }
-
-      const gate = assertGameplayMutationAllowed(room, session.id);
-      if (!gate.allowed) {
-        roomError(
-          socket,
-          gate.message ?? 'Gameplay mutation rejected',
-          gate.reason,
-          getRuntimeRoomId(room),
-        );
-        return;
-      }
-
-      if (!gate.team) {
-        roomError(
-          socket,
-          'Only assigned players can issue gameplay mutations',
-          'not-player',
-          getRuntimeRoomId(room),
-        );
-        return;
-      }
-
-      const team = gate.team;
-
-      const parsedPayload = parseBuildPayload(payload);
-      if (!parsedPayload) {
-        roomError(
-          socket,
-          'Invalid build payload',
-          'invalid-build',
-          getRuntimeRoomId(room),
-        );
-        return;
-      }
-
-      const lockstepRuntime = room.lockstepRuntime;
-      const intentId = allocateIntentId(lockstepRuntime);
-      const bufferedTurn = getBufferedTurn(room);
-      const scheduledByTurn = getScheduledByTurn(room, bufferedTurn);
-
-      const result = room.rtsRoom.queueBuildEvent(session.id, parsedPayload);
-      bufferLockstepCommand(room, {
+      const {
+        room,
+        team,
+        parsedPayload,
         intentId,
         bufferedTurn,
         scheduledByTurn,
+      } = queueRequest;
+
+      const result = room.rtsRoom.queueBuildEvent(
+        queueRequest.sessionId,
+        parsedPayload,
+      );
+      bufferQueuedMutationCommand(room, queueRequest, {
         kind: 'build',
-        sessionId: session.id,
-        teamId: team.id,
-        payload: cloneBuildQueuePayload(parsedPayload),
-        expectedAccepted: result.accepted,
-        expectedExecuteTick: result.executeTick ?? null,
-        expectedReason: result.accepted ? null : (result.reason ?? null),
+        clonePayload: cloneBuildQueuePayload,
+        result,
       });
 
       if (!result.accepted) {
@@ -2567,7 +2640,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           createBuildQueueRejectedPayload(
             room,
             team.id,
-            session.id,
+            queueRequest.sessionId,
             intentId,
             reason,
             reason === 'insufficient-resources'
@@ -2592,68 +2665,34 @@ export function createServer(options: ServerOptions = {}): GameServer {
     });
 
     socket.on('destroy:queue', (payload: unknown) => {
-      if (!ensureCurrentSocket(socket, session)) {
+      const queueRequest = validateQueueRequest(socket, session, payload, {
+        parsePayload: parseDestroyPayload,
+        invalidPayloadMessage: 'Invalid destroy payload',
+        invalidPayloadReason: 'invalid-build',
+      });
+      if (!queueRequest) {
         return;
       }
 
-      const room = getRoomOrNull(session.roomId);
-      if (!room) {
-        roomError(socket, 'Join a room first', 'not-in-room');
-        return;
-      }
-
-      const gate = assertGameplayMutationAllowed(room, session.id);
-      if (!gate.allowed) {
-        roomError(
-          socket,
-          gate.message ?? 'Gameplay mutation rejected',
-          gate.reason,
-          getRuntimeRoomId(room),
-        );
-        return;
-      }
-
-      if (!gate.team) {
-        roomError(
-          socket,
-          'Only assigned players can issue gameplay mutations',
-          'not-player',
-          getRuntimeRoomId(room),
-        );
-        return;
-      }
-
-      const team = gate.team;
-
-      const parsedPayload = parseDestroyPayload(payload);
-      if (!parsedPayload) {
-        roomError(
-          socket,
-          'Invalid destroy payload',
-          'invalid-build',
-          getRuntimeRoomId(room),
-        );
-        return;
-      }
-
-      const lockstepRuntime = room.lockstepRuntime;
-      const intentId = allocateIntentId(lockstepRuntime);
-      const bufferedTurn = getBufferedTurn(room);
-      const scheduledByTurn = getScheduledByTurn(room, bufferedTurn);
-
-      const result = room.rtsRoom.queueDestroyEvent(session.id, parsedPayload);
-      bufferLockstepCommand(room, {
+      const {
+        room,
+        team,
+        parsedPayload,
         intentId,
         bufferedTurn,
         scheduledByTurn,
+      } = queueRequest;
+
+      const result = room.rtsRoom.queueDestroyEvent(
+        queueRequest.sessionId,
+        parsedPayload,
+      );
+      bufferQueuedMutationCommand(room, queueRequest, {
         kind: 'destroy',
-        sessionId: session.id,
-        teamId: team.id,
-        payload: cloneDestroyQueuePayload(parsedPayload),
-        expectedAccepted: result.accepted,
-        expectedExecuteTick: result.executeTick ?? null,
-        expectedReason: result.accepted ? null : (result.reason ?? null),
+        clonePayload: cloneDestroyQueuePayload,
+        result,
       });
+
       if (!result.accepted) {
         const reason = resolveQueueDestroyRejectionReason(result);
         emitDestroyQueueRejected(
@@ -2661,7 +2700,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
           createDestroyQueueRejectedPayload(
             room,
             team.id,
-            session.id,
+            queueRequest.sessionId,
             intentId,
             parsedPayload.structureKey,
             reason,
