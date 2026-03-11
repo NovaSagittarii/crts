@@ -1,9 +1,7 @@
 import { describe, expect } from 'vitest';
 
 import type {
-  BuildQueueRejectedPayload,
   BuildQueuedPayload,
-  DestroyQueueRejectedPayload,
   DestroyQueuedPayload,
   LockstepCheckpointPayload,
   LockstepFallbackPayload,

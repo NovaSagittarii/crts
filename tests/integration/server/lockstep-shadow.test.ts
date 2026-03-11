@@ -52,7 +52,7 @@ function resolveTeamForPlayer(
 }
 
 describe('lockstep shadow mode', () => {
-  test('emits checkpoints and avoids fallback during normal queue flow', async ({
+  test('keeps a two-player match in lockstep during normal queue flow', async ({
     clock,
     connectedRoom,
   }) => {
@@ -140,6 +140,11 @@ describe('lockstep shadow mode', () => {
       'build:queued',
     );
     const queuedPromise = waitForBuildQueueResponse(host, 3_000);
+    const guestQueuedPromise = waitForEvent<BuildQueuedPayload>(
+      guest,
+      'build:queued',
+      3_000,
+    );
     const secondCheckpointPromise = waitForEvent<LockstepCheckpointPayload>(
       host,
       'lockstep:checkpoint',
@@ -164,12 +169,19 @@ describe('lockstep shadow mode', () => {
     queuedObserver.stop();
     expect(queuedObserver.events.length).toBeGreaterThan(0);
 
-    const queued = await queuedPromise;
+    const [queued, guestQueued] = await Promise.all([
+      queuedPromise,
+      guestQueuedPromise,
+    ]);
     if ('error' in queued) {
       throw new Error(
         `Build queue rejected: ${queued.error.reason ?? queued.error.message}`,
       );
     }
+
+    expect(guestQueued).toEqual(queued.queued);
+    expect(guestQueued.playerId).toBe(hostRejoined.playerId);
+    expect(guestQueued.teamId).toBe(team.id);
 
     const secondCheckpoint = await secondCheckpointPromise;
     expect(secondCheckpoint.tick).toBeGreaterThanOrEqual(firstCheckpoint.tick);
