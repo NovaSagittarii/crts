@@ -2714,12 +2714,22 @@ export class RtsEngine {
     room: RoomState,
   ): RoomDeterminismCheckpoint {
     const hashes = RtsEngine.createStateHashes(room);
+    let checkpointHash = RtsEngine.hashStateRoomScope(
+      RtsEngine.FNV_OFFSET_BASIS,
+      room,
+    );
+    checkpointHash = RtsEngine.hashString(checkpointHash, hashes.gridHash);
+    checkpointHash = RtsEngine.hashString(
+      checkpointHash,
+      hashes.structuresHash,
+    );
+    checkpointHash = RtsEngine.hashString(checkpointHash, hashes.economyHash);
 
     return {
       tick: room.tick,
       generation: room.generation,
       hashAlgorithm: 'fnv1a-32',
-      hashHex: hashes.gridHash,
+      hashHex: RtsEngine.formatHashHex(checkpointHash),
     };
   }
 

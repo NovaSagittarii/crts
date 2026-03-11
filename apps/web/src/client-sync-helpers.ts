@@ -1,5 +1,11 @@
 export type AuthoritativePreviewSection = 'full' | 'grid' | 'structures';
 
+export type GameplayEventSyncKind =
+  | 'build:queued'
+  | 'build:outcome'
+  | 'destroy:queued'
+  | 'destroy:outcome';
+
 export interface AuthoritativePreviewRefreshState {
   full: number | null;
   grid: number | null;
@@ -50,4 +56,10 @@ export function recordAuthoritativePreviewRefresh(
     ...state,
     [section]: tick,
   };
+}
+
+export function getStateRequestSectionsForGameplayEvent(
+  _event: GameplayEventSyncKind,
+): undefined {
+  return undefined;
 }

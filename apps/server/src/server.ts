@@ -74,7 +74,7 @@ const COUNTDOWN_SECONDS = 3;
 const MEMBERSHIP_RESYNC_INTERVAL_MS = 300;
 const FINISHED_ROOM_RESYNC_INTERVAL_MS = 500;
 const DEFAULT_LOCKSTEP_TURN_TICKS = 1;
-const DEFAULT_LOCKSTEP_CHECKPOINT_INTERVAL_TICKS = 4;
+const DEFAULT_LOCKSTEP_CHECKPOINT_INTERVAL_TICKS = 50;
 const DEFAULT_LOCKSTEP_MAX_BUFFERED_TURNS = 64;
 const DEFAULT_ACTIVE_STATE_SNAPSHOT_INTERVAL_TICKS = 50;
 const STATE_REQUEST_MIN_INTERVAL_MS = 100;
@@ -1097,18 +1097,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
     }
 
     const fromMode = lockstepRuntime.mode;
-    const pendingPrimaryCommands =
-      fromMode === 'primary' && reason === 'turn-buffer-overflow'
-        ? [...lockstepRuntime.turnBuffer.values()]
-            .flat()
-            .sort((left, right) => {
-              if (left.turn !== right.turn) {
-                return left.turn - right.turn;
-              }
-
-              return left.sequence - right.sequence;
-            })
-        : [];
 
     lockstepRuntime.mode = 'off';
     lockstepRuntime.status = 'fallback';
@@ -1132,10 +1120,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
       checkpoint,
       mismatchCount: lockstepRuntime.mismatchCount,
     });
-
-    if (pendingPrimaryCommands.length > 0) {
-      executeBufferedCommands(room, pendingPrimaryCommands);
-    }
   }
 
   function initializeLockstepForMatch(room: RuntimeRoom): void {
@@ -1256,134 +1240,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
     return true;
   }
 
-  function executeBufferedCommand(
-    room: RuntimeRoom,
-    command: BufferedLockstepCommand,
-  ): void {
-    if (command.kind === 'build') {
-      const queueResult = room.rtsRoom.queueBuildEvent(
-        command.sessionId,
-        command.payload as BuildQueuePayload,
-      );
-
-      if (!queueResult.accepted) {
-        emitBuildQueueRejected(
-          room,
-          createBuildQueueRejectedPayload(
-            room,
-            command.teamId,
-            command.sessionId,
-            command.intentId,
-            resolveQueueBuildRejectionReason(queueResult),
-            getAffordabilityMetadata(queueResult),
-          ),
-        );
-        return;
-      }
-
-      emitBuildQueued(
-        room,
-        createBuildQueuedPayload(
-          room,
-          command.teamId,
-          command.intentId,
-          command.bufferedTurn,
-          command.scheduledByTurn,
-          queueResult,
-        ),
-      );
-      return;
-    }
-
-    const queueResult = room.rtsRoom.queueDestroyEvent(
-      command.sessionId,
-      command.payload as DestroyQueuePayload,
-    );
-
-    if (!queueResult.accepted) {
-      emitDestroyQueueRejected(
-        room,
-        createDestroyQueueRejectedPayload(
-          room,
-          command.teamId,
-          command.sessionId,
-          command.intentId,
-          (command.payload as DestroyQueuePayload).structureKey,
-          resolveQueueDestroyRejectionReason(queueResult),
-        ),
-      );
-      return;
-    }
-
-    emitDestroyQueued(
-      room,
-      createDestroyQueuedPayload(
-        room,
-        command.teamId,
-        command.intentId,
-        command.bufferedTurn,
-        command.scheduledByTurn,
-        queueResult,
-      ),
-    );
-  }
-
-  function executeBufferedCommands(
-    room: RuntimeRoom,
-    bufferedCommands: readonly BufferedLockstepCommand[],
-  ): void {
-    for (const command of bufferedCommands) {
-      executeBufferedCommand(room, command);
-    }
-  }
-
   function rejectPendingBufferedCommandsOnFinish(room: RuntimeRoom): void {
     const lockstepRuntime = room.lockstepRuntime;
     if (lockstepRuntime.turnBuffer.size === 0) {
       return;
-    }
-
-    const pendingPrimaryCommands = [...lockstepRuntime.turnBuffer.entries()]
-      .flatMap(([turn, commands]) =>
-        commands.map((command) => ({
-          turn,
-          sequence: command.sequence,
-          command,
-        })),
-      )
-      .sort((left, right) =>
-        left.turn === right.turn
-          ? left.sequence - right.sequence
-          : left.turn - right.turn,
-      )
-      .map((entry) => entry.command);
-
-    for (const command of pendingPrimaryCommands) {
-      if (command.kind === 'build') {
-        emitBuildQueueRejected(
-          room,
-          createBuildQueueRejectedPayload(
-            room,
-            command.teamId,
-            command.sessionId,
-            command.intentId,
-            'match-finished',
-          ),
-        );
-        continue;
-      }
-
-      emitDestroyQueueRejected(
-        room,
-        createDestroyQueueRejectedPayload(
-          room,
-          command.teamId,
-          command.sessionId,
-          command.intentId,
-          (command.payload as DestroyQueuePayload).structureKey,
-          'match-finished',
-        ),
-      );
     }
 
     lockstepRuntime.turnBuffer.clear();
@@ -1421,8 +1281,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
     );
     lockstepRuntime.lastFlushedTurn = turn;
     lockstepRuntime.nextTurn = currentTurn;
-
-    executeBufferedCommands(room, bufferedCommands);
 
     syncLockstepStatus(room);
   }
@@ -2655,27 +2513,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
       const intentId = allocateIntentId(lockstepRuntime);
       const bufferedTurn = getBufferedTurn(room);
       const scheduledByTurn = getScheduledByTurn(room, bufferedTurn);
-      if (
-        lockstepRuntime.mode === 'primary' &&
-        lockstepRuntime.status === 'running'
-      ) {
-        if (
-          bufferLockstepCommand(room, {
-            intentId,
-            bufferedTurn,
-            scheduledByTurn,
-            kind: 'build',
-            sessionId: session.id,
-            teamId: team.id,
-            payload: cloneBuildQueuePayload(parsedPayload),
-            expectedAccepted: false,
-            expectedExecuteTick: null,
-            expectedReason: null,
-          })
-        ) {
-          return;
-        }
-      }
 
       const result = room.rtsRoom.queueBuildEvent(session.id, parsedPayload);
       bufferLockstepCommand(room, {
@@ -2771,27 +2608,6 @@ export function createServer(options: ServerOptions = {}): GameServer {
       const intentId = allocateIntentId(lockstepRuntime);
       const bufferedTurn = getBufferedTurn(room);
       const scheduledByTurn = getScheduledByTurn(room, bufferedTurn);
-      if (
-        lockstepRuntime.mode === 'primary' &&
-        lockstepRuntime.status === 'running'
-      ) {
-        if (
-          bufferLockstepCommand(room, {
-            intentId,
-            bufferedTurn,
-            scheduledByTurn,
-            kind: 'destroy',
-            sessionId: session.id,
-            teamId: team.id,
-            payload: cloneDestroyQueuePayload(parsedPayload),
-            expectedAccepted: false,
-            expectedExecuteTick: null,
-            expectedReason: null,
-          })
-        ) {
-          return;
-        }
-      }
 
       const result = room.rtsRoom.queueDestroyEvent(session.id, parsedPayload);
       bufferLockstepCommand(room, {

@@ -24,6 +24,7 @@ import {
   waitForDestroyQueueResponse,
   waitForEvent,
   waitForMembership,
+  waitForNoEvent,
   waitForState,
   waitForStateStructures,
 } from './test-support.js';
@@ -32,7 +33,6 @@ const PRIMARY_BOUNDARY_TICK_MS = 30;
 const PRIMARY_BOUNDARY_TURN_TICKS = 20;
 const PRIMARY_FINISH_ADVANCE_LIMIT_TICKS = 55;
 const PRIMARY_STATE_REQUEST_ADVANCE_MS = 100;
-const PRIMARY_FLUSH_ADVANCE_LIMIT_TICKS = 5;
 
 async function advanceUntilObservedCount(
   clock: { advanceTicks(ticks: number): Promise<void> },
@@ -169,7 +169,7 @@ function resolveTeamForPlayer(
 
 describe('lockstep primary mode', () => {
   primaryTest(
-    'buffers queue commands and emits checkpoints without fallback',
+    'rebroadcasts accepted queued commands immediately and emits checkpoints without fallback',
     async ({ connectedRoom, startLockstepMatch }) => {
       expect(connectedRoom.hostJoined.lockstep?.mode).toBe('primary');
       expect(connectedRoom.hostJoined.lockstep?.status).toBe('running');
@@ -207,9 +207,10 @@ describe('lockstep primary mode', () => {
       await connectedRoom.clock.advanceMs(PRIMARY_STATE_REQUEST_ADVANCE_MS);
       const state = await statePromise;
       const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
-      const queuedObserver = observeEvents<BuildQueuedPayload>(
-        match.host,
+      const guestQueuedPromise = waitForEvent<BuildQueuedPayload>(
+        match.guest,
         'build:queued',
+        4_000,
       );
       const secondCheckpointPromise = waitForEvent<LockstepCheckpointPayload>(
         match.host,
@@ -224,24 +225,17 @@ describe('lockstep primary mode', () => {
         y: team.baseTopLeft.y + 8,
       });
 
-      for (
-        let advancedTicks = 0;
-        advancedTicks < PRIMARY_FLUSH_ADVANCE_LIMIT_TICKS &&
-        queuedObserver.events.length === 0;
-        advancedTicks += 1
-      ) {
-        await connectedRoom.clock.advanceTicks(1);
-      }
-
-      expect(queuedObserver.events.length).toBeGreaterThan(0);
-      queuedObserver.stop();
-
-      const queued = await queuedPromise;
+      const [queued, guestQueued] = await Promise.all([
+        queuedPromise,
+        guestQueuedPromise,
+      ]);
       if ('error' in queued) {
         throw new Error(
           `Build queue rejected: ${queued.error.reason ?? queued.error.message}`,
         );
       }
+
+      expect(guestQueued).toEqual(queued.queued);
 
       const secondCheckpoint = await secondCheckpointPromise;
       expect(secondCheckpoint.tick).toBeGreaterThanOrEqual(
@@ -257,7 +251,7 @@ describe('lockstep primary mode', () => {
   );
 
   boundaryTest(
-    'uses turn boundaries for primary queue flush when turn ticks > 1',
+    'rebroadcasts accepted queued commands before the next turn boundary when turn ticks > 1',
     async ({ connectedRoom, startLockstepMatch }) => {
       const match = await startLockstepMatch(connectedRoom);
       const statePromise = waitForState(
@@ -300,9 +294,10 @@ describe('lockstep primary mode', () => {
           ? PRIMARY_BOUNDARY_TURN_TICKS
           : PRIMARY_BOUNDARY_TURN_TICKS - ticksIntoTurn;
       const preFlushTicks = Math.max(1, ticksUntilTurnFlush - 2);
-      const queuedObserver = observeEvents<BuildQueuedPayload>(
-        match.host,
+      const guestQueuedPromise = waitForEvent<BuildQueuedPayload>(
+        match.guest,
         'build:queued',
+        5_000,
       );
       const queuedPromise = waitForBuildQueueResponse(match.host, 5_000);
 
@@ -312,95 +307,36 @@ describe('lockstep primary mode', () => {
         y: placement.y,
       });
 
-      await connectedRoom.clock.advanceTicks(preFlushTicks);
-
-      expect(queuedObserver.events).toHaveLength(0);
-
-      const preFlushState = await waitForState(
-        match.host,
-        (payload) => {
-          if (payload.roomId !== match.roomId) {
-            return false;
-          }
-          const hostTeam = resolveTeamForPlayer(
-            payload.teams,
-            match.hostJoined.playerId,
-          );
-          return (
-            hostTeam.resources === initialResources &&
-            hostTeam.pendingBuilds.length === 0
-          );
-        },
-        {
-          roomId: match.roomId,
-          attempts: 20,
-          timeoutMs: 2_000,
-        },
-      );
-      expect(
-        resolveTeamForPlayer(preFlushState.teams, match.hostJoined.playerId)
-          .resources,
-      ).toBe(initialResources);
-
-      await connectedRoom.clock.advanceTicks(2);
-      for (
-        let advancedTicks = 0;
-        advancedTicks < PRIMARY_FLUSH_ADVANCE_LIMIT_TICKS &&
-        queuedObserver.events.length === 0;
-        advancedTicks += 1
-      ) {
-        await connectedRoom.clock.advanceTicks(1);
-      }
-
-      expect(queuedObserver.events.length).toBeGreaterThan(0);
-      queuedObserver.stop();
-
-      const queued = await queuedPromise;
+      const [queued, guestQueued] = await Promise.all([
+        queuedPromise,
+        guestQueuedPromise,
+      ]);
       if ('error' in queued) {
         throw new Error(
           `Build queue rejected: ${queued.error.reason ?? queued.error.message}`,
         );
       }
 
+      expect(guestQueued).toEqual(queued.queued);
+      await waitForNoEvent(match.host, 'build:queued', 150);
+
+      expect(initialResources).toBeGreaterThan(0);
+
+      await connectedRoom.clock.advanceTicks(preFlushTicks);
+      await waitForNoEvent(match.host, 'build:queued', 150);
+
       expect(queued.queued.intentId).toMatch(/^intent-/);
       expect(queued.queued.eventId).toBeGreaterThan(0);
       expect(queued.queued.executeTick).toBeGreaterThan(0);
-
-      const queuedStatePromise = waitForState(
-        match.host,
-        (payload) => {
-          if (payload.roomId !== match.roomId) {
-            return false;
-          }
-          const hostTeam = resolveTeamForPlayer(
-            payload.teams,
-            match.hostJoined.playerId,
-          );
-          return (
-            hostTeam.resources < initialResources &&
-            hostTeam.pendingBuilds.some(
-              ({ eventId }) => eventId === queued.queued.eventId,
-            )
-          );
-        },
-        {
-          roomId: match.roomId,
-          attempts: 40,
-          timeoutMs: 2_000,
-        },
+      expect(queued.queued.scheduledByTurn).toBeGreaterThan(
+        queued.queued.bufferedTurn,
       );
-      await connectedRoom.clock.advanceMs(PRIMARY_STATE_REQUEST_ADVANCE_MS);
-      const queuedState = await queuedStatePromise;
-      expect(
-        resolveTeamForPlayer(queuedState.teams, match.hostJoined.playerId)
-          .resources,
-      ).toBeLessThan(initialResources);
     },
     30_000,
   );
 
   overflowTest(
-    'falls back on turn-buffer-overflow and replays every buffered command',
+    'falls back on turn-buffer-overflow without duplicating queued commands',
     async ({ connectedRoom, startLockstepMatch }) => {
       const match = await startLockstepMatch(connectedRoom);
       const state = await waitForState(
@@ -559,13 +495,10 @@ describe('lockstep primary mode', () => {
         );
       }
 
-      const queuedObserver = observeEvents<BuildQueuedPayload>(
+      const queuedPromise = waitForEvent<BuildQueuedPayload>(
         spectator,
         'build:queued',
-      );
-      const rejectedObserver = observeEvents<BuildQueueRejectedPayload>(
-        spectator,
-        'build:queue-rejected',
+        2_000,
       );
       const matchFinishedObserver = observeEvents<MatchFinishedPayload>(
         spectator,
@@ -575,11 +508,6 @@ describe('lockstep primary mode', () => {
         match.guest,
         destroyResponse.queued.eventId,
         12_000,
-      );
-      const rejectedPromise = waitForEvent<BuildQueueRejectedPayload>(
-        spectator,
-        'build:queue-rejected',
-        6_000,
       );
       const matchFinishedPromise = waitForEvent<MatchFinishedPayload>(
         spectator,
@@ -596,38 +524,31 @@ describe('lockstep primary mode', () => {
       for (
         let advancedTicks = 0;
         advancedTicks < PRIMARY_FINISH_ADVANCE_LIMIT_TICKS &&
-        (rejectedObserver.events.length === 0 ||
-          matchFinishedObserver.events.length === 0);
+        matchFinishedObserver.events.length === 0;
         advancedTicks += 1
       ) {
         await clock.advanceTicks(1);
       }
 
-      queuedObserver.stop();
-      rejectedObserver.stop();
       matchFinishedObserver.stop();
-      expect(queuedObserver.events).toHaveLength(0);
-      expect(rejectedObserver.events.length).toBeGreaterThan(0);
+      expect((await queuedPromise).teamId).toBe(hostTeam.id);
       expect(matchFinishedObserver.events.length).toBeGreaterThan(0);
 
-      const [destroyOutcome, rejected, matchFinished] = await Promise.all([
+      const [destroyOutcome, matchFinished] = await Promise.all([
         destroyOutcomePromise,
-        rejectedPromise,
         matchFinishedPromise,
       ]);
 
       expect(destroyOutcome.outcome).toBe('destroyed');
       expect(destroyOutcome.structureKey).toBe(guestCore.key);
-      expect(rejected.roomId).toBe(match.roomId);
-      expect(rejected.teamId).toBe(hostTeam.id);
-      expect(rejected.reason).toBe('match-finished');
+      await waitForNoEvent(spectator, 'build:queue-rejected', 150);
       expect(matchFinished.winner.teamId).toBe(hostTeam.id);
     },
     30_000,
   );
 
   finishTest(
-    'drops buffered primary build commands when all players leave before turn flush',
+    'keeps accepted primary build commands visible when all players leave before the next tick',
     async ({ clock, connectedRoom, startLockstepMatch, connectClient }) => {
       const spectator = connectClient({
         sessionId: 'primary-finish-spectator',
@@ -653,22 +574,14 @@ describe('lockstep primary mode', () => {
       await clock.advanceMs(PRIMARY_STATE_REQUEST_ADVANCE_MS);
       const state = await statePromise;
       const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
-      const queuedObserver = observeEvents<BuildQueuedPayload>(
+      const queuedPromise = waitForEvent<BuildQueuedPayload>(
         spectator,
         'build:queued',
-      );
-      const rejectedObserver = observeEvents<BuildQueueRejectedPayload>(
-        spectator,
-        'build:queue-rejected',
+        2_000,
       );
       const matchFinishedObserver = observeEvents<MatchFinishedPayload>(
         spectator,
         'room:match-finished',
-      );
-      const rejectedPromise = waitForEvent<BuildQueueRejectedPayload>(
-        spectator,
-        'build:queue-rejected',
-        2_000,
       );
 
       match.host.emit('build:queue', {
@@ -680,29 +593,21 @@ describe('lockstep primary mode', () => {
       match.host.emit('room:leave');
       match.guest.emit('room:leave');
 
-      await advanceUntilObservedCount(
-        clock,
-        rejectedObserver,
-        1,
-        PRIMARY_FINISH_ADVANCE_LIMIT_TICKS,
-      );
+      await clock.advanceTicks(PRIMARY_FINISH_ADVANCE_LIMIT_TICKS);
 
-      const rejected = await rejectedPromise;
-      queuedObserver.stop();
-      rejectedObserver.stop();
+      const queued = await queuedPromise;
       matchFinishedObserver.stop();
-      expect(queuedObserver.events).toHaveLength(0);
-      expect(rejected.roomId).toBe(match.roomId);
-      expect(rejected.intentId).toMatch(/^intent-/);
-      expect(rejected.teamId).toBe(team.id);
-      expect(rejected.reason).toBe('match-finished');
+      expect(queued.roomId).toBe(match.roomId);
+      expect(queued.intentId).toMatch(/^intent-/);
+      expect(queued.teamId).toBe(team.id);
+      await waitForNoEvent(spectator, 'build:queue-rejected', 150);
       expect(matchFinishedObserver.events).toHaveLength(0);
     },
     30_000,
   );
 
   finishDestroyTest(
-    'drops buffered primary destroy intents when all players leave before turn flush',
+    'keeps accepted primary destroy intents visible when all players leave before the next tick',
     async ({ clock, connectedRoom, startLockstepMatch, connectClient }) => {
       const spectator = connectClient({
         sessionId: 'primary-finish-destroy-spectator',
@@ -751,21 +656,14 @@ describe('lockstep primary mode', () => {
         throw new Error('Expected an owned structure to destroy');
       }
 
-      const queuedObserver = observeEvents<
-        DestroyQueueRejectedPayload | BuildQueuedPayload
-      >(spectator, 'destroy:queued');
-      const rejectedObserver = observeEvents<DestroyQueueRejectedPayload>(
+      const queuedPromise = waitForEvent<DestroyQueuedPayload>(
         spectator,
-        'destroy:queue-rejected',
+        'destroy:queued',
+        2_000,
       );
       const matchFinishedObserver = observeEvents<MatchFinishedPayload>(
         spectator,
         'room:match-finished',
-      );
-      const rejectedPromise = waitForEvent<DestroyQueueRejectedPayload>(
-        spectator,
-        'destroy:queue-rejected',
-        2_000,
       );
 
       match.host.emit('destroy:queue', {
@@ -775,23 +673,15 @@ describe('lockstep primary mode', () => {
       match.host.emit('room:leave');
       match.guest.emit('room:leave');
 
-      await advanceUntilObservedCount(
-        clock,
-        rejectedObserver,
-        1,
-        PRIMARY_FINISH_ADVANCE_LIMIT_TICKS,
-      );
+      await clock.advanceTicks(PRIMARY_FINISH_ADVANCE_LIMIT_TICKS);
 
-      const rejected = await rejectedPromise;
-      queuedObserver.stop();
-      rejectedObserver.stop();
+      const queued = await queuedPromise;
       matchFinishedObserver.stop();
-      expect(queuedObserver.events).toHaveLength(0);
-      expect(rejected.roomId).toBe(match.roomId);
-      expect(rejected.intentId).toMatch(/^intent-/);
-      expect(rejected.teamId).toBe(team.id);
-      expect(rejected.structureKey).toBe(ownStructure.key);
-      expect(rejected.reason).toBe('match-finished');
+      expect(queued.roomId).toBe(match.roomId);
+      expect(queued.intentId).toMatch(/^intent-/);
+      expect(queued.teamId).toBe(team.id);
+      expect(queued.structureKey).toBe(ownStructure.key);
+      await waitForNoEvent(spectator, 'destroy:queue-rejected', 150);
       expect(matchFinishedObserver.events).toHaveLength(0);
     },
     30_000,

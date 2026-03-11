@@ -14,16 +14,14 @@ import {
   observeEvents,
   waitForBuildQueueResponse,
   waitForEvent,
+  waitForNoEvent,
   waitForState,
   waitForStateGrid,
   waitForStateHashes,
   waitForStateStructures,
 } from './test-support.js';
 
-const LOCKSTEP_SECTIONS_TURN_TICKS = 20;
 const STATE_REQUEST_ADVANCE_MS = 100;
-const LOCKSTEP_FLUSH_ADVANCE_LIMIT_TICKS = 5;
-
 const sectionsMatchTest = createMatchTest(
   {
     port: 0,
@@ -200,7 +198,7 @@ describe('section sync and queued fanout', () => {
   );
 
   lockstepSectionsTest(
-    'broadcasts authoritative queued intents and queue hashes on turn flush',
+    'broadcasts authoritative queued intents and queue hashes immediately in primary mode',
     async ({ connectedRoom, startLockstepMatch }) => {
       const setup = await startLockstepMatch(connectedRoom, {
         waitForActiveMembership: false,
@@ -239,12 +237,7 @@ describe('section sync and queued fanout', () => {
       if (!initialHostTeam) {
         throw new Error('Expected host team in initial structures state');
       }
-      const ticksIntoTurn = initialState.tick % LOCKSTEP_SECTIONS_TURN_TICKS;
-      const ticksUntilTurnFlush =
-        ticksIntoTurn === 0
-          ? LOCKSTEP_SECTIONS_TURN_TICKS
-          : LOCKSTEP_SECTIONS_TURN_TICKS - ticksIntoTurn;
-      const preFlushTicks = Math.max(1, ticksUntilTurnFlush - 2);
+      const initialStructuresHash = setup.hostJoined.stateHashes.structuresHash;
 
       const hostQueuedObserver = observeEvents<BuildQueuedPayload>(
         setup.host,
@@ -260,6 +253,26 @@ describe('section sync and queued fanout', () => {
         'build:queued',
         4_000,
       );
+      const hostHashesPromise = waitForStateHashes(
+        setup.host,
+        (payload) =>
+          payload.roomId === setup.roomId &&
+          payload.structuresHash !== initialStructuresHash,
+        {
+          attempts: 10,
+          timeoutMs: 1_000,
+        },
+      );
+      const guestHashesPromise = waitForStateHashes(
+        setup.guest,
+        (payload) =>
+          payload.roomId === setup.roomId &&
+          payload.structuresHash !== initialStructuresHash,
+        {
+          attempts: 10,
+          timeoutMs: 1_000,
+        },
+      );
 
       setup.host.emit('build:queue', {
         templateId: generatorTemplate.id,
@@ -267,55 +280,18 @@ describe('section sync and queued fanout', () => {
         y: placement.y,
       });
 
-      await connectedRoom.clock.advanceTicks(preFlushTicks);
-
-      expect(hostQueuedObserver.events).toHaveLength(0);
-      expect(guestQueuedObserver.events).toHaveLength(0);
-
-      const preFlushState = await waitForState(
-        setup.host,
-        (payload) =>
-          payload.roomId === setup.roomId &&
-          payload.teams.some(
-            (team) =>
-              team.id === setup.hostTeam.id &&
-              team.resources === initialHostTeam.resources &&
-              team.pendingBuilds.length === 0,
-          ),
-        {
-          roomId: setup.roomId,
-          attempts: 10,
-          timeoutMs: 1_000,
-        },
-      );
-      expect(
-        preFlushState.teams.find((team) => team.id === setup.hostTeam.id)
-          ?.resources,
-      ).toBe(initialHostTeam.resources);
-
-      await connectedRoom.clock.advanceTicks(2);
-      for (
-        let advancedTicks = 0;
-        advancedTicks < LOCKSTEP_FLUSH_ADVANCE_LIMIT_TICKS &&
-        (hostQueuedObserver.events.length === 0 ||
-          guestQueuedObserver.events.length === 0);
-        advancedTicks += 1
-      ) {
-        await connectedRoom.clock.advanceTicks(1);
-      }
-
-      expect(hostQueuedObserver.events.length).toBeGreaterThan(0);
-      expect(guestQueuedObserver.events.length).toBeGreaterThan(0);
-
       const [hostQueuedResponse, guestQueued] = await Promise.all([
         hostQueuedPromise,
         guestQueuedPromise,
       ]);
+
+      expect(hostQueuedObserver.events.length).toBeGreaterThan(0);
+      expect(guestQueuedObserver.events.length).toBeGreaterThan(0);
       hostQueuedObserver.stop();
       guestQueuedObserver.stop();
       if ('error' in hostQueuedResponse) {
         throw new Error(
-          'Expected both clients to observe a buffered build intent',
+          'Expected both clients to observe an accepted build intent immediately',
         );
       }
 
@@ -326,63 +302,17 @@ describe('section sync and queued fanout', () => {
       expect(hostQueued.scheduledByTurn).toBeGreaterThan(
         hostQueued.bufferedTurn,
       );
-
-      const hostStructuresPromise = waitForStateStructures(
-        setup.host,
-        (payload) =>
-          payload.roomId === setup.roomId &&
-          payload.teams.some(
-            (team) =>
-              team.id === setup.hostTeam.id &&
-              team.pendingBuilds.some(
-                ({ eventId }) => eventId === hostQueued.eventId,
-              ),
-          ),
-        {
-          roomId: setup.roomId,
-          attempts: 10,
-          timeoutMs: 1_000,
-        },
-      );
-      const guestStructuresPromise = waitForStateStructures(
-        setup.guest,
-        (payload) =>
-          payload.roomId === setup.roomId &&
-          payload.teams.some(
-            (team) =>
-              team.id === setup.hostTeam.id &&
-              team.pendingBuilds.some(
-                ({ eventId }) => eventId === hostQueued.eventId,
-              ),
-          ),
-        {
-          roomId: setup.roomId,
-          attempts: 10,
-          timeoutMs: 1_000,
-        },
-      );
-      await connectedRoom.clock.advanceMs(STATE_REQUEST_ADVANCE_MS);
-      const [hostStructures, guestStructures] = await Promise.all([
-        hostStructuresPromise,
-        guestStructuresPromise,
+      await waitForNoEvent(setup.host, 'build:queued', 150);
+      const [hostHashes, guestHashes] = await Promise.all([
+        hostHashesPromise,
+        guestHashesPromise,
       ]);
 
-      const hostPendingBuilds =
-        hostStructures.teams.find((team) => team.id === setup.hostTeam.id)
-          ?.pendingBuilds ?? [];
-      const hostQueuedTeam = hostStructures.teams.find(
-        (team) => team.id === setup.hostTeam.id,
-      );
-      const guestPendingBuilds =
-        guestStructures.teams.find((team) => team.id === setup.hostTeam.id)
-          ?.pendingBuilds ?? [];
-      const guestQueuedTeam = guestStructures.teams.find(
-        (team) => team.id === setup.hostTeam.id,
-      );
-
-      expect(hostPendingBuilds).toEqual(guestPendingBuilds);
-      expect(hostQueuedTeam?.resources).toBeLessThan(initialHostTeam.resources);
-      expect(guestQueuedTeam?.resources).toBe(hostQueuedTeam?.resources);
+      expect(hostHashes.structuresHash).not.toBe(initialStructuresHash);
+      expect(hostHashes.structuresHash).toBe(guestHashes.structuresHash);
+      expect(hostHashes.gridHash).toBe(guestHashes.gridHash);
+      expect(hostQueued.executeTick).toBeGreaterThan(initialState.tick);
+      expect(initialHostTeam.resources).toBeGreaterThan(0);
     },
     25_000,
   );

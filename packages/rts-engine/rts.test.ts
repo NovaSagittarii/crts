@@ -1254,6 +1254,42 @@ describe('rts', () => {
     expect(firstRun.checkpoint.hashHex).toMatch(/^[0-9a-f]{8}$/);
   });
 
+  test('[QUAL-04] includes queued structures and economy state in determinism checkpoints', () => {
+    const room = RtsEngine.createRoomState({
+      id: 'checkpoint-room',
+      name: 'Checkpoint Coverage',
+      width: 80,
+      height: 80,
+    });
+    const team = RtsEngine.addPlayerToRoom(room, 'p1', 'Alice');
+
+    const initialCheckpoint = RtsEngine.createDeterminismCheckpoint(room);
+    const initialStateHashes = RtsEngine.createStateHashes(room);
+
+    const queuedBuild = RtsEngine.queueBuildEvent(room, 'p1', {
+      templateId: 'block',
+      x: team.baseTopLeft.x + 4,
+      y: team.baseTopLeft.y + 4,
+      delayTicks: 5,
+    });
+    expect(queuedBuild.accepted).toBe(true);
+
+    const afterQueuedBuildCheckpoint =
+      RtsEngine.createDeterminismCheckpoint(room);
+    const afterQueuedBuildHashes = RtsEngine.createStateHashes(room);
+
+    expect(afterQueuedBuildHashes.gridHash).toBe(initialStateHashes.gridHash);
+    expect(afterQueuedBuildHashes.structuresHash).not.toBe(
+      initialStateHashes.structuresHash,
+    );
+    expect(afterQueuedBuildHashes.economyHash).not.toBe(
+      initialStateHashes.economyHash,
+    );
+    expect(afterQueuedBuildCheckpoint.hashHex).not.toBe(
+      initialCheckpoint.hashHex,
+    );
+  });
+
   test('[QUAL-04] isolates authoritative grid and structures hashes', () => {
     const room = RtsEngine.createRoomState({
       id: 'state-hash-room',

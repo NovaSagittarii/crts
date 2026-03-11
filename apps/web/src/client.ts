@@ -71,6 +71,7 @@ import {
   type AuthoritativePreviewRefreshState,
   type AuthoritativePreviewSection,
   createAuthoritativePreviewRefreshState,
+  getStateRequestSectionsForGameplayEvent,
   recordAuthoritativePreviewRefresh,
   shouldApplyRoomScopedPayload,
   shouldRefreshAuthoritativePreview,
@@ -3989,7 +3990,10 @@ socket.on('build:outcome', (payload: BuildOutcomePayload) => {
     return;
   }
 
-  requestStateSections(['grid', 'structures']);
+  const sections = getStateRequestSectionsForGameplayEvent('build:outcome');
+  if (sections) {
+    requestStateSections(sections);
+  }
 
   if (currentTeamId === null || payload.teamId !== currentTeamId) {
     return;
@@ -4025,7 +4029,10 @@ socket.on('build:queued', (payload: BuildQueuedPayload) => {
     return;
   }
 
-  requestStateSections(['structures']);
+  const sections = getStateRequestSectionsForGameplayEvent('build:queued');
+  if (sections) {
+    requestStateSections(sections);
+  }
 
   if (currentTeamId === null || payload.teamId !== currentTeamId) {
     return;
@@ -4075,7 +4082,10 @@ socket.on('destroy:outcome', (payload: DestroyOutcomePayload) => {
     return;
   }
 
-  requestStateSections(['grid', 'structures']);
+  const sections = getStateRequestSectionsForGameplayEvent('destroy:outcome');
+  if (sections) {
+    requestStateSections(sections);
+  }
 
   if (currentTeamId === null || payload.teamId !== currentTeamId) {
     return;
@@ -4112,7 +4122,10 @@ socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
     return;
   }
 
-  requestStateSections(['structures']);
+  const sections = getStateRequestSectionsForGameplayEvent('destroy:queued');
+  if (sections) {
+    requestStateSections(sections);
+  }
 
   if (currentTeamId === null || payload.teamId !== currentTeamId) {
     return;

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createAuthoritativePreviewRefreshState,
+  getStateRequestSectionsForGameplayEvent,
   recordAuthoritativePreviewRefresh,
   shouldApplyRoomScopedPayload,
   shouldRefreshAuthoritativePreview,
@@ -77,5 +78,20 @@ describe('client sync helpers', () => {
         state,
       }),
     ).toBe(false);
+  });
+
+  it('does not request authoritative state sections for queued or scheduled gameplay events', () => {
+    expect(
+      getStateRequestSectionsForGameplayEvent('build:queued'),
+    ).toBeUndefined();
+    expect(
+      getStateRequestSectionsForGameplayEvent('build:outcome'),
+    ).toBeUndefined();
+    expect(
+      getStateRequestSectionsForGameplayEvent('destroy:queued'),
+    ).toBeUndefined();
+    expect(
+      getStateRequestSectionsForGameplayEvent('destroy:outcome'),
+    ).toBeUndefined();
   });
 });
