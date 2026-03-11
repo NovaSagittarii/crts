@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  setup:
+  setup-and-build-server:
     runs-on: ubuntu-latest
     steps:
       - &checkout
@@ -19,6 +19,7 @@ jobs:
       - &npmci
         run: npm ci --ignore-scripts --prefer-offline
         # suppress prepare script, pre-commit install; prefer-offline to use cache?
+      - run: npm run build:server # not really used in tests, but server should build
 
   format:
     runs-on: ubuntu-latest
@@ -44,12 +45,3 @@ jobs:
       - *npmci
       - run: npm run build # build artifacts used for server smoke-test
       - run: npm run test
-
-  build-server:
-    needs: [setup]
-    runs-on: ubuntu-latest
-    steps:
-      - *checkout
-      - *setupnode
-      - *npmci
-      - run: npm run build:server # not really used in tests, but server should build
