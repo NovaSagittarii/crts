@@ -20,9 +20,12 @@ export interface StructureOverlayStructure {
 export interface StructureGridOverlayInput {
   structures: readonly StructureOverlayStructure[];
   hoveredStructureKey: string | null;
+  pinnedStructureKey: string | null;
   maxHpByTemplateId: Readonly<Record<string, number>>;
   visibleBounds: StructureGridVisibleBounds | null;
 }
+
+export type StructureOverlayInteractionState = 'idle' | 'hovered' | 'pinned';
 
 export interface StructureGridOverlayItem {
   key: string;
@@ -34,6 +37,7 @@ export interface StructureGridOverlayItem {
   templateName: string;
   integrityRatio: number | null;
   showLabel: boolean;
+  interactionState: StructureOverlayInteractionState;
 }
 
 export interface StructureIntegrityRenderInput {
@@ -65,6 +69,7 @@ export class StructureGridOverlayModel {
     input: StructureGridOverlayInput,
   ): StructureGridOverlayItem[] {
     const hoveredKey = normalizeKey(input.hoveredStructureKey);
+    const pinnedKey = normalizeKey(input.pinnedStructureKey);
 
     return input.structures
       .filter((structure) =>
@@ -73,20 +78,30 @@ export class StructureGridOverlayModel {
           input.visibleBounds,
         ),
       )
-      .map((structure) => ({
-        key: structure.key,
-        x: structure.x,
-        y: structure.y,
-        width: structure.width,
-        height: structure.height,
-        hp: structure.hp,
-        templateName: structure.templateName,
-        integrityRatio: StructureGridOverlayModel.deriveIntegrityRatio(
-          structure,
-          input.maxHpByTemplateId,
-        ),
-        showLabel: hoveredKey === structure.key,
-      }));
+      .map((structure) => {
+        const interactionState: StructureOverlayInteractionState =
+          pinnedKey === structure.key
+            ? 'pinned'
+            : hoveredKey === structure.key
+              ? 'hovered'
+              : 'idle';
+
+        return {
+          key: structure.key,
+          x: structure.x,
+          y: structure.y,
+          width: structure.width,
+          height: structure.height,
+          hp: structure.hp,
+          templateName: structure.templateName,
+          integrityRatio: StructureGridOverlayModel.deriveIntegrityRatio(
+            structure,
+            input.maxHpByTemplateId,
+          ),
+          showLabel: hoveredKey === structure.key,
+          interactionState,
+        };
+      });
   }
 
   public static intersectsVisibleBounds(
