@@ -59,6 +59,17 @@ describe('board pointer interaction', () => {
     ).toBe('start-pan');
   });
 
+  it('still starts panning from off-grid space while build mode is active', () => {
+    expect(
+      resolvePrimaryBoardPointerAction(
+        createInput({
+          cell: null,
+          buildModeActive: true,
+        }),
+      ),
+    ).toBe('start-pan');
+  });
+
   it('ignores empty primary-down input when camera controls are unavailable', () => {
     expect(
       resolvePrimaryBoardPointerAction(

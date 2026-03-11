@@ -3234,6 +3234,20 @@ function beginCameraPan(event: PointerEvent): void {
   updateCameraStatus();
 }
 
+function syncPointerTargetsForEvent(event: PointerEvent): void {
+  const cell = pointerToCell(event);
+  buildModeController.recordHover(cell);
+
+  if (buildModeController.active) {
+    if (cell) {
+      setBuildCandidateFromCell(cell);
+    }
+    return;
+  }
+
+  updateStructureHoverStateForPointer(event);
+}
+
 function queueBuildAtCell(cell: Cell): void {
   if (!buildModeController.active) {
     setMessage('Select a template button to enter build mode.', true);
@@ -3494,17 +3508,7 @@ canvas.addEventListener('pointermove', (event) => {
     return;
   }
 
-  const cell = pointerToCell(event);
-  if (cell) {
-    buildModeController.recordHover(cell);
-  }
-
-  if (buildModeController.active && cell) {
-    setBuildCandidateFromCell(cell);
-    return;
-  }
-
-  updateStructureHoverStateForPointer(event);
+  syncPointerTargetsForEvent(event);
 });
 
 function stopPointerInteraction(event: PointerEvent): void {
@@ -3516,6 +3520,9 @@ function stopPointerInteraction(event: PointerEvent): void {
       canvas.releasePointerCapture(event.pointerId);
     }
     updateCameraStatus();
+    if (event.type === 'pointerup') {
+      syncPointerTargetsForEvent(event);
+    }
     if (event.type === 'pointerleave' || event.type === 'pointercancel') {
       applyStructureInteraction({
         type: 'hover-leave',
