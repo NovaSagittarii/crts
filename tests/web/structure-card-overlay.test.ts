@@ -6,71 +6,21 @@ import {
   StructureCardOverlayLayer,
   type StructureCardPlacementInput,
 } from '../../apps/web/src/structure-card-overlay.js';
-
-interface FakeCardElementHandle {
-  element: HTMLElement;
-  classNames: Set<string>;
-  attributes: Map<string, string>;
-  style: Record<string, string>;
-  dataset: DOMStringMap;
-}
-
-function createFakeRootElement(): HTMLElement {
-  return {
-    append: () => undefined,
-  } as unknown as HTMLElement;
-}
+import {
+  type FakeElementHandle,
+  createFakeElement,
+  createFakeRootElement,
+} from './test-dom-support.js';
 
 function createFakeCardElement(
   width: number,
   height: number,
-): FakeCardElementHandle {
-  const classNames = new Set<string>(['structure-card', 'is-hidden']);
-  const attributes = new Map<string, string>();
-  const style: Record<string, string> = {};
-  const dataset = {} as DOMStringMap;
-
-  const element = {
-    classList: {
-      add: (...tokens: string[]) => {
-        for (const token of tokens) {
-          classNames.add(token);
-        }
-      },
-      remove: (...tokens: string[]) => {
-        for (const token of tokens) {
-          classNames.delete(token);
-        }
-      },
-      contains: (token: string) => classNames.has(token),
-    },
-    setAttribute: (name: string, value: string) => {
-      attributes.set(name, value);
-    },
-    getBoundingClientRect: () => ({
-      width,
-      height,
-      left: 0,
-      right: width,
-      top: 0,
-      bottom: height,
-      x: 0,
-      y: 0,
-      toJSON: () => ({ width, height }),
-    }),
-    offsetWidth: width,
-    offsetHeight: height,
-    style,
-    dataset,
-  } as unknown as HTMLElement;
-
-  return {
-    element,
-    classNames,
-    attributes,
-    style,
-    dataset,
-  };
+): FakeElementHandle<HTMLElement> {
+  return createFakeElement<HTMLElement>({
+    initialClasses: ['structure-card', 'is-hidden'],
+    width,
+    height,
+  });
 }
 
 function createLayerUpdateInput(

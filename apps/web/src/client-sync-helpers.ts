@@ -1,3 +1,5 @@
+import type { StateRequestPayload } from '#rts-engine';
+
 export type AuthoritativePreviewSection = 'full' | 'grid' | 'structures';
 
 export type GameplayEventSyncKind =
@@ -5,6 +7,17 @@ export type GameplayEventSyncKind =
   | 'build:outcome'
   | 'destroy:queued'
   | 'destroy:outcome';
+
+export interface ScopedGameplayEventPayload {
+  roomId: string;
+  teamId: number;
+}
+
+export interface GameplayEventRoutingDecision {
+  appliesToRoom: boolean;
+  appliesToCurrentTeam: boolean;
+  sections: StateRequestPayload['sections'];
+}
 
 export interface AuthoritativePreviewRefreshState {
   full: number | null;
@@ -62,4 +75,21 @@ export function getStateRequestSectionsForGameplayEvent(
   _event: GameplayEventSyncKind,
 ): undefined {
   return undefined;
+}
+
+export function resolveGameplayEventRouting(
+  event: GameplayEventSyncKind,
+  payload: ScopedGameplayEventPayload,
+  activeRoomId: string,
+  activeTeamId: number | null,
+): GameplayEventRoutingDecision {
+  const appliesToRoom = payload.roomId === activeRoomId;
+  return {
+    appliesToRoom,
+    appliesToCurrentTeam:
+      appliesToRoom && activeTeamId !== null && payload.teamId === activeTeamId,
+    sections: appliesToRoom
+      ? getStateRequestSectionsForGameplayEvent(event)
+      : undefined,
+  };
 }
