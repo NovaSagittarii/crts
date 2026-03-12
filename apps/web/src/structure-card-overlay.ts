@@ -2,6 +2,7 @@ import {
   type CameraViewState,
   worldPointToScreen,
 } from './camera-view-model.js';
+import type { GridRect } from './grid-geometry.js';
 
 export const DEFAULT_STRUCTURE_CARD_MARGIN_PX = 8;
 export const DEFAULT_STRUCTURE_CARD_GAP_PX = 14;
@@ -9,12 +10,7 @@ export const DEFAULT_STRUCTURE_CARD_GAP_PX = 14;
 const PINNED_CARD_Z_INDEX = '10';
 const HOVER_CARD_Z_INDEX = '11';
 
-export interface StructureCardBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+export type StructureCardBounds = GridRect;
 
 export type StructureCardVariant = 'hover' | 'pinned';
 

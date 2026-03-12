@@ -103,6 +103,7 @@ import {
   createDestroyRoomErrorFeedback,
   createPendingGameplayFeedback,
 } from './gameplay-event-feedback.js';
+import type { KeyedBuildZoneRect } from './grid-geometry.js';
 import { IngameLayoutController } from './ingame-layout-controller.js';
 import { deriveLobbyControlsViewModel } from './lobby-controls-view-model.js';
 import { deriveLobbyMembershipViewModel } from './lobby-membership-view-model.js';
@@ -186,18 +187,12 @@ type BuildPreview = BuildQueuePreview & {
   bounds: PlacementBounds;
 };
 
-interface VisibleStructure {
+interface VisibleStructure extends KeyedBuildZoneRect {
   teamId: number;
-  key: string;
   templateId: string;
   templateName: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
   hp: number;
   startingHp?: number;
-  buildRadius: number;
   active: boolean;
   isCore: boolean;
   requiresDestroyConfirm: boolean;

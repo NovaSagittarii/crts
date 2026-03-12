@@ -1,13 +1,9 @@
+import type { KeyedGridRect } from './grid-geometry.js';
 import type { VisibleGridBounds } from './render-viewport.js';
 
 export type StructureGridVisibleBounds = VisibleGridBounds;
 
-export interface StructureOverlayStructure {
-  key: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+export interface StructureOverlayStructure extends KeyedGridRect {
   hp: number;
   startingHp?: number;
   templateName: string;

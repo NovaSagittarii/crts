@@ -3,14 +3,9 @@ import {
   projectBuildZoneContributor,
 } from '#rts-engine';
 
-export interface LocalBuildZoneStructureSnapshot {
-  key: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  buildRadius: number;
-}
+import type { KeyedBuildZoneRect } from './grid-geometry.js';
+
+export type LocalBuildZoneStructureSnapshot = KeyedBuildZoneRect;
 
 export interface ComputeLocalBuildZoneOverlayInput {
   structures: readonly LocalBuildZoneStructureSnapshot[];

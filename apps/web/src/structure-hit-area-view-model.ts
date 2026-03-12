@@ -1,14 +1,10 @@
 import type { Vector2 } from '#rts-engine';
 
+import type { KeyedGridRect } from './grid-geometry.js';
+
 export type StructureHitAreaCell = Vector2;
 
-export interface StructureHitAreaStructure {
-  key: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+export type StructureHitAreaStructure = KeyedGridRect;
 
 function toCellKey(cell: StructureHitAreaCell): string {
   return `${cell.x},${cell.y}`;
