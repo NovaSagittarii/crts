@@ -178,6 +178,14 @@ export interface AffordabilitySnapshot extends ResourceShortfall {
   affordable?: boolean;
 }
 
+export interface QueueEventResultBase<TReason extends string> {
+  accepted: boolean;
+  error?: string;
+  reason?: TReason;
+  eventId?: number;
+  executeTick?: number;
+}
+
 export interface BuildOutcome extends AffordabilitySnapshot {
   eventId: number;
   teamId: number;
@@ -351,26 +359,15 @@ export interface RoomStateHashes {
   economyHash: string;
 }
 
-interface BuildResultBase extends AffordabilitySnapshot {
-  accepted: boolean;
-  error?: string;
-  reason?: BuildRejectionReason;
-}
+interface BuildResultBase
+  extends QueueEventResultBase<BuildRejectionReason>, AffordabilitySnapshot {}
 
 export interface BuildPreviewResult
   extends BuildResultBase, BuildPreviewProjection {}
 
-export interface QueueBuildResult extends BuildResultBase {
-  eventId?: number;
-  executeTick?: number;
-}
+export type QueueBuildResult = BuildResultBase;
 
-export interface QueueDestroyResult {
-  accepted: boolean;
-  error?: string;
-  reason?: DestroyRejectionReason;
-  eventId?: number;
-  executeTick?: number;
+export interface QueueDestroyResult extends QueueEventResultBase<DestroyRejectionReason> {
   structureKey?: string;
   idempotent?: boolean;
 }
