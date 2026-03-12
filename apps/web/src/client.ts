@@ -36,6 +36,7 @@ import {
   StateRequestPayload,
   StructureTemplatePayload,
   TeamPayload,
+  type Vector2,
 } from '#rts-engine';
 
 import { resolvePrimaryBoardPointerAction } from './board-pointer-interaction.js';
@@ -203,10 +204,7 @@ interface VisibleStructure {
   footprint: Cell[];
 }
 
-interface Cell {
-  x: number;
-  y: number;
-}
+type Cell = Vector2;
 
 interface StructureOverlayGeometry {
   left: number;

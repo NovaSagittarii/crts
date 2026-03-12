@@ -12,10 +12,7 @@ export interface CameraViewState {
   offsetY: number;
 }
 
-export interface CameraPoint {
-  x: number;
-  y: number;
-}
+export type CameraPoint = Vector2;
 
 export interface CameraGridSize {
   width: number;

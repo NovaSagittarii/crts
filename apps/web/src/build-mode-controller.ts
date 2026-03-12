@@ -1,3 +1,5 @@
+import type { Vector2 } from '#rts-engine';
+
 import type { BuildPlacementSelection } from './build-queue-view-model.js';
 
 export interface BuildModeTemplate {
@@ -6,10 +8,7 @@ export interface BuildModeTemplate {
   height: number;
 }
 
-export interface BuildModeCell {
-  x: number;
-  y: number;
-}
+export type BuildModeCell = Vector2;
 
 export interface CandidateUpdateResult {
   changed: boolean;

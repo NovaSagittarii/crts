@@ -1,9 +1,8 @@
+import type { Vector2 } from '#conway-core';
+
 import { CORE_TEMPLATE_GRID } from './structure.js';
 
-export interface Vector2 {
-  x: number;
-  y: number;
-}
+export type { Vector2 } from '#conway-core';
 
 export const BASE_FOOTPRINT_WIDTH = CORE_TEMPLATE_GRID.width;
 export const BASE_FOOTPRINT_HEIGHT = CORE_TEMPLATE_GRID.height;

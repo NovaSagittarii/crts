@@ -1,7 +1,6 @@
-export interface BoardPointerCell {
-  x: number;
-  y: number;
-}
+import type { Vector2 } from '#rts-engine';
+
+export type BoardPointerCell = Vector2;
 
 export interface PrimaryBoardPointerActionInput {
   cell: BoardPointerCell | null;
