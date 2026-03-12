@@ -8,12 +8,12 @@ import {
 } from './economy-view-model.js';
 import { PendingTimelineElement } from './pending-timeline-element.js';
 
-export interface TeamEconomySnapshot {
+export type TeamEconomySnapshot = Pick<
+  TeamPayload,
+  'resources' | 'income' | 'incomeBreakdown'
+> & {
   tick: number;
-  resources: number;
-  income: number;
-  incomeBreakdown: TeamIncomeBreakdown;
-}
+};
 
 export interface EconomyDeltaTrackerState {
   lastSnapshot: TeamEconomySnapshot | null;

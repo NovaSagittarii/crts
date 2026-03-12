@@ -1,30 +1,39 @@
 import type {
   PendingBuildPayload,
   PendingDestroyPayload,
+  StructurePayload,
   StructureTemplateSummary,
-  TeamIncomeBreakdown,
+  TeamPayload,
 } from '#rts-engine';
 
 export const TACTICAL_DELTA_HIGHLIGHT_MS = 1_000;
 export const DEFAULT_SYNC_STALE_THRESHOLD_MS = 1_000;
 
-export interface TacticalOverlayStructureSnapshot {
-  key: string;
-  active: boolean;
-}
+export type TacticalOverlayStructureSnapshot = Pick<
+  StructurePayload,
+  'key' | 'active'
+>;
 
-export interface TacticalOverlayTeamSnapshot {
-  id: number;
-  name: string;
-  defeated: boolean;
-  baseIntact: boolean;
-  resources: number;
-  income: number;
-  incomeBreakdown: TeamIncomeBreakdown;
+export type TacticalOverlayTeamSnapshot = Omit<
+  Pick<
+    TeamPayload,
+    | 'id'
+    | 'name'
+    | 'defeated'
+    | 'baseIntact'
+    | 'resources'
+    | 'income'
+    | 'incomeBreakdown'
+    | 'pendingBuilds'
+    | 'pendingDestroys'
+    | 'structures'
+  >,
+  'structures'
+> & {
   pendingBuilds: readonly PendingBuildPayload[];
   pendingDestroys: readonly PendingDestroyPayload[];
   structures: readonly TacticalOverlayStructureSnapshot[];
-}
+};
 
 export interface TacticalOverlaySyncInput {
   reconnectPending: boolean;
