@@ -1,3 +1,4 @@
+import type { LobbyParticipantAssignment } from './lobby.js';
 import type {
   MatchLifecycleStatus,
   RankedTeamOutcome,
@@ -11,6 +12,7 @@ import type {
   ResourceShortfall,
   RoomDeterminismCheckpoint,
   RoomGridStatePayload,
+  RoomListEntrySummary,
   RoomStateHashes,
   RoomStatePayload,
   RoomStructuresStatePayload,
@@ -134,15 +136,9 @@ export interface RoomErrorPayload extends ResourceShortfall {
   reason?: string;
 }
 
-export interface RoomListEntryPayload {
-  roomId: string;
+export interface RoomListEntryPayload extends RoomListEntrySummary {
   roomCode: string;
-  name: string;
-  width: number;
-  height: number;
-  players: number;
   spectators: number;
-  teams: number;
   status: RoomStatus;
 }
 
@@ -194,12 +190,7 @@ export interface ChatMessagePayload {
   timestamp: number;
 }
 
-export interface MembershipParticipant {
-  sessionId: string;
-  displayName: string;
-  role: 'player' | 'spectator';
-  slotId: string | null;
-  ready: boolean;
+export interface MembershipParticipant extends LobbyParticipantAssignment {
   connectionStatus: ConnectionStatus;
   holdExpiresAt: number | null;
   disconnectReason: string | null;

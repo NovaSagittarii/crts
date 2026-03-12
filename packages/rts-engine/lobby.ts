@@ -5,13 +5,16 @@ export interface LobbySlotDefinition {
   capacity: number;
 }
 
-export interface LobbyParticipantState {
+export interface LobbyParticipantAssignment {
   sessionId: string;
   displayName: string;
-  joinOrder: number;
   role: 'player' | 'spectator';
   slotId: LobbySlotId | null;
   ready: boolean;
+}
+
+export interface LobbyParticipantState extends LobbyParticipantAssignment {
+  joinOrder: number;
 }
 
 export interface CreateLobbyRoomOptions {

@@ -273,7 +273,7 @@ export interface RoomState {
   readonly spawnOrientationSeed: number;
 }
 
-export interface RoomListEntry {
+export interface RoomListEntrySummary {
   roomId: string;
   name: string;
   width: number;
@@ -281,6 +281,8 @@ export interface RoomListEntry {
   players: number;
   teams: number;
 }
+
+export type RoomListEntry = RoomListEntrySummary;
 
 export interface TeamPayload {
   id: number;
