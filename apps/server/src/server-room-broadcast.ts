@@ -8,7 +8,7 @@ import {
   type DestroyOutcomePayload,
   type DestroyQueueRejectedPayload,
   type DestroyQueuedPayload,
-  type DeterminismHashAlgorithm,
+  type HashedStateSectionPayload,
   type LobbyRoom,
   type LockstepCheckpointPayload,
   type LockstepFallbackPayload,
@@ -44,10 +44,7 @@ interface RoomBroadcastServiceOptions {
   listRooms: () => Iterable<RuntimeBroadcastRoom>;
 }
 
-export interface RoomMembershipHash {
-  hashAlgorithm: DeterminismHashAlgorithm;
-  hashHex: string;
-}
+export type RoomMembershipHash = HashedStateSectionPayload;
 
 const FNV_OFFSET_BASIS = 2166136261;
 const FNV_PRIME = 16777619;

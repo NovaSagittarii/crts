@@ -357,12 +357,8 @@ interface BuildResultBase extends AffordabilitySnapshot {
   reason?: BuildRejectionReason;
 }
 
-export interface BuildPreviewResult extends BuildResultBase {
-  transform: PlacementTransformState;
-  footprint: Vector2[];
-  illegalCells: Vector2[];
-  bounds: PlacementBounds;
-}
+export interface BuildPreviewResult
+  extends BuildResultBase, BuildPreviewProjection {}
 
 export interface QueueBuildResult extends BuildResultBase {
   eventId?: number;
