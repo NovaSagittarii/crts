@@ -1,12 +1,10 @@
 /// <reference lib="dom" />
+import type { StructureTemplateSummary } from '#rts-engine';
 
-export interface TemplateButtonMenuTemplate {
-  id: string;
-  name: string;
-  width: number;
-  height: number;
-  activationCost: number;
-}
+export type TemplateButtonMenuTemplate = Pick<
+  StructureTemplateSummary,
+  'id' | 'name' | 'width' | 'height' | 'activationCost'
+>;
 
 export interface TemplateButtonMenuState {
   templates: readonly TemplateButtonMenuTemplate[];

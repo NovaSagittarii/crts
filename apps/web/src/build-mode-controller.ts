@@ -1,12 +1,11 @@
-import type { Vector2 } from '#rts-engine';
+import type { StructureTemplateSummary, Vector2 } from '#rts-engine';
 
 import type { BuildPlacementSelection } from './build-queue-view-model.js';
 
-export interface BuildModeTemplate {
-  id: string;
-  width: number;
-  height: number;
-}
+export type BuildModeTemplate = Pick<
+  StructureTemplateSummary,
+  'id' | 'width' | 'height'
+>;
 
 export type BuildModeCell = Vector2;
 
