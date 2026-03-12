@@ -5,6 +5,8 @@ import type {
   PlacementTransformState,
 } from '#rts-engine';
 
+import type { UiFeedbackMessage } from './ui-feedback-message.js';
+
 export interface BuildQueuePreview {
   templateId: string;
   x: number;
@@ -25,10 +27,7 @@ export interface BuildPlacementSelection {
   y: number;
 }
 
-export interface BuildQueueFeedbackOverride {
-  text: string;
-  isError: boolean;
-}
+export type BuildQueueFeedbackOverride = UiFeedbackMessage;
 
 export interface BuildQueueUiInput {
   selectedTemplateId: string | null;

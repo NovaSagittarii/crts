@@ -1,6 +1,9 @@
-import type { StateRequestPayload } from '#rts-engine';
+import type { StateRequestPayload, StateRequestSection } from '#rts-engine';
 
-export type AuthoritativePreviewSection = 'full' | 'grid' | 'structures';
+export type AuthoritativePreviewSection = Exclude<
+  StateRequestSection,
+  'membership'
+>;
 
 export type GameplayEventSyncKind =
   | 'build:queued'

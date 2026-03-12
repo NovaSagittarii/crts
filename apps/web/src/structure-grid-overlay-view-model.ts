@@ -1,9 +1,6 @@
-export interface StructureGridVisibleBounds {
-  minX: number;
-  maxX: number;
-  minY: number;
-  maxY: number;
-}
+import type { VisibleGridBounds } from './render-viewport.js';
+
+export type StructureGridVisibleBounds = VisibleGridBounds;
 
 export interface StructureOverlayStructure {
   key: string;

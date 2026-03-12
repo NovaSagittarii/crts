@@ -6,6 +6,7 @@ import {
   type BuildPreviewTemplateSnapshot,
   BuildQueueRejectedPayload,
   BuildQueuedPayload,
+  type BuildZoneContributorProjectionInput,
   ChatMessagePayload,
   ClientToServerEvents,
   DestroyOutcomePayload,
@@ -214,13 +215,7 @@ interface StructureOverlayGeometry {
   height: number;
 }
 
-interface TeamBuildZoneProjectionInput {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  buildRadius: number;
-}
+type TeamBuildZoneProjectionInput = BuildZoneContributorProjectionInput;
 
 function getRequiredElement<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);

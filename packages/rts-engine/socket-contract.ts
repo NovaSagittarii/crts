@@ -1,4 +1,7 @@
-import type { RankedTeamOutcome } from './match-lifecycle.js';
+import type {
+  MatchLifecycleStatus,
+  RankedTeamOutcome,
+} from './match-lifecycle.js';
 import type { PlacementTransformState } from './placement-transform.js';
 import type {
   BuildOutcome,
@@ -18,7 +21,7 @@ import type { StructureTemplatePayload } from './structure.js';
 // Goal: keep server, web client, and integration tests aligned on the wire
 // shapes without re-declaring ad-hoc interfaces in each runtime.
 
-export type RoomStatus = 'lobby' | 'countdown' | 'active' | 'finished';
+export type RoomStatus = MatchLifecycleStatus;
 export type ConnectionStatus = 'connected' | 'held';
 export type LockstepMode = 'off' | 'shadow' | 'primary';
 export type LockstepStatus = 'running' | 'fallback';

@@ -1,4 +1,6 @@
-export type LayoutMatchScreen = 'lobby' | 'ingame';
+import type { MatchScreen } from './match-screen-view-model.js';
+
+export type LayoutMatchScreen = MatchScreen;
 
 export interface IngameLayoutControllerElements {
   bodyEl: HTMLElement;

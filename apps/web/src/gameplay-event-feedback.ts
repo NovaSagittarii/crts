@@ -12,11 +12,9 @@ import {
   describeBuildFailureReason,
   formatDeficitCopy,
 } from './build-queue-view-model.js';
+import type { UiFeedbackMessage } from './ui-feedback-message.js';
 
-export interface GameplayFeedbackMessage {
-  text: string;
-  isError: boolean;
-}
+export type GameplayFeedbackMessage = UiFeedbackMessage;
 
 export interface GameplayFeedbackPresentation {
   override: GameplayFeedbackMessage | null;
