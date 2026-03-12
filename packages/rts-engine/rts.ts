@@ -291,50 +291,46 @@ export interface TeamPayload {
   baseIntact: boolean;
 }
 
-export interface RoomStatePayload {
+interface RoomStateEnvelope {
   roomId: string;
-  roomName: string;
   width: number;
   height: number;
   generation: number;
   tick: number;
+}
+
+export interface RoomStatePayload extends RoomStateEnvelope {
+  roomName: string;
   grid: ArrayBuffer; // bit-packed
   teams: TeamPayload[];
 }
 
-export interface TeamStructuresStatePayload {
-  id: number;
-  resources: number;
-  income: number;
-  incomeBreakdown: TeamIncomeBreakdown;
-  pendingBuilds: PendingBuildPayload[];
-  pendingDestroys: PendingDestroyPayload[];
-  structures: StructurePayload[];
-  defeated: boolean;
-  baseTopLeft: Vector2;
-  baseIntact: boolean;
-}
+export type TeamStructuresStatePayload = Pick<
+  TeamPayload,
+  | 'id'
+  | 'resources'
+  | 'income'
+  | 'incomeBreakdown'
+  | 'pendingBuilds'
+  | 'pendingDestroys'
+  | 'structures'
+  | 'defeated'
+  | 'baseTopLeft'
+  | 'baseIntact'
+>;
 
 export interface HashedStateSectionPayload {
   hashAlgorithm: DeterminismHashAlgorithm;
   hashHex: string;
 }
 
-export interface RoomGridStatePayload extends HashedStateSectionPayload {
-  roomId: string;
-  width: number;
-  height: number;
-  generation: number;
-  tick: number;
+export interface RoomGridStatePayload
+  extends RoomStateEnvelope, HashedStateSectionPayload {
   grid: ArrayBuffer;
 }
 
-export interface RoomStructuresStatePayload extends HashedStateSectionPayload {
-  roomId: string;
-  width: number;
-  height: number;
-  generation: number;
-  tick: number;
+export interface RoomStructuresStatePayload
+  extends RoomStateEnvelope, HashedStateSectionPayload {
   teams: TeamPayload[];
 }
 
