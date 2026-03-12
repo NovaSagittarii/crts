@@ -1,4 +1,6 @@
 import type {
+  AffordabilityResult,
+  BuildQueuePayload,
   BuildRejectionReason,
   PlacementTransformInput,
   PlacementTransformOperation,
@@ -7,25 +9,18 @@ import type {
 
 import type { UiFeedbackMessage } from './ui-feedback-message.js';
 
-export interface BuildQueuePreview {
-  templateId: string;
-  x: number;
-  y: number;
+export interface BuildQueuePreview
+  extends BuildPlacementSelection, AffordabilityResult {
   transform: PlacementTransformState;
   reason?: BuildRejectionReason;
-  affordable: boolean;
-  needed: number;
-  current: number;
-  deficit: number;
 }
 
 type BuildPreviewReason = BuildQueuePreview['reason'];
 
-export interface BuildPlacementSelection {
-  templateId: string;
-  x: number;
-  y: number;
-}
+export type BuildPlacementSelection = Pick<
+  BuildQueuePayload,
+  'templateId' | 'x' | 'y'
+>;
 
 export type BuildQueueFeedbackOverride = UiFeedbackMessage;
 

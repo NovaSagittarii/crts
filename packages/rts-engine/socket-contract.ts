@@ -1,8 +1,5 @@
 import type { LobbyParticipantAssignment } from './lobby.js';
-import type {
-  MatchLifecycleStatus,
-  RankedTeamOutcome,
-} from './match-lifecycle.js';
+import type { MatchLifecycleStatus, MatchOutcome } from './match-lifecycle.js';
 import type { PlacementTransformState } from './placement-transform.js';
 import type {
   BuildOutcome,
@@ -175,11 +172,8 @@ export interface MatchStartedPayload {
   roomId: string;
 }
 
-export interface MatchFinishedPayload {
+export interface MatchFinishedPayload extends MatchOutcome {
   roomId: string;
-  winner: RankedTeamOutcome;
-  ranked: RankedTeamOutcome[];
-  comparator: string;
 }
 
 export interface ChatMessagePayload {
