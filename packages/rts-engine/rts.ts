@@ -168,15 +168,21 @@ export type DestroyRejectionReason =
   | 'team-defeated'
   | 'wrong-owner';
 
-export interface BuildOutcome {
+export interface ResourceShortfall {
+  needed?: number;
+  current?: number;
+  deficit?: number;
+}
+
+export interface AffordabilitySnapshot extends ResourceShortfall {
+  affordable?: boolean;
+}
+
+export interface BuildOutcome extends AffordabilitySnapshot {
   eventId: number;
   teamId: number;
   outcome: 'applied' | 'rejected';
   reason?: BuildRejectionReason;
-  affordable?: boolean;
-  needed?: number;
-  current?: number;
-  deficit?: number;
   executeTick: number;
   resolvedTick: number;
 }
@@ -343,14 +349,10 @@ export interface RoomStateHashes {
   economyHash: string;
 }
 
-interface BuildResultBase {
+interface BuildResultBase extends AffordabilitySnapshot {
   accepted: boolean;
   error?: string;
   reason?: BuildRejectionReason;
-  affordable?: boolean;
-  needed?: number;
-  current?: number;
-  deficit?: number;
 }
 
 export interface BuildPreviewResult extends BuildResultBase {

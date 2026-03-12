@@ -8,6 +8,7 @@ import type {
   BuildQueuePayload,
   DestroyOutcome,
   DestroyQueuePayload,
+  ResourceShortfall,
   RoomDeterminismCheckpoint,
   RoomGridStatePayload,
   RoomStateHashes,
@@ -100,15 +101,12 @@ export interface DestroyQueuedPayload {
 
 export type BuildQueueRejectedReason = string;
 
-export interface BuildQueueRejectedPayload {
+export interface BuildQueueRejectedPayload extends ResourceShortfall {
   roomId: string;
   intentId: string;
   playerId: string;
   teamId: number;
   reason: BuildQueueRejectedReason;
-  needed?: number;
-  current?: number;
-  deficit?: number;
 }
 
 export type DestroyQueueRejectedReason = string;
@@ -130,13 +128,10 @@ export interface DestroyOutcomePayload extends DestroyOutcome {
   roomId: string;
 }
 
-export interface RoomErrorPayload {
+export interface RoomErrorPayload extends ResourceShortfall {
   roomId: string | null;
   message: string;
   reason?: string;
-  needed?: number;
-  current?: number;
-  deficit?: number;
 }
 
 export interface RoomListEntryPayload {
