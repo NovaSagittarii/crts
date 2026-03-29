@@ -1,3 +1,19 @@
+---
+gsd_state_version: 1.0
+milestone: v0.0.3
+milestone_name: Deterministic Lockstep Protocol
+status: executing
+stopped_at: Completed 13-01-PLAN.md (RtsRoom.fromPayload factory)
+last_updated: "2026-03-29T17:47:30.078Z"
+last_activity: 2026-03-29
+progress:
+  total_phases: 5
+  completed_phases: 0
+  total_plans: 2
+  completed_plans: 1
+  percent: 0
+---
+
 # Project State
 
 ## Project Reference
@@ -5,14 +21,14 @@
 See: `.planning/PROJECT.md` (updated 2026-03-29)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 13 — Client Simulation Foundation (v0.0.3 start)
+**Current focus:** Phase 13 — client-simulation-foundation
 
 ## Current Position
 
-Phase: 13 of 17 (Client Simulation Foundation)
-Plan: — of — (not yet planned)
-Status: Ready to plan
-Last activity: 2026-03-29 — Roadmap created for v0.0.3 (Phases 13-17)
+Phase: 13 (client-simulation-foundation) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-03-29
 
 Progress: [░░░░░░░░░░] 0% (v0.0.3)
 
@@ -35,6 +51,8 @@ Progress: [░░░░░░░░░░] 0% (v0.0.3)
 - Keep server-authoritative state as the only gameplay source of truth for clients.
 - Archive milestone roadmap/requirements artifacts to keep active planning files small.
 - Migrate to lockstep: server validates inputs, clients run simulation locally, periodic hash verification for desync detection.
+- [Phase 13-01]: Added reservedCost (optional) to PendingBuildPayload for hash-faithful payload reconstruction
+- [Phase 13-01]: Core template auto-injected into fromPayload templateMap since it is not in createDefaultStructureTemplates()
 
 ### Pending Todos
 
@@ -49,6 +67,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.3)
 
 ## Session Continuity
 
-**Last session:** 2026-03-29
-**Stopped At:** v0.0.3 roadmap creation complete; ready to plan Phase 13
+**Last session:** 2026-03-29T17:47:29.975Z
+**Stopped At:** Completed 13-01-PLAN.md (RtsRoom.fromPayload factory)
 **Resume File:** None

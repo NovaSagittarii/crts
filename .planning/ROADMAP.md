@@ -49,7 +49,7 @@ See archive: `.planning/milestones/v0.0.2-ROADMAP.md`
   4. Client-side event rejection at `executeTick` mirrors server rejection without suppressing server-accepted events
 **Plans**: 2 plans
 Plans:
-- [ ] 13-01-PLAN.md — RtsRoom.fromPayload() factory + hash equivalence unit tests
+- [x] 13-01-PLAN.md — RtsRoom.fromPayload() factory + hash equivalence unit tests
 - [ ] 13-02-PLAN.md — ClientSimulation module + client.ts wiring (dual-path)
 **UI hint**: yes
 
@@ -100,7 +100,7 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 1-5 (archived) | v0.0.1 | — | Complete | 2026-03-01 |
 | 6-12 (archived) | v0.0.2 | — | Complete | 2026-03-03 |
-| 13. Client Simulation Foundation | v0.0.3 | 0/2 | Planning complete | - |
+| 13. Client Simulation Foundation | v0.0.3 | 1/2 | In Progress|  |
 | 14. Input-Only Transport | v0.0.3 | 0/TBD | Not started | - |
 | 15. Hash Checkpoint Protocol | v0.0.3 | 0/TBD | Not started | - |
 | 16. Reconnect via Snapshot + Input Replay | v0.0.3 | 0/TBD | Not started | - |

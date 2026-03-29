@@ -9,7 +9,7 @@ Requirements for deterministic lockstep protocol migration. Each maps to roadmap
 
 ### Client Simulation
 
-- [ ] **SIM-01**: Client initializes a local RtsRoom from the server-provided starting state and tick number at match start, then processes ticks identically to the server during active match
+- [x] **SIM-01**: Client initializes a local RtsRoom from the server-provided starting state and tick number at match start, then processes ticks identically to the server during active match
 - [ ] **SIM-02**: Client tick cadence aligns to the server clock with drift correction so both advance in lockstep
 
 ### Transport Protocol
@@ -73,7 +73,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SIM-01 | Phase 13 | Pending |
+| SIM-01 | Phase 13 | Complete |
 | SIM-02 | Phase 13 | Pending |
 | XPORT-01 | Phase 14 | Pending |
 | XPORT-02 | Phase 14 | Pending |
