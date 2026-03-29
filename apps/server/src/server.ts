@@ -6,6 +6,7 @@ import { Socket, Server as SocketIOServer } from 'socket.io';
 
 import {
   InputEventLog,
+  type InputLogEntry,
   type LobbyRejectionReason,
   LobbyRoom,
   type LobbySlotDefinition,
@@ -1784,7 +1785,22 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
     sessionCoordinator.setRoom(session.id, room.rtsRoom.id);
 
+    // RECON-01: flush turn buffer before snapshot for reconnect consistency
+    if (isInputOnlyMode(room) && room.status === 'active') {
+      flushPrimaryTurnCommands(room);
+    }
+
+    const statePayload = room.rtsRoom.createStatePayload();
     const teamId = room.rtsRoom.state.players.get(session.id)?.teamId ?? null;
+
+    // RECON-01: include input log entries for reconnect replay
+    let inputLog: InputLogEntry[] | undefined;
+    if (isInputOnlyMode(room) && room.status === 'active') {
+      inputLog = room.lockstepRuntime.inputEventLog.getEntriesFromTick(
+        statePayload.tick + 1,
+      );
+    }
+
     socket.emit('room:joined', {
       roomId: room.rtsRoom.id,
       roomCode: room.roomCode,
@@ -1796,9 +1812,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
       templates: room.rtsRoom.state.templates.map((template) =>
         template.toPayload(),
       ),
-      state: room.rtsRoom.createStatePayload(),
+      state: statePayload,
       stateHashes: createStateHashesPayload(room),
       lockstep: room.lockstep,
+      inputLog,
     });
 
     const latestCheckpoint = room.lockstepRuntime.checkpoints.at(-1);

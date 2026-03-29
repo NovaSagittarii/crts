@@ -3842,6 +3842,12 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
   // Initialize client simulation if match is already active (reconnect / mid-match join)
   if (currentRoomStatus === 'active' || payload.state.tick > 0) {
     clientSimulation.initialize(payload.state, joinedTemplates);
+
+    // RECON-01: replay input log for reconnect catchup
+    if (payload.inputLog && payload.inputLog.length > 0) {
+      clientSimulation.replayInputLog(payload.inputLog);
+    }
+
     pendingSimInit = false;
   }
 
