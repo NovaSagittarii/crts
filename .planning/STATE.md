@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0.3
 milestone_name: Deterministic Lockstep Protocol
 status: executing
-stopped_at: Completed 13-01-PLAN.md (RtsRoom.fromPayload factory)
-last_updated: "2026-03-29T19:28:00.758Z"
+stopped_at: Completed 14-01-PLAN.md (InputEventLog + sequence field)
+last_updated: "2026-03-29T20:14:19.679Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 4
+  completed_plans: 3
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-29)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 13 — client-simulation-foundation
+**Current focus:** Phase 14 — input-only-transport
 
 ## Current Position
 
-Phase: 14
-Plan: Not started
-Status: Executing Phase 13
+Phase: 14 (input-only-transport) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-03-29
 
 Progress: [░░░░░░░░░░] 0% (v0.0.3)
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0% (v0.0.3)
 - Migrate to lockstep: server validates inputs, clients run simulation locally, periodic hash verification for desync detection.
 - [Phase 13-01]: Added reservedCost (optional) to PendingBuildPayload for hash-faithful payload reconstruction
 - [Phase 13-01]: Core template auto-injected into fromPayload templateMap since it is not in createDefaultStructureTemplates()
+- [Phase 14]: bufferLockstepCommand returns assigned sequence number instead of boolean for downstream payload population
 
 ### Pending Todos
 
@@ -67,6 +68,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.3)
 
 ## Session Continuity
 
-**Last session:** 2026-03-29T17:47:29.975Z
-**Stopped At:** Completed 13-01-PLAN.md (RtsRoom.fromPayload factory)
+**Last session:** 2026-03-29T20:14:19.564Z
+**Stopped At:** Completed 14-01-PLAN.md (InputEventLog + sequence field)
 **Resume File:** None

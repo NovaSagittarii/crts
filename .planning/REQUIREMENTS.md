@@ -15,8 +15,8 @@ Requirements for deterministic lockstep protocol migration. Each maps to roadmap
 ### Transport Protocol
 
 - [ ] **XPORT-01**: Server relays confirmed input events (build/destroy queue accepts) instead of per-tick full state broadcasts; steady-state active match traffic consists only of input events and periodic checkpoint hashes
-- [ ] **XPORT-02**: Server retains a bounded input log (ring buffer) covering the reconnect window for replay delivery
-- [ ] **XPORT-03**: Server assigns a deterministic ordering to inputs received in the same tick window before relaying to all clients
+- [x] **XPORT-02**: Server retains a bounded input log (ring buffer) covering the reconnect window for replay delivery
+- [x] **XPORT-03**: Server assigns a deterministic ordering to inputs received in the same tick window before relaying to all clients
 
 ### Consistency Verification
 
@@ -76,8 +76,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SIM-01 | Phase 13 | Complete |
 | SIM-02 | Phase 13 | Pending |
 | XPORT-01 | Phase 14 | Pending |
-| XPORT-02 | Phase 14 | Pending |
-| XPORT-03 | Phase 14 | Pending |
+| XPORT-02 | Phase 14 | Complete |
+| XPORT-03 | Phase 14 | Complete |
 | SYNC-01 | Phase 15 | Pending |
 | SYNC-02 | Phase 15 | Pending |
 | RECON-01 | Phase 16 | Pending |

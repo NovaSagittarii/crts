@@ -63,7 +63,7 @@ Plans:
   3. A bounded ring buffer on the server retains accepted input events covering the configured reconnect window; entries older than the window are discarded
 **Plans**: 2 plans
 Plans:
-- [ ] 14-01-PLAN.md — InputEventLog ring buffer + sequence field on queued payloads (TDD)
+- [x] 14-01-PLAN.md — InputEventLog ring buffer + sequence field on queued payloads (TDD)
 - [ ] 14-02-PLAN.md — Broadcast suppression + InputEventLog wiring + client update + integration tests
 
 ### Phase 15: Hash Checkpoint Protocol
@@ -104,7 +104,7 @@ Plans:
 | 1-5 (archived) | v0.0.1 | — | Complete | 2026-03-01 |
 | 6-12 (archived) | v0.0.2 | — | Complete | 2026-03-03 |
 | 13. Client Simulation Foundation | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
-| 14. Input-Only Transport | v0.0.3 | 0/2 | Not started | - |
+| 14. Input-Only Transport | v0.0.3 | 1/2 | In Progress|  |
 | 15. Hash Checkpoint Protocol | v0.0.3 | 0/TBD | Not started | - |
 | 16. Reconnect via Snapshot + Input Replay | v0.0.3 | 0/TBD | Not started | - |
 | 17. Quality Gate | v0.0.3 | 0/TBD | Not started | - |
