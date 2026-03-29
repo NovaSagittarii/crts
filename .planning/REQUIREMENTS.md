@@ -73,21 +73,21 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SIM-01 | — | Pending |
-| SIM-02 | — | Pending |
-| XPORT-01 | — | Pending |
-| XPORT-02 | — | Pending |
-| XPORT-03 | — | Pending |
-| SYNC-01 | — | Pending |
-| SYNC-02 | — | Pending |
-| RECON-01 | — | Pending |
-| QUAL-01 | — | Pending |
+| SIM-01 | Phase 13 | Pending |
+| SIM-02 | Phase 13 | Pending |
+| XPORT-01 | Phase 14 | Pending |
+| XPORT-02 | Phase 14 | Pending |
+| XPORT-03 | Phase 14 | Pending |
+| SYNC-01 | Phase 15 | Pending |
+| SYNC-02 | Phase 15 | Pending |
+| RECON-01 | Phase 16 | Pending |
+| QUAL-01 | Phase 17 | Pending |
 
 **Coverage:**
 - v0.0.3 requirements: 9 total
-- Mapped to phases: 0
-- Unmapped: 9
+- Mapped to phases: 9
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-29*
-*Last updated: 2026-03-29 after initial definition*
+*Last updated: 2026-03-29 after roadmap creation (Phases 13-17)*
