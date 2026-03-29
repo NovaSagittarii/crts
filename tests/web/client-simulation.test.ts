@@ -433,4 +433,83 @@ describe('ClientSimulation', () => {
       expect(result).toBe(false);
     });
   });
+
+  describe('resync', () => {
+    it('resync() resets simulation to new payload state', () => {
+      const { room, templates } = createRoomWithPlayers();
+
+      // Tick server to non-zero state
+      for (let i = 0; i < 5; i++) room.tick();
+      const firstPayload = payloadFromRoom(room);
+
+      const sim = new ClientSimulation();
+      sim.initialize(firstPayload, templates);
+      expect(sim.currentTick).toBe(firstPayload.tick);
+
+      // Tick server 5 more times to create a different state
+      for (let i = 0; i < 5; i++) room.tick();
+      const secondPayload = payloadFromRoom(room);
+
+      sim.resync(secondPayload, templates);
+
+      expect(sim.currentTick).toBe(secondPayload.tick);
+      expect(sim.status).toBe('initialized');
+      expect(sim.currentState).not.toBeNull();
+      expect(sim.currentState!.tick).toBe(secondPayload.tick);
+    });
+
+    it('resync() on idle sim initializes without error', () => {
+      const sim = new ClientSimulation();
+      expect(sim.status).toBe('idle');
+
+      const { room, templates } = createRoomWithPlayers();
+      const payload = payloadFromRoom(room);
+
+      sim.resync(payload, templates);
+
+      expect(sim.isActive).toBe(true);
+      expect(sim.currentTick).toBe(payload.tick);
+    });
+
+    it('after resync, advanceToTick works from new baseline', () => {
+      const { room, templates } = createRoomWithPlayers();
+
+      // Tick 3 times, initialize sim
+      for (let i = 0; i < 3; i++) room.tick();
+      const firstPayload = payloadFromRoom(room);
+      const sim = new ClientSimulation();
+      sim.initialize(firstPayload, templates);
+
+      // Tick server 5 more, take second payload
+      for (let i = 0; i < 5; i++) room.tick();
+      const secondPayload = payloadFromRoom(room);
+
+      sim.resync(secondPayload, templates);
+
+      // Advance from the new baseline
+      sim.advanceToTick(secondPayload.tick + 3);
+
+      expect(sim.currentTick).toBe(secondPayload.tick + 3);
+      expect(sim.status).toBe('running');
+    });
+
+    it('after resync, verifyCheckpoint matches new state hash', () => {
+      const { room, templates } = createRoomWithPlayers();
+
+      // Tick 3 times, initialize sim
+      for (let i = 0; i < 3; i++) room.tick();
+      const firstPayload = payloadFromRoom(room);
+      const sim = new ClientSimulation();
+      sim.initialize(firstPayload, templates);
+
+      // Tick server 5 more times
+      for (let i = 0; i < 5; i++) room.tick();
+      const secondPayload = payloadFromRoom(room);
+      const serverCheckpoint = room.createDeterminismCheckpoint();
+
+      sim.resync(secondPayload, templates);
+
+      expect(sim.verifyCheckpoint(serverCheckpoint)).toBe(true);
+    });
+  });
 });
