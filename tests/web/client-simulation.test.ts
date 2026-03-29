@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import {
   type BuildQueuedPayload,
   type DestroyQueuedPayload,
+  type InputLogEntry,
   type PlacementTransformState,
   type RoomDeterminismCheckpoint,
   RtsRoom,
@@ -510,6 +511,160 @@ describe('ClientSimulation', () => {
       sim.resync(secondPayload, templates);
 
       expect(sim.verifyCheckpoint(serverCheckpoint)).toBe(true);
+    });
+  });
+
+  describe('input log replay', () => {
+    it('replayInputLog applies build entries', () => {
+      const { room, templates, player1TeamId } = createRoomWithPlayers();
+      const payload = payloadFromRoom(room);
+      const sim = new ClientSimulation();
+
+      sim.initialize(payload, templates);
+
+      const buildPayload: BuildQueuedPayload = {
+        roomId: 'room-1',
+        intentId: 'intent-replay-1',
+        playerId: 'player-1',
+        teamId: player1TeamId,
+        bufferedTurn: 0,
+        scheduledByTurn: 0,
+        templateId: 'block',
+        x: 10,
+        y: 10,
+        transform: createIdentityTransform(),
+        delayTicks: 4,
+        eventId: 100,
+        executeTick: payload.tick + 4,
+        sequence: 0,
+      };
+
+      const entries: InputLogEntry[] = [
+        { tick: 1, sequence: 0, kind: 'build', payload: buildPayload },
+      ];
+
+      sim.replayInputLog(entries);
+
+      const team = sim.currentState!.teams.get(player1TeamId)!;
+      const inserted = team.pendingBuildEvents.find((e) => e.id === 100);
+      expect(inserted).toBeDefined();
+      expect(inserted!.templateId).toBe('block');
+    });
+
+    it('replayInputLog applies destroy entries', () => {
+      const { room, templates, player1TeamId } = createRoomWithPlayers();
+      const payload = payloadFromRoom(room);
+      const sim = new ClientSimulation();
+
+      sim.initialize(payload, templates);
+
+      const destroyPayload: DestroyQueuedPayload = {
+        roomId: 'room-1',
+        intentId: 'intent-replay-2',
+        playerId: 'player-1',
+        teamId: player1TeamId,
+        bufferedTurn: 0,
+        scheduledByTurn: 0,
+        delayTicks: 4,
+        structureKey: 'team-1-core',
+        eventId: 200,
+        executeTick: payload.tick + 4,
+        idempotent: false,
+        sequence: 0,
+      };
+
+      const entries: InputLogEntry[] = [
+        { tick: 1, sequence: 0, kind: 'destroy', payload: destroyPayload },
+      ];
+
+      sim.replayInputLog(entries);
+
+      const team = sim.currentState!.teams.get(player1TeamId)!;
+      const inserted = team.pendingDestroyEvents.find((e) => e.id === 200);
+      expect(inserted).toBeDefined();
+      expect(inserted!.structureKey).toBe('team-1-core');
+    });
+
+    it('replayInputLog sorts entries by tick then sequence', () => {
+      const { room, templates, player1TeamId } = createRoomWithPlayers();
+      const payload = payloadFromRoom(room);
+      const sim = new ClientSimulation();
+
+      sim.initialize(payload, templates);
+
+      const makeBuild = (
+        eventId: number,
+        tick: number,
+        sequence: number,
+      ): InputLogEntry => ({
+        tick,
+        sequence,
+        kind: 'build',
+        payload: {
+          roomId: 'room-1',
+          intentId: `intent-sort-${String(eventId)}`,
+          playerId: 'player-1',
+          teamId: player1TeamId,
+          bufferedTurn: 0,
+          scheduledByTurn: 0,
+          templateId: 'block',
+          x: 10,
+          y: 10,
+          transform: createIdentityTransform(),
+          delayTicks: 4,
+          eventId,
+          executeTick: payload.tick + 4,
+          sequence,
+        } satisfies BuildQueuedPayload,
+      });
+
+      // Deliberately out of order: tick5/seq1, tick3/seq0, tick5/seq0
+      const entries: InputLogEntry[] = [
+        makeBuild(301, 5, 1),
+        makeBuild(302, 3, 0),
+        makeBuild(303, 5, 0),
+      ];
+
+      sim.replayInputLog(entries);
+
+      const team = sim.currentState!.teams.get(player1TeamId)!;
+      const ids = team.pendingBuildEvents.map((e) => e.id);
+
+      // Expected order: tick3/seq0 (302), tick5/seq0 (303), tick5/seq1 (301)
+      const idx302 = ids.indexOf(302);
+      const idx303 = ids.indexOf(303);
+      const idx301 = ids.indexOf(301);
+
+      expect(idx302).toBeLessThan(idx303);
+      expect(idx303).toBeLessThan(idx301);
+    });
+
+    it('replayInputLog on idle sim is a safe no-op', () => {
+      const sim = new ClientSimulation();
+
+      // Should not throw
+      sim.replayInputLog([
+        { tick: 1, sequence: 0, kind: 'build', payload: {} },
+      ]);
+
+      expect(sim.currentState).toBeNull();
+    });
+
+    it('replayInputLog with empty array is a no-op', () => {
+      const { room, templates, player1TeamId } = createRoomWithPlayers();
+      const payload = payloadFromRoom(room);
+      const sim = new ClientSimulation();
+
+      sim.initialize(payload, templates);
+
+      const team = sim.currentState!.teams.get(player1TeamId)!;
+      const buildCountBefore = team.pendingBuildEvents.length;
+      const destroyCountBefore = team.pendingDestroyEvents.length;
+
+      sim.replayInputLog([]);
+
+      expect(team.pendingBuildEvents.length).toBe(buildCountBefore);
+      expect(team.pendingDestroyEvents.length).toBe(destroyCountBefore);
     });
   });
 });

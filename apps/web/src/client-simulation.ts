@@ -9,7 +9,11 @@ import {
   StructureTemplate,
   type StructureTemplatePayload,
 } from '#rts-engine';
-import type { BuildQueuedPayload, DestroyQueuedPayload } from '#rts-engine';
+import type {
+  BuildQueuedPayload,
+  DestroyQueuedPayload,
+  InputLogEntry,
+} from '#rts-engine';
 
 /**
  * Converts a wire-format `StructureTemplatePayload` into a `StructureTemplate`
@@ -165,6 +169,26 @@ export class ClientSimulation {
     };
 
     team.pendingDestroyEvents.push(destroyEvent);
+  }
+
+  // --- Input Log Replay (RECON-01) ---
+
+  replayInputLog(entries: InputLogEntry[]): void {
+    if (!this.rtsRoom || entries.length === 0) {
+      return;
+    }
+
+    const sorted = [...entries].sort(
+      (a, b) => a.tick - b.tick || a.sequence - b.sequence,
+    );
+
+    for (const entry of sorted) {
+      if (entry.kind === 'build') {
+        this.applyQueuedBuild(entry.payload as BuildQueuedPayload);
+      } else if (entry.kind === 'destroy') {
+        this.applyQueuedDestroy(entry.payload as DestroyQueuedPayload);
+      }
+    }
   }
 
   // --- Verification ---
