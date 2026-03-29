@@ -30,7 +30,7 @@ See archive: `.planning/milestones/v0.0.2-ROADMAP.md`
 
 **Milestone Goal:** Migrate the network protocol from full-state broadcast to deterministic lockstep, where clients run the simulation locally and the server acts as a thin input validator and relay.
 
-- [ ] **Phase 13: Client Simulation Foundation** - Build the local simulation runner and tick clock; verify client and server produce identical state hashes
+- [x] **Phase 13: Client Simulation Foundation** - Build the local simulation runner and tick clock; verify client and server produce identical state hashes (completed 2026-03-29)
 - [ ] **Phase 14: Input-Only Transport** - Switch server to relay inputs instead of broadcasting full state; establish bounded input log
 - [ ] **Phase 15: Hash Checkpoint Protocol** - Wire desync detection and state-resync fallback as the primary consistency mechanism
 - [ ] **Phase 16: Reconnect via Snapshot + Input Replay** - Reconnecting clients receive a state snapshot plus input log and replay to current tick
@@ -50,7 +50,7 @@ See archive: `.planning/milestones/v0.0.2-ROADMAP.md`
 **Plans**: 2 plans
 Plans:
 - [x] 13-01-PLAN.md — RtsRoom.fromPayload() factory + hash equivalence unit tests
-- [ ] 13-02-PLAN.md — ClientSimulation module + client.ts wiring (dual-path)
+- [x] 13-02-PLAN.md — ClientSimulation module + client.ts wiring (dual-path)
 **UI hint**: yes
 
 ### Phase 14: Input-Only Transport
@@ -100,7 +100,7 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 1-5 (archived) | v0.0.1 | — | Complete | 2026-03-01 |
 | 6-12 (archived) | v0.0.2 | — | Complete | 2026-03-03 |
-| 13. Client Simulation Foundation | v0.0.3 | 1/2 | In Progress|  |
+| 13. Client Simulation Foundation | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
 | 14. Input-Only Transport | v0.0.3 | 0/TBD | Not started | - |
 | 15. Hash Checkpoint Protocol | v0.0.3 | 0/TBD | Not started | - |
 | 16. Reconnect via Snapshot + Input Replay | v0.0.3 | 0/TBD | Not started | - |
