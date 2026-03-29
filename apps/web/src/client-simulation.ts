@@ -186,6 +186,13 @@ export class ClientSimulation {
     return this.rtsRoom.createDeterminismCheckpoint();
   }
 
+  // --- Resync ---
+
+  resync(payload: RoomStatePayload, templates: StructureTemplate[]): void {
+    this.destroy();
+    this.initialize(payload, templates);
+  }
+
   // --- Cleanup ---
 
   destroy(): void {
