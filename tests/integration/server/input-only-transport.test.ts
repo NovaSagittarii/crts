@@ -2,10 +2,9 @@ import { describe, expect } from 'vitest';
 
 import type {
   BuildOutcomePayload,
-  BuildQueuedPayload,
   LockstepCheckpointPayload,
-  RoomStatePayload,
   RoomStateHashesPayload,
+  RoomStatePayload,
   TeamPayload,
 } from '#rts-engine';
 
@@ -13,7 +12,6 @@ import { createLockstepTest } from './lockstep-fixtures.js';
 import {
   observeEvents,
   waitForBuildQueueResponse,
-  waitForEvent,
   waitForNoEvent,
   waitForState,
 } from './test-support.js';
@@ -71,10 +69,7 @@ describe('input-only transport (XPORT-01, XPORT-02, XPORT-03)', () => {
       );
       await connectedRoom.clock.advanceMs(STATE_REQUEST_ADVANCE_MS);
       const state = await statePromise;
-      const team = resolveTeamForPlayer(
-        state.teams,
-        match.hostJoined.playerId,
-      );
+      const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
 
       // Queue a build
       const queuedPromise = waitForBuildQueueResponse(match.host, 4_000);
@@ -189,10 +184,7 @@ describe('input-only transport (XPORT-01, XPORT-02, XPORT-03)', () => {
       );
       await connectedRoom.clock.advanceMs(STATE_REQUEST_ADVANCE_MS);
       const state = await statePromise;
-      const team = resolveTeamForPlayer(
-        state.teams,
-        match.hostJoined.playerId,
-      );
+      const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
 
       // Start observing state:hashes BEFORE queuing the build
       const hashesObserver = observeEvents<RoomStateHashesPayload>(
@@ -246,10 +238,7 @@ describe('input-only transport (XPORT-01, XPORT-02, XPORT-03)', () => {
       );
       await connectedRoom.clock.advanceMs(STATE_REQUEST_ADVANCE_MS);
       const state = await statePromise;
-      const team = resolveTeamForPlayer(
-        state.teams,
-        match.hostJoined.playerId,
-      );
+      const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
 
       // Queue a build
       const queuedPromise = waitForBuildQueueResponse(match.host, 4_000);
@@ -293,10 +282,7 @@ describe('input-only transport (XPORT-01, XPORT-02, XPORT-03)', () => {
       );
       await connectedRoom.clock.advanceMs(STATE_REQUEST_ADVANCE_MS);
       const state = await statePromise;
-      const team = resolveTeamForPlayer(
-        state.teams,
-        match.hostJoined.playerId,
-      );
+      const team = resolveTeamForPlayer(state.teams, match.hostJoined.playerId);
 
       // Queue first build
       const queued1Promise = waitForBuildQueueResponse(match.host, 4_000);
