@@ -2474,3 +2474,300 @@ describe('rts', () => {
     expect(afterDefeat.error).toMatch(/defeated/i);
   });
 });
+
+describe('RtsRoom.fromPayload', () => {
+  test('reconstructs room with matching hash at same tick', () => {
+    const source = RtsRoom.create({
+      id: 'test-room',
+      name: 'Test',
+      width: 80,
+      height: 80,
+    });
+    source.addPlayer('p1', 'Alice');
+
+    // Tick a few times to establish non-trivial state
+    for (let i = 0; i < 5; i++) {
+      source.tick();
+    }
+
+    const payload = source.createStatePayload();
+    const reconstructed = RtsRoom.fromPayload(
+      payload,
+      source.state.templates,
+    );
+
+    expect(reconstructed.createDeterminismCheckpoint().hashHex).toBe(
+      source.createDeterminismCheckpoint().hashHex,
+    );
+  });
+
+  test('reconstructed room matches after additional ticks', () => {
+    const source = RtsRoom.create({
+      id: 'test-room',
+      name: 'Test',
+      width: 80,
+      height: 80,
+    });
+    source.addPlayer('p1', 'Alice');
+
+    for (let i = 0; i < 5; i++) {
+      source.tick();
+    }
+
+    const payload = source.createStatePayload();
+    const reconstructed = RtsRoom.fromPayload(
+      payload,
+      source.state.templates,
+    );
+
+    // Tick both rooms 10 more times
+    for (let i = 0; i < 10; i++) {
+      source.tick();
+      reconstructed.tick();
+    }
+
+    expect(reconstructed.createDeterminismCheckpoint().hashHex).toBe(
+      source.createDeterminismCheckpoint().hashHex,
+    );
+  });
+
+  test('reconstructs pending build events that execute correctly', () => {
+    const source = RtsRoom.create({
+      id: 'test-room',
+      name: 'Test',
+      width: 80,
+      height: 80,
+    });
+    source.addPlayer('p1', 'Alice');
+
+    // Tick once to initialize economy
+    source.tick();
+
+    // Queue a build that won't execute for a few ticks
+    const base = source.state.teams.get(1)!.baseTopLeft;
+    source.queueBuildEvent('p1', {
+      templateId: 'block',
+      x: base.x + 14,
+      y: base.y,
+      delayTicks: 5,
+    });
+
+    const payload = source.createStatePayload();
+    const reconstructed = RtsRoom.fromPayload(
+      payload,
+      source.state.templates,
+    );
+
+    // At reconstruction time, hashes must match
+    expect(reconstructed.createDeterminismCheckpoint().hashHex).toBe(
+      source.createDeterminismCheckpoint().hashHex,
+    );
+
+    // Tick past the build execution tick
+    for (let i = 0; i < 10; i++) {
+      source.tick();
+      reconstructed.tick();
+    }
+
+    expect(reconstructed.createDeterminismCheckpoint().hashHex).toBe(
+      source.createDeterminismCheckpoint().hashHex,
+    );
+  });
+
+  test('reconstructs pending destroy events that execute correctly', () => {
+    const source = RtsRoom.create({
+      id: 'test-room',
+      name: 'Test',
+      width: 80,
+      height: 80,
+    });
+    source.addPlayer('p1', 'Alice');
+
+    // Tick to initialize
+    source.tick();
+
+    // Build a structure first
+    const base = source.state.teams.get(1)!.baseTopLeft;
+    source.queueBuildEvent('p1', {
+      templateId: 'block',
+      x: base.x + 14,
+      y: base.y,
+    });
+
+    // Tick past the build
+    for (let i = 0; i < 15; i++) {
+      source.tick();
+    }
+
+    // Find a non-core structure to destroy
+    const team = source.state.teams.get(1)!;
+    const nonCoreStructure = [...team.structures.values()].find(
+      (s) => !s.isCore,
+    );
+    if (nonCoreStructure) {
+      source.queueDestroyEvent('p1', {
+        structureKey: nonCoreStructure.key,
+        delayTicks: 5,
+      });
+    }
+
+    const payload = source.createStatePayload();
+    const reconstructed = RtsRoom.fromPayload(
+      payload,
+      source.state.templates,
+    );
+
+    expect(reconstructed.createDeterminismCheckpoint().hashHex).toBe(
+      source.createDeterminismCheckpoint().hashHex,
+    );
+
+    // Tick past destroy execution
+    for (let i = 0; i < 10; i++) {
+      source.tick();
+      reconstructed.tick();
+    }
+
+    expect(reconstructed.createDeterminismCheckpoint().hashHex).toBe(
+      source.createDeterminismCheckpoint().hashHex,
+    );
+  });
+
+  test('reconstructs multi-team room with canonical Map order', () => {
+    const source = RtsRoom.create({
+      id: 'test-room',
+      name: 'Test',
+      width: 80,
+      height: 80,
+    });
+    source.addPlayer('p1', 'Alice');
+    source.addPlayer('p2', 'Bob');
+
+    // Tick to establish state
+    for (let i = 0; i < 5; i++) {
+      source.tick();
+    }
+
+    // Build structures for both teams
+    const team1 = source.state.teams.get(1)!;
+    const team2 = source.state.teams.get(2)!;
+    source.queueBuildEvent('p1', {
+      templateId: 'block',
+      x: team1.baseTopLeft.x + 14,
+      y: team1.baseTopLeft.y,
+    });
+    source.queueBuildEvent('p2', {
+      templateId: 'block',
+      x: team2.baseTopLeft.x + 14,
+      y: team2.baseTopLeft.y,
+    });
+
+    for (let i = 0; i < 15; i++) {
+      source.tick();
+    }
+
+    const payload = source.createStatePayload();
+    const reconstructed = RtsRoom.fromPayload(
+      payload,
+      source.state.templates,
+    );
+
+    expect(reconstructed.createDeterminismCheckpoint().hashHex).toBe(
+      source.createDeterminismCheckpoint().hashHex,
+    );
+
+    // Tick both and verify continued determinism
+    for (let i = 0; i < 10; i++) {
+      source.tick();
+      reconstructed.tick();
+    }
+
+    expect(reconstructed.createDeterminismCheckpoint().hashHex).toBe(
+      source.createDeterminismCheckpoint().hashHex,
+    );
+  });
+
+  test('preserves damaged structure hp', () => {
+    const source = RtsRoom.create({
+      id: 'test-room',
+      name: 'Test',
+      width: 80,
+      height: 80,
+    });
+    source.addPlayer('p1', 'Alice');
+
+    // Manually damage a structure
+    const team = source.state.teams.get(1)!;
+    const core = [...team.structures.values()].find((s) => s.isCore)!;
+    core.hp = 250; // damage from 500 to 250
+
+    const payload = source.createStatePayload();
+    const reconstructed = RtsRoom.fromPayload(
+      payload,
+      source.state.templates,
+    );
+
+    expect(reconstructed.createDeterminismCheckpoint().hashHex).toBe(
+      source.createDeterminismCheckpoint().hashHex,
+    );
+
+    // Check that the core hp is preserved
+    const reconstructedTeam = reconstructed.state.teams.get(1)!;
+    const reconstructedCore = [...reconstructedTeam.structures.values()].find(
+      (s) => s.isCore,
+    )!;
+    expect(reconstructedCore.hp).toBe(250);
+  });
+
+  test('preserves defeated team flag', () => {
+    const source = RtsRoom.create({
+      id: 'test-room',
+      name: 'Test',
+      width: 80,
+      height: 80,
+    });
+    source.addPlayer('p1', 'Alice');
+
+    // Manually defeat the team
+    const team = source.state.teams.get(1)!;
+    team.defeated = true;
+
+    const payload = source.createStatePayload();
+    const reconstructed = RtsRoom.fromPayload(
+      payload,
+      source.state.templates,
+    );
+
+    const reconstructedTeam = reconstructed.state.teams.get(1)!;
+    expect(reconstructedTeam.defeated).toBe(true);
+
+    expect(reconstructed.createDeterminismCheckpoint().hashHex).toBe(
+      source.createDeterminismCheckpoint().hashHex,
+    );
+  });
+
+  test('sets tick and generation from payload, not zero', () => {
+    const source = RtsRoom.create({
+      id: 'test-room',
+      name: 'Test',
+      width: 80,
+      height: 80,
+    });
+    source.addPlayer('p1', 'Alice');
+
+    // Tick to a non-zero state
+    for (let i = 0; i < 20; i++) {
+      source.tick();
+    }
+
+    const payload = source.createStatePayload();
+    const reconstructed = RtsRoom.fromPayload(
+      payload,
+      source.state.templates,
+    );
+
+    expect(reconstructed.state.tick).toBe(payload.tick);
+    expect(reconstructed.state.generation).toBe(payload.generation);
+    expect(reconstructed.state.tick).toBeGreaterThan(0);
+    expect(reconstructed.state.generation).toBeGreaterThan(0);
+  });
+});
