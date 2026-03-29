@@ -2379,6 +2379,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
+      // SYNC-02: flush buffered turn commands before generating snapshot
+      // to ensure the fallback state includes all executed inputs
+      if (isInputOnlyMode(room) && sections.includes('full')) {
+        flushPrimaryTurnCommands(room);
+      }
+
       emitRequestedStateSections(room, socket, sections);
     });
 

@@ -605,6 +605,7 @@ let playerIdentityState = createPlayerIdentityState(
 let availableTemplates: StructureTemplatePayload[] = [];
 let joinedTemplates: StructureTemplate[] | null = null;
 let pendingSimInit = false;
+let pendingSimResync = false;
 const clientSimulation = new ClientSimulation();
 const templateMaxHpByTemplateId = new Map<string, number>();
 let templateMaxHpLookup: Record<string, number> = {};
@@ -3861,6 +3862,7 @@ socket.on('room:left', (payload: RoomLeftPayload) => {
   clientSimulation.destroy();
   joinedTemplates = null;
   pendingSimInit = false;
+  pendingSimResync = false;
 
   currentRoomId = '-';
   currentRoomCode = '-';
@@ -4026,6 +4028,7 @@ socket.on('room:match-finished', (payload: MatchFinishedPayload) => {
   }
 
   clientSimulation.destroy();
+  pendingSimResync = false;
 
   const payloadWithTimeline = payload as MatchFinishedPayload & {
     timeline?: unknown;
@@ -4058,17 +4061,22 @@ socket.on('lockstep:checkpoint', (payload: LockstepCheckpointPayload) => {
   }
 
   if (clientSimulation.isActive) {
+    // Skip verification while a resync is already in flight
+    if (pendingSimResync) {
+      return;
+    }
+
     clientSimulation.advanceToTick(payload.tick);
     const match = clientSimulation.verifyCheckpoint(payload);
     if (!match) {
       console.warn(
-        `[lockstep] Desync detected at tick ${String(payload.tick)}: local hash does not match server hash`,
+        `[lockstep] Desync detected at tick ${String(payload.tick)}: requesting resync`,
       );
-      // Phase 15 will handle resync; for now just log
-      // Fallback: request grid to resync visual state
-      requestStateSections(['grid']);
+      // Request full state snapshot for resync (SYNC-01 -> SYNC-02)
+      requestStateSnapshot(true);
+      pendingSimResync = true;
     }
-    // In input-only mode, do NOT request state:grid -- simulation is authoritative
+    // In input-only mode with matching hash: no state request needed
   } else {
     // No active simulation -- use legacy grid request for visual sync
     if (payload.tick % 50 === 0) {
@@ -4082,7 +4090,10 @@ socket.on('lockstep:fallback', (payload: LockstepFallbackPayload) => {
     return;
   }
 
-  requestStateSnapshot(true);
+  if (!pendingSimResync) {
+    requestStateSnapshot(true);
+    pendingSimResync = true;
+  }
 });
 
 socket.on('room:slot-claimed', (payload: RoomSlotClaimedPayload) => {
@@ -4306,6 +4317,15 @@ socket.on('state', (payload: RoomStatePayload) => {
   if (pendingSimInit && currentRoomStatus === 'active' && joinedTemplates) {
     clientSimulation.initialize(payload, joinedTemplates);
     pendingSimInit = false;
+  }
+
+  // Resync after desync detection (SYNC-02)
+  if (pendingSimResync && currentRoomStatus === 'active' && joinedTemplates) {
+    clientSimulation.resync(payload, joinedTemplates);
+    pendingSimResync = false;
+    console.log(
+      `[lockstep] Resync complete at tick ${String(payload.tick)}`,
+    );
   }
 });
 
