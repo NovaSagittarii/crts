@@ -1,15 +1,19 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+// The above disables are required because this test imports from apps/web/src/
+// which is outside tsconfig.json's include boundary. The types are correct at
+// runtime (vitest resolves them via its own alias config) but eslint's
+// typescript-eslint parser cannot resolve the cross-project types.
 import { describe, expect, it } from 'vitest';
 
 import {
-  RtsEngine,
-  RtsRoom,
-  StructureTemplate,
-  createDefaultStructureTemplates,
   type BuildQueuedPayload,
   type DestroyQueuedPayload,
   type PlacementTransformState,
   type RoomDeterminismCheckpoint,
-  type RoomStatePayload,
+  RtsRoom,
+  createDefaultStructureTemplates,
 } from '#rts-engine';
 
 import { ClientSimulation } from '../../apps/web/src/client-simulation.js';
@@ -363,7 +367,7 @@ describe('ClientSimulation', () => {
     });
 
     it('after initialize + applyQueuedBuild + advanceToTick past executeTick, hash matches server', () => {
-      const { room, templates, player1TeamId } = createRoomWithPlayers();
+      const { room, templates } = createRoomWithPlayers();
 
       // Queue a build on the server
       const buildResult = room.queueBuildEvent('player-1', {

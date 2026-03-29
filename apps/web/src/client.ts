@@ -33,6 +33,7 @@ import {
   RtsEngine,
   ServerToClientEvents,
   StateRequestPayload,
+  StructureTemplate,
   StructureTemplatePayload,
   TeamPayload,
 } from '#rts-engine';
@@ -66,6 +67,7 @@ import {
   DEFAULT_CHAT_LOG_MAX_MESSAGES,
   getChatOverflowCount,
 } from './chat-log-view-model.js';
+import { ClientSimulation, templateFromPayload } from './client-simulation.js';
 import {
   type AuthoritativePreviewRefreshState,
   type AuthoritativePreviewSection,
@@ -601,6 +603,9 @@ let playerIdentityState = createPlayerIdentityState(
   playerNameEl.value.trim(),
 );
 let availableTemplates: StructureTemplatePayload[] = [];
+let joinedTemplates: StructureTemplate[] | null = null;
+let pendingSimInit = false;
+const clientSimulation = new ClientSimulation();
 const templateMaxHpByTemplateId = new Map<string, number>();
 let templateMaxHpLookup: Record<string, number> = {};
 const previewTemplateSnapshotsById = new Map<
@@ -3828,7 +3833,17 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
       : `Joined ${payload.roomName} as team #${payload.teamId}.`,
   );
 
+  // Store converted templates for sim initialization
+  joinedTemplates = payload.templates.map(templateFromPayload);
+
   applyStatePayload(payload.state);
+
+  // Initialize client simulation if match is already active (reconnect / mid-match join)
+  if (currentRoomStatus === 'active' || payload.state.tick > 0) {
+    clientSimulation.initialize(payload.state, joinedTemplates);
+    pendingSimInit = false;
+  }
+
   resizeCanvas();
   resetCameraForCurrentTeam();
   requestRender();
@@ -3842,6 +3857,10 @@ socket.on('room:left', (payload: RoomLeftPayload) => {
   if (!shouldApplyCurrentRoomPayload(payload.roomId)) {
     return;
   }
+
+  clientSimulation.destroy();
+  joinedTemplates = null;
+  pendingSimInit = false;
 
   currentRoomId = '-';
   currentRoomCode = '-';
@@ -3994,12 +4013,19 @@ socket.on('room:match-started', (payload: MatchStartedPayload) => {
   }
   addToast('Match started. Good luck.');
   requestStateSnapshot(true);
+
+  // Flag that the next 'state' event should trigger sim initialization
+  if (!clientSimulation.isActive) {
+    pendingSimInit = true;
+  }
 });
 
 socket.on('room:match-finished', (payload: MatchFinishedPayload) => {
   if (payload.roomId !== currentRoomId) {
     return;
   }
+
+  clientSimulation.destroy();
 
   const payloadWithTimeline = payload as MatchFinishedPayload & {
     timeline?: unknown;
@@ -4033,6 +4059,17 @@ socket.on('lockstep:checkpoint', (payload: LockstepCheckpointPayload) => {
 
   if (payload.tick % 50 === 0) {
     requestStateSections(['grid']);
+  }
+
+  if (clientSimulation.isActive) {
+    clientSimulation.advanceToTick(payload.tick);
+    const match = clientSimulation.verifyCheckpoint(payload);
+    if (!match) {
+      console.warn(
+        `[lockstep] Desync detected at tick ${String(payload.tick)}: local hash does not match server hash`,
+      );
+      // Phase 15 will handle resync; for now just log
+    }
   }
 });
 
@@ -4110,6 +4147,10 @@ socket.on('build:queued', (payload: BuildQueuedPayload) => {
     return;
   }
 
+  if (clientSimulation.isActive) {
+    clientSimulation.applyQueuedBuild(payload);
+  }
+
   if (routing.sections) {
     requestStateSections(routing.sections);
   }
@@ -4173,6 +4214,10 @@ socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
   );
   if (!routing.appliesToRoom) {
     return;
+  }
+
+  if (clientSimulation.isActive) {
+    clientSimulation.applyQueuedDestroy(payload);
   }
 
   if (routing.sections) {
@@ -4252,6 +4297,12 @@ socket.on('state', (payload: RoomStatePayload) => {
 
   stateHashResyncState = markAwaitingHashesAfterFullState(stateHashResyncState);
   applyStatePayload(payload);
+
+  // Deferred sim initialization: match started while in lobby
+  if (pendingSimInit && currentRoomStatus === 'active' && joinedTemplates) {
+    clientSimulation.initialize(payload, joinedTemplates);
+    pendingSimInit = false;
+  }
 });
 
 setNameButton.addEventListener('click', () => {

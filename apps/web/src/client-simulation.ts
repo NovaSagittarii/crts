@@ -1,17 +1,44 @@
+import { Grid } from '#conway-core';
 import {
-  RtsRoom,
-  StructureTemplate,
   type BuildEvent,
   type DestroyEvent,
   type RoomDeterminismCheckpoint,
   type RoomState,
   type RoomStatePayload,
+  RtsRoom,
+  StructureTemplate,
+  type StructureTemplatePayload,
 } from '#rts-engine';
+import type { BuildQueuedPayload, DestroyQueuedPayload } from '#rts-engine';
 
-import type {
-  BuildQueuedPayload,
-  DestroyQueuedPayload,
-} from '#rts-engine';
+/**
+ * Converts a wire-format `StructureTemplatePayload` into a `StructureTemplate`
+ * instance suitable for `RtsRoom.fromPayload()`.
+ */
+export function templateFromPayload(
+  payload: StructureTemplatePayload,
+): StructureTemplate {
+  const aliveCells: Array<{ x: number; y: number }> = [];
+  for (let i = 0; i < payload.cells.length; i++) {
+    if (payload.cells[i] === 1) {
+      aliveCells.push({
+        x: i % payload.width,
+        y: Math.floor(i / payload.width),
+      });
+    }
+  }
+  const grid = new Grid(payload.width, payload.height, aliveCells, 'flat');
+  return StructureTemplate.from({
+    id: payload.id,
+    name: payload.name,
+    activationCost: payload.activationCost,
+    income: payload.income,
+    buildRadius: payload.buildRadius,
+    startingHp: payload.startingHp,
+    checks: payload.checks,
+    grid,
+  });
+}
 
 export type ClientSimulationStatus = 'idle' | 'initialized' | 'running';
 
@@ -51,10 +78,7 @@ export class ClientSimulation {
 
   // --- Lifecycle ---
 
-  initialize(
-    payload: RoomStatePayload,
-    templates: StructureTemplate[],
-  ): void {
+  initialize(payload: RoomStatePayload, templates: StructureTemplate[]): void {
     this.rtsRoom = RtsRoom.fromPayload(payload, templates);
     this._currentTick = payload.tick;
     this._status = 'initialized';
