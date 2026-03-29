@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0.3
 milestone_name: Deterministic Lockstep Protocol
-status: verifying
-stopped_at: Completed 15-02-PLAN.md (hash checkpoint resync integration tests)
-last_updated: "2026-03-29T22:23:15.568Z"
+status: executing
+stopped_at: Completed 16-01-PLAN.md (reconnect input-log delivery and replay)
+last_updated: "2026-03-29T23:04:37.578Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 8
+  completed_plans: 7
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-29)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 15 — hash-checkpoint-protocol
+**Current focus:** Phase 16 — reconnect-via-snapshot-input-replay
 
 ## Current Position
 
-Phase: 16
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: 16 (reconnect-via-snapshot-input-replay) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-03-29
 
 Progress: [░░░░░░░░░░] 0% (v0.0.3)
@@ -59,6 +59,7 @@ Progress: [░░░░░░░░░░] 0% (v0.0.3)
 - [Phase 15]: Used resync() convenience method (destroy + initialize) rather than separate reinitialize for ClientSimulation desync recovery
 - [Phase 15]: Server flush guard uses isInputOnlyMode && sections.includes('full') to limit flush to primary lockstep full-snapshot requests
 - [Phase 15]: Used lockstepCheckpointIntervalTicks: 5 for realistic checkpoint spacing in integration tests
+- [Phase 16]: Removed unused InputLogEntry import from client.ts -- payload.inputLog type inferred from RoomJoinedPayload
 
 ### Pending Todos
 
@@ -73,6 +74,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.3)
 
 ## Session Continuity
 
-**Last session:** 2026-03-29T22:11:02.015Z
-**Stopped At:** Completed 15-02-PLAN.md (hash checkpoint resync integration tests)
+**Last session:** 2026-03-29T23:04:37.472Z
+**Stopped At:** Completed 16-01-PLAN.md (reconnect input-log delivery and replay)
 **Resume File:** None

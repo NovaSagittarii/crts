@@ -90,7 +90,7 @@ Plans:
   3. The client resumes the live tick loop from the correct tick after replay completes without a full state re-broadcast
 **Plans**: 2 plans
 Plans:
-- [ ] 16-01-PLAN.md — Contract + replayInputLog TDD + server joinRoom input log delivery + client wiring
+- [x] 16-01-PLAN.md — Contract + replayInputLog TDD + server joinRoom input log delivery + client wiring
 - [ ] 16-02-PLAN.md — Reconnect input-replay integration tests
 
 ### Phase 17: Quality Gate
@@ -112,5 +112,5 @@ Plans:
 | 13. Client Simulation Foundation | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
 | 14. Input-Only Transport | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
 | 15. Hash Checkpoint Protocol | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
-| 16. Reconnect via Snapshot + Input Replay | v0.0.3 | 0/2 | Not started | - |
+| 16. Reconnect via Snapshot + Input Replay | v0.0.3 | 1/2 | In Progress|  |
 | 17. Quality Gate | v0.0.3 | 0/TBD | Not started | - |

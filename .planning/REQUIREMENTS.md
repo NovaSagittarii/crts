@@ -25,7 +25,7 @@ Requirements for deterministic lockstep protocol migration. Each maps to roadmap
 
 ### Reconnect
 
-- [ ] **RECON-01**: Disconnected player rejoins mid-match by receiving a state snapshot plus the input log from that snapshot tick forward
+- [x] **RECON-01**: Disconnected player rejoins mid-match by receiving a state snapshot plus the input log from that snapshot tick forward
 
 ### Quality & Verification
 
@@ -80,7 +80,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | XPORT-03 | Phase 14 | Complete |
 | SYNC-01 | Phase 15 | Complete |
 | SYNC-02 | Phase 15 | Complete |
-| RECON-01 | Phase 16 | Pending |
+| RECON-01 | Phase 16 | Complete |
 | QUAL-01 | Phase 17 | Pending |
 
 **Coverage:**
