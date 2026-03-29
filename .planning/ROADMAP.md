@@ -33,7 +33,7 @@ See archive: `.planning/milestones/v0.0.2-ROADMAP.md`
 - [x] **Phase 13: Client Simulation Foundation** - Build the local simulation runner and tick clock; verify client and server produce identical state hashes (completed 2026-03-29)
 - [x] **Phase 14: Input-Only Transport** - Switch server to relay inputs instead of broadcasting full state; establish bounded input log (completed 2026-03-29)
 - [x] **Phase 15: Hash Checkpoint Protocol** - Wire desync detection and state-resync fallback as the primary consistency mechanism (completed 2026-03-29)
-- [ ] **Phase 16: Reconnect via Snapshot + Input Replay** - Reconnecting clients receive a state snapshot plus input log and replay to current tick
+- [x] **Phase 16: Reconnect via Snapshot + Input Replay** - Reconnecting clients receive a state snapshot plus input log and replay to current tick (completed 2026-03-29)
 - [ ] **Phase 17: Quality Gate** - Property-based tests confirm lockstep invariants hold over long random input sequences
 
 ## Phase Details
@@ -91,7 +91,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 16-01-PLAN.md — Contract + replayInputLog TDD + server joinRoom input log delivery + client wiring
-- [ ] 16-02-PLAN.md — Reconnect input-replay integration tests
+- [x] 16-02-PLAN.md — Reconnect input-replay integration tests
 
 ### Phase 17: Quality Gate
 **Goal**: Property-based tests and integration coverage confirm the lockstep protocol is correct and all prior milestone behavior is preserved
@@ -112,5 +112,5 @@ Plans:
 | 13. Client Simulation Foundation | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
 | 14. Input-Only Transport | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
 | 15. Hash Checkpoint Protocol | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
-| 16. Reconnect via Snapshot + Input Replay | v0.0.3 | 1/2 | In Progress|  |
+| 16. Reconnect via Snapshot + Input Replay | v0.0.3 | 2/2 | Complete   | 2026-03-29 |
 | 17. Quality Gate | v0.0.3 | 0/TBD | Not started | - |
