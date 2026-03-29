@@ -1570,16 +1570,23 @@ describe('rts', () => {
 
     expect(teamPayload).toBeDefined();
     expect(teamPayload?.resources).toBe(team.resources);
-    expect(teamPayload?.pendingBuilds).toContainEqual({
-      eventId: buildResult.eventId,
-      executeTick: buildResult.executeTick,
-      playerId: 'p1',
-      templateId: 'block',
-      templateName: 'Block 2x2',
-      x: buildX,
-      y: buildY,
-      transform,
-    });
+    expect(teamPayload?.pendingBuilds).toContainEqual(
+      expect.objectContaining({
+        eventId: buildResult.eventId,
+        executeTick: buildResult.executeTick,
+        playerId: 'p1',
+        templateId: 'block',
+        templateName: 'Block 2x2',
+        x: buildX,
+        y: buildY,
+        transform,
+      }),
+    );
+    // Verify reservedCost is present and numeric on the pending build payload
+    const matchedBuild = teamPayload?.pendingBuilds.find(
+      (pb) => pb.eventId === buildResult.eventId,
+    );
+    expect(matchedBuild?.reservedCost).toBeTypeOf('number');
     expect(teamPayload?.pendingDestroys).toContainEqual({
       eventId: destroyResult.eventId,
       executeTick: destroyResult.executeTick,
@@ -2545,12 +2552,14 @@ describe('RtsRoom.fromPayload', () => {
 
     // Queue a build that won't execute for a few ticks
     const base = source.state.teams.get(1)!.baseTopLeft;
-    source.queueBuildEvent('p1', {
+    const queueResult = source.queueBuildEvent('p1', {
       templateId: 'block',
       x: base.x + 14,
       y: base.y,
       delayTicks: 5,
     });
+
+    expect(queueResult.accepted).toBe(true);
 
     const payload = source.createStatePayload();
     const reconstructed = RtsRoom.fromPayload(

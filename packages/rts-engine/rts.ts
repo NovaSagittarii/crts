@@ -215,6 +215,7 @@ export interface PendingBuildPayload {
   x: number;
   y: number;
   transform: PlacementTransformState;
+  reservedCost?: number;
 }
 
 export interface PendingDestroyPayload {
@@ -784,6 +785,7 @@ export class RtsEngine {
         x: event.x,
         y: event.y,
         transform: event.transform,
+        reservedCost: event.reservedCost,
       };
     });
   }
@@ -2199,6 +2201,168 @@ export class RtsEngine {
     return room;
   }
 
+  public static fromPayload(
+    payload: RoomStatePayload,
+    templates: StructureTemplate[],
+  ): RtsRoom {
+    // 1. Build template map (always include core template)
+    const templateMap = new Map<string, StructureTemplate>();
+    for (const template of templates) {
+      templateMap.set(template.id, template);
+    }
+    if (!templateMap.has(RtsEngine.CORE_STRUCTURE_TEMPLATE.id)) {
+      templateMap.set(
+        RtsEngine.CORE_STRUCTURE_TEMPLATE.id,
+        RtsEngine.CORE_STRUCTURE_TEMPLATE,
+      );
+    }
+
+    // 2. Compute spawn orientation seed
+    const spawnOrientationSeed = RtsEngine.hashSpawnSeed(
+      payload.roomId,
+      payload.width,
+      payload.height,
+    );
+
+    // 3. Create room runtime
+    const runtime = createRoomRuntime({
+      id: payload.roomId,
+      name: payload.roomName,
+      width: payload.width,
+      height: payload.height,
+      templateMap,
+      spawnOrientationSeed,
+    });
+
+    // 4. Reconstruct the grid from packed ArrayBuffer
+    const grid = Grid.fromPacked(payload.grid, payload.width, payload.height);
+
+    // 5. Create bare RoomState
+    const room = {
+      generation: payload.generation,
+      tick: payload.tick,
+      grid,
+      templates,
+      teams: new Map<number, TeamState>(),
+      players: new Map<string, RoomPlayerState>(),
+    } as unknown as RoomState;
+
+    defineRoomRuntimeProperties(room, runtime);
+    attachRoomRuntime(room, runtime);
+
+    // 6. Sort teams by id and reconstruct each team
+    const sortedTeamPayloads = [...payload.teams].sort(
+      (a, b) => a.id - b.id,
+    );
+
+    let maxEventId = 0;
+
+    for (const tp of sortedTeamPayloads) {
+      // Reconstruct structures sorted by key
+      const structures = new Map<string, Structure>();
+      const sortedStructures = [...tp.structures].sort((a, b) =>
+        a.key < b.key ? -1 : a.key > b.key ? 1 : 0,
+      );
+
+      for (const sp of sortedStructures) {
+        const template = templateMap.get(sp.templateId);
+        if (!template) {
+          continue;
+        }
+
+        const structure = template.instantiate({
+          key: sp.key,
+          x: sp.x,
+          y: sp.y,
+          transform: sp.transform,
+          active: sp.active,
+          isCore: sp.isCore,
+        });
+        structure.hp = sp.hp;
+        structures.set(sp.key, structure);
+      }
+
+      // Reconstruct pending build events
+      const pendingBuildEvents: BuildEvent[] = [];
+      for (const pb of tp.pendingBuilds) {
+        const buildEvent: BuildEvent = {
+          id: pb.eventId,
+          teamId: tp.id,
+          playerId: pb.playerId,
+          templateId: pb.templateId,
+          x: pb.x,
+          y: pb.y,
+          transform: pb.transform,
+          executeTick: pb.executeTick,
+          reservedCost: pb.reservedCost ?? 0,
+        };
+        pendingBuildEvents.push(buildEvent);
+        if (pb.eventId > maxEventId) {
+          maxEventId = pb.eventId;
+        }
+      }
+      pendingBuildEvents.sort(RtsEngine.compareBuildEvents);
+
+      // Reconstruct pending destroy events
+      const pendingDestroyEvents: DestroyEvent[] = [];
+      for (const pd of tp.pendingDestroys) {
+        const destroyEvent: DestroyEvent = {
+          id: pd.eventId,
+          teamId: tp.id,
+          playerId: pd.playerId,
+          structureKey: pd.structureKey,
+          executeTick: pd.executeTick,
+        };
+        pendingDestroyEvents.push(destroyEvent);
+        if (pd.eventId > maxEventId) {
+          maxEventId = pd.eventId;
+        }
+      }
+      pendingDestroyEvents.sort(RtsEngine.compareDestroyEvents);
+
+      // Reconstruct TeamState
+      const team: TeamState = {
+        id: tp.id,
+        name: tp.name,
+        playerIds: new Set<string>(tp.playerIds),
+        resources: tp.resources,
+        income: tp.income,
+        incomeBreakdown: { ...tp.incomeBreakdown },
+        lastIncomeTick: payload.tick,
+        territoryRadius: DEFAULT_TEAM_TERRITORY_RADIUS,
+        baseTopLeft: { ...tp.baseTopLeft },
+        defeated: tp.defeated,
+        structures,
+        pendingBuildEvents,
+        pendingDestroyEvents,
+        buildStats: { queued: 0, applied: 0, rejected: 0 },
+      };
+
+      // Add players
+      for (const playerId of tp.playerIds) {
+        room.players.set(playerId, {
+          id: playerId,
+          name: playerId,
+          teamId: tp.id,
+        });
+      }
+
+      // Insert team
+      room.teams.set(tp.id, team);
+
+      // Reserve team id
+      reserveRoomTeamId(room, tp.id);
+    }
+
+    // 7. Fix runtime.nextBuildEventId
+    if (maxEventId > 0) {
+      runtime.nextBuildEventId = maxEventId + 1;
+    }
+
+    // 8. Return wrapped RtsRoom
+    return RtsRoom.fromState(room);
+  }
+
   public static listRooms(rooms: Map<string, RoomState>): RoomListEntry[] {
     const entries: RoomListEntry[] = [];
     for (const room of rooms.values()) {
@@ -3102,6 +3266,13 @@ export class RtsRoom {
 
   public static create(options: CreateRoomOptions): RtsRoom {
     return RtsEngine.createRoom(options);
+  }
+
+  public static fromPayload(
+    payload: RoomStatePayload,
+    templates: StructureTemplate[],
+  ): RtsRoom {
+    return RtsEngine.fromPayload(payload, templates);
   }
 
   public static fromState(state: RoomState): RtsRoom {
