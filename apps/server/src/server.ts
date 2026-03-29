@@ -5,6 +5,7 @@ import express, { Express } from 'express';
 import { Socket, Server as SocketIOServer } from 'socket.io';
 
 import {
+  InputEventLog,
   type LobbyRejectionReason,
   LobbyRoom,
   type LobbySlotDefinition,
@@ -182,6 +183,7 @@ interface LockstepRuntimeState {
   lastPrimaryHash: string | null;
   lastShadowHash: string | null;
   checkpoints: LockstepCheckpointPayload[];
+  inputEventLog: InputEventLog;
 }
 
 interface StateRequestBudget {
@@ -581,6 +583,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       lastPrimaryHash: null,
       lastShadowHash: null,
       checkpoints: [],
+      inputEventLog: new InputEventLog(2048),
     };
   }
 
@@ -1154,7 +1157,15 @@ export function createServer(options: ServerOptions = {}): GameServer {
     payload: BuildQueuedPayload,
   ): void {
     roomBroadcast.emitBuildQueued(room, payload);
-    roomBroadcast.emitStateHashes(room);
+    room.lockstepRuntime.inputEventLog.append({
+      tick: payload.executeTick,
+      sequence: payload.sequence,
+      kind: 'build',
+      payload,
+    });
+    if (!isInputOnlyMode(room)) {
+      roomBroadcast.emitStateHashes(room);
+    }
   }
 
   function emitBuildQueueRejected(
@@ -1169,7 +1180,15 @@ export function createServer(options: ServerOptions = {}): GameServer {
     payload: DestroyQueuedPayload,
   ): void {
     roomBroadcast.emitDestroyQueued(room, payload);
-    roomBroadcast.emitStateHashes(room);
+    room.lockstepRuntime.inputEventLog.append({
+      tick: payload.executeTick,
+      sequence: payload.sequence,
+      kind: 'destroy',
+      payload,
+    });
+    if (!isInputOnlyMode(room)) {
+      roomBroadcast.emitStateHashes(room);
+    }
   }
 
   function emitDestroyQueueRejected(
@@ -1242,6 +1261,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     lockstepRuntime.lastPrimaryHash = null;
     lockstepRuntime.lastShadowHash = null;
     lockstepRuntime.checkpoints = [];
+    lockstepRuntime.inputEventLog.clear();
 
     if (lockstepRuntime.mode === 'shadow') {
       if (forcedLockstepFallbackReason === 'shadow-unavailable') {
@@ -1430,6 +1450,13 @@ export function createServer(options: ServerOptions = {}): GameServer {
     shadowRoom.tick();
     lockstepRuntime.nextTurn = room.rtsRoom.state.tick;
     syncLockstepStatus(room);
+  }
+
+  function isInputOnlyMode(room: RuntimeRoom): boolean {
+    return (
+      room.lockstepRuntime.mode === 'primary' &&
+      room.lockstepRuntime.status === 'running'
+    );
   }
 
   function recordLockstepCheckpoint(
@@ -2792,22 +2819,36 @@ export function createServer(options: ServerOptions = {}): GameServer {
           continue;
         }
 
+        const inputOnly = isInputOnlyMode(room);
+
         flushPrimaryTurnCommands(room);
         const tickResult = room.rtsRoom.tick();
-        const buildOutcomes: BuildOutcomePayload[] =
-          tickResult.buildOutcomes.map((outcome) => ({
-            ...outcome,
-            roomId: room.rtsRoom.id,
-          }));
-        const destroyOutcomes: DestroyOutcomePayload[] =
-          tickResult.destroyOutcomes.map((outcome) => ({
-            ...outcome,
-            roomId: room.rtsRoom.id,
-          }));
-        emitBuildOutcomes(room, buildOutcomes);
-        emitDestroyOutcomes(room, destroyOutcomes);
+
+        if (!inputOnly) {
+          const buildOutcomes: BuildOutcomePayload[] =
+            tickResult.buildOutcomes.map((outcome) => ({
+              ...outcome,
+              roomId: room.rtsRoom.id,
+            }));
+          const destroyOutcomes: DestroyOutcomePayload[] =
+            tickResult.destroyOutcomes.map((outcome) => ({
+              ...outcome,
+              roomId: room.rtsRoom.id,
+            }));
+          emitBuildOutcomes(room, buildOutcomes);
+          emitDestroyOutcomes(room, destroyOutcomes);
+        }
+
         runShadowTick(room);
         emitLockstepCheckpointIfDue(room);
+
+        if (inputOnly) {
+          const oldestNeededTick = Math.max(
+            0,
+            room.rtsRoom.state.tick - Math.ceil(reconnectHoldMs / tickMs),
+          );
+          room.lockstepRuntime.inputEventLog.discardBefore(oldestNeededTick);
+        }
 
         if (tickResult.outcome) {
           const transition = transitionMatchLifecycle(room.status, 'finish');
@@ -2828,7 +2869,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       }
 
       if (room.lobby.participantCount() > 0) {
-        if (room.status === 'active' && emitActiveStateSnapshot) {
+        if (room.status === 'active' && emitActiveStateSnapshot && !isInputOnlyMode(room)) {
           emitRoomState(room);
         } else if (room.status === 'finished' && emitFinishedRoomResync) {
           emitRoomState(room);

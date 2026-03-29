@@ -4057,10 +4057,6 @@ socket.on('lockstep:checkpoint', (payload: LockstepCheckpointPayload) => {
     return;
   }
 
-  if (payload.tick % 50 === 0) {
-    requestStateSections(['grid']);
-  }
-
   if (clientSimulation.isActive) {
     clientSimulation.advanceToTick(payload.tick);
     const match = clientSimulation.verifyCheckpoint(payload);
@@ -4069,6 +4065,14 @@ socket.on('lockstep:checkpoint', (payload: LockstepCheckpointPayload) => {
         `[lockstep] Desync detected at tick ${String(payload.tick)}: local hash does not match server hash`,
       );
       // Phase 15 will handle resync; for now just log
+      // Fallback: request grid to resync visual state
+      requestStateSections(['grid']);
+    }
+    // In input-only mode, do NOT request state:grid -- simulation is authoritative
+  } else {
+    // No active simulation -- use legacy grid request for visual sync
+    if (payload.tick % 50 === 0) {
+      requestStateSections(['grid']);
     }
   }
 });
