@@ -88,7 +88,10 @@ Plans:
   1. A player who disconnects mid-match receives a post-tick state snapshot and the server input log from that snapshot tick forward upon reconnecting
   2. The reconnect engine replays the input log against the local `RtsRoom` in insertion-sorted order and the resulting state hash matches the server checkpoint hash
   3. The client resumes the live tick loop from the correct tick after replay completes without a full state re-broadcast
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 16-01-PLAN.md — Contract + replayInputLog TDD + server joinRoom input log delivery + client wiring
+- [ ] 16-02-PLAN.md — Reconnect input-replay integration tests
 
 ### Phase 17: Quality Gate
 **Goal**: Property-based tests and integration coverage confirm the lockstep protocol is correct and all prior milestone behavior is preserved
@@ -109,5 +112,5 @@ Plans:
 | 13. Client Simulation Foundation | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
 | 14. Input-Only Transport | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
 | 15. Hash Checkpoint Protocol | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
-| 16. Reconnect via Snapshot + Input Replay | v0.0.3 | 0/TBD | Not started | - |
+| 16. Reconnect via Snapshot + Input Replay | v0.0.3 | 0/2 | Not started | - |
 | 17. Quality Gate | v0.0.3 | 0/TBD | Not started | - |
