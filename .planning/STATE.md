@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0.3
 milestone_name: Deterministic Lockstep Protocol
-status: executing
-stopped_at: Completed 15-01-PLAN.md (desync detection and state resync protocol)
-last_updated: "2026-03-29T21:36:53.894Z"
+status: verifying
+stopped_at: Completed 15-02-PLAN.md (hash checkpoint resync integration tests)
+last_updated: "2026-03-29T22:11:02.134Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 6
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-29)
 
 Phase: 15 (hash-checkpoint-protocol) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-29
 
 Progress: [░░░░░░░░░░] 0% (v0.0.3)
@@ -58,6 +58,7 @@ Progress: [░░░░░░░░░░] 0% (v0.0.3)
 - [Phase 14]: InputEventLog discard window based on reconnectHoldMs/tickMs for reconnect replay support
 - [Phase 15]: Used resync() convenience method (destroy + initialize) rather than separate reinitialize for ClientSimulation desync recovery
 - [Phase 15]: Server flush guard uses isInputOnlyMode && sections.includes('full') to limit flush to primary lockstep full-snapshot requests
+- [Phase 15]: Used lockstepCheckpointIntervalTicks: 5 for realistic checkpoint spacing in integration tests
 
 ### Pending Todos
 
@@ -72,6 +73,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.3)
 
 ## Session Continuity
 
-**Last session:** 2026-03-29T21:36:53.783Z
-**Stopped At:** Completed 15-01-PLAN.md (desync detection and state resync protocol)
+**Last session:** 2026-03-29T22:11:02.015Z
+**Stopped At:** Completed 15-02-PLAN.md (hash checkpoint resync integration tests)
 **Resume File:** None

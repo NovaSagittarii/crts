@@ -32,7 +32,7 @@ See archive: `.planning/milestones/v0.0.2-ROADMAP.md`
 
 - [x] **Phase 13: Client Simulation Foundation** - Build the local simulation runner and tick clock; verify client and server produce identical state hashes (completed 2026-03-29)
 - [x] **Phase 14: Input-Only Transport** - Switch server to relay inputs instead of broadcasting full state; establish bounded input log (completed 2026-03-29)
-- [ ] **Phase 15: Hash Checkpoint Protocol** - Wire desync detection and state-resync fallback as the primary consistency mechanism
+- [x] **Phase 15: Hash Checkpoint Protocol** - Wire desync detection and state-resync fallback as the primary consistency mechanism (completed 2026-03-29)
 - [ ] **Phase 16: Reconnect via Snapshot + Input Replay** - Reconnecting clients receive a state snapshot plus input log and replay to current tick
 - [ ] **Phase 17: Quality Gate** - Property-based tests confirm lockstep invariants hold over long random input sequences
 
@@ -78,7 +78,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 15-01-PLAN.md — ClientSimulation.resync() + client desync/resync wiring + server flush guarantee
-- [ ] 15-02-PLAN.md — Hash checkpoint resync integration tests
+- [x] 15-02-PLAN.md — Hash checkpoint resync integration tests
 
 ### Phase 16: Reconnect via Snapshot + Input Replay
 **Goal**: A disconnected player can rejoin mid-match, replay the input log, and resume in sync with the live game
@@ -108,6 +108,6 @@ Plans:
 | 6-12 (archived) | v0.0.2 | — | Complete | 2026-03-03 |
 | 13. Client Simulation Foundation | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
 | 14. Input-Only Transport | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
-| 15. Hash Checkpoint Protocol | v0.0.3 | 1/2 | In Progress|  |
+| 15. Hash Checkpoint Protocol | v0.0.3 | 2/2 | Complete   | 2026-03-29 |
 | 16. Reconnect via Snapshot + Input Replay | v0.0.3 | 0/TBD | Not started | - |
 | 17. Quality Gate | v0.0.3 | 0/TBD | Not started | - |
