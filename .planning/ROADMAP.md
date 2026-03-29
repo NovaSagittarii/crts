@@ -31,7 +31,7 @@ See archive: `.planning/milestones/v0.0.2-ROADMAP.md`
 **Milestone Goal:** Migrate the network protocol from full-state broadcast to deterministic lockstep, where clients run the simulation locally and the server acts as a thin input validator and relay.
 
 - [x] **Phase 13: Client Simulation Foundation** - Build the local simulation runner and tick clock; verify client and server produce identical state hashes (completed 2026-03-29)
-- [ ] **Phase 14: Input-Only Transport** - Switch server to relay inputs instead of broadcasting full state; establish bounded input log
+- [x] **Phase 14: Input-Only Transport** - Switch server to relay inputs instead of broadcasting full state; establish bounded input log (completed 2026-03-29)
 - [ ] **Phase 15: Hash Checkpoint Protocol** - Wire desync detection and state-resync fallback as the primary consistency mechanism
 - [ ] **Phase 16: Reconnect via Snapshot + Input Replay** - Reconnecting clients receive a state snapshot plus input log and replay to current tick
 - [ ] **Phase 17: Quality Gate** - Property-based tests confirm lockstep invariants hold over long random input sequences
@@ -64,7 +64,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 14-01-PLAN.md — InputEventLog ring buffer + sequence field on queued payloads (TDD)
-- [ ] 14-02-PLAN.md — Broadcast suppression + InputEventLog wiring + client update + integration tests
+- [x] 14-02-PLAN.md — Broadcast suppression + InputEventLog wiring + client update + integration tests
 
 ### Phase 15: Hash Checkpoint Protocol
 **Goal**: Periodic hash checkpoints catch state divergence and trigger authoritative state resync
@@ -104,7 +104,7 @@ Plans:
 | 1-5 (archived) | v0.0.1 | — | Complete | 2026-03-01 |
 | 6-12 (archived) | v0.0.2 | — | Complete | 2026-03-03 |
 | 13. Client Simulation Foundation | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
-| 14. Input-Only Transport | v0.0.3 | 1/2 | In Progress|  |
+| 14. Input-Only Transport | v0.0.3 | 2/2 | Complete   | 2026-03-29 |
 | 15. Hash Checkpoint Protocol | v0.0.3 | 0/TBD | Not started | - |
 | 16. Reconnect via Snapshot + Input Replay | v0.0.3 | 0/TBD | Not started | - |
 | 17. Quality Gate | v0.0.3 | 0/TBD | Not started | - |
