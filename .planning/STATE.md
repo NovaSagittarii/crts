@@ -4,7 +4,7 @@ milestone: v0.0.3
 milestone_name: Deterministic Lockstep Protocol
 status: verifying
 stopped_at: Completed 14-02-PLAN.md (broadcast suppression + input-only transport)
-last_updated: "2026-03-29T20:35:51.506Z"
+last_updated: "2026-03-29T20:57:08.790Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 5
@@ -25,8 +25,8 @@ See: `.planning/PROJECT.md` (updated 2026-03-29)
 
 ## Current Position
 
-Phase: 14 (input-only-transport) — EXECUTING
-Plan: 2 of 2
+Phase: 15
+Plan: Not started
 Status: Phase complete — ready for verification
 Last activity: 2026-03-29
 
