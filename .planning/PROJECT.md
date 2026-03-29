@@ -22,6 +22,7 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 ## Current State
 
 **Shipped version:** `v0.0.2` (2026-03-03)
+**In progress:** `v0.0.3` — Phase 13 complete
 
 - Canonical 5x5 base geometry and template-wide integrity handling are now deterministic and shared across runtime + tests.
 - Placement legality uses full-footprint union build zones with fixed radius-15 behavior for this milestone.
@@ -29,6 +30,7 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 - Authoritative destroy queue flow now includes deterministic rejection taxonomy and reconnect-safe projection behavior.
 - Web runtime now has dedicated lobby/in-game screens, pan/zoom map controls, and tactical overlays with pinned structure inspector.
 - Milestone artifacts are archived in `.planning/milestones/`, and active planning docs are reset for the next cycle.
+- Phase 13 complete: `RtsRoom.fromPayload()` factory and `ClientSimulation` module enable client-side local simulation with server-driven tick advance, input replay, and hash checkpoint verification (dual-path with existing server broadcasts).
 
 ## Requirements
 
@@ -49,7 +51,7 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 
 ### Active (v0.0.3)
 
-- [ ] Client-side deterministic simulation
+- [x] Client-side deterministic simulation (Validated in Phase 13)
 - [ ] Input-only transport protocol
 - [ ] Hash-based desync detection
 - [ ] Reconnect via state snapshot + input replay
@@ -115,4 +117,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-_Last updated: 2026-03-29 after v0.0.3 milestone start_
+_Last updated: 2026-03-29 after Phase 13 completion_
