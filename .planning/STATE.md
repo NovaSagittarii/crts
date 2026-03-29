@@ -4,7 +4,7 @@ milestone: v0.0.3
 milestone_name: Deterministic Lockstep Protocol
 status: verifying
 stopped_at: Completed 15-02-PLAN.md (hash checkpoint resync integration tests)
-last_updated: "2026-03-29T22:11:02.134Z"
+last_updated: "2026-03-29T22:23:15.568Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 5
@@ -25,8 +25,8 @@ See: `.planning/PROJECT.md` (updated 2026-03-29)
 
 ## Current Position
 
-Phase: 15 (hash-checkpoint-protocol) — EXECUTING
-Plan: 2 of 2
+Phase: 16
+Plan: Not started
 Status: Phase complete — ready for verification
 Last activity: 2026-03-29
 
