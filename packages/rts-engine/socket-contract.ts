@@ -79,6 +79,7 @@ export interface BuildQueuedPayload {
   delayTicks: number;
   eventId: number;
   executeTick: number;
+  sequence: number;
 }
 
 export interface DestroyQueuedPayload {
@@ -93,6 +94,7 @@ export interface DestroyQueuedPayload {
   eventId: number;
   executeTick: number;
   idempotent: boolean;
+  sequence: number;
 }
 
 export type BuildQueueRejectedReason = string;

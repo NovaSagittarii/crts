@@ -224,6 +224,7 @@ describe('ClientSimulation', () => {
         delayTicks: 4,
         eventId: 1,
         executeTick: payload.tick + 4,
+        sequence: 0,
       };
 
       sim.applyQueuedBuild(buildPayload);
@@ -260,6 +261,7 @@ describe('ClientSimulation', () => {
         eventId: 2,
         executeTick: payload.tick + 4,
         idempotent: false,
+        sequence: 0,
       };
 
       sim.applyQueuedDestroy(destroyPayload);
@@ -292,6 +294,7 @@ describe('ClientSimulation', () => {
         delayTicks: 4,
         eventId: 99,
         executeTick: 10,
+        sequence: 0,
       });
       expect(sim.currentState).toBeNull();
     });
@@ -315,6 +318,7 @@ describe('ClientSimulation', () => {
         eventId: 5,
         executeTick: payload.tick + 4,
         idempotent: true,
+        sequence: 0,
       };
 
       sim.applyQueuedDestroy(destroyPayload);

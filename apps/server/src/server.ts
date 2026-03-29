@@ -556,6 +556,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   const defaultRoomId = '1';
   let roomCounter = 2;
   let guestCounter = 1;
+  let lastBufferedSequence = -1;
 
   const roomTemplates = RtsEngine.createDefaultTemplates();
   const rooms = new Map<string, RuntimeRoom>();
@@ -881,6 +882,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       delayTicks: createQueueDelayTicks(room, event.executeTick),
       eventId: event.id,
       executeTick: event.executeTick,
+      sequence: lastBufferedSequence,
     };
   }
 
@@ -911,6 +913,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       eventId: event.id,
       executeTick: event.executeTick,
       idempotent: Boolean(result.idempotent),
+      sequence: lastBufferedSequence,
     };
   }
 
@@ -1260,13 +1263,13 @@ export function createServer(options: ServerOptions = {}): GameServer {
   function bufferLockstepCommand(
     room: RuntimeRoom,
     command: Omit<BufferedLockstepCommand, 'sequence' | 'turn'>,
-  ): boolean {
+  ): number {
     const lockstepRuntime = room.lockstepRuntime;
     if (
       lockstepRuntime.mode === 'off' ||
       lockstepRuntime.status !== 'running'
     ) {
-      return false;
+      return -1;
     }
 
     const turn =
@@ -1274,9 +1277,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
         ? getLockstepTurnForTick(lockstepRuntime, room.rtsRoom.state.tick)
         : room.rtsRoom.state.tick;
     const bufferedCommands = lockstepRuntime.turnBuffer.get(turn) ?? [];
+    const assignedSequence = lockstepRuntime.nextSequence;
     bufferedCommands.push({
       ...command,
-      sequence: lockstepRuntime.nextSequence,
+      sequence: assignedSequence,
       turn,
     });
     lockstepRuntime.nextSequence += 1;
@@ -1291,11 +1295,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
       lockstepRuntime.bufferedCommandCount > lockstepRuntime.maxBufferedCommands
     ) {
       fallbackToLegacyLockstep(room, 'turn-buffer-overflow');
-      return true;
+      return assignedSequence;
     }
 
     syncLockstepStatus(room);
-    return true;
+    return assignedSequence;
   }
 
   function replayBufferedCommandInShadow(
@@ -2207,7 +2211,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       >;
     },
   ): void {
-    bufferLockstepCommand(room, {
+    lastBufferedSequence = bufferLockstepCommand(room, {
       intentId: context.intentId,
       bufferedTurn: context.bufferedTurn,
       scheduledByTurn: context.scheduledByTurn,
