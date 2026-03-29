@@ -4,7 +4,7 @@ milestone: v0.0.3
 milestone_name: Deterministic Lockstep Protocol
 status: verifying
 stopped_at: Completed 16-02-PLAN.md (reconnect input-log integration tests)
-last_updated: "2026-03-29T23:25:59.290Z"
+last_updated: "2026-03-29T23:40:25.949Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 5
@@ -25,8 +25,8 @@ See: `.planning/PROJECT.md` (updated 2026-03-29)
 
 ## Current Position
 
-Phase: 16 (reconnect-via-snapshot-input-replay) — EXECUTING
-Plan: 2 of 2
+Phase: 17
+Plan: Not started
 Status: Phase complete — ready for verification
 Last activity: 2026-03-29
 
