@@ -20,8 +20,8 @@ Requirements for deterministic lockstep protocol migration. Each maps to roadmap
 
 ### Consistency Verification
 
-- [ ] **SYNC-01**: Client computes a determinism hash at checkpoint intervals and compares it with the server-broadcast hash
-- [ ] **SYNC-02**: On hash mismatch the client receives a full state snapshot and resynchronizes its local simulation
+- [x] **SYNC-01**: Client computes a determinism hash at checkpoint intervals and compares it with the server-broadcast hash
+- [x] **SYNC-02**: On hash mismatch the client receives a full state snapshot and resynchronizes its local simulation
 
 ### Reconnect
 
@@ -78,8 +78,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | XPORT-01 | Phase 14 | Complete |
 | XPORT-02 | Phase 14 | Complete |
 | XPORT-03 | Phase 14 | Complete |
-| SYNC-01 | Phase 15 | Pending |
-| SYNC-02 | Phase 15 | Pending |
+| SYNC-01 | Phase 15 | Complete |
+| SYNC-02 | Phase 15 | Complete |
 | RECON-01 | Phase 16 | Pending |
 | QUAL-01 | Phase 17 | Pending |
 

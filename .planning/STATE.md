@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0.3
 milestone_name: Deterministic Lockstep Protocol
-status: verifying
-stopped_at: Completed 14-02-PLAN.md (broadcast suppression + input-only transport)
-last_updated: "2026-03-29T20:57:08.790Z"
+status: executing
+stopped_at: Completed 15-01-PLAN.md (desync detection and state resync protocol)
+last_updated: "2026-03-29T21:36:53.894Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 6
+  completed_plans: 5
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-29)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 14 — input-only-transport
+**Current focus:** Phase 15 — hash-checkpoint-protocol
 
 ## Current Position
 
-Phase: 15
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: 15 (hash-checkpoint-protocol) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-03-29
 
 Progress: [░░░░░░░░░░] 0% (v0.0.3)
@@ -56,6 +56,8 @@ Progress: [░░░░░░░░░░] 0% (v0.0.3)
 - [Phase 14]: bufferLockstepCommand returns assigned sequence number instead of boolean for downstream payload population
 - [Phase 14]: isInputOnlyMode checks both mode=primary AND status=running, ensuring fallback continues full broadcasts
 - [Phase 14]: InputEventLog discard window based on reconnectHoldMs/tickMs for reconnect replay support
+- [Phase 15]: Used resync() convenience method (destroy + initialize) rather than separate reinitialize for ClientSimulation desync recovery
+- [Phase 15]: Server flush guard uses isInputOnlyMode && sections.includes('full') to limit flush to primary lockstep full-snapshot requests
 
 ### Pending Todos
 
@@ -70,6 +72,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.3)
 
 ## Session Continuity
 
-**Last session:** 2026-03-29T20:35:51.398Z
-**Stopped At:** Completed 14-02-PLAN.md (broadcast suppression + input-only transport)
+**Last session:** 2026-03-29T21:36:53.783Z
+**Stopped At:** Completed 15-01-PLAN.md (desync detection and state resync protocol)
 **Resume File:** None

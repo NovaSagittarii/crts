@@ -77,7 +77,7 @@ Plans:
   4. The fallback snapshot is delivered only after all turn-buffer commands due at or before the fallback tick have executed
 **Plans**: 2 plans
 Plans:
-- [ ] 15-01-PLAN.md — ClientSimulation.resync() + client desync/resync wiring + server flush guarantee
+- [x] 15-01-PLAN.md — ClientSimulation.resync() + client desync/resync wiring + server flush guarantee
 - [ ] 15-02-PLAN.md — Hash checkpoint resync integration tests
 
 ### Phase 16: Reconnect via Snapshot + Input Replay
@@ -108,6 +108,6 @@ Plans:
 | 6-12 (archived) | v0.0.2 | — | Complete | 2026-03-03 |
 | 13. Client Simulation Foundation | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
 | 14. Input-Only Transport | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
-| 15. Hash Checkpoint Protocol | v0.0.3 | 0/2 | Not started | - |
+| 15. Hash Checkpoint Protocol | v0.0.3 | 1/2 | In Progress|  |
 | 16. Reconnect via Snapshot + Input Replay | v0.0.3 | 0/TBD | Not started | - |
 | 17. Quality Gate | v0.0.3 | 0/TBD | Not started | - |
