@@ -47,7 +47,10 @@ See archive: `.planning/milestones/v0.0.2-ROADMAP.md`
   2. The client tick counter derives from server-emitted `executeTick` and checkpoint values, not from a local setInterval count
   3. After N ticks with M queued inputs, the client-computed determinism hash matches the server-computed hash
   4. Client-side event rejection at `executeTick` mirrors server rejection without suppressing server-accepted events
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 13-01-PLAN.md — RtsRoom.fromPayload() factory + hash equivalence unit tests
+- [ ] 13-02-PLAN.md — ClientSimulation module + client.ts wiring (dual-path)
 **UI hint**: yes
 
 ### Phase 14: Input-Only Transport
@@ -97,7 +100,7 @@ See archive: `.planning/milestones/v0.0.2-ROADMAP.md`
 |-------|-----------|----------------|--------|-----------|
 | 1-5 (archived) | v0.0.1 | — | Complete | 2026-03-01 |
 | 6-12 (archived) | v0.0.2 | — | Complete | 2026-03-03 |
-| 13. Client Simulation Foundation | v0.0.3 | 0/TBD | Not started | - |
+| 13. Client Simulation Foundation | v0.0.3 | 0/2 | Planning complete | - |
 | 14. Input-Only Transport | v0.0.3 | 0/TBD | Not started | - |
 | 15. Hash Checkpoint Protocol | v0.0.3 | 0/TBD | Not started | - |
 | 16. Reconnect via Snapshot + Input Replay | v0.0.3 | 0/TBD | Not started | - |
