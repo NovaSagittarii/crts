@@ -22,7 +22,7 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 ## Current State
 
 **Shipped version:** `v0.0.2` (2026-03-03)
-**In progress:** `v0.0.3` — Phase 14 complete
+**In progress:** `v0.0.3` — Phase 15 complete
 
 - Canonical 5x5 base geometry and template-wide integrity handling are now deterministic and shared across runtime + tests.
 - Placement legality uses full-footprint union build zones with fixed radius-15 behavior for this milestone.
@@ -32,6 +32,7 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 - Milestone artifacts are archived in `.planning/milestones/`, and active planning docs are reset for the next cycle.
 - Phase 13 complete: `RtsRoom.fromPayload()` factory and `ClientSimulation` module enable client-side local simulation with server-driven tick advance, input replay, and hash checkpoint verification (dual-path with existing server broadcasts).
 - Phase 14 complete: Input-only transport suppresses full-state broadcasts during active lockstep. `InputEventLog` ring buffer retains accepted events for reconnect replay. Sequence field on queued payloads provides deterministic ordering.
+- Phase 15 complete: Hash checkpoint protocol detects state divergence via determinism hash comparison and triggers authoritative state resync. Server flushes turn-buffer commands before generating snapshots. Client resync resets local simulation from canonical state.
 
 ## Requirements
 
@@ -54,7 +55,7 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 
 - [x] Client-side deterministic simulation (Validated in Phase 13)
 - [x] Input-only transport protocol (Validated in Phase 14)
-- [ ] Hash-based desync detection
+- [x] Hash-based desync detection (Validated in Phase 15)
 - [ ] Reconnect via state snapshot + input replay
 - [ ] Client-side event rejection
 
@@ -118,4 +119,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-_Last updated: 2026-03-29 after Phase 14 completion_
+_Last updated: 2026-03-29 after Phase 15 completion_
