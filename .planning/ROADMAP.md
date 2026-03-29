@@ -101,7 +101,10 @@ Plans:
   1. Property-based tests using `fast-check` confirm that identical input sequences applied to independent server and client simulation instances produce identical state hashes after 500+ ticks across diverse random inputs
   2. An `ArrayBuffer` round-trip integration test confirms `Grid.toPacked()` survives the Socket.IO binary attachment path without corruption
   3. All pre-existing non-lockstep integration tests continue to pass
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 17-01-PLAN.md — Property-based determinism tests with fast-check (QUAL-01)
+- [ ] 17-02-PLAN.md — ArrayBuffer round-trip integration test + full regression suite
 
 ## Progress
 
@@ -113,4 +116,4 @@ Plans:
 | 14. Input-Only Transport | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
 | 15. Hash Checkpoint Protocol | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
 | 16. Reconnect via Snapshot + Input Replay | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
-| 17. Quality Gate | v0.0.3 | 0/TBD | Not started | - |
+| 17. Quality Gate | v0.0.3 | 0/2 | Not started | - |
