@@ -116,4 +116,4 @@ Plans:
 | 14. Input-Only Transport | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
 | 15. Hash Checkpoint Protocol | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
 | 16. Reconnect via Snapshot + Input Replay | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
-| 17. Quality Gate | v0.0.3 | 2/2 | Complete   | 2026-03-30 |
+| 17. Quality Gate | v0.0.3 | 2/2 | Complete    | 2026-03-30 |
