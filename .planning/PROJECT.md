@@ -22,7 +22,7 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 ## Current State
 
 **Shipped version:** `v0.0.2` (2026-03-03)
-**In progress:** `v0.0.3` — Phase 16 complete
+**In progress:** `v0.0.3` — All 5 phases complete
 
 - Canonical 5x5 base geometry and template-wide integrity handling are now deterministic and shared across runtime + tests.
 - Placement legality uses full-footprint union build zones with fixed radius-15 behavior for this milestone.
@@ -34,6 +34,7 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 - Phase 14 complete: Input-only transport suppresses full-state broadcasts during active lockstep. `InputEventLog` ring buffer retains accepted events for reconnect replay. Sequence field on queued payloads provides deterministic ordering.
 - Phase 15 complete: Hash checkpoint protocol detects state divergence via determinism hash comparison and triggers authoritative state resync. Server flushes turn-buffer commands before generating snapshots. Client resync resets local simulation from canonical state.
 - Phase 16 complete: Disconnected players rejoin mid-match via snapshot + input log replay. Server includes InputEventLog entries in RoomJoinedPayload. Client replays events in tick+sequence order and resumes live tick loop.
+- Phase 17 complete: Property-based tests (fast-check, 350 random runs at 500+ ticks) confirm lockstep determinism. ArrayBuffer round-trip test proves Grid.toPacked() survives Socket.IO. All 182 tests pass.
 
 ## Requirements
 
@@ -58,7 +59,7 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 - [x] Input-only transport protocol (Validated in Phase 14)
 - [x] Hash-based desync detection (Validated in Phase 15)
 - [x] Reconnect via state snapshot + input replay (Validated in Phase 16)
-- [ ] Client-side event rejection
+- [x] Client-side event rejection (Validated in Phase 17 quality gate)
 
 ### Future Candidates
 
@@ -120,4 +121,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-_Last updated: 2026-03-29 after Phase 16 completion_
+_Last updated: 2026-03-30 after Phase 17 completion (v0.0.3 milestone complete)_
