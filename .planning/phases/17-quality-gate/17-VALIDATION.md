@@ -38,9 +38,9 @@ created: 2026-03-29
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 17-01-01 | 01 | 1 | QUAL-01 | property-based | `npx vitest run tests/web/lockstep-determinism.test.ts` | ❌ W0 | ⬜ pending |
-| 17-01-02 | 01 | 1 | QUAL-01 | integration | `npx vitest run tests/integration/server/arraybuffer-roundtrip.test.ts` | ❌ W0 | ⬜ pending |
-| 17-01-03 | 01 | 1 | QUAL-01 | regression | `npm test` | ✅ | ⬜ pending |
+| 17-01-01 | 01 | 1 | QUAL-01 | property-based | `npx vitest run tests/web/determinism-property.test.ts` | ❌ W0 | ⬜ pending |
+| 17-02-01 | 02 | 2 | QUAL-01 | integration | `npx vitest run tests/integration/server/arraybuffer-roundtrip.test.ts` | ❌ W0 | ⬜ pending |
+| 17-02-02 | 02 | 2 | QUAL-01 | regression | `npm test` | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
