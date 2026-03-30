@@ -2847,7 +2847,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         flushPrimaryTurnCommands(room);
         const tickResult = room.rtsRoom.tick();
 
-        if (!inputOnly) {
+        if (!inputOnly || tickResult.outcome) {
           const buildOutcomes: BuildOutcomePayload[] =
             tickResult.buildOutcomes.map((outcome) => ({
               ...outcome,
@@ -2892,7 +2892,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
       }
 
       if (room.lobby.participantCount() > 0) {
-        if (room.status === 'active' && emitActiveStateSnapshot && !isInputOnlyMode(room)) {
+        if (
+          room.status === 'active' &&
+          emitActiveStateSnapshot &&
+          !isInputOnlyMode(room)
+        ) {
           emitRoomState(room);
         } else if (room.status === 'finished' && emitFinishedRoomResync) {
           emitRoomState(room);
