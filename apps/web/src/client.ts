@@ -4329,9 +4329,7 @@ socket.on('state', (payload: RoomStatePayload) => {
   if (pendingSimResync && currentRoomStatus === 'active' && joinedTemplates) {
     clientSimulation.resync(payload, joinedTemplates);
     pendingSimResync = false;
-    console.log(
-      `[lockstep] Resync complete at tick ${String(payload.tick)}`,
-    );
+    console.log(`[lockstep] Resync complete at tick ${String(payload.tick)}`);
   }
 });
 

@@ -48,92 +48,86 @@ const test = createLockstepTest(
 );
 
 describe('ArrayBuffer round-trip (QUAL-01)', () => {
-  test(
-    'Grid.toPacked() ArrayBuffer survives Socket.IO binary attachment path',
-    async ({ connectedRoom, startLockstepMatch }) => {
-      const match = await startLockstepMatch(connectedRoom);
+  test('Grid.toPacked() ArrayBuffer survives Socket.IO binary attachment path', async ({
+    connectedRoom,
+    startLockstepMatch,
+  }) => {
+    const match = await startLockstepMatch(connectedRoom);
 
-      // The room:joined payload contains state.grid as binary data that
-      // has traversed the Socket.IO binary attachment path.
-      // In Node.js Socket.IO delivers Buffer (extends Uint8Array); in the
-      // browser it arrives as ArrayBuffer.  Both prove binary transport.
-      const receivedGrid = match.hostJoined.state.grid;
+    // The room:joined payload contains state.grid as binary data that
+    // has traversed the Socket.IO binary attachment path.
+    // In Node.js Socket.IO delivers Buffer (extends Uint8Array); in the
+    // browser it arrives as ArrayBuffer.  Both prove binary transport.
+    const receivedGrid = match.hostJoined.state.grid;
 
-      // Verify Socket.IO transmitted it as binary, not JSON-mangled string
-      expect(
-        receivedGrid instanceof ArrayBuffer ||
-          receivedGrid instanceof Uint8Array,
-      ).toBe(true);
+    // Verify Socket.IO transmitted it as binary, not JSON-mangled string
+    expect(
+      receivedGrid instanceof ArrayBuffer || receivedGrid instanceof Uint8Array,
+    ).toBe(true);
 
-      // Verify the correct byte length for a 52x52 packed grid
-      const receivedBytes = toUint8Array(receivedGrid);
-      expect(receivedBytes.byteLength).toBe(EXPECTED_PACKED_BYTES);
+    // Verify the correct byte length for a 52x52 packed grid
+    const receivedBytes = toUint8Array(receivedGrid);
+    expect(receivedBytes.byteLength).toBe(EXPECTED_PACKED_BYTES);
 
-      // Unpack the received binary data into a Grid
-      const unpacked = Grid.fromPacked(receivedBytes, GRID_WIDTH, GRID_HEIGHT);
+    // Unpack the received binary data into a Grid
+    const unpacked = Grid.fromPacked(receivedBytes, GRID_WIDTH, GRID_HEIGHT);
 
-      // Verify all cells are valid (0 or 1)
-      for (const cell of unpacked.cells()) {
-        expect(cell.alive === 0 || cell.alive === 1).toBe(true);
+    // Verify all cells are valid (0 or 1)
+    for (const cell of unpacked.cells()) {
+      expect(cell.alive === 0 || cell.alive === 1).toBe(true);
+    }
+
+    // Round-trip: unpack -> repack -> compare bytes via Uint8Array
+    // This proves: Socket.IO binary attachment -> client receives binary
+    //   -> Grid.fromPacked -> Grid.toPacked round-trips perfectly
+    const repacked = unpacked.toPacked();
+    expect(new Uint8Array(repacked)).toEqual(receivedBytes);
+  });
+
+  test('Grid ArrayBuffer received after ticks has expected alive cells', async ({
+    connectedRoom,
+    startLockstepMatch,
+  }) => {
+    const match = await startLockstepMatch(connectedRoom);
+
+    // Advance the manual clock by 5 ticks so the grid evolves
+    await connectedRoom.clock.advanceTicks(5);
+
+    // Request full state from the server after ticks have advanced
+    const state = await waitForState(
+      match.host,
+      (payload: RoomStatePayload) =>
+        payload.roomId === match.roomId && payload.tick >= 5,
+      {
+        roomId: match.roomId,
+        attempts: 30,
+        timeoutMs: 5000,
+      },
+    );
+
+    // Verify the received grid is binary data (Buffer or ArrayBuffer)
+    expect(
+      state.grid instanceof ArrayBuffer || state.grid instanceof Uint8Array,
+    ).toBe(true);
+
+    const receivedBytes = toUint8Array(state.grid);
+    expect(receivedBytes.byteLength).toBe(EXPECTED_PACKED_BYTES);
+
+    // Unpack with Grid.fromPacked
+    const unpacked = Grid.fromPacked(receivedBytes, GRID_WIDTH, GRID_HEIGHT);
+
+    // The core structures seed alive cells at match start, so after
+    // 5 generations of Conway evolution there should still be alive cells
+    let aliveCount = 0;
+    for (const cell of unpacked.cells()) {
+      if (cell.alive === 1) {
+        aliveCount += 1;
       }
+    }
+    expect(aliveCount).toBeGreaterThan(0);
 
-      // Round-trip: unpack -> repack -> compare bytes via Uint8Array
-      // This proves: Socket.IO binary attachment -> client receives binary
-      //   -> Grid.fromPacked -> Grid.toPacked round-trips perfectly
-      const repacked = unpacked.toPacked();
-      expect(new Uint8Array(repacked)).toEqual(receivedBytes);
-    },
-  );
-
-  test(
-    'Grid ArrayBuffer received after ticks has expected alive cells',
-    async ({ connectedRoom, startLockstepMatch }) => {
-      const match = await startLockstepMatch(connectedRoom);
-
-      // Advance the manual clock by 5 ticks so the grid evolves
-      await connectedRoom.clock.advanceTicks(5);
-
-      // Request full state from the server after ticks have advanced
-      const state = await waitForState(
-        match.host,
-        (payload: RoomStatePayload) =>
-          payload.roomId === match.roomId && payload.tick >= 5,
-        {
-          roomId: match.roomId,
-          attempts: 30,
-          timeoutMs: 5000,
-        },
-      );
-
-      // Verify the received grid is binary data (Buffer or ArrayBuffer)
-      expect(
-        state.grid instanceof ArrayBuffer ||
-          state.grid instanceof Uint8Array,
-      ).toBe(true);
-
-      const receivedBytes = toUint8Array(state.grid);
-      expect(receivedBytes.byteLength).toBe(EXPECTED_PACKED_BYTES);
-
-      // Unpack with Grid.fromPacked
-      const unpacked = Grid.fromPacked(
-        receivedBytes,
-        GRID_WIDTH,
-        GRID_HEIGHT,
-      );
-
-      // The core structures seed alive cells at match start, so after
-      // 5 generations of Conway evolution there should still be alive cells
-      let aliveCount = 0;
-      for (const cell of unpacked.cells()) {
-        if (cell.alive === 1) {
-          aliveCount += 1;
-        }
-      }
-      expect(aliveCount).toBeGreaterThan(0);
-
-      // Round-trip: unpack -> repack -> compare bytes via Uint8Array
-      const repacked = unpacked.toPacked();
-      expect(new Uint8Array(repacked)).toEqual(receivedBytes);
-    },
-  );
+    // Round-trip: unpack -> repack -> compare bytes via Uint8Array
+    const repacked = unpacked.toPacked();
+    expect(new Uint8Array(repacked)).toEqual(receivedBytes);
+  });
 });

@@ -15,13 +15,13 @@ created: 2026-03-29
 
 ## Test Infrastructure
 
-| Property | Value |
-|----------|-------|
-| **Framework** | vitest + fast-check |
-| **Config file** | vitest.config.ts |
-| **Quick run command** | `npm run test:fast` |
-| **Full suite command** | `npm test` |
-| **Estimated runtime** | ~90 seconds (includes property tests) |
+| Property               | Value                                 |
+| ---------------------- | ------------------------------------- |
+| **Framework**          | vitest + fast-check                   |
+| **Config file**        | vitest.config.ts                      |
+| **Quick run command**  | `npm run test:fast`                   |
+| **Full suite command** | `npm test`                            |
+| **Estimated runtime**  | ~90 seconds (includes property tests) |
 
 ---
 
@@ -36,13 +36,13 @@ created: 2026-03-29
 
 ## Per-Task Verification Map
 
-| Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
-|---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 17-01-01 | 01 | 1 | QUAL-01 | property-based | `npx vitest run tests/web/determinism-property.test.ts` | ❌ W0 | ⬜ pending |
-| 17-02-01 | 02 | 2 | QUAL-01 | integration | `npx vitest run tests/integration/server/arraybuffer-roundtrip.test.ts` | ❌ W0 | ⬜ pending |
-| 17-02-02 | 02 | 2 | QUAL-01 | regression | `npm test` | ✅ | ⬜ pending |
+| Task ID  | Plan | Wave | Requirement | Test Type      | Automated Command                                                       | File Exists | Status     |
+| -------- | ---- | ---- | ----------- | -------------- | ----------------------------------------------------------------------- | ----------- | ---------- |
+| 17-01-01 | 01   | 1    | QUAL-01     | property-based | `npx vitest run tests/web/determinism-property.test.ts`                 | ❌ W0       | ⬜ pending |
+| 17-02-01 | 02   | 2    | QUAL-01     | integration    | `npx vitest run tests/integration/server/arraybuffer-roundtrip.test.ts` | ❌ W0       | ⬜ pending |
+| 17-02-02 | 02   | 2    | QUAL-01     | regression     | `npm test`                                                              | ✅          | ⬜ pending |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+_Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky_
 
 ---
 
@@ -55,7 +55,7 @@ created: 2026-03-29
 
 ## Manual-Only Verifications
 
-*None — all phase behaviors have automated verification.*
+_None — all phase behaviors have automated verification._
 
 ---
 

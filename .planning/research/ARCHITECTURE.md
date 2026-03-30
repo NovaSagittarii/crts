@@ -59,16 +59,16 @@ CLIENT (apps/web)                              SERVER (apps/server)
 
 ### Component Responsibilities
 
-| Component | Layer | Responsibility | Status |
-|-----------|-------|---------------|--------|
-| `LockstepSimulationRunner` | `apps/web` | Owns local `RtsRoom` clone; drives `tick()` on `tickMs` interval; applies relayed events at `executeTick` | **New** |
-| `InputLog` | `apps/web` | Ordered buffer of all accepted `build:queued` / `destroy:queued` events indexed by `executeTick`; used for local tick execution and reconnect replay | **New** |
-| `DesyncDetector` | `apps/web` | Receives `lockstep:checkpoint`; calls `localRoom.createDeterminismCheckpoint()` at the matching tick; compares hashes; triggers resync on mismatch | **New** |
-| `ReconnectReplayEngine` | `apps/web` | On reconnect: receives initial `state` snapshot from `room:joined` plus bounded input log; hydrates local room; replays events to advance to current tick | **New** |
-| `LockstepRuntimeState` | `apps/server` | Already exists: turn buffer, shadow room, checkpoint emission, fallback logic. Needs: bounded input log for reconnect | **Existing + modified** |
-| `RtsRoom` | `packages/rts-engine` | Already fully deterministic: `tick()`, `queueBuildEvent()`, `queueDestroyEvent()`, `createDeterminismCheckpoint()` | **Existing, no changes needed** |
-| `socket-contract.ts` | `packages/rts-engine` | Already has all lockstep event types. Needs: `LockstepInputLogPayload` for reconnect; `kind` discriminant on queued event union | **Existing + minor additions** |
-| `RoomBroadcastService` | `apps/server` | Already emits checkpoints. Needs: suppress periodic full-state broadcast when lockstep active; emit `build:queued`/`destroy:queued` to all clients unconditionally | **Existing + modified** |
+| Component                  | Layer                 | Responsibility                                                                                                                                                     | Status                          |
+| -------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
+| `LockstepSimulationRunner` | `apps/web`            | Owns local `RtsRoom` clone; drives `tick()` on `tickMs` interval; applies relayed events at `executeTick`                                                          | **New**                         |
+| `InputLog`                 | `apps/web`            | Ordered buffer of all accepted `build:queued` / `destroy:queued` events indexed by `executeTick`; used for local tick execution and reconnect replay               | **New**                         |
+| `DesyncDetector`           | `apps/web`            | Receives `lockstep:checkpoint`; calls `localRoom.createDeterminismCheckpoint()` at the matching tick; compares hashes; triggers resync on mismatch                 | **New**                         |
+| `ReconnectReplayEngine`    | `apps/web`            | On reconnect: receives initial `state` snapshot from `room:joined` plus bounded input log; hydrates local room; replays events to advance to current tick          | **New**                         |
+| `LockstepRuntimeState`     | `apps/server`         | Already exists: turn buffer, shadow room, checkpoint emission, fallback logic. Needs: bounded input log for reconnect                                              | **Existing + modified**         |
+| `RtsRoom`                  | `packages/rts-engine` | Already fully deterministic: `tick()`, `queueBuildEvent()`, `queueDestroyEvent()`, `createDeterminismCheckpoint()`                                                 | **Existing, no changes needed** |
+| `socket-contract.ts`       | `packages/rts-engine` | Already has all lockstep event types. Needs: `LockstepInputLogPayload` for reconnect; `kind` discriminant on queued event union                                    | **Existing + minor additions**  |
+| `RoomBroadcastService`     | `apps/server`         | Already emits checkpoints. Needs: suppress periodic full-state broadcast when lockstep active; emit `build:queued`/`destroy:queued` to all clients unconditionally | **Existing + modified**         |
 
 ---
 
@@ -131,9 +131,15 @@ class LockstepSimulationRunner {
     const tick = this.localRoom.state.tick;
     for (const event of this.inputLog.dueAt(tick)) {
       if (isBuildQueued(event)) {
-        this.localRoom.queueBuildEvent(event.playerId, toBuildQueuePayload(event));
+        this.localRoom.queueBuildEvent(
+          event.playerId,
+          toBuildQueuePayload(event),
+        );
       } else {
-        this.localRoom.queueDestroyEvent(event.playerId, toDestroyQueuePayload(event));
+        this.localRoom.queueDestroyEvent(
+          event.playerId,
+          toDestroyQueuePayload(event),
+        );
       }
     }
     this.localRoom.tick();
@@ -161,8 +167,8 @@ export interface LockstepInputLogEntry {
 
 export interface LockstepInputLogPayload {
   roomId: string;
-  fromTick: number;   // tick of the accompanying state snapshot
-  toTick: number;     // current server tick at time of reconnect
+  fromTick: number; // tick of the accompanying state snapshot
+  toTick: number; // current server tick at time of reconnect
   entries: LockstepInputLogEntry[];
 }
 ```
@@ -263,24 +269,24 @@ Client resumes normal lockstep simulation loop
 
 ### New Components (Must Build)
 
-| Component | Location | Depends On | Test Location |
-|-----------|----------|------------|---------------|
-| `LockstepSimulationRunner` | `apps/web/src/` | `RtsRoom` via `#rts-engine`, `InputLog` | `tests/web/lockstep-simulation-runner.test.ts` |
-| `InputLog` | `apps/web/src/` | `BuildQueuedPayload`, `DestroyQueuedPayload` | `tests/web/lockstep-input-log.test.ts` |
-| `DesyncDetector` | `apps/web/src/` | `LockstepCheckpointPayload`, `LockstepSimulationRunner` | `tests/web/lockstep-desync-detector.test.ts` |
-| `ReconnectReplayEngine` | `apps/web/src/` | `LockstepSimulationRunner`, `InputLog`, `LockstepInputLogPayload` | `tests/integration/server/lockstep-reconnect.test.ts` |
-| `LockstepInputLogPayload` | `packages/rts-engine/socket-contract.ts` | `BuildQueuedPayload`, `DestroyQueuedPayload` | Used in integration tests |
-| Bounded input log in server | `apps/server/src/server.ts` | `LockstepRuntimeState` | `tests/integration/server/lockstep-reconnect.test.ts` |
+| Component                   | Location                                 | Depends On                                                        | Test Location                                         |
+| --------------------------- | ---------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------- |
+| `LockstepSimulationRunner`  | `apps/web/src/`                          | `RtsRoom` via `#rts-engine`, `InputLog`                           | `tests/web/lockstep-simulation-runner.test.ts`        |
+| `InputLog`                  | `apps/web/src/`                          | `BuildQueuedPayload`, `DestroyQueuedPayload`                      | `tests/web/lockstep-input-log.test.ts`                |
+| `DesyncDetector`            | `apps/web/src/`                          | `LockstepCheckpointPayload`, `LockstepSimulationRunner`           | `tests/web/lockstep-desync-detector.test.ts`          |
+| `ReconnectReplayEngine`     | `apps/web/src/`                          | `LockstepSimulationRunner`, `InputLog`, `LockstepInputLogPayload` | `tests/integration/server/lockstep-reconnect.test.ts` |
+| `LockstepInputLogPayload`   | `packages/rts-engine/socket-contract.ts` | `BuildQueuedPayload`, `DestroyQueuedPayload`                      | Used in integration tests                             |
+| Bounded input log in server | `apps/server/src/server.ts`              | `LockstepRuntimeState`                                            | `tests/integration/server/lockstep-reconnect.test.ts` |
 
 ### Modified Components (Existing, Targeted Changes)
 
-| Component | What Changes | Risk |
-|-----------|-------------|------|
-| `server.ts` tick loop | Suppress `emitRoomState()` when lockstep primary mode is active. The conditional `emitActiveStateSnapshot` already exists — add a mode check. | LOW |
-| `server.ts` build/destroy handlers | Already emit `build:queued`/`destroy:queued` to room channel. Decide: suppress `build:outcome`/`destroy:outcome` in lockstep primary mode, or scope to originating client only. | MEDIUM |
-| `server.ts` reconnect join | Add `inputLog?: LockstepInputLogPayload` to the `room:joined` payload when lockstep is active. Server must maintain a bounded ring buffer of relayed events. | MEDIUM |
-| `socket-contract.ts` | Add `LockstepInputLogPayload` interface. Add optional `kind: 'build' | 'destroy'` discriminant or a new union type for input log entries. Extend `RoomJoinedPayload` with optional `inputLog`. | LOW — additive only |
-| `client.ts` | Wire `build:queued`/`destroy:queued` handlers to `InputLog` when lockstep active. Stop applying full state on every `build:outcome`/`destroy:outcome` when local simulation is running. Preserve non-lockstep state-broadcast path for fallback. | HIGH — largest web change |
+| Component                          | What Changes                                                                                                                                                                                                                                     | Risk                                                                                                                |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `server.ts` tick loop              | Suppress `emitRoomState()` when lockstep primary mode is active. The conditional `emitActiveStateSnapshot` already exists — add a mode check.                                                                                                    | LOW                                                                                                                 |
+| `server.ts` build/destroy handlers | Already emit `build:queued`/`destroy:queued` to room channel. Decide: suppress `build:outcome`/`destroy:outcome` in lockstep primary mode, or scope to originating client only.                                                                  | MEDIUM                                                                                                              |
+| `server.ts` reconnect join         | Add `inputLog?: LockstepInputLogPayload` to the `room:joined` payload when lockstep is active. Server must maintain a bounded ring buffer of relayed events.                                                                                     | MEDIUM                                                                                                              |
+| `socket-contract.ts`               | Add `LockstepInputLogPayload` interface. Add optional `kind: 'build'                                                                                                                                                                             | 'destroy'`discriminant or a new union type for input log entries. Extend`RoomJoinedPayload`with optional`inputLog`. | LOW — additive only |
+| `client.ts`                        | Wire `build:queued`/`destroy:queued` handlers to `InputLog` when lockstep active. Stop applying full state on every `build:outcome`/`destroy:outcome` when local simulation is running. Preserve non-lockstep state-broadcast path for fallback. | HIGH — largest web change                                                                                           |
 
 ### Untouched Components
 
@@ -296,38 +302,46 @@ Client resumes normal lockstep simulation loop
 ## Build Order (Dependency-Driven)
 
 **1. Package contract extension (additive, no behavior change)**
+
 - Add `LockstepInputLogPayload` and `LockstepInputLogEntry` to `socket-contract.ts`
 - Add optional `inputLog` field to `RoomJoinedPayload`
 - Unit test: contracts compile and are exported via `#rts-engine`
 
 **2. Client InputLog (pure module, testable in isolation)**
+
 - `apps/web/src/lockstep-input-log.ts`: insert by `executeTick`, `dueAt(tick)`, bounded ring
 - `tests/web/lockstep-input-log.test.ts`: sorted ordering, boundary correctness
 
 **3. LockstepSimulationRunner (depends on InputLog + RtsRoom)**
+
 - `apps/web/src/lockstep-simulation-runner.ts`: drives `tick()`, applies dueAt events, exposes local room state
 - `tests/web/lockstep-simulation-runner.test.ts`: advance N ticks with known events, assert determinism matches `RtsEngine.tickRoom()`
 
 **4. DesyncDetector (depends on LockstepSimulationRunner)**
+
 - `apps/web/src/lockstep-desync-detector.ts`: receive checkpoint, compare hash, emit desync signal
 - `tests/web/lockstep-desync-detector.test.ts`: matching hash passes silently; mismatched hash triggers signal
 
 **5. Server-side bounded input log**
+
 - Add ring buffer to `LockstepRuntimeState` accumulating relayed events
 - On `build:queued`/`destroy:queued` emission: also append to log
 - `tests/integration/server/lockstep-client-sim.test.ts`: server emits events; client simulation runner produces same hash as server checkpoint
 
 **6. ReconnectReplayEngine + server reconnect payload**
+
 - `apps/web/src/lockstep-reconnect-engine.ts`: hydrate from snapshot, replay log, resume
 - Server: attach bounded input log to `room:joined` for reconnecting clients
 - `tests/integration/server/lockstep-reconnect.test.ts`: disconnect mid-match; reconnect; local state converges
 
 **7. State broadcast suppression**
+
 - Suppress `emitRoomState()` heartbeat when lockstep primary mode active
 - Decide and implement `build:outcome`/`destroy:outcome` scoping
 - `tests/integration/server/lockstep-client-sim.test.ts`: no full-state broadcast during active lockstep ticks
 
 **8. Client wiring in client.ts**
+
 - Wire `build:queued`/`destroy:queued` to `InputLog` when lockstep active
 - Stop applying state-update-on-outcome when local simulation is running
 - Preserve non-lockstep fallback path
@@ -381,24 +395,24 @@ Client resumes normal lockstep simulation loop
 
 ## Scaling Considerations
 
-| Scale | Architecture Adjustments |
-|-------|--------------------------|
-| Current prototype (2 players) | Input log ring buffer is tiny (reconnectHoldMs=30s, tickMs=100ms = 300 entries max). Full state snapshot on join is acceptable. |
-| Larger maps or tick rates | Grid `toPacked()` / `fromPacked()` is already bit-packed; snapshot size is bounded by grid dimensions, not tick count. No changes needed for lockstep. |
-| Spectators | Spectators can receive `build:queued`/`destroy:queued` relay events and run local simulation without queue write access. Requires no architecture changes — they just don't call `build:queue`. |
+| Scale                         | Architecture Adjustments                                                                                                                                                                        |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Current prototype (2 players) | Input log ring buffer is tiny (reconnectHoldMs=30s, tickMs=100ms = 300 entries max). Full state snapshot on join is acceptable.                                                                 |
+| Larger maps or tick rates     | Grid `toPacked()` / `fromPacked()` is already bit-packed; snapshot size is bounded by grid dimensions, not tick count. No changes needed for lockstep.                                          |
+| Spectators                    | Spectators can receive `build:queued`/`destroy:queued` relay events and run local simulation without queue write access. Requires no architecture changes — they just don't call `build:queue`. |
 
 ---
 
 ## Confidence Assessment
 
-| Area | Confidence | Notes |
-|------|------------|-------|
-| Existing server lockstep infrastructure | HIGH | Direct read of server.ts — turnBuffer, shadowRoom, checkpoints, checkpoint emission all confirmed |
-| Existing RtsRoom determinism primitives | HIGH | Direct read of rts.ts — tick(), queueBuildEvent(), createDeterminismCheckpoint() all confirmed suitable |
-| socket-contract.ts extensibility | HIGH | Direct read — all existing types confirmed; additions are purely additive |
-| Client simulation runner pattern | HIGH | Standard lockstep literature pattern + `#rts-engine` already importable in web confirmed |
-| Input log reconnect pattern | MEDIUM | Pattern is well-established; exact buffer sizing needs profiling in implementation |
-| State broadcast suppression | HIGH | `emitActiveStateSnapshot` conditional already exists in server.ts tick loop |
+| Area                                    | Confidence | Notes                                                                                                   |
+| --------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------- |
+| Existing server lockstep infrastructure | HIGH       | Direct read of server.ts — turnBuffer, shadowRoom, checkpoints, checkpoint emission all confirmed       |
+| Existing RtsRoom determinism primitives | HIGH       | Direct read of rts.ts — tick(), queueBuildEvent(), createDeterminismCheckpoint() all confirmed suitable |
+| socket-contract.ts extensibility        | HIGH       | Direct read — all existing types confirmed; additions are purely additive                               |
+| Client simulation runner pattern        | HIGH       | Standard lockstep literature pattern + `#rts-engine` already importable in web confirmed                |
+| Input log reconnect pattern             | MEDIUM     | Pattern is well-established; exact buffer sizing needs profiling in implementation                      |
+| State broadcast suppression             | HIGH       | `emitActiveStateSnapshot` conditional already exists in server.ts tick loop                             |
 
 ---
 

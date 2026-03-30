@@ -17,25 +17,31 @@ The existing infrastructure is remarkably complete. The `lockstep:checkpoint` ev
 **Primary recommendation:** Implement client-side desync detection and resync as a thin protocol layer in `client.ts` using existing `ClientSimulation.verifyCheckpoint()` -> `state:request` -> `ClientSimulation.initialize()`, plus add a new integration test using `forceFallbackReason` or direct hash perturbation to prove the resync loop works end-to-end.
 
 <user_constraints>
+
 ## User Constraints (from CONTEXT.md)
 
 ### Locked Decisions
+
 None -- discuss phase was skipped per user setting.
 
 ### Claude's Discretion
+
 All implementation choices are at Claude's discretion. Use ROADMAP phase goal, success criteria, and codebase conventions to guide decisions.
 
 ### Deferred Ideas (OUT OF SCOPE)
+
 None.
 </user_constraints>
 
 <phase_requirements>
+
 ## Phase Requirements
 
-| ID | Description | Research Support |
-|----|-------------|------------------|
-| SYNC-01 | Client computes a determinism hash at checkpoint intervals and compares it with the server-broadcast hash | `ClientSimulation.verifyCheckpoint()` already exists and compares local vs server `hashHex`. The `lockstep:checkpoint` handler in `client.ts` (line 4055) already calls this. Needs: proper desync response instead of console.warn + grid request. |
-| SYNC-02 | On hash mismatch the client receives a full state snapshot and resynchronizes its local simulation | Client already has `requestStateSnapshot(true)` and `ClientSimulation.initialize()`. Needs: on mismatch, request full state, re-initialize ClientSimulation from the returned payload, resume ticking from that tick. Server must flush buffered commands before generating the snapshot. |
+| ID      | Description                                                                                               | Research Support                                                                                                                                                                                                                                                                          |
+| ------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SYNC-01 | Client computes a determinism hash at checkpoint intervals and compares it with the server-broadcast hash | `ClientSimulation.verifyCheckpoint()` already exists and compares local vs server `hashHex`. The `lockstep:checkpoint` handler in `client.ts` (line 4055) already calls this. Needs: proper desync response instead of console.warn + grid request.                                       |
+| SYNC-02 | On hash mismatch the client receives a full state snapshot and resynchronizes its local simulation        | Client already has `requestStateSnapshot(true)` and `ClientSimulation.initialize()`. Needs: on mismatch, request full state, re-initialize ClientSimulation from the returned payload, resume ticking from that tick. Server must flush buffered commands before generating the snapshot. |
+
 </phase_requirements>
 
 ## Project Constraints (from CLAUDE.md)
@@ -56,14 +62,16 @@ None.
 ## Standard Stack
 
 ### Core (already in project)
-| Library | Version | Purpose | Why Standard |
-|---------|---------|---------|--------------|
-| vitest | (project version) | Test framework | Already used across all test suites |
-| socket.io / socket.io-client | (project version) | Transport | Already wired for all event types |
-| #rts-engine | local | RtsRoom, RtsEngine, socket-contract types | Domain logic, determinism hashing |
-| #conway-core | local | Grid | Grid reconstruction from packed bytes |
+
+| Library                      | Version           | Purpose                                   | Why Standard                          |
+| ---------------------------- | ----------------- | ----------------------------------------- | ------------------------------------- |
+| vitest                       | (project version) | Test framework                            | Already used across all test suites   |
+| socket.io / socket.io-client | (project version) | Transport                                 | Already wired for all event types     |
+| #rts-engine                  | local             | RtsRoom, RtsEngine, socket-contract types | Domain logic, determinism hashing     |
+| #conway-core                 | local             | Grid                                      | Grid reconstruction from packed bytes |
 
 ### Supporting
+
 No new libraries needed. All required functionality exists in the current codebase.
 
 ## Architecture Patterns
@@ -90,6 +98,7 @@ tests/
 **When to use:** Every `lockstep:checkpoint` event while `clientSimulation.isActive`.
 
 **Current code (client.ts line 4055-4078):**
+
 ```typescript
 socket.on('lockstep:checkpoint', (payload: LockstepCheckpointPayload) => {
   if (payload.roomId !== currentRoomId) return;
@@ -110,6 +119,7 @@ socket.on('lockstep:checkpoint', (payload: LockstepCheckpointPayload) => {
 ```
 
 **Target code pattern:**
+
 ```typescript
 socket.on('lockstep:checkpoint', (payload: LockstepCheckpointPayload) => {
   if (payload.roomId !== currentRoomId) return;
@@ -118,7 +128,7 @@ socket.on('lockstep:checkpoint', (payload: LockstepCheckpointPayload) => {
     const match = clientSimulation.verifyCheckpoint(payload);
     if (!match) {
       console.warn(
-        `[lockstep] Desync detected at tick ${String(payload.tick)}: requesting resync`
+        `[lockstep] Desync detected at tick ${String(payload.tick)}: requesting resync`,
       );
       // Request full state snapshot for resync
       requestStateSnapshot(true);
@@ -138,6 +148,7 @@ socket.on('lockstep:checkpoint', (payload: LockstepCheckpointPayload) => {
 **What:** On receiving a full `state` payload after a desync, reinitialize the ClientSimulation from the payload.
 
 **Current code (client.ts state handler around line 4297-4310):**
+
 ```typescript
 socket.on('state', (payload: RoomStatePayload) => {
   // ...
@@ -152,6 +163,7 @@ socket.on('state', (payload: RoomStatePayload) => {
 ```
 
 **Target code pattern:**
+
 ```typescript
 socket.on('state', (payload: RoomStatePayload) => {
   // ...
@@ -175,7 +187,7 @@ socket.on('state', (payload: RoomStatePayload) => {
 
 **What:** When the server handles `state:request` during primary lockstep mode, it must ensure all buffered turn-buffer commands due at or before the current tick have been flushed before generating the snapshot payload.
 
-**Context:** The `flushPrimaryTurnCommands(room)` call happens in the tick loop before `room.rtsRoom.tick()`. This means at any given server tick, buffered commands for the *previous* turn have already been flushed into the RtsRoom state. However, if a `state:request` arrives mid-tick (between the `setInterval` tick callback invocations), there may be commands buffered for the current turn that haven't been flushed yet.
+**Context:** The `flushPrimaryTurnCommands(room)` call happens in the tick loop before `room.rtsRoom.tick()`. This means at any given server tick, buffered commands for the _previous_ turn have already been flushed into the RtsRoom state. However, if a `state:request` arrives mid-tick (between the `setInterval` tick callback invocations), there may be commands buffered for the current turn that haven't been flushed yet.
 
 **Key insight:** In `primary` mode, `flushPrimaryTurnCommands` flushes commands for `currentTurn - 1`, meaning commands are always one turn behind. The snapshot at any given tick should reflect all commands that were supposed to execute at or before that tick. Since the tick loop already calls flush before tick, the standard `state:request` handler should produce a consistent snapshot. The critical edge case is: what if the client requests state at a tick boundary where commands are still buffered? The safest approach is to call `flushPrimaryTurnCommands` explicitly before generating the snapshot in the `state:request` handler when in primary mode.
 
@@ -189,40 +201,45 @@ socket.on('state', (payload: RoomStatePayload) => {
 
 ## Don't Hand-Roll
 
-| Problem | Don't Build | Use Instead | Why |
-|---------|-------------|-------------|-----|
-| Determinism hashing | Custom hash function | `RtsRoom.createDeterminismCheckpoint()` / `RtsEngine.createDeterminismCheckpoint()` | Already implements FNV-1a-32, proven deterministic |
-| State serialization/deserialization | Custom state marshalling | `RtsRoom.createStatePayload()` / `RtsRoom.fromPayload()` | Handles all structure/team/pending-event reconstruction |
-| State request debouncing | Custom timer logic | Existing `requestStateSnapshot(force)` / `requestStateSections()` with `pendingStateRequestTimerId` | Already handles debouncing and consolidation |
-| Shadow room for verification | Client-side shadow room | Server-side `lockstep:checkpoint` broadcasts | Server already does shadow/primary hash comparison |
+| Problem                             | Don't Build              | Use Instead                                                                                         | Why                                                     |
+| ----------------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Determinism hashing                 | Custom hash function     | `RtsRoom.createDeterminismCheckpoint()` / `RtsEngine.createDeterminismCheckpoint()`                 | Already implements FNV-1a-32, proven deterministic      |
+| State serialization/deserialization | Custom state marshalling | `RtsRoom.createStatePayload()` / `RtsRoom.fromPayload()`                                            | Handles all structure/team/pending-event reconstruction |
+| State request debouncing            | Custom timer logic       | Existing `requestStateSnapshot(force)` / `requestStateSections()` with `pendingStateRequestTimerId` | Already handles debouncing and consolidation            |
+| Shadow room for verification        | Client-side shadow room  | Server-side `lockstep:checkpoint` broadcasts                                                        | Server already does shadow/primary hash comparison      |
 
 ## Common Pitfalls
 
 ### Pitfall 1: Race Between Checkpoint and State Response
+
 **What goes wrong:** Client detects desync at tick N, requests full state. Before the state response arrives, another checkpoint at tick N+interval also detects a desync and requests again.
 **Why it happens:** Network latency means state response is not instant.
 **How to avoid:** Use a `pendingSimResync` boolean flag. Set it on desync detection. Clear it when the state response is processed and sim is reinitialized. While flag is set, skip checkpoint verification.
 **Warning signs:** Multiple rapid full-state requests in logs.
 
 ### Pitfall 2: Resync Payload Tick vs Client Tick Mismatch
+
 **What goes wrong:** After resync, the client uses its old `currentTick` and misses ticks or double-ticks.
 **Why it happens:** The server snapshot's tick may differ from what the client expected.
 **How to avoid:** `ClientSimulation.initialize()` already sets `_currentTick = payload.tick`. After reinitializing, the next `advanceToTick()` call from the next checkpoint will advance from the correct baseline.
 **Warning signs:** Client tick jumps backward or large forward gaps.
 
 ### Pitfall 3: Turn-Buffer Flush Ordering on Snapshot
+
 **What goes wrong:** Server generates snapshot before flushing buffered commands, resulting in a snapshot that doesn't include commands the client already applied.
 **Why it happens:** `state:request` handler doesn't call `flushPrimaryTurnCommands` before generating the payload.
 **How to avoid:** In the `state:request` handler, when in primary lockstep mode, call `flushPrimaryTurnCommands(room)` before generating the state payload. This is the STATE.md concern: "Fallback state broadcast must be delayed until all turn-buffer commands for ticks at or before the fallback tick have executed."
 **Warning signs:** Client resyncs but immediately detects another desync because the snapshot was stale.
 
 ### Pitfall 4: Visual State and Simulation State Diverge After Resync
+
 **What goes wrong:** The visual rendering (canvas grid, structure overlays) doesn't update after sim reinitialization.
 **Why it happens:** `applyStatePayload()` updates the visual state, but if `clientSimulation.initialize()` is called without the visual update, they diverge.
 **How to avoid:** The resync flow should: (1) receive full `state` payload, (2) call `applyStatePayload()` (visual update), (3) call `clientSimulation.destroy()` + `clientSimulation.initialize()` (simulation reset). Since both happen in the same `state` event handler, this is naturally ordered.
 **Warning signs:** Canvas shows old state while sim has new state.
 
 ### Pitfall 5: ClientSimulation.initialize() Called Without joinedTemplates
+
 **What goes wrong:** After resync, `joinedTemplates` is null, causing initialization failure.
 **Why it happens:** Edge case where room is left and rejoined, or templates aren't cached.
 **How to avoid:** Guard resync with `joinedTemplates !== null` check (already present in the pattern above).
@@ -231,6 +248,7 @@ socket.on('state', (payload: RoomStatePayload) => {
 ## Code Examples
 
 ### ClientSimulation reinitialize pattern
+
 ```typescript
 // In ClientSimulation class (client-simulation.ts)
 // Option A: Just use destroy() + initialize()
@@ -246,6 +264,7 @@ if (pendingSimResync && currentRoomStatus === 'active' && joinedTemplates) {
 ```
 
 ### Server-side flush before snapshot (server.ts)
+
 ```typescript
 // In state:request handler, before generating payload:
 socket.on('state:request', (payload?: StateRequestPayload) => {
@@ -265,6 +284,7 @@ socket.on('state:request', (payload?: StateRequestPayload) => {
 ```
 
 ### Integration test: deliberate desync detection and resync
+
 ```typescript
 // Pattern for hash-checkpoint-resync.test.ts
 const resyncTest = createLockstepTest(
@@ -294,41 +314,45 @@ const resyncTest = createLockstepTest(
 
 ## State of the Art
 
-| Old Approach | Current Approach | When Changed | Impact |
-|--------------|------------------|--------------|--------|
-| Full state broadcast every tick | Input-only mode (Phase 14) | Phase 14 | Bandwidth reduction; client sim is authoritative for rendering |
-| No desync detection | Console.warn + grid request (Phase 13 placeholder) | Phase 13 | Placeholder that Phase 15 replaces |
-| Shadow room server-side verification | Primary mode with client-side verification | Phase 14 | Clients verify their own hashes against server checkpoints |
+| Old Approach                         | Current Approach                                   | When Changed | Impact                                                         |
+| ------------------------------------ | -------------------------------------------------- | ------------ | -------------------------------------------------------------- |
+| Full state broadcast every tick      | Input-only mode (Phase 14)                         | Phase 14     | Bandwidth reduction; client sim is authoritative for rendering |
+| No desync detection                  | Console.warn + grid request (Phase 13 placeholder) | Phase 13     | Placeholder that Phase 15 replaces                             |
+| Shadow room server-side verification | Primary mode with client-side verification         | Phase 14     | Clients verify their own hashes against server checkpoints     |
 
 ## Validation Architecture
 
 ### Test Framework
-| Property | Value |
-|----------|-------|
-| Framework | vitest (project version) |
-| Config file | `vitest.config.ts` |
-| Quick run command | `npm run test:fast` |
-| Full suite command | `npm test` |
+
+| Property           | Value                    |
+| ------------------ | ------------------------ |
+| Framework          | vitest (project version) |
+| Config file        | `vitest.config.ts`       |
+| Quick run command  | `npm run test:fast`      |
+| Full suite command | `npm test`               |
 
 ### Phase Requirements to Test Map
-| Req ID | Behavior | Test Type | Automated Command | File Exists? |
-|--------|----------|-----------|-------------------|-------------|
-| SYNC-01 | Client computes determinism hash at checkpoint intervals and compares against server hash | unit + integration | `npx vitest run tests/web/client-simulation.test.ts -x` | Partially (checkpoint verification tests exist; resync flow tests needed) |
-| SYNC-02 | On mismatch, client receives full state snapshot and resynchronizes | integration | `npx vitest run tests/integration/server/hash-checkpoint-resync.test.ts -x` | No -- Wave 0 |
+
+| Req ID  | Behavior                                                                                  | Test Type          | Automated Command                                                           | File Exists?                                                              |
+| ------- | ----------------------------------------------------------------------------------------- | ------------------ | --------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| SYNC-01 | Client computes determinism hash at checkpoint intervals and compares against server hash | unit + integration | `npx vitest run tests/web/client-simulation.test.ts -x`                     | Partially (checkpoint verification tests exist; resync flow tests needed) |
+| SYNC-02 | On mismatch, client receives full state snapshot and resynchronizes                       | integration        | `npx vitest run tests/integration/server/hash-checkpoint-resync.test.ts -x` | No -- Wave 0                                                              |
 
 ### Sampling Rate
+
 - **Per task commit:** `npm run test:fast`
 - **Per wave merge:** `npm test`
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
+
 - [ ] `tests/integration/server/hash-checkpoint-resync.test.ts` -- covers SYNC-01 end-to-end and SYNC-02 resync
 - [ ] Additional `tests/web/client-simulation.test.ts` cases for resync-from-payload behavior (destroy+reinitialize)
 
 ## Open Questions
 
 1. **How to inject a deliberate desync in integration tests?**
-   - What we know: Server has `testHooks.lockstep.forceFallbackReason` which can force `hash-mismatch`, but this causes the server-side shadow room to detect mismatch and fall back to legacy mode -- which is not the same as a client-side desync. The success criteria require the *client* to detect the mismatch, not the server.
+   - What we know: Server has `testHooks.lockstep.forceFallbackReason` which can force `hash-mismatch`, but this causes the server-side shadow room to detect mismatch and fall back to legacy mode -- which is not the same as a client-side desync. The success criteria require the _client_ to detect the mismatch, not the server.
    - What's unclear: Whether we need a new test hook mechanism for client-side hash perturbation, or if we can test this at the unit level by manually creating a diverged ClientSimulation.
    - Recommendation: For the integration test, use a two-pronged approach: (a) unit test with a fake/perturbed checkpoint hash proves `verifyCheckpoint()` returns false and the client requests resync, (b) integration test uses a connected match and verifies that after a full-state request, the client can reinitialize successfully. The unit test in `client-simulation.test.ts` already has a "verifyCheckpoint returns false when hashes differ" test. The integration test should focus on the end-to-end flow: checkpoint -> mismatch detection -> state request -> state received -> sim reinitialized. One approach: have the test client manually advance its sim by an extra tick (creating real divergence) before the next checkpoint arrives.
 
@@ -345,6 +369,7 @@ const resyncTest = createLockstepTest(
 ## Sources
 
 ### Primary (HIGH confidence)
+
 - Direct codebase analysis of all referenced files:
   - `apps/web/src/client-simulation.ts` -- ClientSimulation class with verifyCheckpoint(), initialize(), destroy()
   - `apps/web/src/client.ts` -- lockstep:checkpoint handler (line 4055), lockstep:fallback handler (line 4080), state handler (line 4297)
@@ -356,12 +381,14 @@ const resyncTest = createLockstepTest(
   - `tests/integration/server/input-only-transport.test.ts` -- input-only transport test patterns
 
 ### Secondary (MEDIUM confidence)
+
 - `.planning/STATE.md` -- blocker about fallback snapshot needing turn-buffer flush first
 - `.planning/REQUIREMENTS.md` -- SYNC-01 and SYNC-02 requirement definitions
 
 ## Metadata
 
 **Confidence breakdown:**
+
 - Standard stack: HIGH -- all required code already exists in the project, no new dependencies
 - Architecture: HIGH -- the desync detection path is already partially implemented (placeholder TODO); the resync path uses existing `state:request` -> `state` -> `initialize()` flow
 - Pitfalls: HIGH -- identified from direct analysis of tick ordering, turn-buffer flush timing, and race conditions in the existing event handlers

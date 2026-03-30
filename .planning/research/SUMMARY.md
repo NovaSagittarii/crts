@@ -28,6 +28,7 @@ The critical path is `CLIENT-SIM` (client-side deterministic simulation) because
 - **No Zod.** Existing manual socket boundary guards are sufficient for the current payload surface area.
 
 New integration points introduced by this milestone:
+
 - `input-log.ts` in `packages/rts-engine/` — pure data structure, no I/O
 - 3-4 new event types in `socket-contract.ts` (`lockstep:input-turn`, `lockstep:snapshot`, `lockstep:input-log-replay`)
 - Bounded ring buffer in `LockstepRuntimeState` on the server
@@ -37,22 +38,24 @@ New integration points introduced by this milestone:
 
 **Table stakes — all P1, must ship for v0.0.3 to be functional:**
 
-| ID | Feature | Status of Dependencies |
-|----|---------|----------------------|
-| `CLIENT-SIM` | Client-side deterministic simulation | Engine ready; new execution site in `apps/web/` |
-| `TICK-ALIGN` | Client tick clock aligned to server turn boundaries | Clock values already in `LockstepStatusPayload` |
-| `INPUT-TRANSPORT` | Suppress full-state broadcasts during active lockstep match | One conditional in server tick handler |
-| `CLIENT-REJECT` | Client applies `build:outcome`/`destroy:outcome` at `executeTick` | Payloads already carry `executeTick` and `accepted` |
-| `HASH-CHECKPOINT` | Client computes and verifies hash at checkpoint turns | `createDeterminismCheckpoint()` already exists |
-| `DESYNC-FALLBACK` | Client handles `lockstep:fallback` by requesting state resync | Server already emits `lockstep:fallback` |
-| `RECONNECT-SNAPSHOT` | Client reconstitutes `RtsRoom` from `room:joined` snapshot | `RtsRoom.fromState()` already exists |
+| ID                   | Feature                                                           | Status of Dependencies                              |
+| -------------------- | ----------------------------------------------------------------- | --------------------------------------------------- |
+| `CLIENT-SIM`         | Client-side deterministic simulation                              | Engine ready; new execution site in `apps/web/`     |
+| `TICK-ALIGN`         | Client tick clock aligned to server turn boundaries               | Clock values already in `LockstepStatusPayload`     |
+| `INPUT-TRANSPORT`    | Suppress full-state broadcasts during active lockstep match       | One conditional in server tick handler              |
+| `CLIENT-REJECT`      | Client applies `build:outcome`/`destroy:outcome` at `executeTick` | Payloads already carry `executeTick` and `accepted` |
+| `HASH-CHECKPOINT`    | Client computes and verifies hash at checkpoint turns             | `createDeterminismCheckpoint()` already exists      |
+| `DESYNC-FALLBACK`    | Client handles `lockstep:fallback` by requesting state resync     | Server already emits `lockstep:fallback`            |
+| `RECONNECT-SNAPSHOT` | Client reconstitutes `RtsRoom` from `room:joined` snapshot        | `RtsRoom.fromState()` already exists                |
 
 **Differentiators — P2, add after P1 is validated:**
+
 - `INPUT-ACK` rendering: show "pending until turn N" states using `bufferedTurn`/`scheduledByTurn` already in payloads
 - Checkpoint diagnostics overlay for debugging desync
 - Shadow mode awareness in client fallback handler
 
 **Anti-features — explicitly out of scope:**
+
 - Client-side prediction/optimistic apply: violates the queue-only authority model
 - Rollback netcode: orthogonal architecture, incompatible with queue-based mutations
 - P2P lockstep: no benefit over server relay for two-player web game
@@ -64,20 +67,22 @@ New integration points introduced by this milestone:
 
 **Four new modules required in `apps/web/src/`:**
 
-| Module | Responsibility |
-|--------|---------------|
+| Module                          | Responsibility                                                                                   |
+| ------------------------------- | ------------------------------------------------------------------------------------------------ |
 | `lockstep-simulation-runner.ts` | Owns local `RtsRoom` clone; drives `tick()` at `tickMs`; applies relayed events at `executeTick` |
-| `lockstep-input-log.ts` | Ordered buffer of accepted events indexed by `executeTick`; supplies `dueAt(tick)` |
-| `lockstep-desync-detector.ts` | Receives `lockstep:checkpoint`; computes local hash; triggers resync signal on mismatch |
-| `lockstep-reconnect-engine.ts` | Hydrates local room from snapshot + input log on reconnect; replays to current tick |
+| `lockstep-input-log.ts`         | Ordered buffer of accepted events indexed by `executeTick`; supplies `dueAt(tick)`               |
+| `lockstep-desync-detector.ts`   | Receives `lockstep:checkpoint`; computes local hash; triggers resync signal on mismatch          |
+| `lockstep-reconnect-engine.ts`  | Hydrates local room from snapshot + input log on reconnect; replays to current tick              |
 
 **Key architectural constraints:**
+
 - Simulation modules must be standalone pure-logic classes testable in `tests/web/` without DOM or Socket.IO. `client.ts` remains the orchestrator.
 - Server tick loop change is targeted: add a lockstep-mode guard to the existing `emitActiveStateSnapshot` conditional. No structural refactoring needed.
 - `socket-contract.ts` changes are additive only: `LockstepInputLogPayload`, `LockstepInputLogEntry`, optional `inputLog` field on `RoomJoinedPayload`.
 - `packages/rts-engine/rts.ts` and `packages/conway-core/` require zero changes.
 
 **Data flow after migration:**
+
 - Server relays `build:queued`/`destroy:queued` to all clients (including originator)
 - Server suppresses periodic `emitRoomState()` heartbeat during active lockstep
 - Clients apply events to local `RtsRoom` at `executeTick`; render from local state
@@ -85,6 +90,7 @@ New integration points introduced by this milestone:
 - Hash checkpoint is the consistency mechanism; fallback to `state:request` to resync is the recovery path
 
 **Dependency-driven build order:**
+
 1. `socket-contract.ts` additive extensions (no behavior change)
 2. `InputLog` (pure module, testable in isolation)
 3. `LockstepSimulationRunner` (depends on `InputLog` + `RtsRoom`)
@@ -123,6 +129,7 @@ New integration points introduced by this milestone:
    Client rejection is advisory only. A server-emitted `build:outcome applied` must always render, even if client predicted rejection. Never suppress a server-accepted event based on client-local state.
 
 Additional pitfalls tracked:
+
 - Integer overflow in FNV1a-32 hash if client re-implements hash logic (prevent by always calling `createDeterminismCheckpoint()` from `#rts-engine`)
 - Shadow room divergence from primary room due to player insertion order
 - `intentId` namespace collision after room restart (scope rejection caches to `(roomId, generation)`)
@@ -139,6 +146,7 @@ The dependency graph from FEATURES.md, the build order from ARCHITECTURE.md, and
 **Rationale:** `CLIENT-SIM` is the critical path for every other feature. Must be built and verified in isolation before any transport changes. Building simulation logic as standalone modules (not embedded in `client.ts`) enables fast unit testing in `tests/web/`.
 
 **Delivers:**
+
 - `lockstep-input-log.ts` — pure module, fully unit-tested
 - `lockstep-simulation-runner.ts` — drives local `RtsRoom.tick()`, applies events at `executeTick`
 - `socket-contract.ts` additive extensions (`LockstepInputLogPayload`, `LockstepInputLogEntry`)
@@ -157,6 +165,7 @@ The dependency graph from FEATURES.md, the build order from ARCHITECTURE.md, and
 **Rationale:** Can only ship after Phase 1 confirms client simulation is correct. Suppressing state broadcasts before clients can simulate locally would break all rendering. Transport change is a targeted server modification.
 
 **Delivers:**
+
 - Server suppresses `emitRoomState()` heartbeat during active lockstep match (one conditional)
 - Server-side bounded input log ring buffer in `LockstepRuntimeState`
 - `build:outcome`/`destroy:outcome` scoped to originating client only in lockstep primary mode (not removed — needed for fallback recovery)
@@ -175,6 +184,7 @@ The dependency graph from FEATURES.md, the build order from ARCHITECTURE.md, and
 **Rationale:** Hash checkpoints become the primary consistency mechanism only after input-only transport is active. With full-state broadcast still running (pre-Phase 2), checkpoints are diagnostic. In Phase 3 they become authoritative.
 
 **Delivers:**
+
 - `lockstep-desync-detector.ts` — receives `lockstep:checkpoint`, computes local hash, signals mismatch
 - Client handles `lockstep:fallback` → emits `state:request` → resets local simulation from response → re-aligns clock (`DESYNC-FALLBACK`)
 - Fallback payload extended to include the tick at which the snapshot is valid
@@ -194,6 +204,7 @@ The dependency graph from FEATURES.md, the build order from ARCHITECTURE.md, and
 **Rationale:** Reconnect depends on Phase 1 (client simulation must work), Phase 2 (bounded input log must exist), and Phase 3 (snapshot must be taken post-tick at a known tick boundary). All prerequisites satisfied.
 
 **Delivers:**
+
 - `lockstep-reconnect-engine.ts` — hydrates `RtsRoom` from snapshot, replays input log, resumes tick loop
 - Server attaches bounded input log to `room:joined` payload for reconnecting clients
 - `snapshotTick` field in reconnect payload
@@ -213,6 +224,7 @@ The dependency graph from FEATURES.md, the build order from ARCHITECTURE.md, and
 **Rationale:** Rejection is the most subtle feature because it adds a second validation authority. Must be built last — it requires Phase 3 (hash checkpoint as consistency mechanism) and Phase 4 (reconnect correctness) to be solid first, since any pre-existing state drift would cause false rejections.
 
 **Delivers:**
+
 - Client applies `build:outcome`/`destroy:outcome` at `executeTick` as cross-validation (not as the primary rendering trigger)
 - Client-side rejection is advisory only: server-accepted events always render
 - `intentId` rejection cache scoped to `(roomId, generation)` and flushed on `room:match-started`
@@ -231,6 +243,7 @@ The dependency graph from FEATURES.md, the build order from ARCHITECTURE.md, and
 **Rationale:** Property-based tests and full integration coverage are needed to verify the lockstep contract holds across random input sequences. This phase closes the milestone.
 
 **Delivers:**
+
 - `fast-check` property tests: same inputs + same snapshot produces same final hash (invariant holds over 500+ ticks)
 - `ArrayBuffer` round-trip integration test (`Grid.toPacked()` through Socket.IO binary attachment)
 - All items from the PITFALLS.md "looks done but isn't" checklist verified green
@@ -247,19 +260,19 @@ The dependency graph from FEATURES.md, the build order from ARCHITECTURE.md, and
 
 ### Feature-to-Phase Matrix
 
-| Feature | Phase | Priority |
-|---------|-------|----------|
-| `CLIENT-SIM` | 1 | P1 |
-| `TICK-ALIGN` | 1 | P1 |
-| `INPUT-TRANSPORT` | 2 | P1 |
-| `CLIENT-REJECT` (basic) | 2 | P1 |
-| `HASH-CHECKPOINT` | 3 | P1 |
-| `DESYNC-FALLBACK` | 3 | P1 |
-| `RECONNECT-SNAPSHOT` | 4 | P1 |
-| `CLIENT-REJECT` (hardened) | 5 | P1 |
-| `INPUT-ACK` rendering | 5 | P2 |
-| `CHECKPOINT-REPLAY` | 5 | P2 |
-| Quality gate and property tests | 6 | P1 |
+| Feature                         | Phase | Priority |
+| ------------------------------- | ----- | -------- |
+| `CLIENT-SIM`                    | 1     | P1       |
+| `TICK-ALIGN`                    | 1     | P1       |
+| `INPUT-TRANSPORT`               | 2     | P1       |
+| `CLIENT-REJECT` (basic)         | 2     | P1       |
+| `HASH-CHECKPOINT`               | 3     | P1       |
+| `DESYNC-FALLBACK`               | 3     | P1       |
+| `RECONNECT-SNAPSHOT`            | 4     | P1       |
+| `CLIENT-REJECT` (hardened)      | 5     | P1       |
+| `INPUT-ACK` rendering           | 5     | P2       |
+| `CHECKPOINT-REPLAY`             | 5     | P2       |
+| Quality gate and property tests | 6     | P1       |
 
 ### Phase Ordering Rationale
 
@@ -274,12 +287,12 @@ The dependency graph from FEATURES.md, the build order from ARCHITECTURE.md, and
 
 ## Confidence Assessment
 
-| Area | Confidence | Notes |
-|------|------------|-------|
-| Stack | HIGH | All decisions verified against npm registry (2026-03-29) and Socket.IO official docs. No version uncertainty. |
-| Features | HIGH | Feature scope defined in PROJECT.md; server-side infrastructure confirmed by direct codebase inspection. Feature dependencies are explicit. |
-| Architecture | HIGH | All component interactions verified against actual source files (`server.ts`, `rts.ts`, `socket-contract.ts`). New module shapes derived from existing patterns. |
-| Pitfalls | HIGH | Pitfalls derived from direct codebase audit and authoritative external references (Gaffer on Games, Socket.IO delivery guarantees, MDN Map spec). Each pitfall has a confirmed code location. |
+| Area         | Confidence | Notes                                                                                                                                                                                         |
+| ------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stack        | HIGH       | All decisions verified against npm registry (2026-03-29) and Socket.IO official docs. No version uncertainty.                                                                                 |
+| Features     | HIGH       | Feature scope defined in PROJECT.md; server-side infrastructure confirmed by direct codebase inspection. Feature dependencies are explicit.                                                   |
+| Architecture | HIGH       | All component interactions verified against actual source files (`server.ts`, `rts.ts`, `socket-contract.ts`). New module shapes derived from existing patterns.                              |
+| Pitfalls     | HIGH       | Pitfalls derived from direct codebase audit and authoritative external references (Gaffer on Games, Socket.IO delivery guarantees, MDN Map spec). Each pitfall has a confirmed code location. |
 
 **Overall confidence: HIGH**
 
@@ -297,20 +310,21 @@ The dependency graph from FEATURES.md, the build order from ARCHITECTURE.md, and
 
 ## Research Flags
 
-| Phase | Research Needed | Rationale |
-|-------|----------------|-----------|
-| Phase 1 | No | Standard lockstep simulation runner pattern; existing engine primitives are sufficient |
-| Phase 2 | No | Targeted server change; `emitActiveStateSnapshot` conditional is the entry point |
-| Phase 3 | Consider | Fallback-delay implementation should be verified against `rejectPendingBufferedCommandsOnFinish` to avoid logic duplication |
-| Phase 4 | No | Reconnect pattern is well-established; verify `fromState` WeakMap behavior at implementation start |
-| Phase 5 | No | Client rejection advisory model is clear; `intentId` scoping is straightforward |
-| Phase 6 | No | `fast-check` patterns well-documented; closing criteria defined in PITFALLS.md checklist |
+| Phase   | Research Needed | Rationale                                                                                                                   |
+| ------- | --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Phase 1 | No              | Standard lockstep simulation runner pattern; existing engine primitives are sufficient                                      |
+| Phase 2 | No              | Targeted server change; `emitActiveStateSnapshot` conditional is the entry point                                            |
+| Phase 3 | Consider        | Fallback-delay implementation should be verified against `rejectPendingBufferedCommandsOnFinish` to avoid logic duplication |
+| Phase 4 | No              | Reconnect pattern is well-established; verify `fromState` WeakMap behavior at implementation start                          |
+| Phase 5 | No              | Client rejection advisory model is clear; `intentId` scoping is straightforward                                             |
+| Phase 6 | No              | `fast-check` patterns well-documented; closing criteria defined in PITFALLS.md checklist                                    |
 
 ---
 
 ## Sources (Aggregated)
 
 **HIGH confidence:**
+
 - `apps/server/src/server.ts` — lockstep runtime, turn buffer, fallback, snapshot interval, tick loop (direct codebase analysis)
 - `packages/rts-engine/rts.ts` — hash implementation, determinism checkpoint, tick order (direct codebase analysis)
 - `packages/rts-engine/socket-contract.ts` — canonical wire protocol (direct codebase analysis)
@@ -322,6 +336,7 @@ The dependency graph from FEATURES.md, the build order from ARCHITECTURE.md, and
 - MDN: Map insertion-order iteration (spec-guaranteed)
 
 **MEDIUM confidence:**
+
 - Gaffer On Games — Deterministic Lockstep: https://gafferongames.com/post/deterministic_lockstep/
 - Gaffer On Games — Floating Point Determinism: https://gafferongames.com/post/floating_point_determinism/
 - Game Networking Demystified, Part III: Lockstep: https://ruoyusun.com/2019/04/06/game-networking-3.html

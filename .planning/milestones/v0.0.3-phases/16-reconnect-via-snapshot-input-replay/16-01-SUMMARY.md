@@ -32,11 +32,11 @@ key-files:
     - tests/web/client-simulation.test.ts
 
 key-decisions:
-  - "Removed unused InputLogEntry import from client.ts since payload.inputLog type is inferred from RoomJoinedPayload"
+  - 'Removed unused InputLogEntry import from client.ts since payload.inputLog type is inferred from RoomJoinedPayload'
 
 patterns-established:
-  - "flush-before-joinRoom-snapshot: Server flushes turn buffer before creating state snapshot in joinRoom, matching the existing state:request flush pattern"
-  - "input-log-boundary: getEntriesFromTick(statePayload.tick + 1) excludes already-processed events from the replay log"
+  - 'flush-before-joinRoom-snapshot: Server flushes turn buffer before creating state snapshot in joinRoom, matching the existing state:request flush pattern'
+  - 'input-log-boundary: getEntriesFromTick(statePayload.tick + 1) excludes already-processed events from the replay log'
 
 requirements-completed: [RECON-01]
 
@@ -58,6 +58,7 @@ completed: 2026-03-29
 - **Files modified:** 5
 
 ## Accomplishments
+
 - Extended RoomJoinedPayload with optional `inputLog?: InputLogEntry[]` field in the canonical socket contract
 - Implemented `ClientSimulation.replayInputLog()` that sorts entries by tick+sequence and applies builds/destroys for reconnect catchup
 - Server joinRoom now flushes turn buffer and retrieves input log entries from snapshot tick + 1 for active lockstep rooms
@@ -72,6 +73,7 @@ Each task was committed atomically:
 2. **Task 2: Server joinRoom input log delivery + client room:joined wiring** - `440ed24` (feat)
 
 ## Files Created/Modified
+
 - `packages/rts-engine/socket-contract.ts` - Added InputLogEntry import and inputLog field to RoomJoinedPayload
 - `apps/web/src/client-simulation.ts` - Added replayInputLog() method with tick+sequence sorting
 - `tests/web/client-simulation.test.ts` - Added 5 unit tests for replayInputLog behavior
@@ -79,6 +81,7 @@ Each task was committed atomically:
 - `apps/web/src/client.ts` - Added replayInputLog call in room:joined handler for reconnect catchup
 
 ## Decisions Made
+
 - Removed unused `InputLogEntry` import from client.ts since `payload.inputLog` type is inferred from `RoomJoinedPayload` -- avoids lint error for unused import
 
 ## Deviations from Plan
@@ -86,6 +89,7 @@ Each task was committed atomically:
 ### Auto-fixed Issues
 
 **1. [Rule 1 - Bug] Removed unused InputLogEntry import from client.ts**
+
 - **Found during:** Task 2 (client wiring)
 - **Issue:** Plan instructed adding `InputLogEntry` to client.ts imports, but the type is never directly referenced (used via `payload.inputLog` type inference from `RoomJoinedPayload`)
 - **Fix:** Removed the unused import to pass ESLint `no-unused-vars` rule
@@ -99,18 +103,23 @@ Each task was committed atomically:
 **Impact on plan:** Minor lint compliance fix. No scope creep.
 
 ## Issues Encountered
+
 - Pre-existing test timeout in `packages/rts-engine/rts.test.ts` QUAL-04 test (unrelated to changes, not modified by this plan)
 
 ## User Setup Required
+
 None - no external service configuration required.
 
 ## Known Stubs
+
 None - all data flows are fully wired.
 
 ## Next Phase Readiness
+
 - Input log delivery and replay are wired end-to-end
 - Ready for Phase 16 Plan 02: integration tests for the reconnect flow
 
 ---
-*Phase: 16-reconnect-via-snapshot-input-replay*
-*Completed: 2026-03-29*
+
+_Phase: 16-reconnect-via-snapshot-input-replay_
+_Completed: 2026-03-29_

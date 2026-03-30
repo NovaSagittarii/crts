@@ -15,11 +15,13 @@ Periodic hash checkpoints catch state divergence and trigger authoritative state
 ## Implementation Decisions
 
 ### Claude's Discretion
+
 All implementation choices are at Claude's discretion — discuss phase was skipped per user setting. Use ROADMAP phase goal, success criteria, and codebase conventions to guide decisions.
 
 </decisions>
 
 <code_context>
+
 ## Existing Code Insights
 
 Codebase context will be gathered during plan-phase research.

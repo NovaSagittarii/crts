@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  InputEventLog,
   type InputLogEntry,
   type InputLogEventKind,
-  InputEventLog,
 } from './input-event-log.js';
 
 function makeEntry(

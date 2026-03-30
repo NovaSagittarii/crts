@@ -2498,10 +2498,7 @@ describe('RtsRoom.fromPayload', () => {
     }
 
     const payload = source.createStatePayload();
-    const reconstructed = RtsRoom.fromPayload(
-      payload,
-      source.state.templates,
-    );
+    const reconstructed = RtsRoom.fromPayload(payload, source.state.templates);
 
     expect(reconstructed.createDeterminismCheckpoint().hashHex).toBe(
       source.createDeterminismCheckpoint().hashHex,
@@ -2522,10 +2519,7 @@ describe('RtsRoom.fromPayload', () => {
     }
 
     const payload = source.createStatePayload();
-    const reconstructed = RtsRoom.fromPayload(
-      payload,
-      source.state.templates,
-    );
+    const reconstructed = RtsRoom.fromPayload(payload, source.state.templates);
 
     // Tick both rooms 10 more times
     for (let i = 0; i < 10; i++) {
@@ -2562,10 +2556,7 @@ describe('RtsRoom.fromPayload', () => {
     expect(queueResult.accepted).toBe(true);
 
     const payload = source.createStatePayload();
-    const reconstructed = RtsRoom.fromPayload(
-      payload,
-      source.state.templates,
-    );
+    const reconstructed = RtsRoom.fromPayload(payload, source.state.templates);
 
     // At reconstruction time, hashes must match
     expect(reconstructed.createDeterminismCheckpoint().hashHex).toBe(
@@ -2621,10 +2612,7 @@ describe('RtsRoom.fromPayload', () => {
     }
 
     const payload = source.createStatePayload();
-    const reconstructed = RtsRoom.fromPayload(
-      payload,
-      source.state.templates,
-    );
+    const reconstructed = RtsRoom.fromPayload(payload, source.state.templates);
 
     expect(reconstructed.createDeterminismCheckpoint().hashHex).toBe(
       source.createDeterminismCheckpoint().hashHex,
@@ -2675,10 +2663,7 @@ describe('RtsRoom.fromPayload', () => {
     }
 
     const payload = source.createStatePayload();
-    const reconstructed = RtsRoom.fromPayload(
-      payload,
-      source.state.templates,
-    );
+    const reconstructed = RtsRoom.fromPayload(payload, source.state.templates);
 
     expect(reconstructed.createDeterminismCheckpoint().hashHex).toBe(
       source.createDeterminismCheckpoint().hashHex,
@@ -2710,10 +2695,7 @@ describe('RtsRoom.fromPayload', () => {
     core.hp = 250; // damage from 500 to 250
 
     const payload = source.createStatePayload();
-    const reconstructed = RtsRoom.fromPayload(
-      payload,
-      source.state.templates,
-    );
+    const reconstructed = RtsRoom.fromPayload(payload, source.state.templates);
 
     expect(reconstructed.createDeterminismCheckpoint().hashHex).toBe(
       source.createDeterminismCheckpoint().hashHex,
@@ -2741,10 +2723,7 @@ describe('RtsRoom.fromPayload', () => {
     team.defeated = true;
 
     const payload = source.createStatePayload();
-    const reconstructed = RtsRoom.fromPayload(
-      payload,
-      source.state.templates,
-    );
+    const reconstructed = RtsRoom.fromPayload(payload, source.state.templates);
 
     const reconstructedTeam = reconstructed.state.teams.get(1)!;
     expect(reconstructedTeam.defeated).toBe(true);
@@ -2769,10 +2748,7 @@ describe('RtsRoom.fromPayload', () => {
     }
 
     const payload = source.createStatePayload();
-    const reconstructed = RtsRoom.fromPayload(
-      payload,
-      source.state.templates,
-    );
+    const reconstructed = RtsRoom.fromPayload(payload, source.state.templates);
 
     expect(reconstructed.state.tick).toBe(payload.tick);
     expect(reconstructed.state.generation).toBe(payload.generation);

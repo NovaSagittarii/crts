@@ -7,16 +7,17 @@ tags: [rts-engine, determinism, payload-reconstruction, lockstep]
 # Dependency graph
 requires: []
 provides:
-  - "RtsRoom.fromPayload() static factory for reconstructing tickable rooms from wire payloads"
-  - "reservedCost field on PendingBuildPayload for hash-faithful build event reconstruction"
-affects: [13-02, 14-lockstep-transport, 15-desync-detection, 16-reconnect-replay]
+  - 'RtsRoom.fromPayload() static factory for reconstructing tickable rooms from wire payloads'
+  - 'reservedCost field on PendingBuildPayload for hash-faithful build event reconstruction'
+affects:
+  [13-02, 14-lockstep-transport, 15-desync-detection, 16-reconnect-replay]
 
 # Tech tracking
 tech-stack:
   added: []
   patterns:
-    - "Payload-to-room reconstruction with canonical Map insertion order"
-    - "Core template auto-injection into templateMap for fromPayload"
+    - 'Payload-to-room reconstruction with canonical Map insertion order'
+    - 'Core template auto-injection into templateMap for fromPayload'
 
 key-files:
   created: []
@@ -25,12 +26,12 @@ key-files:
     - packages/rts-engine/rts.test.ts
 
 key-decisions:
-  - "Added reservedCost as optional field on PendingBuildPayload to preserve hash fidelity without breaking existing consumers"
-  - "Core template auto-included in templateMap when not present in provided templates array"
-  - "Method added to both RtsEngine (static) and RtsRoom (delegation) following existing delegation pattern"
+  - 'Added reservedCost as optional field on PendingBuildPayload to preserve hash fidelity without breaking existing consumers'
+  - 'Core template auto-included in templateMap when not present in provided templates array'
+  - 'Method added to both RtsEngine (static) and RtsRoom (delegation) following existing delegation pattern'
 
 patterns-established:
-  - "fromPayload reconstruction pattern: Grid.fromPacked -> sorted teams -> sorted structures -> rebuild pending events -> set nextBuildEventId"
+  - 'fromPayload reconstruction pattern: Grid.fromPacked -> sorted teams -> sorted structures -> rebuild pending events -> set nextBuildEventId'
 
 requirements-completed: [SIM-01]
 
@@ -83,6 +84,7 @@ _TDD task: test commit followed by implementation commit._
 ### Auto-fixed Issues
 
 **1. [Rule 1 - Bug] Core template missing from templateMap**
+
 - **Found during:** Task 1 (GREEN phase - hash mismatch debugging)
 - **Issue:** The plan's `templateMap` construction only used the provided `templates` array, but `__core__` (used for core structures) is not included in `createDefaultStructureTemplates()`. Reconstructed rooms had zero structures and completely different hashes.
 - **Fix:** Added auto-injection of `RtsEngine.CORE_STRUCTURE_TEMPLATE` into `templateMap` when not already present.
@@ -91,6 +93,7 @@ _TDD task: test commit followed by implementation commit._
 - **Committed in:** a2747a4
 
 **2. [Rule 2 - Missing Critical] reservedCost not carried in PendingBuildPayload**
+
 - **Found during:** Task 1 (GREEN phase - hash mismatch on pending build events test)
 - **Issue:** The plan used `templateMap.get(pb.templateId)?.activationCost` for `reservedCost`, but the actual value includes grid diff cells (`diffCells + activationCost`). The hash includes `reservedCost`, so the wrong value caused determinism hash divergence.
 - **Fix:** Added `reservedCost` (optional) to `PendingBuildPayload` interface; updated `projectPendingBuilds` to include it from the source `BuildEvent`; updated `fromPayload` to read `pb.reservedCost ?? 0`.
@@ -123,5 +126,6 @@ None - all data paths are fully wired.
 - Future reconnect replay (Phase 16) can also use this factory for state reconstruction
 
 ---
-*Phase: 13-client-simulation-foundation*
-*Completed: 2026-03-29*
+
+_Phase: 13-client-simulation-foundation_
+_Completed: 2026-03-29_

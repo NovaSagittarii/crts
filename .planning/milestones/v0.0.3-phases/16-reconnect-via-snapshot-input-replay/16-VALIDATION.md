@@ -15,13 +15,13 @@ created: 2026-03-29
 
 ## Test Infrastructure
 
-| Property | Value |
-|----------|-------|
-| **Framework** | vitest |
-| **Config file** | vitest.config.ts |
-| **Quick run command** | `npm run test:fast` |
-| **Full suite command** | `npm test` |
-| **Estimated runtime** | ~70 seconds |
+| Property               | Value               |
+| ---------------------- | ------------------- |
+| **Framework**          | vitest              |
+| **Config file**        | vitest.config.ts    |
+| **Quick run command**  | `npm run test:fast` |
+| **Full suite command** | `npm test`          |
+| **Estimated runtime**  | ~70 seconds         |
 
 ---
 
@@ -36,13 +36,13 @@ created: 2026-03-29
 
 ## Per-Task Verification Map
 
-| Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
-|---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 16-01-01 | 01 | 1 | RECON-01 | unit | `npx vitest run tests/web/client-simulation.test.ts` | ✅ | ⬜ pending |
-| 16-01-02 | 01 | 1 | RECON-01 | unit+build | `npm run test:fast && npm run build` | ✅ | ⬜ pending |
-| 16-02-01 | 02 | 2 | RECON-01 | integration | `npx vitest run tests/integration/server/reconnect-replay.test.ts` | ❌ W0 | ⬜ pending |
+| Task ID  | Plan | Wave | Requirement | Test Type   | Automated Command                                                  | File Exists | Status     |
+| -------- | ---- | ---- | ----------- | ----------- | ------------------------------------------------------------------ | ----------- | ---------- |
+| 16-01-01 | 01   | 1    | RECON-01    | unit        | `npx vitest run tests/web/client-simulation.test.ts`               | ✅          | ⬜ pending |
+| 16-01-02 | 01   | 1    | RECON-01    | unit+build  | `npm run test:fast && npm run build`                               | ✅          | ⬜ pending |
+| 16-02-01 | 02   | 2    | RECON-01    | integration | `npx vitest run tests/integration/server/reconnect-replay.test.ts` | ❌ W0       | ⬜ pending |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+_Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky_
 
 ---
 
@@ -50,15 +50,15 @@ created: 2026-03-29
 
 - [ ] `tests/integration/server/reconnect-replay.test.ts` — integration test stubs for reconnect replay
 
-*Existing infrastructure covers unit test requirements.*
+_Existing infrastructure covers unit test requirements._
 
 ---
 
 ## Manual-Only Verifications
 
-| Behavior | Requirement | Why Manual | Test Instructions |
-|----------|-------------|------------|-------------------|
-| Visual reconnect in browser | RECON-01 | Requires live dev server with disconnect | Start match, close tab, reopen, observe seamless rejoin in console |
+| Behavior                    | Requirement | Why Manual                               | Test Instructions                                                  |
+| --------------------------- | ----------- | ---------------------------------------- | ------------------------------------------------------------------ |
+| Visual reconnect in browser | RECON-01    | Requires live dev server with disconnect | Start match, close tab, reopen, observe seamless rejoin in console |
 
 ---
 

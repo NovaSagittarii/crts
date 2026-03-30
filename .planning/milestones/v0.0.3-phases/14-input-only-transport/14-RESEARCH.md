@@ -13,26 +13,32 @@ The three requirements (XPORT-01, XPORT-02, XPORT-03) decompose into: (1) condit
 **Primary recommendation:** Gate the existing `emitRoomState`, `emitBuildOutcomes`, and `emitDestroyOutcomes` calls behind a lockstep-mode check so they are suppressed when the room is in `primary` lockstep `running` status. Add an `InputEventLog` ring buffer data structure alongside the existing `turnBuffer`. Make the sequence-ordered relay the single source of truth for input ordering.
 
 <user_constraints>
+
 ## User Constraints (from CONTEXT.md)
 
 ### Locked Decisions
+
 None -- discuss phase was skipped per user setting. All implementation choices are at Claude's discretion.
 
 ### Claude's Discretion
+
 All implementation choices are at Claude's discretion -- discuss phase was skipped per user setting. Use ROADMAP phase goal, success criteria, and codebase conventions to guide decisions.
 
 ### Deferred Ideas (OUT OF SCOPE)
+
 None -- discuss phase skipped.
 </user_constraints>
 
 <phase_requirements>
+
 ## Phase Requirements
 
-| ID | Description | Research Support |
-|----|-------------|------------------|
-| XPORT-01 | Server relays confirmed input events instead of per-tick full state broadcasts; steady-state active match traffic consists only of input events and periodic checkpoint hashes | Conditional suppression of `emitRoomState`, `emitBuildOutcomes`, `emitDestroyOutcomes` in the tick loop when lockstep mode is `primary` and status is `running`. The `build:queued`/`destroy:queued` relay and `lockstep:checkpoint` emission already exist. Client must stop requesting `state:grid` during lockstep checkpoints. |
-| XPORT-02 | Server retains a bounded input log (ring buffer) covering the reconnect window for replay delivery | New `InputEventLog` class: array-backed ring buffer storing serialized `BuildQueuedPayload` / `DestroyQueuedPayload` keyed by tick number with a configurable capacity derived from `reconnectHoldMs / tickMs`. Entries older than the window are discarded on each tick advance. |
-| XPORT-03 | Server assigns deterministic ordering to inputs received in the same tick window before relaying to all clients | The existing `BufferedLockstepCommand.sequence` field provides monotonic insertion order. Formalize this: when multiple commands arrive in the same tick window, they are relayed to clients in ascending `sequence` order. The `sequence` number is already emitted indirectly via `eventId` in payloads. Add explicit `sequence` to `BuildQueuedPayload` / `DestroyQueuedPayload`. |
+| ID       | Description                                                                                                                                                                    | Research Support                                                                                                                                                                                                                                                                                                                                                                     |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| XPORT-01 | Server relays confirmed input events instead of per-tick full state broadcasts; steady-state active match traffic consists only of input events and periodic checkpoint hashes | Conditional suppression of `emitRoomState`, `emitBuildOutcomes`, `emitDestroyOutcomes` in the tick loop when lockstep mode is `primary` and status is `running`. The `build:queued`/`destroy:queued` relay and `lockstep:checkpoint` emission already exist. Client must stop requesting `state:grid` during lockstep checkpoints.                                                   |
+| XPORT-02 | Server retains a bounded input log (ring buffer) covering the reconnect window for replay delivery                                                                             | New `InputEventLog` class: array-backed ring buffer storing serialized `BuildQueuedPayload` / `DestroyQueuedPayload` keyed by tick number with a configurable capacity derived from `reconnectHoldMs / tickMs`. Entries older than the window are discarded on each tick advance.                                                                                                    |
+| XPORT-03 | Server assigns deterministic ordering to inputs received in the same tick window before relaying to all clients                                                                | The existing `BufferedLockstepCommand.sequence` field provides monotonic insertion order. Formalize this: when multiple commands arrive in the same tick window, they are relayed to clients in ascending `sequence` order. The `sequence` number is already emitted indirectly via `eventId` in payloads. Add explicit `sequence` to `BuildQueuedPayload` / `DestroyQueuedPayload`. |
+
 </phase_requirements>
 
 ## Project Constraints (from CLAUDE.md)
@@ -152,11 +158,11 @@ tests/integration/server/
 
 ## Don't Hand-Roll
 
-| Problem | Don't Build | Use Instead | Why |
-|---------|-------------|-------------|-----|
-| Ring buffer | Linked list or dynamic array | Fixed-capacity array with head/tail pointers | O(1) append/discard, bounded memory, no GC pressure |
-| Message ordering | Custom ordering protocol | Monotonic sequence counter (already exists) | Socket.IO guarantees per-connection FIFO; sequence is for verification and replay |
-| Reconnect replay | Custom state diff mechanism | Full replay from ring buffer + snapshot | Simpler, deterministic, matches lockstep model |
+| Problem          | Don't Build                  | Use Instead                                  | Why                                                                               |
+| ---------------- | ---------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------- |
+| Ring buffer      | Linked list or dynamic array | Fixed-capacity array with head/tail pointers | O(1) append/discard, bounded memory, no GC pressure                               |
+| Message ordering | Custom ordering protocol     | Monotonic sequence counter (already exists)  | Socket.IO guarantees per-connection FIFO; sequence is for verification and replay |
+| Reconnect replay | Custom state diff mechanism  | Full replay from ring buffer + snapshot      | Simpler, deterministic, matches lockstep model                                    |
 
 ## Common Pitfalls
 
@@ -338,7 +344,7 @@ export interface BuildQueuedPayload {
   delayTicks: number;
   eventId: number;
   executeTick: number;
-  sequence: number;  // NEW: deterministic ordering within tick window
+  sequence: number; // NEW: deterministic ordering within tick window
 }
 
 export interface DestroyQueuedPayload {
@@ -353,7 +359,7 @@ export interface DestroyQueuedPayload {
   eventId: number;
   executeTick: number;
   idempotent: boolean;
-  sequence: number;  // NEW: deterministic ordering within tick window
+  sequence: number; // NEW: deterministic ordering within tick window
 }
 ```
 
@@ -387,41 +393,45 @@ socket.on('lockstep:checkpoint', (payload: LockstepCheckpointPayload) => {
 
 ## State of the Art
 
-| Old Approach | Current Approach | When Changed | Impact |
-|--------------|------------------|--------------|--------|
+| Old Approach          | Current Approach                              | When Changed       | Impact                                          |
+| --------------------- | --------------------------------------------- | ------------------ | ----------------------------------------------- |
 | Full state every tick | Periodic state (every 50 ticks) + input relay | Phase 13 (partial) | Reduced bandwidth but still periodic full state |
-| No client simulation | Client runs parallel `RtsRoom` | Phase 13 | Foundation for input-only transport |
-| No lockstep mode | Shadow + Primary lockstep modes | v0.0.2 | Server validates inputs via shadow room |
+| No client simulation  | Client runs parallel `RtsRoom`                | Phase 13           | Foundation for input-only transport             |
+| No lockstep mode      | Shadow + Primary lockstep modes               | v0.0.2             | Server validates inputs via shadow room         |
 
 **This phase transitions from "periodic state + input relay" to "input-only relay + periodic hash verification" for primary lockstep mode.**
 
 ## Validation Architecture
 
 ### Test Framework
-| Property | Value |
-|----------|-------|
-| Framework | vitest 4.0.18 |
-| Config file | `vitest.config.ts` |
-| Quick run command | `npm run test:fast` |
-| Full suite command | `npm test` |
+
+| Property           | Value               |
+| ------------------ | ------------------- |
+| Framework          | vitest 4.0.18       |
+| Config file        | `vitest.config.ts`  |
+| Quick run command  | `npm run test:fast` |
+| Full suite command | `npm test`          |
 
 ### Phase Requirements to Test Map
-| Req ID | Behavior | Test Type | Automated Command | File Exists? |
-|--------|----------|-----------|-------------------|-------------|
-| XPORT-01 | No full-state broadcast during active lockstep match; only input relay + checkpoint hashes | integration | `npx vitest run tests/integration/server/input-only-transport.test.ts -x` | Wave 0 |
-| XPORT-01 | Fallback path still broadcasts full state | integration | `npx vitest run tests/integration/server/input-only-transport.test.ts -x` | Wave 0 |
-| XPORT-01 | Client does not request state:grid during active lockstep | web (unit) | `npx vitest run tests/web/client-simulation.test.ts -x` | Exists (extend) |
-| XPORT-02 | Ring buffer stores input events, retrieves from tick, discards old | unit | `npx vitest run packages/rts-engine/input-event-log.test.ts -x` | Wave 0 |
-| XPORT-02 | Ring buffer capacity bounds are respected | unit | `npx vitest run packages/rts-engine/input-event-log.test.ts -x` | Wave 0 |
-| XPORT-03 | Inputs in same tick window are relayed in sequence order | integration | `npx vitest run tests/integration/server/input-only-transport.test.ts -x` | Wave 0 |
-| XPORT-03 | Sequence field present in BuildQueuedPayload / DestroyQueuedPayload | unit | `npx vitest run packages/rts-engine/rts.test.ts -x` | Exists (extend) |
+
+| Req ID   | Behavior                                                                                   | Test Type   | Automated Command                                                         | File Exists?    |
+| -------- | ------------------------------------------------------------------------------------------ | ----------- | ------------------------------------------------------------------------- | --------------- |
+| XPORT-01 | No full-state broadcast during active lockstep match; only input relay + checkpoint hashes | integration | `npx vitest run tests/integration/server/input-only-transport.test.ts -x` | Wave 0          |
+| XPORT-01 | Fallback path still broadcasts full state                                                  | integration | `npx vitest run tests/integration/server/input-only-transport.test.ts -x` | Wave 0          |
+| XPORT-01 | Client does not request state:grid during active lockstep                                  | web (unit)  | `npx vitest run tests/web/client-simulation.test.ts -x`                   | Exists (extend) |
+| XPORT-02 | Ring buffer stores input events, retrieves from tick, discards old                         | unit        | `npx vitest run packages/rts-engine/input-event-log.test.ts -x`           | Wave 0          |
+| XPORT-02 | Ring buffer capacity bounds are respected                                                  | unit        | `npx vitest run packages/rts-engine/input-event-log.test.ts -x`           | Wave 0          |
+| XPORT-03 | Inputs in same tick window are relayed in sequence order                                   | integration | `npx vitest run tests/integration/server/input-only-transport.test.ts -x` | Wave 0          |
+| XPORT-03 | Sequence field present in BuildQueuedPayload / DestroyQueuedPayload                        | unit        | `npx vitest run packages/rts-engine/rts.test.ts -x`                       | Exists (extend) |
 
 ### Sampling Rate
+
 - **Per task commit:** `npm run test:fast`
 - **Per wave merge:** `npm test`
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
+
 - [ ] `packages/rts-engine/input-event-log.test.ts` -- covers XPORT-02 ring buffer behavior
 - [ ] `tests/integration/server/input-only-transport.test.ts` -- covers XPORT-01 broadcast suppression and XPORT-03 ordering
 
@@ -445,6 +455,7 @@ socket.on('lockstep:checkpoint', (payload: LockstepCheckpointPayload) => {
 ## Sources
 
 ### Primary (HIGH confidence)
+
 - Direct codebase analysis of `apps/server/src/server.ts` (tick loop, lockstep runtime, broadcast functions)
 - Direct codebase analysis of `packages/rts-engine/socket-contract.ts` (payload type definitions)
 - Direct codebase analysis of `apps/web/src/client-simulation.ts` (Phase 13 client simulation)
@@ -452,11 +463,13 @@ socket.on('lockstep:checkpoint', (payload: LockstepCheckpointPayload) => {
 - Direct codebase analysis of `packages/rts-engine/rts.ts` (RtsRoom, tick result, determinism checkpoint)
 
 ### Secondary (MEDIUM confidence)
+
 - Ring buffer sizing heuristics based on `RECONNECT_HOLD_MS` (30s) and typical `tickMs` (100ms) defaults
 
 ## Metadata
 
 **Confidence breakdown:**
+
 - Standard stack: HIGH -- no new libraries needed, all changes are within existing codebase patterns
 - Architecture: HIGH -- clear mapping from current code to required changes, well-understood codebase
 - Pitfalls: HIGH -- identified from direct code inspection of broadcast paths and client handlers

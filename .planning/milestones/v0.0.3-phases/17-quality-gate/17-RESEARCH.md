@@ -25,33 +25,39 @@ The codebase already has extensive deterministic unit tests (QUAL-04 tests in rt
 - Conventional Commits for commit messages
 
 <phase_requirements>
+
 ## Phase Requirements
 
-| ID | Description | Research Support |
-|----|-------------|------------------|
+| ID      | Description                                                                                                                                        | Research Support                                                                                                                                                                                                                                                                        |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | QUAL-01 | Property-based determinism tests prove that identical input sequences produce identical state hashes across server and client simulation instances | fast-check fc.assert + fc.property with arbitraries for grid dimensions, alive cell positions, team count, build/destroy input sequences; run both RtsRoom and ClientSimulation from same payload, apply same inputs, advance same ticks, compare createDeterminismCheckpoint().hashHex |
+
 </phase_requirements>
 
 ## Standard Stack
 
 ### Core
-| Library | Version | Purpose | Why Standard |
-|---------|---------|---------|--------------|
-| fast-check | 4.6.0 | Property-based test generation | The canonical PBT library for JS/TS; generates diverse random inputs, shrinks failures to minimal reproducible cases |
-| vitest | 4.0.18 | Test runner (already installed) | Already the project test runner |
+
+| Library    | Version | Purpose                         | Why Standard                                                                                                         |
+| ---------- | ------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| fast-check | 4.6.0   | Property-based test generation  | The canonical PBT library for JS/TS; generates diverse random inputs, shrinks failures to minimal reproducible cases |
+| vitest     | 4.0.18  | Test runner (already installed) | Already the project test runner                                                                                      |
 
 ### Supporting
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| @fast-check/vitest | 0.3.0 | Vitest-native test.prop integration | Optional -- provides test.prop() syntax sugar. NOT recommended for this phase because plain fc.assert works cleanly and avoids a new adapter |
+
+| Library            | Version | Purpose                             | When to Use                                                                                                                                  |
+| ------------------ | ------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| @fast-check/vitest | 0.3.0   | Vitest-native test.prop integration | Optional -- provides test.prop() syntax sugar. NOT recommended for this phase because plain fc.assert works cleanly and avoids a new adapter |
 
 ### Alternatives Considered
-| Instead of | Could Use | Tradeoff |
-|------------|-----------|----------|
-| fast-check (direct) | @fast-check/vitest | Adapter adds syntactic sugar but another dependency and potential version coupling; fc.assert is sufficient |
-| fast-check | Hypothesis (Python) | Wrong ecosystem; project is TypeScript |
+
+| Instead of          | Could Use           | Tradeoff                                                                                                    |
+| ------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------- |
+| fast-check (direct) | @fast-check/vitest  | Adapter adds syntactic sugar but another dependency and potential version coupling; fc.assert is sufficient |
+| fast-check          | Hypothesis (Python) | Wrong ecosystem; project is TypeScript                                                                      |
 
 **Installation:**
+
 ```bash
 npm install --save-dev fast-check
 ```
@@ -88,30 +94,34 @@ tests/
 
 ```typescript
 import fc from 'fast-check';
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+
 import { RtsRoom, createDefaultStructureTemplates } from '#rts-engine';
+
 import { ClientSimulation } from '../../apps/web/src/client-simulation.js';
 
 // Arbitrary: generate a valid build input relative to team base
 const buildInputArb = (baseX: number, baseY: number) =>
-  fc.record({
-    templateId: fc.constant('block'),
-    offsetX: fc.integer({ min: 4, max: 14 }),
-    offsetY: fc.integer({ min: 4, max: 14 }),
-    delayTicks: fc.integer({ min: 1, max: 10 }),
-  }).map(({ templateId, offsetX, offsetY, delayTicks }) => ({
-    templateId,
-    x: baseX + offsetX,
-    y: baseY + offsetY,
-    delayTicks,
-  }));
+  fc
+    .record({
+      templateId: fc.constant('block'),
+      offsetX: fc.integer({ min: 4, max: 14 }),
+      offsetY: fc.integer({ min: 4, max: 14 }),
+      delayTicks: fc.integer({ min: 1, max: 10 }),
+    })
+    .map(({ templateId, offsetX, offsetY, delayTicks }) => ({
+      templateId,
+      x: baseX + offsetX,
+      y: baseY + offsetY,
+      delayTicks,
+    }));
 
 it('identical inputs produce identical hashes (QUAL-01)', () => {
   fc.assert(
     fc.property(
-      fc.integer({ min: 0, max: 50 }),     // ticksBefore
-      fc.integer({ min: 0, max: 5 }),      // number of build inputs
-      fc.integer({ min: 10, max: 500 }),   // ticksAfter
+      fc.integer({ min: 0, max: 50 }), // ticksBefore
+      fc.integer({ min: 0, max: 5 }), // number of build inputs
+      fc.integer({ min: 10, max: 500 }), // ticksAfter
       (ticksBefore, buildCount, ticksAfter) => {
         // 1. Create server room, add 2 players, tick ticksBefore
         // 2. Take snapshot payload
@@ -120,14 +130,15 @@ it('identical inputs produce identical hashes (QUAL-01)', () => {
         // 5. Advance both by ticksAfter ticks
         // 6. Compare determinism checkpoint hashes
         // returns true if hashes match
-      }
+      },
     ),
-    { numRuns: 200 } // 200 runs with diverse inputs; fast-check default is 100
+    { numRuns: 200 }, // 200 runs with diverse inputs; fast-check default is 100
   );
 });
 ```
 
 **Key design decisions:**
+
 - Use `fc.assert` + `fc.property` directly (not @fast-check/vitest)
 - Generate build placement offsets relative to team base to maximize acceptance rate
 - Use `createDefaultStructureTemplates()` for all runs (consistent with real usage)
@@ -152,6 +163,7 @@ it('identical inputs produce identical hashes (QUAL-01)', () => {
 ```
 
 The existing integration test infrastructure already exercises this path implicitly (room:joined payload contains `state.grid` as an ArrayBuffer). The specific test should:
+
 1. Create a match using `createLockstepTest` fixtures
 2. Receive `room:joined` payload
 3. Assert `payload.state.grid instanceof ArrayBuffer`
@@ -167,6 +179,7 @@ The existing integration test infrastructure already exercises this path implici
 **This requires no new code** -- just running the full test suite.
 
 ### Anti-Patterns to Avoid
+
 - **Generating invalid room states directly:** Never construct RoomState by hand; always use `RtsRoom.create()` or `RtsRoom.fromPayload()` which set up runtime correctly
 - **Using `any` casts in test code:** Even test files must satisfy the lint rules; use the same eslint-disable pattern as existing `client-simulation.test.ts` for cross-project type resolution
 - **Running property tests with too few iterations:** 100+ runs is the minimum for meaningful coverage; the success criterion demands 500+ ticks per run, not 500+ runs
@@ -174,53 +187,61 @@ The existing integration test infrastructure already exercises this path implici
 
 ## Don't Hand-Roll
 
-| Problem | Don't Build | Use Instead | Why |
-|---------|-------------|-------------|-----|
-| Random test input generation | Custom Math.random() loops | fast-check arbitraries (fc.integer, fc.record, fc.array) | Shrinking, reproducibility, seed-based replay on failure |
-| ArrayBuffer binary fidelity test | Manual Buffer manipulation | Grid.toPacked() + Grid.fromPacked() + Socket.IO integration fixture | The existing fixtures already handle server lifecycle and Socket.IO connection |
-| Determinism hash comparison | Custom hash functions | RtsRoom.createDeterminismCheckpoint() / ClientSimulation.createLocalCheckpoint() | Already implemented with fnv1a-32; just compare hashHex values |
-| Test fixture setup | Bespoke server/client lifecycle | createLockstepTest / createMatchTest from lockstep-fixtures.ts | Handles ephemeral ports, manual clock, cleanup |
+| Problem                          | Don't Build                     | Use Instead                                                                      | Why                                                                            |
+| -------------------------------- | ------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Random test input generation     | Custom Math.random() loops      | fast-check arbitraries (fc.integer, fc.record, fc.array)                         | Shrinking, reproducibility, seed-based replay on failure                       |
+| ArrayBuffer binary fidelity test | Manual Buffer manipulation      | Grid.toPacked() + Grid.fromPacked() + Socket.IO integration fixture              | The existing fixtures already handle server lifecycle and Socket.IO connection |
+| Determinism hash comparison      | Custom hash functions           | RtsRoom.createDeterminismCheckpoint() / ClientSimulation.createLocalCheckpoint() | Already implemented with fnv1a-32; just compare hashHex values                 |
+| Test fixture setup               | Bespoke server/client lifecycle | createLockstepTest / createMatchTest from lockstep-fixtures.ts                   | Handles ephemeral ports, manual clock, cleanup                                 |
 
 **Key insight:** The entire determinism engine already exists and is well-tested. This phase only adds a new testing methodology (property-based) and a specific binary path validation. No production code changes are needed.
 
 ## Common Pitfalls
 
 ### Pitfall 1: Build Placement Failures in Property Tests
+
 **What goes wrong:** Random coordinates cause build:queue rejections (outside-territory, occupied-site, insufficient-resources), making the test think determinism failed.
 **Why it happens:** The build placement system has strict spatial constraints relative to team base and build zones.
 **How to avoid:** Generate build coordinates as offsets from team.baseTopLeft within known valid ranges (offset 4-14 from base, which is within territory radius of 12). Handle rejection gracefully -- if server rejects, don't replay on client.
 **Warning signs:** Property test fails on "builds not matching" rather than hash mismatch.
 
 ### Pitfall 2: ClientSimulation Needs Templates from createDefaultStructureTemplates()
+
 **What goes wrong:** ClientSimulation.initialize() is called without the block/generator templates, causing builds to silently fail.
 **Why it happens:** RtsRoom.fromPayload() auto-injects the core template but not block/generator templates.
 **How to avoid:** Always pass `createDefaultStructureTemplates()` to ClientSimulation.initialize(), matching the pattern in the existing client-simulation.test.ts.
 **Warning signs:** Client simulation diverges from server after first build application.
 
 ### Pitfall 3: Resource Cost Deduction Mismatch
+
 **What goes wrong:** ClientSimulation.applyQueuedBuild() deducts reservedCost from team.resources, but if the test doesn't populate reservedCost correctly, the economy diverges.
 **Why it happens:** The client gets reservedCost from the template's activationCost via `template?.activationCost ?? 0`.
 **How to avoid:** When generating build payloads for the property test, use the same template that the server uses, and let the engine compute the cost. Use `room.queueBuildEvent()` on the server and construct the matching `BuildQueuedPayload` for the client from the server's returned eventId/executeTick.
 **Warning signs:** Hash divergence appears only when using non-zero-cost templates (generator).
 
 ### Pitfall 4: Tick Synchronization Between Server and Client
+
 **What goes wrong:** Server is at tick N but client thinks it's at a different tick, causing hash comparison at the wrong state.
 **Why it happens:** Server's room.tick() advances room.state.tick by 1 each call. Client's advanceToTick(N) must be called with exactly the right target.
 **How to avoid:** After all inputs are applied, advance both to the same target tick, then compare checkpoints. Use `room.state.tick` as the authoritative tick count.
 **Warning signs:** Hashes match sometimes but not others; depends on random input count.
 
 ### Pitfall 5: ESLint Cross-Project Type Resolution
+
 **What goes wrong:** ESLint fails on imports from `../../apps/web/src/client-simulation.js` because it's outside tsconfig include boundary.
 **Why it happens:** The test file in `tests/web/` imports from `apps/web/`, which is a different TypeScript project root.
 **How to avoid:** Add the same eslint-disable comments as the existing `client-simulation.test.ts`:
+
 ```typescript
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 ```
+
 **Warning signs:** `npm run lint` fails with type-checking errors on the new test file.
 
 ### Pitfall 6: ArrayBuffer Comparison Semantics
+
 **What goes wrong:** `expect(receivedGrid).toEqual(originalGrid)` fails even though bytes are identical because ArrayBuffer equality is reference-based.
 **Why it happens:** JavaScript ArrayBuffer objects don't have value-equality semantics.
 **How to avoid:** Compare via `new Uint8Array(receivedGrid)` vs `new Uint8Array(originalGrid)`, or compare unpacked Grid cell states.
@@ -229,6 +250,7 @@ The existing integration test infrastructure already exercises this path implici
 ## Code Examples
 
 ### Creating Server Room with 2 Players (verified pattern from rts.test.ts)
+
 ```typescript
 // Source: packages/rts-engine/rts.test.ts, tests/web/client-simulation.test.ts
 const room = RtsRoom.create({
@@ -243,6 +265,7 @@ const templates = createDefaultStructureTemplates();
 ```
 
 ### Initializing ClientSimulation from Server State (verified pattern from client-simulation.test.ts)
+
 ```typescript
 // Source: tests/web/client-simulation.test.ts
 const payload = room.createStatePayload();
@@ -251,6 +274,7 @@ sim.initialize(payload, templates);
 ```
 
 ### Queuing Build on Server and Replaying on Client
+
 ```typescript
 // Source: tests/web/client-simulation.test.ts lines 374-406
 const buildResult = room.queueBuildEvent('player-1', {
@@ -283,6 +307,7 @@ if (buildResult.accepted) {
 ```
 
 ### Comparing Determinism Checkpoints
+
 ```typescript
 // Source: packages/rts-engine/rts.test.ts line 1351-1353
 const serverCheckpoint = room.createDeterminismCheckpoint();
@@ -291,6 +316,7 @@ expect(clientCheckpoint!.hashHex).toBe(serverCheckpoint.hashHex);
 ```
 
 ### fast-check Property Pattern (canonical pattern from fast-check docs)
+
 ```typescript
 import fc from 'fast-check';
 
@@ -301,13 +327,14 @@ fc.assert(
     (tickCount, buildOffsets) => {
       // ... setup and verify property ...
       return serverHash === clientHash;
-    }
+    },
   ),
-  { numRuns: 200 }
+  { numRuns: 200 },
 );
 ```
 
 ### Grid.toPacked() Round-Trip (verified pattern from grid.test.ts)
+
 ```typescript
 // Source: packages/conway-core/grid.test.ts lines 241-253
 const grid = new Grid(11, 7, [
@@ -322,10 +349,10 @@ expect([...unpacked.cells()]).toEqual([...grid.cells()]);
 
 ## State of the Art
 
-| Old Approach | Current Approach | When Changed | Impact |
-|--------------|------------------|--------------|--------|
-| Example-based determinism tests | Property-based determinism tests | This phase | Wider coverage, automatic edge case discovery, failure shrinking |
-| Implicit binary fidelity (trusted) | Explicit ArrayBuffer round-trip test | This phase | Validates binary attachment path end-to-end |
+| Old Approach                       | Current Approach                     | When Changed | Impact                                                           |
+| ---------------------------------- | ------------------------------------ | ------------ | ---------------------------------------------------------------- |
+| Example-based determinism tests    | Property-based determinism tests     | This phase   | Wider coverage, automatic edge case discovery, failure shrinking |
+| Implicit binary fidelity (trusted) | Explicit ArrayBuffer round-trip test | This phase   | Validates binary attachment path end-to-end                      |
 
 **No deprecated APIs involved:** All APIs used (RtsRoom, ClientSimulation, Grid, fast-check) are current and stable.
 
@@ -343,43 +370,49 @@ expect([...unpacked.cells()]).toEqual([...grid.cells()]);
 
 ## Environment Availability
 
-| Dependency | Required By | Available | Version | Fallback |
-|------------|------------|-----------|---------|----------|
-| Node.js | Runtime | Yes | 24.13.0 | -- |
-| npm | Package install | Yes | 11.9.0 | -- |
-| vitest | Test runner | Yes | 4.0.18 | -- |
-| fast-check | Property-based tests | No (not yet installed) | 4.6.0 (registry) | Must install |
-| Socket.IO | Integration test binary path | Yes | ^4.7.5 | -- |
+| Dependency | Required By                  | Available              | Version          | Fallback     |
+| ---------- | ---------------------------- | ---------------------- | ---------------- | ------------ |
+| Node.js    | Runtime                      | Yes                    | 24.13.0          | --           |
+| npm        | Package install              | Yes                    | 11.9.0           | --           |
+| vitest     | Test runner                  | Yes                    | 4.0.18           | --           |
+| fast-check | Property-based tests         | No (not yet installed) | 4.6.0 (registry) | Must install |
+| Socket.IO  | Integration test binary path | Yes                    | ^4.7.5           | --           |
 
 **Missing dependencies with no fallback:**
+
 - fast-check must be installed: `npm install --save-dev fast-check`
 
 **Missing dependencies with fallback:**
+
 - None
 
 ## Validation Architecture
 
 ### Test Framework
-| Property | Value |
-|----------|-------|
-| Framework | vitest 4.0.18 |
-| Config file | vitest.config.ts |
-| Quick run command | `npx vitest run tests/web/determinism-property.test.ts` |
-| Full suite command | `npm test` |
+
+| Property           | Value                                                   |
+| ------------------ | ------------------------------------------------------- |
+| Framework          | vitest 4.0.18                                           |
+| Config file        | vitest.config.ts                                        |
+| Quick run command  | `npx vitest run tests/web/determinism-property.test.ts` |
+| Full suite command | `npm test`                                              |
 
 ### Phase Requirements to Test Map
-| Req ID | Behavior | Test Type | Automated Command | File Exists? |
-|--------|----------|-----------|-------------------|-------------|
-| QUAL-01 | Identical input sequences produce identical state hashes across server and client | unit (property-based) | `npx vitest run tests/web/determinism-property.test.ts` | No -- Wave 0 |
-| QUAL-01 (binary) | Grid.toPacked() ArrayBuffer survives Socket.IO binary attachment | integration | `npx vitest run tests/integration/server/arraybuffer-roundtrip.test.ts` | No -- Wave 0 |
-| QUAL-01 (regression) | All pre-existing tests continue to pass | full suite | `npm test` | Yes (existing) |
+
+| Req ID               | Behavior                                                                          | Test Type             | Automated Command                                                       | File Exists?   |
+| -------------------- | --------------------------------------------------------------------------------- | --------------------- | ----------------------------------------------------------------------- | -------------- |
+| QUAL-01              | Identical input sequences produce identical state hashes across server and client | unit (property-based) | `npx vitest run tests/web/determinism-property.test.ts`                 | No -- Wave 0   |
+| QUAL-01 (binary)     | Grid.toPacked() ArrayBuffer survives Socket.IO binary attachment                  | integration           | `npx vitest run tests/integration/server/arraybuffer-roundtrip.test.ts` | No -- Wave 0   |
+| QUAL-01 (regression) | All pre-existing tests continue to pass                                           | full suite            | `npm test`                                                              | Yes (existing) |
 
 ### Sampling Rate
+
 - **Per task commit:** `npx vitest run tests/web/determinism-property.test.ts` or `npx vitest run tests/integration/server/arraybuffer-roundtrip.test.ts`
 - **Per wave merge:** `npm run test:fast && npm run test:integration:light`
 - **Phase gate:** Full suite green via `npm test`
 
 ### Wave 0 Gaps
+
 - [ ] `tests/web/determinism-property.test.ts` -- covers QUAL-01 property-based determinism
 - [ ] `tests/integration/server/arraybuffer-roundtrip.test.ts` -- covers QUAL-01 binary round-trip
 - [ ] Install fast-check: `npm install --save-dev fast-check`
@@ -387,6 +420,7 @@ expect([...unpacked.cells()]).toEqual([...grid.cells()]);
 ## Sources
 
 ### Primary (HIGH confidence)
+
 - Project codebase: `packages/rts-engine/rts.ts` -- RtsRoom, RtsEngine, createDeterminismCheckpoint, fromPayload, tickRoom
 - Project codebase: `apps/web/src/client-simulation.ts` -- ClientSimulation class with initialize, advanceToTick, applyQueuedBuild, createLocalCheckpoint
 - Project codebase: `packages/conway-core/grid.ts` -- Grid.toPacked(), Grid.fromPacked()
@@ -395,17 +429,20 @@ expect([...unpacked.cells()]).toEqual([...grid.cells()]);
 - npm registry: fast-check 4.6.0, @fast-check/vitest 0.3.0
 
 ### Secondary (MEDIUM confidence)
+
 - [fast-check official docs](https://fast-check.dev/) -- API reference for fc.assert, fc.property, arbitraries
 - [fast-check GitHub](https://github.com/dubzzz/fast-check) -- source and examples
 - [@fast-check/vitest npm](https://www.npmjs.com/package/@fast-check/vitest) -- vitest 4.x compatibility info
 - [Socket.IO testing docs](https://socket.io/docs/v4/testing/) -- binary attachment handling
 
 ### Tertiary (LOW confidence)
+
 - None
 
 ## Metadata
 
 **Confidence breakdown:**
+
 - Standard stack: HIGH -- fast-check 4.6.0 is the canonical PBT library for TypeScript; verified in npm registry
 - Architecture: HIGH -- test placement follows established project patterns; all APIs are already in use in existing tests
 - Pitfalls: HIGH -- identified from direct code reading of ClientSimulation, RtsRoom.fromPayload, and existing test patterns

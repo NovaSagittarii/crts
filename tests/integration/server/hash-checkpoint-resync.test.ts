@@ -3,11 +3,7 @@ import { describe, expect } from 'vitest';
 import type { LockstepCheckpointPayload } from '#rts-engine';
 
 import { createLockstepTest } from './lockstep-fixtures.js';
-import {
-  observeEvents,
-  waitForEvent,
-  waitForState,
-} from './test-support.js';
+import { observeEvents, waitForEvent, waitForState } from './test-support.js';
 
 const STATE_REQUEST_ADVANCE_MS = 100;
 

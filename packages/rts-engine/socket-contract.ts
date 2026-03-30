@@ -1,3 +1,4 @@
+import type { InputLogEntry } from './input-event-log.js';
 import type { RankedTeamOutcome } from './match-lifecycle.js';
 import type { PlacementTransformState } from './placement-transform.js';
 import type {
@@ -11,7 +12,6 @@ import type {
   RoomStatePayload,
   RoomStructuresStatePayload,
 } from './rts.js';
-import type { InputLogEntry } from './input-event-log.js';
 import type { StructureTemplatePayload } from './structure.js';
 
 // Shared Socket.IO payload contracts.

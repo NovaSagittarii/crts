@@ -62,6 +62,7 @@ import { ... } from '#rts-engine';
 ### packages/rts-engine
 
 Owns rooms, teams, structures, build queues, economy, and defeat logic. Key files:
+
 - `rts.ts` — main engine, `RtsEngine` static methods + `RtsRoom` instance API
 - `socket-contract.ts` — **canonical source of all socket event names and payload shapes**
 - `lobby.ts` — `LobbyRoom` aggregate for pre-match lifecycle
@@ -71,6 +72,7 @@ Owns rooms, teams, structures, build queues, economy, and defeat logic. Key file
 - `determinism-hash.ts` — state hashing for lockstep verification
 
 **Tick order is deterministic and must be preserved:**
+
 1. Process team economy and due queued events
 2. Apply accepted build templates
 3. Step Conway grid
@@ -91,11 +93,11 @@ Browser client: canvas UI, socket orchestration, view-models and controllers. Te
 
 ## Testing Placement
 
-| Test type | Location |
-|-----------|----------|
-| Deterministic unit tests for a package | Co-located in `packages/*` |
-| Cross-runtime / Socket.IO contract tests | `tests/integration/server/` |
-| Node-run web view-model / controller tests | `tests/web/` |
+| Test type                                  | Location                    |
+| ------------------------------------------ | --------------------------- |
+| Deterministic unit tests for a package     | Co-located in `packages/*`  |
+| Cross-runtime / Socket.IO contract tests   | `tests/integration/server/` |
+| Node-run web view-model / controller tests | `tests/web/`                |
 
 Integration tests: use fixture builders (`createIntegrationTest`, `createRoomTest`, `createMatchTest`, `createLockstepTest`) from `tests/integration/server/fixtures.ts` and siblings before writing bespoke setup. Always use ephemeral ports (`port: 0`). Teardown order: close clients first, then stop server.
 

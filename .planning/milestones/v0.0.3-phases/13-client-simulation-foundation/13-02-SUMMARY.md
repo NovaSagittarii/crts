@@ -7,20 +7,21 @@ tags: [client-simulation, lockstep, determinism, dual-path-rendering]
 # Dependency graph
 requires:
   - phase: 13-01
-    provides: "RtsRoom.fromPayload() for initializing local simulation from server state"
+    provides: 'RtsRoom.fromPayload() for initializing local simulation from server state'
 provides:
-  - "ClientSimulation class managing client-side local RtsRoom lifecycle"
-  - "templateFromPayload helper for converting wire-format template payloads"
-  - "Dual-path rendering wiring in client.ts (local sim + server broadcasts)"
-affects: [14-input-only-transport, 15-hash-checkpoint-protocol, 16-reconnect-replay]
+  - 'ClientSimulation class managing client-side local RtsRoom lifecycle'
+  - 'templateFromPayload helper for converting wire-format template payloads'
+  - 'Dual-path rendering wiring in client.ts (local sim + server broadcasts)'
+affects:
+  [14-input-only-transport, 15-hash-checkpoint-protocol, 16-reconnect-replay]
 
 # Tech tracking
 tech-stack:
   added: []
   patterns:
-    - "Server-driven tick cadence via advanceToTick (no setInterval)"
-    - "Force-insert pattern for server-confirmed events (bypass local validation)"
-    - "Dual-path rendering: local sim runs in parallel with server state broadcasts"
+    - 'Server-driven tick cadence via advanceToTick (no setInterval)'
+    - 'Force-insert pattern for server-confirmed events (bypass local validation)'
+    - 'Dual-path rendering: local sim runs in parallel with server state broadcasts'
 
 key-files:
   created:
@@ -30,15 +31,15 @@ key-files:
     - apps/web/src/client.ts
 
 key-decisions:
-  - "Force-insert server-confirmed build/destroy events directly into team pending lists, bypassing local validation to avoid false desync"
-  - "templateFromPayload helper reconstructs Grid from flat cell array for StructureTemplate.from()"
-  - "Dual-path rendering: local sim runs but rendering still uses server state broadcasts (Phase 14 switches to local sim)"
-  - "pendingSimInit flag handles deferred initialization when match starts while in lobby"
+  - 'Force-insert server-confirmed build/destroy events directly into team pending lists, bypassing local validation to avoid false desync'
+  - 'templateFromPayload helper reconstructs Grid from flat cell array for StructureTemplate.from()'
+  - 'Dual-path rendering: local sim runs but rendering still uses server state broadcasts (Phase 14 switches to local sim)'
+  - 'pendingSimInit flag handles deferred initialization when match starts while in lobby'
 
 patterns-established:
-  - "ClientSimulation lifecycle: idle -> initialized -> running -> idle"
-  - "advanceToTick loop pattern: while currentTick < targetTick, call rtsRoom.tick()"
-  - "Checkpoint verification: compare local hashHex against server checkpoint hashHex"
+  - 'ClientSimulation lifecycle: idle -> initialized -> running -> idle'
+  - 'advanceToTick loop pattern: while currentTick < targetTick, call rtsRoom.tick()'
+  - 'Checkpoint verification: compare local hashHex against server checkpoint hashHex'
 
 requirements-completed: [SIM-01, SIM-02]
 
@@ -106,5 +107,6 @@ None - no external service configuration required.
 - Phase 16 (Reconnect) can use the initialize path for state restoration after reconnect
 
 ---
-*Phase: 13-client-simulation-foundation*
-*Completed: 2026-03-29*
+
+_Phase: 13-client-simulation-foundation_
+_Completed: 2026-03-29_

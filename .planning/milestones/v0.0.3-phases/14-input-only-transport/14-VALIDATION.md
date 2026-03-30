@@ -15,13 +15,13 @@ created: 2026-03-29
 
 ## Test Infrastructure
 
-| Property | Value |
-|----------|-------|
-| **Framework** | vitest |
-| **Config file** | vitest.config.ts |
-| **Quick run command** | `npm run test:fast` |
-| **Full suite command** | `npm test` |
-| **Estimated runtime** | ~70 seconds |
+| Property               | Value               |
+| ---------------------- | ------------------- |
+| **Framework**          | vitest              |
+| **Config file**        | vitest.config.ts    |
+| **Quick run command**  | `npm run test:fast` |
+| **Full suite command** | `npm test`          |
+| **Estimated runtime**  | ~70 seconds         |
 
 ---
 
@@ -36,13 +36,13 @@ created: 2026-03-29
 
 ## Per-Task Verification Map
 
-| Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
-|---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 14-01-01 | 01 | 1 | XPORT-02 | unit | `npx vitest run packages/rts-engine/input-event-log.test.ts` | ❌ W0 | ⬜ pending |
-| 14-02-01 | 02 | 2 | XPORT-01 | unit+integration | `npm run test:fast` | ✅ | ⬜ pending |
-| 14-02-02 | 02 | 2 | XPORT-03 | unit | `npm run test:fast` | ✅ | ⬜ pending |
+| Task ID  | Plan | Wave | Requirement | Test Type        | Automated Command                                            | File Exists | Status     |
+| -------- | ---- | ---- | ----------- | ---------------- | ------------------------------------------------------------ | ----------- | ---------- |
+| 14-01-01 | 01   | 1    | XPORT-02    | unit             | `npx vitest run packages/rts-engine/input-event-log.test.ts` | ❌ W0       | ⬜ pending |
+| 14-02-01 | 02   | 2    | XPORT-01    | unit+integration | `npm run test:fast`                                          | ✅          | ⬜ pending |
+| 14-02-02 | 02   | 2    | XPORT-03    | unit             | `npm run test:fast`                                          | ✅          | ⬜ pending |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+_Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky_
 
 ---
 
@@ -51,16 +51,16 @@ created: 2026-03-29
 - [ ] `packages/rts-engine/input-event-log.test.ts` — stubs for XPORT-02 ring buffer
 - [ ] Test fixtures for input event sequences
 
-*If none: "Existing infrastructure covers all phase requirements."*
+_If none: "Existing infrastructure covers all phase requirements."_
 
 ---
 
 ## Manual-Only Verifications
 
-| Behavior | Requirement | Why Manual | Test Instructions |
-|----------|-------------|------------|-------------------|
-| No full-state broadcast during active lockstep match | XPORT-01 | Requires live socket traffic inspection | Start match, observe network tab — no `state` events after match active |
-| Checkpoint hash verification in browser console | XPORT-01 | Requires running dev server | Start match, check console for `[lockstep]` messages with hash verification |
+| Behavior                                             | Requirement | Why Manual                              | Test Instructions                                                           |
+| ---------------------------------------------------- | ----------- | --------------------------------------- | --------------------------------------------------------------------------- |
+| No full-state broadcast during active lockstep match | XPORT-01    | Requires live socket traffic inspection | Start match, observe network tab — no `state` events after match active     |
+| Checkpoint hash verification in browser console      | XPORT-01    | Requires running dev server             | Start match, check console for `[lockstep]` messages with hash verification |
 
 ---
 

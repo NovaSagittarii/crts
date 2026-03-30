@@ -4,7 +4,7 @@ milestone: v0.0.3
 milestone_name: Deterministic Lockstep Protocol
 status: verifying
 stopped_at: Completed 17-02-PLAN.md (ArrayBuffer round-trip integration test)
-last_updated: "2026-03-30T03:10:24.044Z"
+last_updated: '2026-03-30T03:10:24.044Z'
 last_activity: 2026-03-30
 progress:
   total_phases: 5

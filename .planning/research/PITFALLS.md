@@ -240,60 +240,60 @@ Phase 5 (client-side event rejection).
 
 ## Technical Debt Patterns
 
-| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|----------|-------------------|----------------|-----------------|
-| Client drives simulation tick counter from its own `requestAnimationFrame` loop | Simple rendering integration | Tick counter drifts from server; executeTick comparisons break | Never |
-| Client re-implements hash logic instead of calling `#rts-engine` | Avoids package import in browser context | Hash diverges from server in production builds; integer overflow | Never |
-| Fallback to full-state broadcast permanently (no primary mode recovery) | Simplifies transport | Locks out bandwidth savings; reconnect stays expensive | Only as first milestone step; must not ship |
-| Skip the snapshotTick field in reconnect payload | Fewer payload changes | Client cannot verify which tick the snapshot was taken at | Never |
-| Client-side rejection as blocking authority (prevents server-accepted events from rendering) | Snappy UX for invalid inputs | Permanent divergence when client state lags server | Never |
-| Use turn buffer without retention window (discard old turns immediately) | Lower memory footprint | Reconnecting clients cannot replay missed ticks | Never |
+| Shortcut                                                                                     | Immediate Benefit                        | Long-term Cost                                                   | When Acceptable                             |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------- |
+| Client drives simulation tick counter from its own `requestAnimationFrame` loop              | Simple rendering integration             | Tick counter drifts from server; executeTick comparisons break   | Never                                       |
+| Client re-implements hash logic instead of calling `#rts-engine`                             | Avoids package import in browser context | Hash diverges from server in production builds; integer overflow | Never                                       |
+| Fallback to full-state broadcast permanently (no primary mode recovery)                      | Simplifies transport                     | Locks out bandwidth savings; reconnect stays expensive           | Only as first milestone step; must not ship |
+| Skip the snapshotTick field in reconnect payload                                             | Fewer payload changes                    | Client cannot verify which tick the snapshot was taken at        | Never                                       |
+| Client-side rejection as blocking authority (prevents server-accepted events from rendering) | Snappy UX for invalid inputs             | Permanent divergence when client state lags server               | Never                                       |
+| Use turn buffer without retention window (discard old turns immediately)                     | Lower memory footprint                   | Reconnecting clients cannot replay missed ticks                  | Never                                       |
 
 ---
 
 ## Integration Gotchas
 
-| Integration | Common Mistake | Correct Approach |
-|-------------|----------------|------------------|
-| `#rts-engine` in browser | Assuming tree-shaking removes Node.js-only code | Audit package for `process.env`, `fs`, `crypto` — none should be present in `packages/rts-engine`; it is already runtime-agnostic per CLAUDE.md |
-| `RtsRoom.fromState` on client | Calling with a snapshot that includes `WeakMap`-backed runtime metadata | `fromState` must re-attach runtime via `attachRoomRuntime`; the snapshot JSON does not carry `WeakMap` entries — reconstruct runtime explicitly |
-| `Grid.toPacked()` round-trip | Sending packed grid as `ArrayBuffer` through Socket.IO JSON serialization | Socket.IO JSON-encodes `ArrayBuffer` as an object `{type: 'Buffer', data: [...]}` — use base64 or send as Socket.IO binary attachment; verify round-trip in integration test |
-| Lockstep checkpoint interval vs. snapshot interval | Setting checkpoint interval to 1 (every tick) in production | At 40ms/tick this is 25 hash broadcasts per second; keep default 50-tick interval for production, 1 for tests only |
-| Socket.IO delivery on disconnect | Expecting server-buffered events to reach reconnecting client | Socket.IO has no server-side event buffer for disconnected clients — all missed events must be replayed from the server's turn buffer on reconnect |
-| `build:queued` broadcast and lockstep mode | Broadcasting `build:queued` immediately in primary mode then also in turn-flush | The existing code already handles this — do not add a second broadcast path during client simulation wiring |
+| Integration                                        | Common Mistake                                                                  | Correct Approach                                                                                                                                                             |
+| -------------------------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `#rts-engine` in browser                           | Assuming tree-shaking removes Node.js-only code                                 | Audit package for `process.env`, `fs`, `crypto` — none should be present in `packages/rts-engine`; it is already runtime-agnostic per CLAUDE.md                              |
+| `RtsRoom.fromState` on client                      | Calling with a snapshot that includes `WeakMap`-backed runtime metadata         | `fromState` must re-attach runtime via `attachRoomRuntime`; the snapshot JSON does not carry `WeakMap` entries — reconstruct runtime explicitly                              |
+| `Grid.toPacked()` round-trip                       | Sending packed grid as `ArrayBuffer` through Socket.IO JSON serialization       | Socket.IO JSON-encodes `ArrayBuffer` as an object `{type: 'Buffer', data: [...]}` — use base64 or send as Socket.IO binary attachment; verify round-trip in integration test |
+| Lockstep checkpoint interval vs. snapshot interval | Setting checkpoint interval to 1 (every tick) in production                     | At 40ms/tick this is 25 hash broadcasts per second; keep default 50-tick interval for production, 1 for tests only                                                           |
+| Socket.IO delivery on disconnect                   | Expecting server-buffered events to reach reconnecting client                   | Socket.IO has no server-side event buffer for disconnected clients — all missed events must be replayed from the server's turn buffer on reconnect                           |
+| `build:queued` broadcast and lockstep mode         | Broadcasting `build:queued` immediately in primary mode then also in turn-flush | The existing code already handles this — do not add a second broadcast path during client simulation wiring                                                                  |
 
 ---
 
 ## Performance Traps
 
-| Trap | Symptoms | Prevention | When It Breaks |
-|------|----------|------------|----------------|
-| Running full `RtsEngine.createDeterminismCheckpoint()` every tick on both client and server | CPU spike in JS main thread; dropped frames on client | Keep checkpoint interval at 50 ticks (default) for production; checkpoint is O(grid_cells) | At 52x52 grid (2,704 cells), every-tick hashing at 40ms = ~67 hashes/sec; acceptable but unnecessary |
-| `Grid.toPacked()` called during reconnect snapshot assembly while tick is in progress | Partial grid state encoded; snapshot inconsistency | Assemble snapshot once per tick in post-tick phase only; use `grid.clone()` if snapshot must be async | Any reconnect while tick is executing |
-| Client rendering calling `grid.cells()` iterator on every animation frame | GC pressure from repeated iterator allocation at 60fps | Cache `grid.toUnpacked()` as `Uint8Array` for renderer; only update after each new tick, not each frame | Mid-game with large grids; noticeable on mobile |
-| Turn buffer growing unbounded if `lastFlushedTurn` never advances (primary mode stalled) | Server memory grows proportionally to match duration | Cap turn buffer at `maxBufferedCommands` (already implemented); add assertion that buffer never exceeds twice the snapshot interval | Long matches with high command frequency |
+| Trap                                                                                        | Symptoms                                               | Prevention                                                                                                                          | When It Breaks                                                                                       |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Running full `RtsEngine.createDeterminismCheckpoint()` every tick on both client and server | CPU spike in JS main thread; dropped frames on client  | Keep checkpoint interval at 50 ticks (default) for production; checkpoint is O(grid_cells)                                          | At 52x52 grid (2,704 cells), every-tick hashing at 40ms = ~67 hashes/sec; acceptable but unnecessary |
+| `Grid.toPacked()` called during reconnect snapshot assembly while tick is in progress       | Partial grid state encoded; snapshot inconsistency     | Assemble snapshot once per tick in post-tick phase only; use `grid.clone()` if snapshot must be async                               | Any reconnect while tick is executing                                                                |
+| Client rendering calling `grid.cells()` iterator on every animation frame                   | GC pressure from repeated iterator allocation at 60fps | Cache `grid.toUnpacked()` as `Uint8Array` for renderer; only update after each new tick, not each frame                             | Mid-game with large grids; noticeable on mobile                                                      |
+| Turn buffer growing unbounded if `lastFlushedTurn` never advances (primary mode stalled)    | Server memory grows proportionally to match duration   | Cap turn buffer at `maxBufferedCommands` (already implemented); add assertion that buffer never exceeds twice the snapshot interval | Long matches with high command frequency                                                             |
 
 ---
 
 ## Security Mistakes
 
-| Mistake | Risk | Prevention |
-|---------|------|------------|
-| Trusting client-reported tick in input events | Client advances its simulation faster to gain economic advantage | Server ignores client-reported tick; uses server-authoritative `room.rtsRoom.state.tick` for all `executeTick` assignments |
-| Trusting client hash in checkpoint response | Client spoofs a matching hash to suppress desync detection | Server computes its own hash independently via `createDeterminismCheckpoint()`; client hash is never used as the canonical value |
-| Accepting `state:request` at tick rate from misbehaving client | State request spam forces expensive snapshot assembly on every tick | The existing `STATE_REQUEST_MIN_INTERVAL_MS = 100` budget guard already prevents this — verify it is not bypassed by reconnect path |
-| Reconnect snapshot contains opponent's hidden state | Spectator or reconnecting player receives state that reveals information they should not have | Current design shares full state with all room participants — fog-of-war is out of scope; document this explicitly so future fog-of-war work knows to address it |
+| Mistake                                                        | Risk                                                                                          | Prevention                                                                                                                                                       |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Trusting client-reported tick in input events                  | Client advances its simulation faster to gain economic advantage                              | Server ignores client-reported tick; uses server-authoritative `room.rtsRoom.state.tick` for all `executeTick` assignments                                       |
+| Trusting client hash in checkpoint response                    | Client spoofs a matching hash to suppress desync detection                                    | Server computes its own hash independently via `createDeterminismCheckpoint()`; client hash is never used as the canonical value                                 |
+| Accepting `state:request` at tick rate from misbehaving client | State request spam forces expensive snapshot assembly on every tick                           | The existing `STATE_REQUEST_MIN_INTERVAL_MS = 100` budget guard already prevents this — verify it is not bypassed by reconnect path                              |
+| Reconnect snapshot contains opponent's hidden state            | Spectator or reconnecting player receives state that reveals information they should not have | Current design shares full state with all room participants — fog-of-war is out of scope; document this explicitly so future fog-of-war work knows to address it |
 
 ---
 
 ## UX Pitfalls
 
-| Pitfall | User Impact | Better Approach |
-|---------|-------------|-----------------|
-| Client shows "pending" build animation for ticks before server confirms `build:queued` | Phantom builds appear and disappear; user confused | Show pending state only after `build:queued` is received; do not speculate on local acceptance |
-| Hash mismatch triggers fallback but no UI feedback | User sees stutter or structure state change with no explanation | Show subtle "re-syncing" indicator on `lockstep:fallback`; clear it when next checkpoint matches |
-| Reconnect restores from snapshot but tick counter jumps forward | Build placements appear to teleport; economy numbers jump | Animate or fade state on reconnect resync; suppress mid-animation user inputs during snapshot restoration |
-| Client-side rejection fires before `build:queue-rejected` arrives | Double rejection feedback (local "invalid" flash + server rejection toast) | Route all rejection feedback through server response; local validation is silent (no UI) |
+| Pitfall                                                                                | User Impact                                                                | Better Approach                                                                                           |
+| -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Client shows "pending" build animation for ticks before server confirms `build:queued` | Phantom builds appear and disappear; user confused                         | Show pending state only after `build:queued` is received; do not speculate on local acceptance            |
+| Hash mismatch triggers fallback but no UI feedback                                     | User sees stutter or structure state change with no explanation            | Show subtle "re-syncing" indicator on `lockstep:fallback`; clear it when next checkpoint matches          |
+| Reconnect restores from snapshot but tick counter jumps forward                        | Build placements appear to teleport; economy numbers jump                  | Animate or fade state on reconnect resync; suppress mid-animation user inputs during snapshot restoration |
+| Client-side rejection fires before `build:queue-rejected` arrives                      | Double rejection feedback (local "invalid" flash + server rejection toast) | Route all rejection feedback through server response; local validation is silent (no UI)                  |
 
 ---
 
@@ -311,31 +311,31 @@ Phase 5 (client-side event rejection).
 
 ## Recovery Strategies
 
-| Pitfall | Recovery Cost | Recovery Steps |
-|---------|---------------|----------------|
-| Client simulation starts from wrong tick | HIGH | Define `snapshotTick` in join payload; client delays simulation start until first `lockstep:checkpoint` after the snapshot tick |
-| Hash mismatch that is persistent (client never recovers) | HIGH | Trigger full state resync: emit `state` + all turn buffer inputs for the last snapshot window; client resets from snapshot and replays |
-| Shadow room diverges from primary at tick 1 | MEDIUM | Audit `createShadowRoom` player-insertion order vs. primary room; add shadow-vs-primary hash assertion in test at tick 0 |
-| `ArrayBuffer` serialization corruption | MEDIUM | Switch to base64 encoded string for grid pack/unpack in socket payloads; add round-trip test to integration suite |
-| Intent ID collision after room restart | LOW | Scope all client-side rejection caches to `(roomId, generation)`; flush on `room:match-started` |
+| Pitfall                                                  | Recovery Cost | Recovery Steps                                                                                                                         |
+| -------------------------------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Client simulation starts from wrong tick                 | HIGH          | Define `snapshotTick` in join payload; client delays simulation start until first `lockstep:checkpoint` after the snapshot tick        |
+| Hash mismatch that is persistent (client never recovers) | HIGH          | Trigger full state resync: emit `state` + all turn buffer inputs for the last snapshot window; client resets from snapshot and replays |
+| Shadow room diverges from primary at tick 1              | MEDIUM        | Audit `createShadowRoom` player-insertion order vs. primary room; add shadow-vs-primary hash assertion in test at tick 0               |
+| `ArrayBuffer` serialization corruption                   | MEDIUM        | Switch to base64 encoded string for grid pack/unpack in socket payloads; add round-trip test to integration suite                      |
+| Intent ID collision after room restart                   | LOW           | Scope all client-side rejection caches to `(roomId, generation)`; flush on `room:match-started`                                        |
 
 ---
 
 ## Pitfall-to-Phase Mapping
 
-| Pitfall | Prevention Phase | Verification |
-|---------|------------------|--------------|
-| Client starts from wrong initial tick | Phase 1 + Phase 4 | Hash matches at tick 1 in new client simulation integration test |
-| Integer overflow in client-side hash | Phase 1 | Client calls `createDeterminismCheckpoint()` from `#rts-engine`; no independent hash path |
-| Map iteration order divergence | Phase 1 + Phase 4 | `RtsRoom` reconstructed from snapshot produces same hash regardless of JSON field order |
-| No catchup path for missed ticks | Phase 2 + Phase 4 | Client that misses 10 ticks recovers within the turn buffer retention window |
-| Tick counter drift (server vs client) | Phase 1 + Phase 2 | Client tick counter is always derived from server-emitted `tick` field, never from client timer |
-| Socket.IO delivery gap on reconnect | Phase 4 | Reconnecting client receives turn buffer replay and hash-verifies against server checkpoint |
-| Client-side rejection diverges from server | Phase 5 | Server-accepted `build:outcome applied` always renders on client even when client predicted rejection |
-| Fallback drains in-flight buffered commands | Phase 3 + Phase 2 | Post-fallback state broadcast issued after all buffered commands for ticks <= fallback tick execute |
-| Shadow room diverges from primary | Phase 3 | Shadow-vs-primary hash parity test at tick 0 with sorted player insertion |
-| Reconnect snapshot taken mid-tick | Phase 4 | Integration test reconnects during tick and verifies snapshot `tick` field matches post-tick state |
-| intentId collision across room restarts | Phase 5 | Client rejection cache keyed on `(roomId, generation)`; no false rejections after room restart |
+| Pitfall                                     | Prevention Phase  | Verification                                                                                          |
+| ------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------- |
+| Client starts from wrong initial tick       | Phase 1 + Phase 4 | Hash matches at tick 1 in new client simulation integration test                                      |
+| Integer overflow in client-side hash        | Phase 1           | Client calls `createDeterminismCheckpoint()` from `#rts-engine`; no independent hash path             |
+| Map iteration order divergence              | Phase 1 + Phase 4 | `RtsRoom` reconstructed from snapshot produces same hash regardless of JSON field order               |
+| No catchup path for missed ticks            | Phase 2 + Phase 4 | Client that misses 10 ticks recovers within the turn buffer retention window                          |
+| Tick counter drift (server vs client)       | Phase 1 + Phase 2 | Client tick counter is always derived from server-emitted `tick` field, never from client timer       |
+| Socket.IO delivery gap on reconnect         | Phase 4           | Reconnecting client receives turn buffer replay and hash-verifies against server checkpoint           |
+| Client-side rejection diverges from server  | Phase 5           | Server-accepted `build:outcome applied` always renders on client even when client predicted rejection |
+| Fallback drains in-flight buffered commands | Phase 3 + Phase 2 | Post-fallback state broadcast issued after all buffered commands for ticks <= fallback tick execute   |
+| Shadow room diverges from primary           | Phase 3           | Shadow-vs-primary hash parity test at tick 0 with sorted player insertion                             |
+| Reconnect snapshot taken mid-tick           | Phase 4           | Integration test reconnects during tick and verifies snapshot `tick` field matches post-tick state    |
+| intentId collision across room restarts     | Phase 5           | Client rejection cache keyed on `(roomId, generation)`; no false rejections after room restart        |
 
 ---
 
@@ -357,5 +357,5 @@ Phase 5 (client-side event rejection).
 
 ---
 
-*Pitfalls research for: Conway RTS v0.0.3 Deterministic Lockstep Protocol Migration*
-*Researched: 2026-03-29*
+_Pitfalls research for: Conway RTS v0.0.3 Deterministic Lockstep Protocol Migration_
+_Researched: 2026-03-29_

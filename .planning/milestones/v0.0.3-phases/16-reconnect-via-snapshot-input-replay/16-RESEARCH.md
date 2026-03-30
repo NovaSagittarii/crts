@@ -23,24 +23,30 @@ The remaining work is:
 **Primary recommendation:** Add an `inputLog` field to the `RoomJoinedPayload` (populated only when the room is in input-only mode and the player is reconnecting to an active match). On the client side, add a `replayInputLog()` method to `ClientSimulation` that applies entries in sequence order and advances ticks appropriately. Wire this into the `room:joined` handler when the match is active.
 
 <user_constraints>
+
 ## User Constraints (from CONTEXT.md)
 
 ### Locked Decisions
+
 None -- discuss phase was skipped per user setting.
 
 ### Claude's Discretion
+
 All implementation choices are at Claude's discretion. Use ROADMAP phase goal, success criteria, and codebase conventions to guide decisions.
 
 ### Deferred Ideas (OUT OF SCOPE)
+
 None.
 </user_constraints>
 
 <phase_requirements>
+
 ## Phase Requirements
 
-| ID | Description | Research Support |
-|----|-------------|------------------|
+| ID       | Description                                                                                                            | Research Support                                                                                                                                                                                                                                                                                                                                                                         |
+| -------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | RECON-01 | Disconnected player rejoins mid-match by receiving a state snapshot plus the input log from that snapshot tick forward | Server already sends `RoomStatePayload` in `room:joined`; `InputEventLog.getEntriesFromTick()` exists but is never called. Client already has `ClientSimulation.initialize()` and `applyQueuedBuild()`/`applyQueuedDestroy()`. The gap is: (a) server must include log entries in the reconnect payload, (b) client must replay them in order, (c) client must verify hash after replay. |
+
 </phase_requirements>
 
 ## Project Constraints (from CLAUDE.md)
@@ -62,14 +68,16 @@ None.
 ## Standard Stack
 
 ### Core (already in project)
-| Library | Version | Purpose | Why Standard |
-|---------|---------|---------|--------------|
-| vitest | (project version) | Test framework | Already used across all test suites |
-| socket.io / socket.io-client | (project version) | Transport | Already wired for all event types |
-| #rts-engine | local | RtsRoom, RtsEngine, InputEventLog, socket-contract types | Domain logic, determinism hashing, input log |
-| #conway-core | local | Grid | Grid reconstruction from packed bytes |
+
+| Library                      | Version           | Purpose                                                  | Why Standard                                 |
+| ---------------------------- | ----------------- | -------------------------------------------------------- | -------------------------------------------- |
+| vitest                       | (project version) | Test framework                                           | Already used across all test suites          |
+| socket.io / socket.io-client | (project version) | Transport                                                | Already wired for all event types            |
+| #rts-engine                  | local             | RtsRoom, RtsEngine, InputEventLog, socket-contract types | Domain logic, determinism hashing, input log |
+| #conway-core                 | local             | Grid                                                     | Grid reconstruction from packed bytes        |
 
 ### Supporting
+
 No new libraries needed. All required functionality exists in the current codebase.
 
 ## Architecture Patterns
@@ -127,11 +135,12 @@ Player reconnects (within 30s)
 // In socket-contract.ts
 export interface RoomJoinedPayload {
   // ... existing fields ...
-  inputLog?: InputLogEntry[];  // Only populated for active-match reconnect in input-only mode
+  inputLog?: InputLogEntry[]; // Only populated for active-match reconnect in input-only mode
 }
 ```
 
 Advantages:
+
 - Single atomic payload -- client gets everything it needs in one event
 - No race conditions between receiving the snapshot and receiving the log
 - Minimal new surface area (one optional field)
@@ -140,6 +149,7 @@ Advantages:
 **Option B: New dedicated `reconnect:state` event**
 
 Disadvantages:
+
 - Requires new event type in the contract
 - Race condition risk: client might receive live `build:queued` events between `room:joined` and `reconnect:state`
 - More complex ordering logic
@@ -193,6 +203,7 @@ Actually, let me look at this more carefully. The snapshot includes `pendingBuil
 The simplest correct approach: **Use the snapshot tick as the boundary, but DO NOT include entries already in the snapshot.** Since `InputEventLog` entries use `executeTick` as the tick key, and the snapshot includes all pending events up to the current tick, we should use `getEntriesFromTick(snapshotTick + 1)` BUT also include entries at `snapshotTick` that have a sequence number higher than the last processed sequence.
 
 **Simplest correct approach**: Let the `joinRoom` function:
+
 1. Flush any pending turn buffer commands (like the SYNC-02 state:request handler does).
 2. Create the snapshot.
 3. Get entries from `getEntriesFromTick(snapshot.tick + 1)` -- these are future-tick events not yet processed.
@@ -213,6 +224,7 @@ But looking at `joinRoom()`, the client is added to the room channel (`socket.jo
 In step 4-5, the client receives a `build:queued` event BEFORE it has processed `room:joined`. Since `room:joined` resets the client state, any `build:queued` received before processing `room:joined` would be lost (the client processes events in order).
 
 Actually, Socket.IO delivers events in order per socket. So the client would receive:
+
 1. `room:joined` (from `socket.emit`)
 2. `build:queued` (from room broadcast, delivered after because it was emitted after)
 
@@ -236,6 +248,7 @@ Looking at the existing code for `applyQueuedBuild` in `ClientSimulation`, it bl
 - The input log may contain entries from the current tick that were buffered but not yet executed.
 
 Actually, let me simplify. The server creates the snapshot at its current tick T. The snapshot includes:
+
 - The grid state at tick T
 - All pending build/destroy events (executeTick > T)
 - All team resources (already deducted for pending events)
@@ -257,10 +270,12 @@ But this doesn't satisfy the success criteria: "The reconnect engine replays the
 This doesn't make sense either.
 
 **C) The correct interpretation**: The snapshot tick is chosen to be a PAST checkpoint, not the current tick. The server sends:
+
 - A snapshot at checkpoint tick C (e.g., tick 50)
 - The input log from tick C+1 forward (events that happened between the checkpoint and now)
 
 The client:
+
 1. Initializes from the checkpoint snapshot at tick C
 2. Replays input log entries (these are events that the server processed between C and the current tick)
 3. Advances ticks from C to the current tick
@@ -271,6 +286,7 @@ The client:
 Looking at the existing server code, `room.lockstepRuntime.checkpoints` stores checkpoint payloads (hash + tick). The server already sends the latest checkpoint to reconnecting clients (line 1804-1807 in joinRoom).
 
 So the correct architecture is:
+
 1. Server finds the latest checkpoint (or uses the current post-tick state as the snapshot).
 2. Server sends the snapshot at that checkpoint tick.
 3. Server sends input log entries from checkpoint tick + 1 forward.
@@ -279,8 +295,12 @@ So the correct architecture is:
 But wait -- the server doesn't store historical snapshots at checkpoint ticks. It only stores the checkpoint hashes, not the full state at each checkpoint. And `InputEventLog` entries with `executeTick <= currentTick` may have already been discarded by `discardBefore()`.
 
 **Let me re-examine the discard logic**:
+
 ```typescript
-const oldestNeededTick = Math.max(0, room.rtsRoom.state.tick - Math.ceil(reconnectHoldMs / tickMs));
+const oldestNeededTick = Math.max(
+  0,
+  room.rtsRoom.state.tick - Math.ceil(reconnectHoldMs / tickMs),
+);
 room.lockstepRuntime.inputEventLog.discardBefore(oldestNeededTick);
 ```
 
@@ -351,6 +371,7 @@ In practice, the input log will have entries from before the snapshot tick (alre
 **Simplest correct implementation**:
 
 The server populates `inputLog` with `getEntriesFromTick(snapshotTick + 1)`. In most cases this will be empty or have very few entries (events buffered in the current turn cycle). The client:
+
 1. Initializes from snapshot.
 2. For each inputLog entry in sequence order: apply to pending arrays if not already present (check eventId).
 3. Hash should match the server checkpoint.
@@ -384,7 +405,9 @@ function joinRoom(socket, session, room) {
   // Include input log for reconnecting players in input-only mode
   let inputLog: InputLogEntry[] | undefined;
   if (isInputOnlyMode(room) && room.status === 'active') {
-    inputLog = room.lockstepRuntime.inputEventLog.getEntriesFromTick(statePayload.tick + 1);
+    inputLog = room.lockstepRuntime.inputEventLog.getEntriesFromTick(
+      statePayload.tick + 1,
+    );
   }
 
   socket.emit('room:joined', {
@@ -450,41 +473,46 @@ if (currentRoomStatus === 'active' || payload.state.tick > 0) {
 
 ## Don't Hand-Roll
 
-| Problem | Don't Build | Use Instead | Why |
-|---------|-------------|-------------|-----|
-| State snapshot | Custom serialization | `room.rtsRoom.createStatePayload()` | Already handles bit-packed grid, pending events, team state |
-| Input log retrieval | Manual array iteration | `InputEventLog.getEntriesFromTick()` | Already implements efficient ring buffer scan |
+| Problem              | Don't Build                   | Use Instead                                                 | Why                                                                |
+| -------------------- | ----------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------ |
+| State snapshot       | Custom serialization          | `room.rtsRoom.createStatePayload()`                         | Already handles bit-packed grid, pending events, team state        |
+| Input log retrieval  | Manual array iteration        | `InputEventLog.getEntriesFromTick()`                        | Already implements efficient ring buffer scan                      |
 | State reconstruction | Manual field-by-field rebuild | `RtsRoom.fromPayload()` via `ClientSimulation.initialize()` | Already handles WeakMap attachment, template map, sorted insertion |
-| Determinism hash | Custom hash function | `RtsRoom.createDeterminismCheckpoint()` | FNV1a-32 already proven across all phases |
-| Deduplication | Custom event tracking | `applyQueuedDestroy` idempotent flag | Already handles duplicate destroy events |
+| Determinism hash     | Custom hash function          | `RtsRoom.createDeterminismCheckpoint()`                     | FNV1a-32 already proven across all phases                          |
+| Deduplication        | Custom event tracking         | `applyQueuedDestroy` idempotent flag                        | Already handles duplicate destroy events                           |
 
 ## Common Pitfalls
 
 ### Pitfall 1: Double-Applying Pending Events
+
 **What goes wrong:** Events in the input log with executeTick <= snapshot tick are already reflected in the snapshot's pending arrays. Replaying them adds duplicates, causing double resource deductions and double builds.
 **Why it happens:** The snapshot and input log overlap -- the snapshot captures the current state including all queued events.
 **How to avoid:** Server uses `getEntriesFromTick(snapshotTick + 1)` to exclude events already in the snapshot. Client-side deduplication by eventId is a defense-in-depth measure.
 **Warning signs:** Resources going negative unexpectedly, duplicate structures appearing.
 
 ### Pitfall 2: Turn Buffer Not Flushed Before Snapshot
+
 **What goes wrong:** Buffered lockstep commands haven't been flushed to the RtsRoom, so the snapshot misses their effects. The input log includes these events, but when the client replays them, the state diverges.
 **Why it happens:** The `flushPrimaryTurnCommands()` call is forgotten in the reconnect path.
 **How to avoid:** Call `flushPrimaryTurnCommands(room)` before `createStatePayload()` in the reconnect path, mirroring the `state:request` handler (SYNC-02 pattern).
 **Warning signs:** Hash mismatch immediately after reconnect replay.
 
 ### Pitfall 3: Race Between room:joined and build:queued
+
 **What goes wrong:** After `socket.join(roomChannel)`, a tick runs and broadcasts `build:queued` to the room. The client receives this before processing `room:joined`, or the client processes it before initializing the simulation.
 **Why it happens:** Socket.IO room join is instant, but `room:joined` hasn't been processed yet.
 **How to avoid:** Socket.IO guarantees per-socket event ordering for targeted emits (`socket.emit`), but room broadcasts go through a different path. The client should buffer or ignore `build:queued` events when the simulation is not yet initialized (the existing guard `if (clientSimulation.isActive)` already handles this). Events received after initialization are the normal flow.
 **Warning signs:** Lost events during the reconnect window.
 
 ### Pitfall 4: InputLogEntry.payload Type Safety
+
 **What goes wrong:** `InputLogEntry.payload` is typed as `unknown`. After JSON serialization/deserialization over Socket.IO, the payload arrives as a plain object. The client casts it to `BuildQueuedPayload` or `DestroyQueuedPayload` based on the `kind` field.
 **Why it happens:** The `InputEventLog` is a generic data structure in `packages/rts-engine` and doesn't import Socket.IO contract types.
 **How to avoid:** Validate or cast based on `kind` field. The existing `applyQueuedBuild` and `applyQueuedDestroy` methods are defensive (check for team existence, etc.).
 **Warning signs:** TypeScript lint errors about unsafe `any` usage.
 
 ### Pitfall 5: WeakMap Reattachment (from STATE.md)
+
 **What goes wrong:** `RtsRoom.fromPayload()` creates a new `RoomState` object and attaches it to the `roomRuntimeByState` WeakMap via `attachRoomRuntime()`. If the reconstituted state is not properly attached, subsequent `tick()` calls will throw "RoomState must come from RtsEngine.createRoomState".
 **Why it happens:** The WeakMap attachment depends on the exact object reference returned by `fromPayload()`.
 **How to avoid:** Phase 13 already implemented and tested `RtsRoom.fromPayload()`. The `ClientSimulation.initialize()` method calls it correctly. Verify with existing tests.
@@ -627,11 +655,11 @@ test('reconnecting player receives snapshot + input log and resumes in sync', as
 
 ## State of the Art
 
-| Old Approach | Current Approach | When Changed | Impact |
-|--------------|------------------|--------------|--------|
-| Full state broadcast on every tick | Input-only relay in lockstep mode | Phase 14 (v0.0.3) | Reduced bandwidth; requires input log for reconnect |
-| No resync mechanism | Hash checkpoint + full state resync | Phase 15 (v0.0.3) | Desync detection and recovery; partial reconnect foundation |
-| Reconnect = full state at current tick only | Snapshot + input log replay | Phase 16 (v0.0.3) | Deterministic reconnect without full re-broadcast |
+| Old Approach                                | Current Approach                    | When Changed      | Impact                                                      |
+| ------------------------------------------- | ----------------------------------- | ----------------- | ----------------------------------------------------------- |
+| Full state broadcast on every tick          | Input-only relay in lockstep mode   | Phase 14 (v0.0.3) | Reduced bandwidth; requires input log for reconnect         |
+| No resync mechanism                         | Hash checkpoint + full state resync | Phase 15 (v0.0.3) | Desync detection and recovery; partial reconnect foundation |
+| Reconnect = full state at current tick only | Snapshot + input log replay         | Phase 16 (v0.0.3) | Deterministic reconnect without full re-broadcast           |
 
 ## Open Questions
 
@@ -653,33 +681,38 @@ test('reconnecting player receives snapshot + input log and resumes in sync', as
 ## Validation Architecture
 
 ### Test Framework
-| Property | Value |
-|----------|-------|
-| Framework | vitest (project version) |
-| Config file | `vitest.config.ts` |
-| Quick run command | `npm run test:fast` |
-| Full suite command | `npm test` |
+
+| Property           | Value                    |
+| ------------------ | ------------------------ |
+| Framework          | vitest (project version) |
+| Config file        | `vitest.config.ts`       |
+| Quick run command  | `npm run test:fast`      |
+| Full suite command | `npm test`               |
 
 ### Phase Requirements to Test Map
-| Req ID | Behavior | Test Type | Automated Command | File Exists? |
-|--------|----------|-----------|-------------------|-------------|
-| RECON-01 | Server includes inputLog in room:joined for active-match reconnect | integration | `npx vitest run tests/integration/server/reconnect-input-replay.test.ts -x` | Wave 0 |
-| RECON-01 | ClientSimulation.replayInputLog applies entries in sequence order | unit (web) | `npx vitest run tests/web/client-simulation.test.ts -x` | Extend existing |
-| RECON-01 | After replay, client hash matches server checkpoint hash | integration | `npx vitest run tests/integration/server/reconnect-input-replay.test.ts -x` | Wave 0 |
-| RECON-01 | Client resumes live tick loop after replay without full re-broadcast | integration | `npx vitest run tests/integration/server/reconnect-input-replay.test.ts -x` | Wave 0 |
+
+| Req ID   | Behavior                                                             | Test Type   | Automated Command                                                           | File Exists?    |
+| -------- | -------------------------------------------------------------------- | ----------- | --------------------------------------------------------------------------- | --------------- |
+| RECON-01 | Server includes inputLog in room:joined for active-match reconnect   | integration | `npx vitest run tests/integration/server/reconnect-input-replay.test.ts -x` | Wave 0          |
+| RECON-01 | ClientSimulation.replayInputLog applies entries in sequence order    | unit (web)  | `npx vitest run tests/web/client-simulation.test.ts -x`                     | Extend existing |
+| RECON-01 | After replay, client hash matches server checkpoint hash             | integration | `npx vitest run tests/integration/server/reconnect-input-replay.test.ts -x` | Wave 0          |
+| RECON-01 | Client resumes live tick loop after replay without full re-broadcast | integration | `npx vitest run tests/integration/server/reconnect-input-replay.test.ts -x` | Wave 0          |
 
 ### Sampling Rate
+
 - **Per task commit:** `npm run test:fast`
 - **Per wave merge:** `npm test`
 - **Phase gate:** Full suite green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
+
 - [ ] `tests/integration/server/reconnect-input-replay.test.ts` -- covers RECON-01 end-to-end reconnect-replay-verify cycle
 - [ ] Extend `tests/web/client-simulation.test.ts` -- covers `replayInputLog()` unit behavior
 
 ## Sources
 
 ### Primary (HIGH confidence)
+
 - Direct codebase analysis of `apps/server/src/server.ts` -- `joinRoom()`, `leaveCurrentRoom()`, tick loop, `InputEventLog` integration
 - Direct codebase analysis of `packages/rts-engine/input-event-log.ts` -- `getEntriesFromTick()`, `discardBefore()`, ring buffer semantics
 - Direct codebase analysis of `packages/rts-engine/socket-contract.ts` -- `RoomJoinedPayload`, `BuildQueuedPayload`, `DestroyQueuedPayload`
@@ -688,6 +721,7 @@ test('reconnecting player receives snapshot + input log and resumes in sync', as
 - Direct codebase analysis of `apps/server/src/lobby-session.ts` -- `LobbySessionCoordinator`, hold system, reconnect scheduling
 
 ### Secondary (MEDIUM confidence)
+
 - Phase 14 RESEARCH.md -- InputEventLog design intent, reconnect window calculation
 - Phase 15 RESEARCH.md -- Hash checkpoint/resync architecture
 - `.planning/STATE.md` -- WeakMap reattachment concern, accumulated decisions
@@ -695,6 +729,7 @@ test('reconnecting player receives snapshot + input log and resumes in sync', as
 ## Metadata
 
 **Confidence breakdown:**
+
 - Standard stack: HIGH - no new libraries, all existing infrastructure
 - Architecture: HIGH - deeply analyzed existing reconnect flow, input log, and client simulation
 - Pitfalls: HIGH - derived from concrete code analysis of race conditions and state overlap

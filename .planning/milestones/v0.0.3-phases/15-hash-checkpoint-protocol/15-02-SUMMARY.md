@@ -2,7 +2,15 @@
 phase: 15-hash-checkpoint-protocol
 plan: 02
 subsystem: networking
-tags: [lockstep, integration-tests, desync-detection, resync, determinism, socket.io]
+tags:
+  [
+    lockstep,
+    integration-tests,
+    desync-detection,
+    resync,
+    determinism,
+    socket.io,
+  ]
 
 # Dependency graph
 requires:
@@ -17,9 +25,9 @@ affects: [16-reconnect-replay]
 tech-stack:
   added: []
   patterns:
-    - "createLockstepTest with manual clock for deterministic integration test timing"
-    - "observeEvents for collecting checkpoint payloads across tick intervals"
-    - "waitForState with roomId predicate to verify server state:request response"
+    - 'createLockstepTest with manual clock for deterministic integration test timing'
+    - 'observeEvents for collecting checkpoint payloads across tick intervals'
+    - 'waitForState with roomId predicate to verify server state:request response'
 
 key-files:
   created:
@@ -27,11 +35,11 @@ key-files:
   modified: []
 
 key-decisions:
-  - "Used lockstepCheckpointIntervalTicks: 5 (vs 1 in input-only-transport tests) to test realistic checkpoint spacing"
-  - "Verified grid field as truthy rather than checking base64 encoding since Socket.IO transmits ArrayBuffer as binary"
+  - 'Used lockstepCheckpointIntervalTicks: 5 (vs 1 in input-only-transport tests) to test realistic checkpoint spacing'
+  - 'Verified grid field as truthy rather than checking base64 encoding since Socket.IO transmits ArrayBuffer as binary'
 
 patterns-established:
-  - "Integration test pattern: advance ticks, observe checkpoints, request full state, validate snapshot freshness"
+  - 'Integration test pattern: advance ticks, observe checkpoints, request full state, validate snapshot freshness'
 
 requirements-completed: [SYNC-01, SYNC-02]
 
@@ -83,6 +91,7 @@ Each task was committed atomically:
 ### Auto-fixed Issues
 
 **1. [Rule 1 - Bug] Removed unused RoomStatePayload import**
+
 - **Found during:** Task 2 (lint verification)
 - **Issue:** `RoomStatePayload` was imported but not used directly -- `waitForState` infers the return type
 - **Fix:** Removed the unused import to pass ESLint `no-unused-vars` rule
@@ -94,6 +103,7 @@ Each task was committed atomically:
 ### Pre-existing Integration Test Flakiness (Out of Scope)
 
 3 pre-existing integration test failures were observed during `npm test`:
+
 - `lockstep-primary.test.ts`: 2 timeout failures (destroy:outcome, queued command timing)
 - `state-sections.test.ts`: 1 timeout failure (state:hashes condition)
 - `bootstrap-smoke.test.ts`: 1 failure
@@ -101,6 +111,7 @@ Each task was committed atomically:
 These failures reproduce identically on the main `gsd/phase-15-hash-checkpoint-protocol` branch and are unrelated to this plan's changes. They are timing-sensitive flaky tests in the existing integration suite.
 
 ## User Setup Required
+
 None
 
 ## Next Phase Readiness
@@ -114,5 +125,6 @@ None
 All created files verified present. Task commit ea3d5b8 verified in git log.
 
 ---
-*Phase: 15-hash-checkpoint-protocol*
-*Completed: 2026-03-29*
+
+_Phase: 15-hash-checkpoint-protocol_
+_Completed: 2026-03-29_

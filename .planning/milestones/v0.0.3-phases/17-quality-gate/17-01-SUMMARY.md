@@ -16,7 +16,11 @@ affects: [quality-gate, milestone-validation]
 # Tech tracking
 tech-stack:
   added: [fast-check]
-  patterns: [property-based testing with fc.assert/fc.property, snapshot-then-advance determinism verification]
+  patterns:
+    [
+      property-based testing with fc.assert/fc.property,
+      snapshot-then-advance determinism verification,
+    ]
 
 key-files:
   created:
@@ -26,12 +30,12 @@ key-files:
     - package-lock.json
 
 key-decisions:
-  - "Used 52x52 grid instead of 80x80 for CI-friendly performance (~170s total vs timeout at 80x80)"
-  - "Snapshot-after-queue strategy: queue inputs on server, then snapshot so pending events are embedded in payload, avoiding ClientSimulation.applyQueuedBuild reservedCost mismatch"
+  - 'Used 52x52 grid instead of 80x80 for CI-friendly performance (~170s total vs timeout at 80x80)'
+  - 'Snapshot-after-queue strategy: queue inputs on server, then snapshot so pending events are embedded in payload, avoiding ClientSimulation.applyQueuedBuild reservedCost mismatch'
 
 patterns-established:
-  - "Property-based determinism: queue inputs on server, snapshot, init client from snapshot, advance both, compare hashes"
-  - "fast-check integration: fc.assert + fc.property with vitest, no @fast-check/vitest adapter needed"
+  - 'Property-based determinism: queue inputs on server, snapshot, init client from snapshot, advance both, compare hashes'
+  - 'fast-check integration: fc.assert + fc.property with vitest, no @fast-check/vitest adapter needed'
 
 requirements-completed: [QUAL-01]
 
@@ -53,6 +57,7 @@ completed: 2026-03-30
 - **Files modified:** 3
 
 ## Accomplishments
+
 - Installed fast-check as dev dependency for property-based testing
 - Created 3 property-based determinism tests covering single-team builds (200 runs), multi-team interleaved builds (100 runs), and build+destroy sequences (50 runs)
 - All properties verify server (RtsRoom) and client (ClientSimulation) produce identical determinism checkpoint hashes after 500+ ticks with diverse random inputs
@@ -67,11 +72,13 @@ Each task was committed atomically:
 **Plan metadata:** [pending] (docs: complete plan)
 
 ## Files Created/Modified
+
 - `tests/web/determinism-property.test.ts` - 3 property-based determinism tests (QUAL-01)
 - `package.json` - Added fast-check dev dependency
 - `package-lock.json` - Lock file update for fast-check
 
 ## Decisions Made
+
 - Used 52x52 grid instead of 80x80 for CI performance: 200 runs x 500+ ticks on 80x80 exceeded 120s timeout; 52x52 completes in ~100s for the main property
 - Adopted snapshot-after-queue strategy instead of post-snapshot applyQueuedBuild: ClientSimulation.applyQueuedBuild computes reservedCost from template.activationCost only, while server computes it from diffCells + activationCost. By taking the snapshot after queuing builds, the pending events (with correct reservedCost) are embedded in the payload and reconstructed faithfully via fromPayload.
 
@@ -80,6 +87,7 @@ Each task was committed atomically:
 ### Auto-fixed Issues
 
 **1. [Rule 3 - Blocking] Changed test strategy from post-snapshot build application to pre-snapshot queuing**
+
 - **Found during:** Task 1 (property test creation)
 - **Issue:** ClientSimulation.applyQueuedBuild() computes reservedCost as template.activationCost (0 for block), but server computes it as diffCells + activationCost (4 for block). This causes hash divergence when builds are applied after snapshot.
 - **Fix:** Restructured all 3 property tests to queue inputs on the server BEFORE taking the snapshot. The snapshot embeds pending events with correct reservedCost via fromPayload reconstruction. This matches the reconnect code path in production.
@@ -88,6 +96,7 @@ Each task was committed atomically:
 - **Committed in:** e43f425
 
 **2. [Rule 3 - Blocking] Reduced grid size from 80x80 to 52x52**
+
 - **Found during:** Task 1 (test execution)
 - **Issue:** 200 runs x 500+ ticks on 80x80 grid exceeded the 120s timeout (took >120s per test)
 - **Fix:** Used 52x52 grid (matching integration test sizes) and increased timeout to 300s per test
@@ -105,6 +114,7 @@ Each task was committed atomically:
 None - all test assertions are fully wired to real engine outputs.
 
 ## Issues Encountered
+
 - Discovered a pre-existing bug: ClientSimulation.applyQueuedBuild() computes reservedCost incorrectly (uses activationCost instead of diffCells + activationCost). This is a production bug affecting the live build:queued code path but not the reconnect/snapshot path. Logged for future remediation.
 
 ## User Setup Required
@@ -112,6 +122,7 @@ None - all test assertions are fully wired to real engine outputs.
 None - no external service configuration required.
 
 ## Next Phase Readiness
+
 - Property-based determinism tests provide high-confidence QUAL-01 validation
 - fast-check is available for future property-based testing needs
 - The reservedCost mismatch in ClientSimulation.applyQueuedBuild should be addressed in a future fix to ensure post-snapshot build application works correctly
@@ -124,5 +135,6 @@ None - no external service configuration required.
 - [x] fast-check present in package.json
 
 ---
-*Phase: 17-quality-gate*
-*Completed: 2026-03-30*
+
+_Phase: 17-quality-gate_
+_Completed: 2026-03-30_

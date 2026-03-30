@@ -2251,9 +2251,7 @@ export class RtsEngine {
     attachRoomRuntime(room, runtime);
 
     // 6. Sort teams by id and reconstruct each team
-    const sortedTeamPayloads = [...payload.teams].sort(
-      (a, b) => a.id - b.id,
-    );
+    const sortedTeamPayloads = [...payload.teams].sort((a, b) => a.id - b.id);
 
     let maxEventId = 0;
 
