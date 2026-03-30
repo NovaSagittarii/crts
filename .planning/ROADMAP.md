@@ -34,7 +34,7 @@ See archive: `.planning/milestones/v0.0.2-ROADMAP.md`
 - [x] **Phase 14: Input-Only Transport** - Switch server to relay inputs instead of broadcasting full state; establish bounded input log (completed 2026-03-29)
 - [x] **Phase 15: Hash Checkpoint Protocol** - Wire desync detection and state-resync fallback as the primary consistency mechanism (completed 2026-03-29)
 - [x] **Phase 16: Reconnect via Snapshot + Input Replay** - Reconnecting clients receive a state snapshot plus input log and replay to current tick (completed 2026-03-29)
-- [ ] **Phase 17: Quality Gate** - Property-based tests confirm lockstep invariants hold over long random input sequences
+- [x] **Phase 17: Quality Gate** - Property-based tests confirm lockstep invariants hold over long random input sequences (completed 2026-03-30)
 
 ## Phase Details
 
@@ -104,7 +104,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 17-01-PLAN.md — Property-based determinism tests with fast-check (QUAL-01)
-- [ ] 17-02-PLAN.md — ArrayBuffer round-trip integration test + full regression suite
+- [x] 17-02-PLAN.md — ArrayBuffer round-trip integration test + full regression suite
 
 ## Progress
 
@@ -116,4 +116,4 @@ Plans:
 | 14. Input-Only Transport | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
 | 15. Hash Checkpoint Protocol | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
 | 16. Reconnect via Snapshot + Input Replay | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
-| 17. Quality Gate | v0.0.3 | 1/2 | In Progress|  |
+| 17. Quality Gate | v0.0.3 | 2/2 | Complete   | 2026-03-30 |
