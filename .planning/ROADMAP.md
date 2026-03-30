@@ -103,7 +103,7 @@ Plans:
   3. All pre-existing non-lockstep integration tests continue to pass
 **Plans**: 2 plans
 Plans:
-- [ ] 17-01-PLAN.md — Property-based determinism tests with fast-check (QUAL-01)
+- [x] 17-01-PLAN.md — Property-based determinism tests with fast-check (QUAL-01)
 - [ ] 17-02-PLAN.md — ArrayBuffer round-trip integration test + full regression suite
 
 ## Progress
@@ -116,4 +116,4 @@ Plans:
 | 14. Input-Only Transport | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
 | 15. Hash Checkpoint Protocol | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
 | 16. Reconnect via Snapshot + Input Replay | v0.0.3 | 2/2 | Complete    | 2026-03-29 |
-| 17. Quality Gate | v0.0.3 | 0/2 | Not started | - |
+| 17. Quality Gate | v0.0.3 | 1/2 | In Progress|  |

@@ -29,7 +29,7 @@ Requirements for deterministic lockstep protocol migration. Each maps to roadmap
 
 ### Quality & Verification
 
-- [ ] **QUAL-01**: Property-based determinism tests prove that identical input sequences produce identical state hashes across server and client simulation instances
+- [x] **QUAL-01**: Property-based determinism tests prove that identical input sequences produce identical state hashes across server and client simulation instances
 
 ## Future Requirements
 
@@ -81,7 +81,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SYNC-01 | Phase 15 | Complete |
 | SYNC-02 | Phase 15 | Complete |
 | RECON-01 | Phase 16 | Complete |
-| QUAL-01 | Phase 17 | Pending |
+| QUAL-01 | Phase 17 | Complete |
 
 **Coverage:**
 - v0.0.3 requirements: 9 total

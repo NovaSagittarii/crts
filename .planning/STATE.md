@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0.3
 milestone_name: Deterministic Lockstep Protocol
-status: verifying
-stopped_at: Completed 16-02-PLAN.md (reconnect input-log integration tests)
-last_updated: "2026-03-29T23:40:25.949Z"
-last_activity: 2026-03-29
+status: executing
+stopped_at: Completed 17-01-PLAN.md (property-based determinism tests)
+last_updated: "2026-03-30T00:34:06.009Z"
+last_activity: 2026-03-30
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 10
+  completed_plans: 9
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-29)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 16 — reconnect-via-snapshot-input-replay
+**Current focus:** Phase 17 — quality-gate
 
 ## Current Position
 
-Phase: 17
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-03-29
+Phase: 17 (quality-gate) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-03-30
 
 Progress: [░░░░░░░░░░] 0% (v0.0.3)
 
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0% (v0.0.3)
 - [Phase 15]: Used lockstepCheckpointIntervalTicks: 5 for realistic checkpoint spacing in integration tests
 - [Phase 16]: Removed unused InputLogEntry import from client.ts -- payload.inputLog type inferred from RoomJoinedPayload
 - [Phase 16]: Used waitForBuildQueueResponse helper for build:queued matching existing lockstep test patterns
+- [Phase 17]: Used 52x52 grid for property-based tests (CI-friendly ~170s); snapshot-after-queue strategy avoids ClientSimulation reservedCost mismatch
 
 ### Pending Todos
 
@@ -75,6 +76,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.3)
 
 ## Session Continuity
 
-**Last session:** 2026-03-29T23:25:59.172Z
-**Stopped At:** Completed 16-02-PLAN.md (reconnect input-log integration tests)
+**Last session:** 2026-03-30T00:34:05.888Z
+**Stopped At:** Completed 17-01-PLAN.md (property-based determinism tests)
 **Resume File:** None
