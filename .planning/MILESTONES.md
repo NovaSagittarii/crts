@@ -1,5 +1,24 @@
 # Milestones
 
+## v0.0.3 Deterministic Lockstep Protocol (Shipped: 2026-03-30)
+
+**Phases completed:** 5 phases, 10 plans, 17 tasks
+
+**Key accomplishments:**
+
+- RtsRoom.fromPayload() factory for reconstructing fully tickable rooms from RoomStatePayload with bit-identical determinism hashes
+- ClientSimulation class with server-driven tick advance, input replay, and hash checkpoint verification wired into client.ts socket handlers via dual-path rendering
+- InputEventLog ring buffer for bounded input event storage with TDD, plus sequence field on BuildQueuedPayload/DestroyQueuedPayload populated from lockstep monotonic counter
+- Broadcast suppression gating on isInputOnlyMode, InputEventLog lifecycle wiring, and client checkpoint guard with 6 integration tests
+- Client detects hash mismatch at lockstep checkpoints, requests full state snapshot, and reinitializes local simulation via ClientSimulation.resync(); server guarantees turn-buffer flush before snapshot in primary mode
+- 3 integration tests prove end-to-end: checkpoint hashes carry valid FNV-1a-32 digests for client comparison, server responds to state:request with full snapshot during primary lockstep, and snapshot tick is fresh relative to most recent checkpoint (turn-buffer flush guarantee)
+- Input log delivery via room:joined payload with sorted client-side replay for deterministic reconnect catchup
+- 4 integration tests proving reconnect-replay-verify cycle with inputLog delivery, build event inclusion, empty log edge case, and no-broadcast verification
+- Property-based determinism tests using fast-check prove server/client hash parity across 350+ random input scenarios with 500+ ticks each
+- Integration test proves Grid.toPacked() ArrayBuffer survives Socket.IO binary attachment path without corruption via byte-level round-trip comparison
+
+---
+
 ## v0.0.1 Prototype Baseline (Shipped: 2026-03-01)
 
 **Phases completed:** 5 phases, 16 plans, 48 tasks

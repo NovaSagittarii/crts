@@ -8,33 +8,16 @@ This is a shipped TypeScript multiplayer Conway RTS prototype: two players can f
 
 Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
 
-## Current Milestone: v0.0.3 Deterministic Lockstep Protocol
-
-**Goal:** Migrate the network protocol from full-state broadcast to deterministic lockstep, where clients run the simulation locally and the server acts as a thin input validator + relay.
-
-**Target features:**
-- Client-side deterministic simulation (clients run Grid.step(), economy, build/destroy processing locally)
-- Input-only transport (server validates and relays queued events; no full state broadcasts per tick)
-- Hash-based desync detection (periodic lockstep checkpoints with hash verification across clients)
-- Reconnect via state snapshot + input replay (disconnected players rejoin by receiving a snapshot and replaying inputs)
-- Client-side event rejection (clients independently reject queued events that are no longer valid at process time)
-
 ## Current State
 
-**Shipped version:** `v0.0.2` (2026-03-03)
-**In progress:** `v0.0.3` — All 5 phases complete
+**Shipped version:** `v0.0.3` (2026-03-30)
 
-- Canonical 5x5 base geometry and template-wide integrity handling are now deterministic and shared across runtime + tests.
-- Placement legality uses full-footprint union build zones with fixed radius-15 behavior for this milestone.
-- Transform-aware placement (rotate/mirror) is wired through engine, server, and web with preview/queue/apply parity.
-- Authoritative destroy queue flow now includes deterministic rejection taxonomy and reconnect-safe projection behavior.
-- Web runtime now has dedicated lobby/in-game screens, pan/zoom map controls, and tactical overlays with pinned structure inspector.
-- Milestone artifacts are archived in `.planning/milestones/`, and active planning docs are reset for the next cycle.
-- Phase 13 complete: `RtsRoom.fromPayload()` factory and `ClientSimulation` module enable client-side local simulation with server-driven tick advance, input replay, and hash checkpoint verification (dual-path with existing server broadcasts).
-- Phase 14 complete: Input-only transport suppresses full-state broadcasts during active lockstep. `InputEventLog` ring buffer retains accepted events for reconnect replay. Sequence field on queued payloads provides deterministic ordering.
-- Phase 15 complete: Hash checkpoint protocol detects state divergence via determinism hash comparison and triggers authoritative state resync. Server flushes turn-buffer commands before generating snapshots. Client resync resets local simulation from canonical state.
-- Phase 16 complete: Disconnected players rejoin mid-match via snapshot + input log replay. Server includes InputEventLog entries in RoomJoinedPayload. Client replays events in tick+sequence order and resumes live tick loop.
-- Phase 17 complete: Property-based tests (fast-check, 350 random runs at 500+ ticks) confirm lockstep determinism. ArrayBuffer round-trip test proves Grid.toPacked() survives Socket.IO. All 182 tests pass.
+- Clients run a local deterministic simulation (`ClientSimulation` + `RtsRoom.fromPayload()`) that stays in lockstep with the server.
+- Active match traffic consists only of relayed input events — no full-state broadcasts during lockstep mode.
+- Periodic hash checkpoints detect state divergence; mismatches trigger authoritative state resync.
+- Disconnected players rejoin via snapshot + input log replay, resuming in sync without full state re-broadcast.
+- Property-based tests (fast-check, 350 random runs, 500+ ticks) confirm lockstep determinism.
+- 182 unit/web tests + 15 integration tests + 3 property-based tests all pass.
 
 ## Requirements
 
@@ -53,13 +36,17 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 - ✓ Build rules and transforms (`BUILD-01`, `BUILD-02`, `XFORM-01`, `XFORM-02`, `QUAL-03`)
 - ✓ Match UI navigation and overlays (`UI-01`, `UI-02`, `UI-03`, `UI-04`, `UI-05`, `QUAL-04`)
 
-### Active (v0.0.3)
+### Validated in v0.0.3
 
-- [x] Client-side deterministic simulation (Validated in Phase 13)
-- [x] Input-only transport protocol (Validated in Phase 14)
-- [x] Hash-based desync detection (Validated in Phase 15)
-- [x] Reconnect via state snapshot + input replay (Validated in Phase 16)
-- [x] Client-side event rejection (Validated in Phase 17 quality gate)
+- ✓ Client-side deterministic simulation (`SIM-01`, `SIM-02`)
+- ✓ Input-only transport protocol (`XPORT-01`, `XPORT-02`, `XPORT-03`)
+- ✓ Hash-based desync detection (`SYNC-01`, `SYNC-02`)
+- ✓ Reconnect via state snapshot + input replay (`RECON-01`)
+- ✓ Lockstep quality gate (`QUAL-01`)
+
+### Active
+
+(No active requirements — next milestone not yet defined)
 
 ### Future Candidates
 
@@ -77,11 +64,11 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 
 ## Context
 
-- Milestones shipped: `v0.0.1`, `v0.0.2`.
+- Milestones shipped: `v0.0.1`, `v0.0.2`, `v0.0.3`.
 - Delivery model remains backend + deterministic tests first, then runtime/UI integration.
 - Archive-first planning keeps `.planning/ROADMAP.md` compact and milestone-scoped details in `.planning/milestones/`.
-- The simulation engine (`packages/rts-engine`) is already fully deterministic with fixed tick order and no randomness, making it suitable for client-side execution.
-- Existing lockstep infrastructure (`determinism-hash.ts`, `lockstep:checkpoint`/`lockstep:fallback` events) provides a foundation for the protocol migration.
+- The lockstep protocol is fully operational: clients run simulations locally, server relays inputs only, hash checkpoints catch divergence, and reconnect replays input logs.
+- Known tech debt: `ClientSimulation.applyQueuedBuild()` reservedCost divergence causes unnecessary resync on live builds (self-heals via SYNC-02).
 
 ## Constraints
 
@@ -100,7 +87,7 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 | Keep server-authoritative deterministic simulation model    | Preserves consistency across runtime layers and tests                 | ✓ Good  |
 | Prioritize backend + tests before UI-heavy milestone slices | Reduced UI churn and caught game-rule regressions early in v0.0.2     | ✓ Good  |
 | Keep milestone docs archived by version                     | Keeps planning context bounded and historically traceable             | ✓ Good  |
-| Migrate to lockstep with server as input validator + relay  | Reduces bandwidth from full-state to inputs-only; enables scaling     | — Pending |
+| Migrate to lockstep with server as input validator + relay  | Reduces bandwidth from full-state to inputs-only; enables scaling     | ✓ Good  |
 
 ## Evolution
 
@@ -121,4 +108,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-_Last updated: 2026-03-30 after Phase 17 completion (v0.0.3 milestone complete)_
+_Last updated: 2026-03-30 after v0.0.3 milestone completion_
