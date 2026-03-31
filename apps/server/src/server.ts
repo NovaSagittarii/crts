@@ -2049,6 +2049,24 @@ export function createServer(options: ServerOptions = {}): GameServer {
     roomBroadcast.emitMatchFinished(room);
   }
 
+  function completeCountdown(room: RuntimeRoom): void {
+    stopCountdown(room);
+    const transition = transitionMatchLifecycle(
+      room.status,
+      'countdown-complete',
+    );
+    if (!transition.allowed) {
+      return;
+    }
+
+    room.status = transition.nextStatus;
+    emitMembership(room);
+    emitRoomList();
+    io.to(roomChannel(room.rtsRoom.id)).emit('room:match-started', {
+      roomId: room.rtsRoom.id,
+    });
+  }
+
   function startCountdown(room: RuntimeRoom): void {
     if (room.countdownTimer) {
       return;
@@ -2066,42 +2084,14 @@ export function createServer(options: ServerOptions = {}): GameServer {
     });
 
     if (countdownSeconds <= 0) {
-      stopCountdown(room);
-      const transition = transitionMatchLifecycle(
-        room.status,
-        'countdown-complete',
-      );
-      if (!transition.allowed) {
-        return;
-      }
-
-      room.status = transition.nextStatus;
-      emitMembership(room);
-      emitRoomList();
-      io.to(roomChannel(room.rtsRoom.id)).emit('room:match-started', {
-        roomId: room.rtsRoom.id,
-      });
+      completeCountdown(room);
       return;
     }
 
     room.countdownTimer = setIntervalHook(() => {
       const next = (room.countdownSecondsRemaining ?? 1) - 1;
       if (next <= 0) {
-        stopCountdown(room);
-        const transition = transitionMatchLifecycle(
-          room.status,
-          'countdown-complete',
-        );
-        if (!transition.allowed) {
-          return;
-        }
-
-        room.status = transition.nextStatus;
-        emitMembership(room);
-        emitRoomList();
-        io.to(roomChannel(room.rtsRoom.id)).emit('room:match-started', {
-          roomId: room.rtsRoom.id,
-        });
+        completeCountdown(room);
         return;
       }
 
