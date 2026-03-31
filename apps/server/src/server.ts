@@ -1384,6 +1384,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
     syncLockstepStatus(room);
   }
 
+  // In primary lockstep, player commands are buffered by turn number.
+  // Each tick, we flush commands from the *previous* turn (turn - 1) so
+  // they take effect one turn after being issued — this gives clients a
+  // full turn window to receive and locally apply inputs before execution.
   function flushPrimaryTurnCommands(room: RuntimeRoom): void {
     const lockstepRuntime = room.lockstepRuntime;
     if (
@@ -1397,7 +1401,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       lockstepRuntime,
       room.rtsRoom.state.tick,
     );
-    const turn = currentTurn - 1;
+    const turn = currentTurn - 1; // flush previous turn's commands
     if (turn <= lockstepRuntime.lastFlushedTurn) {
       return;
     }
@@ -1416,6 +1420,9 @@ export function createServer(options: ServerOptions = {}): GameServer {
     syncLockstepStatus(room);
   }
 
+  // In shadow lockstep, the server maintains a parallel "shadow" RtsRoom
+  // that replays the same commands. After each tick, hashes are compared
+  // to detect non-determinism. A mismatch triggers fallback to legacy mode.
   function runShadowTick(room: RuntimeRoom): void {
     const lockstepRuntime = room.lockstepRuntime;
     if (
@@ -1453,6 +1460,9 @@ export function createServer(options: ServerOptions = {}): GameServer {
     syncLockstepStatus(room);
   }
 
+  // In input-only mode (primary lockstep, running), the server suppresses
+  // periodic state broadcasts and per-tick outcomes — clients run their own
+  // simulation and only receive inputs + checkpoints for verification.
   function isInputOnlyMode(room: RuntimeRoom): boolean {
     return (
       room.lockstepRuntime.mode === 'primary' &&
@@ -2855,6 +2865,9 @@ export function createServer(options: ServerOptions = {}): GameServer {
         runShadowTick(room);
         emitLockstepCheckpointIfDue(room);
 
+        // Keep input history for the reconnect hold window so disconnected
+        // players can replay missed inputs when they rejoin. Discard entries
+        // older than (currentTick - holdDurationInTicks) to bound memory.
         if (inputOnly) {
           const oldestNeededTick = Math.max(
             0,
