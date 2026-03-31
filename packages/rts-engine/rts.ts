@@ -465,9 +465,11 @@ interface BuildPlacementSnapshotEvaluationInput extends BuildPlacementSnapshotPr
 type IntegrityOutcomeCategory = 'repaired' | 'destroyed-debris' | 'core-defeat';
 
 export class RtsEngine {
-  private static readonly FNV_OFFSET_BASIS = 2166136261;
-
-  private static readonly FNV_PRIME = 16777619;
+  // FNV-1a 32-bit hash constants used for deterministic state checksums.
+  // Chosen for speed, simplicity, and good distribution — critical for
+  // lockstep hash verification between server and client simulations.
+  private static readonly FNV_OFFSET_BASIS = 2166136261; // 0x811c9dc5
+  private static readonly FNV_PRIME = 16777619; // 0x01000193
 
   private static readonly aliveIntegrityPatch = new Grid(
     1,
@@ -1744,6 +1746,10 @@ export class RtsEngine {
     };
   }
 
+  // Recalculates team income, active structures, and territory each tick.
+  // A structure is "active" if it has HP and its grid footprint cells are
+  // all alive (integrity check). Active non-core structures contribute
+  // income and expand the team's build territory via their buildRadius.
   private static refreshTeamEconomy(room: RoomState, team: TeamState): void {
     const baseIncome = 0;
     let structureIncome = 0;
@@ -1772,6 +1778,8 @@ export class RtsEngine {
     team.income = team.incomeBreakdown.total;
     team.territoryRadius = DEFAULT_TEAM_TERRITORY_RADIUS + territoryBonus;
 
+    // Accumulate resources only when the tick has advanced, preventing
+    // double-counting if refreshTeamEconomy runs multiple times per tick.
     if (room.tick > team.lastIncomeTick) {
       const elapsed = room.tick - team.lastIncomeTick;
       team.resources += elapsed * team.income;
@@ -1852,6 +1860,12 @@ export class RtsEngine {
     team.pendingDestroyEvents = deferredDestroys;
   }
 
+  // Processes build events whose executeTick has arrived. For each due event:
+  // 1. Validate the template still exists
+  // 2. Re-evaluate placement (terrain/zone may have changed since queuing)
+  // 3. Check for footprint collisions with builds already accepted this tick
+  // 4. Accept (reserve footprint) or reject (refund cost)
+  // Future events are deferred to the next tick cycle.
   private static processDueBuildEvents(
     room: RoomState,
     team: TeamState,
@@ -1861,6 +1875,7 @@ export class RtsEngine {
     const deferredBuilds: BuildEvent[] = [];
     const reservedFootprintCells = new Set<string>();
 
+    // Seed reserved cells from builds already accepted (e.g. from other teams)
     for (const acceptedEvent of acceptedEvents) {
       RtsEngine.addFootprintToCellSet(
         reservedFootprintCells,
@@ -1869,6 +1884,7 @@ export class RtsEngine {
     }
 
     for (const event of team.pendingBuildEvents) {
+      // Not yet due — defer to future tick
       if (event.executeTick > room.tick) {
         deferredBuilds.push(event);
         continue;
@@ -1907,6 +1923,8 @@ export class RtsEngine {
         continue;
       }
 
+      // Check for collisions with other builds accepted in the same tick:
+      // first by structure key (exact bounds match), then by cell footprint.
       const key = RtsEngine.createStructureKey(
         evaluation.projection.bounds.x,
         evaluation.projection.bounds.y,

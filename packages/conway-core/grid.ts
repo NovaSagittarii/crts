@@ -81,6 +81,9 @@ export class Grid {
     return this.grid.slice();
   }
 
+  // Packs the grid into a bit array: 8 cells per byte, MSB-first.
+  // Cell at index i maps to byte i>>3, bit 7-(i&7). A live cell (1) sets
+  // the corresponding bit; dead cells (0) leave it cleared.
   public toPacked(): ArrayBuffer {
     const packed = new Uint8Array(Math.ceil(this.grid.length / 8));
 
@@ -109,6 +112,7 @@ export class Grid {
     return instance;
   }
 
+  // Inverse of toPacked: reads bits MSB-first to reconstruct 0/1 cell array.
   public static unpack(
     packed: PackedGridInput,
     width: number,
