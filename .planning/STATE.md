@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
-status: requirements
+status: roadmap
 stopped_at: null
 last_updated: '2026-03-30'
 last_activity: 2026-03-30
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,14 +21,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-30)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Defining requirements for v0.0.4
+**Current focus:** Phase 18 — Headless Match Runner
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-03-30 — Milestone v0.0.4 started
+Phase: 18 of 23 (Headless Match Runner) — first of 6 phases in v0.0.4
+Plan: --
+Status: Ready to plan
+Last activity: 2026-03-30 — Roadmap created for v0.0.4
 
 Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
@@ -36,7 +36,7 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 **Velocity:**
 
-- Completed phases: 17
+- Completed phases: 17 (across v0.0.1-v0.0.3)
 - Completed plans: 40
 - Completed tasks: 91
 - Shipped milestones: 3 (`v0.0.1`, `v0.0.2`, `v0.0.3`)
@@ -51,6 +51,7 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - Keep server-authoritative state as the only gameplay source of truth for clients.
 - Archive milestone roadmap/requirements artifacts to keep active planning files small.
 - Migrate to lockstep: server validates inputs, clients run simulation locally, periodic hash verification for desync detection.
+- v0.0.4: TypeScript-native training via `@tensorflow/tfjs` (pure JS CPU backend) as default; decision gate in Phase 20 if throughput exceeds 8 hours.
 
 ### Pending Todos
 
@@ -63,5 +64,5 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 ## Session Continuity
 
 **Last session:** 2026-03-30
-**Stopped At:** Milestone v0.0.4 started — defining requirements
+**Stopped At:** Roadmap created for v0.0.4 (6 phases, 14 requirements mapped)
 **Resume File:** None

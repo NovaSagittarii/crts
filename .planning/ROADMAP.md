@@ -4,13 +4,14 @@
 
 - ✅ **v0.0.1 Prototype Baseline** — shipped 2026-03-01 (Phases 1-5). Archive: `.planning/milestones/v0.0.1-ROADMAP.md`
 - ✅ **v0.0.2 Gameplay Expansion** — shipped 2026-03-03 (Phases 6-12). Archive: `.planning/milestones/v0.0.2-ROADMAP.md`
-- 🚧 **v0.0.3 Deterministic Lockstep Protocol** — Phases 13-17 (in progress)
+- ✅ **v0.0.3 Deterministic Lockstep Protocol** — shipped 2026-03-30 (Phases 13-17). Archive: `.planning/milestones/v0.0.3-ROADMAP.md`
+- 🚧 **v0.0.4 RL Bot Harness & Balance Analysis** — Phases 18-23 (in progress)
 
 ## Phases
 
 **Phase Numbering:**
 
-- Integer phases (1, 2, 3, …): Planned milestone work
+- Integer phases (1, 2, 3, ...): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 <details>
@@ -27,109 +28,104 @@ See archive: `.planning/milestones/v0.0.2-ROADMAP.md`
 
 </details>
 
-### 🚧 v0.0.3 Deterministic Lockstep Protocol (In Progress)
+<details>
+<summary>✅ v0.0.3 Deterministic Lockstep Protocol (Phases 13-17) — SHIPPED 2026-03-30</summary>
 
-**Milestone Goal:** Migrate the network protocol from full-state broadcast to deterministic lockstep, where clients run the simulation locally and the server acts as a thin input validator and relay.
+See archive: `.planning/milestones/v0.0.3-ROADMAP.md`
 
-- [x] **Phase 13: Client Simulation Foundation** - Build the local simulation runner and tick clock; verify client and server produce identical state hashes (completed 2026-03-29)
-- [x] **Phase 14: Input-Only Transport** - Switch server to relay inputs instead of broadcasting full state; establish bounded input log (completed 2026-03-29)
-- [x] **Phase 15: Hash Checkpoint Protocol** - Wire desync detection and state-resync fallback as the primary consistency mechanism (completed 2026-03-29)
-- [x] **Phase 16: Reconnect via Snapshot + Input Replay** - Reconnecting clients receive a state snapshot plus input log and replay to current tick (completed 2026-03-29)
-- [x] **Phase 17: Quality Gate** - Property-based tests confirm lockstep invariants hold over long random input sequences (completed 2026-03-30)
+</details>
+
+### 🚧 v0.0.4 RL Bot Harness & Balance Analysis (In Progress)
+
+**Milestone Goal:** Build a headless bot harness against the RtsEngine API with PPO-based RL training, use self-play for balance analysis, and rate individual structures/combos via a Glicko-like strength system.
+
+- [ ] **Phase 18: Headless Match Runner** - Bot agents execute full matches via RtsRoom without Socket.IO, with match results persisted for analysis
+- [ ] **Phase 19: Observation, Action, and Reward Interface** - Bot environment exposes structured observations, masked actions, and shaped rewards in a Gymnasium-style API
+- [ ] **Phase 20: PPO Training with Self-Play** - Training pipeline produces improving policies via PPO with self-play opponent pool across parallel workers
+- [ ] **Phase 21: Balance Analysis** - Win rates and strategy distributions are computable from accumulated match data
+- [ ] **Phase 22: Structure Strength Ratings** - Individual structure templates have Glicko-2 ratings with a CLI balance report
+- [ ] **Phase 23: Playable In-Game Bot** - A trained bot joins a live game server as a virtual player via Socket.IO
 
 ## Phase Details
 
-### Phase 13: Client Simulation Foundation
-
-**Goal**: Clients run an authoritative local copy of the match simulation that stays in lockstep with the server
-**Depends on**: Phase 12 (v0.0.2 complete)
-**Requirements**: SIM-01, SIM-02
+### Phase 18: Headless Match Runner
+**Goal**: Bot agents can execute full matches against the RtsRoom API without Socket.IO, with match results logged for downstream analysis
+**Depends on**: Nothing (first phase of v0.0.4; builds on shipped v0.0.3 RtsRoom API)
+**Requirements**: HARN-01, BAL-01
 **Success Criteria** (what must be TRUE):
+  1. Two bot agents can play a complete match (lobby -> active -> finished) using only the RtsRoom API with no Socket.IO dependency
+  2. Match outcomes, build orders, and per-tick snapshots are persisted to NDJSON files after each headless match
+  3. Headless matches produce identical results given the same PRNG seed (determinism preserved)
+  4. Multiple matches can run in a single Node.js process without resource leaks
+**Plans**: TBD
 
-1. At match start the client initializes a local `RtsRoom` from the server-provided state snapshot and tick number, then advances the simulation on every tick without receiving full state broadcasts
-2. The client tick counter derives from server-emitted `executeTick` and checkpoint values, not from a local setInterval count
-3. After N ticks with M queued inputs, the client-computed determinism hash matches the server-computed hash
-4. Client-side event rejection at `executeTick` mirrors server rejection without suppressing server-accepted events
-   **Plans**: 2 plans
-   Plans:
-
-- [x] 13-01-PLAN.md — RtsRoom.fromPayload() factory + hash equivalence unit tests
-- [x] 13-02-PLAN.md — ClientSimulation module + client.ts wiring (dual-path)
-      **UI hint**: yes
-
-### Phase 14: Input-Only Transport
-
-**Goal**: Active match traffic consists only of relayed input events; the server no longer broadcasts full state every tick
-**Depends on**: Phase 13
-**Requirements**: XPORT-01, XPORT-02, XPORT-03
+### Phase 19: Observation, Action, and Reward Interface
+**Goal**: The bot environment wraps RtsRoom in a Gymnasium-style API with structured observations, masked actions, and configurable reward shaping
+**Depends on**: Phase 18
+**Requirements**: HARN-02, HARN-03, HARN-04
 **Success Criteria** (what must be TRUE):
+  1. ObservationEncoder produces identical tensor-compatible output for identical RoomState and teamId inputs (deterministic encoding)
+  2. ActionDecoder maps discrete action indices to valid build/destroy queue calls, and the action mask correctly excludes all placements that RtsRoom would reject
+  3. RewardSignal computes terminal win/loss reward plus shaped intermediate rewards (economy, territory, structure health) with a configurable annealing coefficient
+  4. BotEnvironment exposes reset()/step() interface that a training loop can consume without knowledge of RtsRoom internals
+**Plans**: TBD
 
-1. No full-state broadcast is emitted during an active lockstep match; only `build:queued`/`destroy:queued` relay events and periodic checkpoint hashes cross the wire
-2. The server assigns a deterministic ordering to inputs received within the same tick window before relaying to all clients
-3. A bounded ring buffer on the server retains accepted input events covering the configured reconnect window; entries older than the window are discarded
-   **Plans**: 2 plans
-   Plans:
-
-- [x] 14-01-PLAN.md — InputEventLog ring buffer + sequence field on queued payloads (TDD)
-- [x] 14-02-PLAN.md — Broadcast suppression + InputEventLog wiring + client update + integration tests
-
-### Phase 15: Hash Checkpoint Protocol
-
-**Goal**: Periodic hash checkpoints catch state divergence and trigger authoritative state resync
-**Depends on**: Phase 14
-**Requirements**: SYNC-01, SYNC-02
+### Phase 20: PPO Training with Self-Play
+**Goal**: A PPO training pipeline produces policies that demonstrably improve over random play, using self-play with a historical opponent pool across parallel worker threads
+**Depends on**: Phase 19
+**Requirements**: TRAIN-01, TRAIN-02, TRAIN-03, TRAIN-04
 **Success Criteria** (what must be TRUE):
+  1. PPO training loop runs policy gradient updates using TF.js and produces checkpoint files loadable for inference
+  2. Self-play opponent pool maintains historical checkpoints and samples opponents with configurable latest/historical/random ratios to prevent mode collapse
+  3. Training CLI launches configurable runs from the command line (episodes, learning rate, opponent pool size, worker count)
+  4. Match simulations parallelize across worker threads, utilizing multiple CPU cores during episode collection
+  5. A policy trained for N episodes achieves a measurably higher win rate against random play than an untrained policy
+**Plans**: TBD
 
-1. The client computes a determinism hash at each checkpoint interval and compares it against the server-broadcast hash
-2. A deliberate divergence injected in a test causes the client to detect a mismatch and request a state resync within one checkpoint interval
-3. After receiving a fallback snapshot the client resets its local simulation to the canonical state and resumes ticking from the correct tick boundary
-4. The fallback snapshot is delivered only after all turn-buffer commands due at or before the fallback tick have executed
-   **Plans**: 2 plans
-   Plans:
-
-- [x] 15-01-PLAN.md — ClientSimulation.resync() + client desync/resync wiring + server flush guarantee
-- [x] 15-02-PLAN.md — Hash checkpoint resync integration tests
-
-### Phase 16: Reconnect via Snapshot + Input Replay
-
-**Goal**: A disconnected player can rejoin mid-match, replay the input log, and resume in sync with the live game
-**Depends on**: Phase 15
-**Requirements**: RECON-01
+### Phase 21: Balance Analysis
+**Goal**: Win rates and strategy distributions are computable from accumulated match data, revealing per-template and per-strategy balance insights
+**Depends on**: Phase 18 (needs match database from BAL-01); can begin alongside Phase 20 using early match data
+**Requirements**: BAL-02, BAL-03
 **Success Criteria** (what must be TRUE):
+  1. Per-template and per-strategy win rates are computed from the match database with 95% confidence intervals
+  2. Strategy distribution classifier identifies build-order archetypes and tracks their frequency across training generations
+  3. Analysis runs against any NDJSON match log directory and produces structured output (not coupled to a live training run)
+**Plans**: TBD
 
-1. A player who disconnects mid-match receives a post-tick state snapshot and the server input log from that snapshot tick forward upon reconnecting
-2. The reconnect engine replays the input log against the local `RtsRoom` in insertion-sorted order and the resulting state hash matches the server checkpoint hash
-3. The client resumes the live tick loop from the correct tick after replay completes without a full state re-broadcast
-   **Plans**: 2 plans
-   Plans:
-
-- [x] 16-01-PLAN.md — Contract + replayInputLog TDD + server joinRoom input log delivery + client wiring
-- [x] 16-02-PLAN.md — Reconnect input-replay integration tests
-
-### Phase 17: Quality Gate
-
-**Goal**: Property-based tests and integration coverage confirm the lockstep protocol is correct and all prior milestone behavior is preserved
-**Depends on**: Phase 16
-**Requirements**: QUAL-01
+### Phase 22: Structure Strength Ratings
+**Goal**: Individual structure templates and template combinations have quantified strength ratings derived from match outcomes, with a CLI report summarizing the competitive meta
+**Depends on**: Phase 21 (needs match data volume and analysis infrastructure)
+**Requirements**: BAL-04, BAL-05
 **Success Criteria** (what must be TRUE):
+  1. Glicko-2 rating engine assigns ratings with RD/confidence intervals to each structure template based on match outcomes
+  2. Templates with insufficient data (RD > 150) are flagged rather than reported as definitive ratings
+  3. Balance report CLI generates summary reports covering win rates, ratings, strategy meta, and identifies balance outliers from match data
+**Plans**: TBD
 
-1. Property-based tests using `fast-check` confirm that identical input sequences applied to independent server and client simulation instances produce identical state hashes after 500+ ticks across diverse random inputs
-2. An `ArrayBuffer` round-trip integration test confirms `Grid.toPacked()` survives the Socket.IO binary attachment path without corruption
-3. All pre-existing non-lockstep integration tests continue to pass
-   **Plans**: 2 plans
-   Plans:
-
-- [x] 17-01-PLAN.md — Property-based determinism tests with fast-check (QUAL-01)
-- [x] 17-02-PLAN.md — ArrayBuffer round-trip integration test + full regression suite
+### Phase 23: Playable In-Game Bot
+**Goal**: A trained model can join a live game server as a virtual player, making decisions within the tick budget
+**Depends on**: Phase 20 (needs trained model), Phase 18 (needs harness infrastructure)
+**Requirements**: DEPLOY-01
+**Success Criteria** (what must be TRUE):
+  1. Socket.IO bot adapter connects a trained model to a live game server as a virtual player that appears identical to a human player from the opponent's perspective
+  2. Bot completes a full match lifecycle (join lobby, play active match, handle match finish) without server errors
+  3. Bot decision pipeline (observe + infer + act) completes within the per-tick budget, leaving headroom for game simulation
+**Plans**: TBD
 
 ## Progress
 
-| Phase                                     | Milestone | Plans Complete | Status   | Completed  |
-| ----------------------------------------- | --------- | -------------- | -------- | ---------- |
-| 1-5 (archived)                            | v0.0.1    | —              | Complete | 2026-03-01 |
-| 6-12 (archived)                           | v0.0.2    | —              | Complete | 2026-03-03 |
-| 13. Client Simulation Foundation          | v0.0.3    | 2/2            | Complete | 2026-03-29 |
-| 14. Input-Only Transport                  | v0.0.3    | 2/2            | Complete | 2026-03-29 |
-| 15. Hash Checkpoint Protocol              | v0.0.3    | 2/2            | Complete | 2026-03-29 |
-| 16. Reconnect via Snapshot + Input Replay | v0.0.3    | 2/2            | Complete | 2026-03-29 |
-| 17. Quality Gate                          | v0.0.3    | 2/2            | Complete | 2026-03-30 |
+**Execution Order:**
+Phases execute in numeric order: 18 -> 19 -> 20 -> 21 -> 22 -> 23
+Note: Phase 21 can begin alongside Phase 20 using early match data.
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1-5 (archived) | v0.0.1 | -- | Complete | 2026-03-01 |
+| 6-12 (archived) | v0.0.2 | -- | Complete | 2026-03-03 |
+| 13-17 (archived) | v0.0.3 | -- | Complete | 2026-03-30 |
+| 18. Headless Match Runner | v0.0.4 | 0/? | Not started | - |
+| 19. Observation, Action, and Reward Interface | v0.0.4 | 0/? | Not started | - |
+| 20. PPO Training with Self-Play | v0.0.4 | 0/? | Not started | - |
+| 21. Balance Analysis | v0.0.4 | 0/? | Not started | - |
+| 22. Structure Strength Ratings | v0.0.4 | 0/? | Not started | - |
+| 23. Playable In-Game Bot | v0.0.4 | 0/? | Not started | - |

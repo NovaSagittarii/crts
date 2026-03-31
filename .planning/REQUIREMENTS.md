@@ -60,26 +60,26 @@ Deferred to future milestones.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| HARN-01 | — | Pending |
-| HARN-02 | — | Pending |
-| HARN-03 | — | Pending |
-| HARN-04 | — | Pending |
-| TRAIN-01 | — | Pending |
-| TRAIN-02 | — | Pending |
-| TRAIN-03 | — | Pending |
-| TRAIN-04 | — | Pending |
-| BAL-01 | — | Pending |
-| BAL-02 | — | Pending |
-| BAL-03 | — | Pending |
-| BAL-04 | — | Pending |
-| BAL-05 | — | Pending |
-| DEPLOY-01 | — | Pending |
+| HARN-01 | Phase 18 | Pending |
+| HARN-02 | Phase 19 | Pending |
+| HARN-03 | Phase 19 | Pending |
+| HARN-04 | Phase 19 | Pending |
+| TRAIN-01 | Phase 20 | Pending |
+| TRAIN-02 | Phase 20 | Pending |
+| TRAIN-03 | Phase 20 | Pending |
+| TRAIN-04 | Phase 20 | Pending |
+| BAL-01 | Phase 18 | Pending |
+| BAL-02 | Phase 21 | Pending |
+| BAL-03 | Phase 21 | Pending |
+| BAL-04 | Phase 22 | Pending |
+| BAL-05 | Phase 22 | Pending |
+| DEPLOY-01 | Phase 23 | Pending |
 
 **Coverage:**
 - v0.0.4 requirements: 14 total
-- Mapped to phases: 0
-- Unmapped: 14
+- Mapped to phases: 14
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-30*
-*Last updated: 2026-03-30 after initial definition*
+*Last updated: 2026-03-30 after roadmap creation*
