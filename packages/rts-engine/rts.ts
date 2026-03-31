@@ -704,11 +704,11 @@ export class RtsEngine {
     });
   }
 
-  private static insertBuildEventSorted(
-    queue: BuildEvent[],
-    event: BuildEvent,
+  private static insertEventSorted<T>(
+    queue: T[],
+    event: T,
+    compare: (a: T, b: T) => number,
   ): void {
-    const compare = RtsEngine.compareBuildEvents;
     let insertIndex = queue.length;
     for (let index = queue.length - 1; index >= 0; index -= 1) {
       if (compare(queue[index], event) <= 0) {
@@ -720,50 +720,18 @@ export class RtsEngine {
     queue.splice(insertIndex, 0, event);
   }
 
-  private static insertDestroyEventSorted(
-    queue: DestroyEvent[],
-    event: DestroyEvent,
-  ): void {
-    const compare = RtsEngine.compareDestroyEvents;
-    let insertIndex = queue.length;
-    for (let index = queue.length - 1; index >= 0; index -= 1) {
-      if (compare(queue[index], event) <= 0) {
-        break;
-      }
-      insertIndex = index;
-    }
-
-    queue.splice(insertIndex, 0, event);
-  }
-
-  private static compareBuildEvents(
+  private static compareEventsByTick(
     this: void,
-    a: BuildEvent,
-    b: BuildEvent,
+    a: { executeTick: number; id: number },
+    b: { executeTick: number; id: number },
   ): number {
     return a.executeTick - b.executeTick || a.id - b.id;
   }
 
-  private static compareDestroyEvents(
+  private static compareOutcomesByTick(
     this: void,
-    a: DestroyEvent,
-    b: DestroyEvent,
-  ): number {
-    return a.executeTick - b.executeTick || a.id - b.id;
-  }
-
-  private static compareBuildOutcomes(
-    this: void,
-    a: BuildOutcome,
-    b: BuildOutcome,
-  ): number {
-    return a.executeTick - b.executeTick || a.eventId - b.eventId;
-  }
-
-  private static compareDestroyOutcomes(
-    this: void,
-    a: DestroyOutcome,
-    b: DestroyOutcome,
+    a: { executeTick: number; eventId: number },
+    b: { executeTick: number; eventId: number },
   ): number {
     return a.executeTick - b.executeTick || a.eventId - b.eventId;
   }
@@ -773,7 +741,7 @@ export class RtsEngine {
     team: TeamState,
   ): PendingBuildPayload[] {
     const pending = [...team.pendingBuildEvents];
-    pending.sort(RtsEngine.compareBuildEvents);
+    pending.sort(RtsEngine.compareEventsByTick);
     return pending.map((event) => {
       const templateName = room.templateMap.get(event.templateId)?.name;
       return {
@@ -794,7 +762,7 @@ export class RtsEngine {
     team: TeamState,
   ): PendingDestroyPayload[] {
     const pending = [...team.pendingDestroyEvents];
-    pending.sort(RtsEngine.compareDestroyEvents);
+    pending.sort(RtsEngine.compareEventsByTick);
     return pending.map((event) => {
       const structure = team.structures.get(event.structureKey);
       const template = structure?.template;
@@ -963,7 +931,7 @@ export class RtsEngine {
       }
 
       const pendingBuilds = [...team.pendingBuildEvents].sort(
-        RtsEngine.compareBuildEvents,
+        RtsEngine.compareEventsByTick,
       );
       hash = RtsEngine.hashInt32(hash, pendingBuilds.length);
       for (const pendingBuild of pendingBuilds) {
@@ -971,7 +939,7 @@ export class RtsEngine {
       }
 
       const pendingDestroys = [...team.pendingDestroyEvents].sort(
-        RtsEngine.compareDestroyEvents,
+        RtsEngine.compareEventsByTick,
       );
       hash = RtsEngine.hashInt32(hash, pendingDestroys.length);
       for (const pendingDestroy of pendingDestroys) {
@@ -1006,7 +974,7 @@ export class RtsEngine {
       hash = RtsEngine.hashBoolean(hash, RtsEngine.isBaseIntact(room, team));
 
       const pendingBuilds = [...team.pendingBuildEvents].sort(
-        RtsEngine.compareBuildEvents,
+        RtsEngine.compareEventsByTick,
       );
       hash = RtsEngine.hashInt32(hash, pendingBuilds.length);
       for (const pendingBuild of pendingBuilds) {
@@ -1014,7 +982,7 @@ export class RtsEngine {
       }
 
       const pendingDestroys = [...team.pendingDestroyEvents].sort(
-        RtsEngine.compareDestroyEvents,
+        RtsEngine.compareEventsByTick,
       );
       hash = RtsEngine.hashInt32(hash, pendingDestroys.length);
       for (const pendingDestroy of pendingDestroys) {
@@ -1083,7 +1051,7 @@ export class RtsEngine {
       team.pendingBuildEvents = [];
     }
 
-    pendingEvents.sort(RtsEngine.compareBuildEvents);
+    pendingEvents.sort(RtsEngine.compareEventsByTick);
 
     for (const event of pendingEvents) {
       const team = room.teams.get(event.teamId);
@@ -1115,7 +1083,7 @@ export class RtsEngine {
       team.pendingDestroyEvents = [];
     }
 
-    pendingEvents.sort(RtsEngine.compareDestroyEvents);
+    pendingEvents.sort(RtsEngine.compareEventsByTick);
 
     for (const event of pendingEvents) {
       const team = room.teams.get(event.teamId);
@@ -2299,7 +2267,7 @@ export class RtsEngine {
           maxEventId = pb.eventId;
         }
       }
-      pendingBuildEvents.sort(RtsEngine.compareBuildEvents);
+      pendingBuildEvents.sort(RtsEngine.compareEventsByTick);
 
       // Reconstruct pending destroy events
       const pendingDestroyEvents: DestroyEvent[] = [];
@@ -2316,7 +2284,7 @@ export class RtsEngine {
           maxEventId = pd.eventId;
         }
       }
-      pendingDestroyEvents.sort(RtsEngine.compareDestroyEvents);
+      pendingDestroyEvents.sort(RtsEngine.compareEventsByTick);
 
       // Reconstruct TeamState
       const team: TeamState = {
@@ -2783,7 +2751,11 @@ export class RtsEngine {
     };
 
     team.resources -= event.reservedCost;
-    RtsEngine.insertBuildEventSorted(team.pendingBuildEvents, event);
+    RtsEngine.insertEventSorted(
+      team.pendingBuildEvents,
+      event,
+      RtsEngine.compareEventsByTick,
+    );
     team.buildStats.queued += 1;
     appendRoomTimelineEvent(room, {
       teamId: team.id,
@@ -2940,7 +2912,11 @@ export class RtsEngine {
       executeTick: room.tick + clampedDelay,
     };
 
-    RtsEngine.insertDestroyEventSorted(team.pendingDestroyEvents, event);
+    RtsEngine.insertEventSorted(
+      team.pendingDestroyEvents,
+      event,
+      RtsEngine.compareEventsByTick,
+    );
     appendRoomTimelineEvent(room, {
       teamId: team.id,
       type: 'destroy-queued',
@@ -3223,7 +3199,7 @@ export class RtsEngine {
       );
     }
 
-    acceptedEvents.sort(RtsEngine.compareBuildEvents);
+    acceptedEvents.sort(RtsEngine.compareEventsByTick);
 
     const appliedBuilds = RtsEngine.applyAcceptedBuildEvents(
       room,
@@ -3237,8 +3213,8 @@ export class RtsEngine {
       destroyOutcomes,
     );
 
-    buildOutcomes.sort(RtsEngine.compareBuildOutcomes);
-    destroyOutcomes.sort(RtsEngine.compareDestroyOutcomes);
+    buildOutcomes.sort(RtsEngine.compareOutcomesByTick);
+    destroyOutcomes.sort(RtsEngine.compareOutcomesByTick);
 
     return {
       appliedBuilds,
