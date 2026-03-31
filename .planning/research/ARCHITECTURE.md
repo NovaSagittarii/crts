@@ -1,430 +1,743 @@
 # Architecture Research
 
-**Domain:** Deterministic lockstep protocol integration — Conway RTS TypeScript prototype (v0.0.3)
-**Researched:** 2026-03-29
-**Confidence:** HIGH (direct codebase analysis + verified lockstep literature)
+**Domain:** RL Bot Harness, PPO Self-Play Training, Balance Analysis, and In-Game Bot Integration — Conway RTS TypeScript prototype (v0.0.4)
+**Researched:** 2026-03-30
+**Confidence:** HIGH for integration architecture (direct codebase analysis); MEDIUM for training pipeline (ecosystem research + architectural reasoning); MEDIUM for Glicko rating system (verified npm libraries + domain fit analysis)
 
 ## Context: What Already Exists
 
-This is a milestone research document for v0.0.3. The architecture below describes how a deterministic lockstep protocol integrates with an existing, fully-functioning system. The focus is integration points, new vs modified components, and data flow changes.
+This is a milestone research document for v0.0.4. The architecture below describes how an RL bot harness, training pipeline, balance analysis, and live bot adapter integrate with the existing system. The focus is integration points, new vs modified components, and data flow.
 
 **Existing foundation confirmed by codebase analysis:**
 
-- `packages/rts-engine/rts.ts`: `RtsRoom.tick()` is already deterministic with a fixed, documented tick order. `RtsRoom.createDeterminismCheckpoint()` produces FNV1a-32 hashes. `RtsEngine.createRoom()` and `RtsRoom.fromState()` allow rooms to be reconstructed from state. `queueBuildEvent()` and `queueDestroyEvent()` are the canonical queue entry points.
-- `apps/server/src/server.ts`: Already has `LockstepRuntimeState` with `mode: 'off' | 'shadow' | 'primary'`, `turnBuffer`, `shadowRoom`, `flushPrimaryTurnCommands()`, `runShadowTick()`, and `emitLockstepCheckpointIfDue()`. The tick loop calls `room.rtsRoom.tick()` and emits `build:outcome` / `destroy:outcome` per tick. Full state is broadcast on a heartbeat (`emitActiveStateSnapshot` interval) and on queue events.
-- `packages/rts-engine/socket-contract.ts`: Already defines `LockstepCheckpointPayload`, `LockstepFallbackPayload`, `LockstepStatusPayload`, `BuildQueuedPayload` (carrying `bufferedTurn`, `scheduledByTurn`, `executeTick`, `playerId`, `teamId`, `transform`), `DestroyQueuedPayload` (carrying `executeTick`, `playerId`, `teamId`, `structureKey`), and `RoomJoinedPayload` with full `state` snapshot.
-- `apps/web/src/client.ts`: Already imports `RtsEngine`, `Grid`, and all socket contract types from `#rts-engine`. The client is currently state-broadcast-driven.
+- `packages/rts-engine/rts.ts`: `RtsRoom.tick()` is deterministic with a fixed tick order (economy -> builds -> Conway step -> defeat check -> outcome). `RtsRoom.create()` creates rooms. `RtsRoom.addPlayer()` adds players and spawns their base/core. `RtsRoom.queueBuildEvent()` and `RtsRoom.queueDestroyEvent()` are the canonical action entry points. `RtsRoom.createStatePayload()` serializes full room state. `RtsRoom.state` exposes the `RoomState` directly (grid, teams, structures, resources, tick).
+- `packages/rts-engine/rts.ts` (`RoomState`): Contains `grid: Grid` (Conway cells), `teams: Map<number, TeamState>` (resources, income, structures, pendingBuildEvents, defeated, baseTopLeft), `players: Map<string, RoomPlayerState>`, `tick: number`, `generation: number`.
+- `packages/rts-engine/rts.ts` (`TeamState`): Contains `resources: number`, `income: number`, `structures: Map<string, Structure>` (each with `hp`, `active`, `x`, `y`, `templateId`, `isCore`), `pendingBuildEvents: BuildEvent[]`, `pendingDestroyEvents: DestroyEvent[]`, `defeated: boolean`, `baseTopLeft: Vector2`, `buildStats: BuildStats`.
+- `packages/rts-engine/structure.ts`: `createDefaultStructureTemplates()` returns the available template catalogue (block, generator, glider, eater-1, gosper). Each template has `id`, `activationCost`, `income`, `buildRadius`, `startingHp`.
+- `packages/rts-engine/match-lifecycle.ts`: `determineMatchOutcome()` produces `MatchOutcome` with `winner` and `ranked` arrays. `RankedTeamOutcome` includes `finalCoreHp`, `coreState`, `territoryCellCount`, build stats.
+- `packages/rts-engine/gameplay-rules.ts`: `DEFAULT_STARTING_RESOURCES = 40`, `DEFAULT_QUEUE_DELAY_TICKS = 10`, `INTEGRITY_CHECK_INTERVAL_TICKS = 4`.
+- `packages/conway-core/grid.ts`: `Grid` has `width`, `height`, `step()`, `isCellAlive(x,y)`, `setCell(x,y,v)`, `toPacked()`, `toUnpacked()`, `clone()`. Cell iteration via `grid.cells()`.
+- `apps/server/src/server.ts`: Socket.IO server with room management, lockstep protocol, and `ClientToServerEvents` / `ServerToClientEvents` typed contracts.
+- `packages/rts-engine/socket-contract.ts`: Full typed event contracts for all client-server communication.
 
-**What is NOT yet built:**
+**What is NOT yet built (v0.0.4 scope):**
 
-- Client-side deterministic simulation runner (clients receive full state broadcasts; they do not run `RtsRoom.tick()` locally)
-- Input-only transport (server still emits full state on periodic heartbeat and after queue events)
-- Client-side event rejection (clients accept all outcomes from server state updates)
-- Reconnect via snapshot + bounded input log replay
+- Headless match runner (no Socket.IO, no rendering, pure `RtsRoom` execution)
+- Bot agent interface (observation extraction, action submission, reward computation)
+- PPO training loop or any ML inference capability
+- Balance analysis or structure rating system
+- Socket.IO bot adapter for live matches
 
 ---
 
-## Standard Architecture: Server-Authoritative Lockstep With Input Relay
+## Recommended Architecture
 
 ### System Overview
 
 ```
-CLIENT (apps/web)                              SERVER (apps/server)
+TRAINING PIPELINE (offline, Node.js or Python)
 
-+------------------------------------------+   +------------------------------------------+
-|  LockstepSimulationRunner (NEW)           |   |  RuntimeRoom.lockstepRuntime (EXISTS)     |
-|  +--------------------------------------+ |   |  +--------------------------------------+ |
-|  |  Local RtsRoom clone                 | |   |  |  Authoritative RtsRoom               | |
-|  |  (runs tick() locally at tickMs)     |<-------|  (runs tick(), is ground truth)       | |
-|  +--------------------------------------+ |   |  +------------------+-------------------+ |
-|  +--------------------------------------+ |   |                     |                     |
-|  |  InputLog (NEW)                      | |   |  +------------------v-------------------+ |
-|  |  queued events indexed by executeTick| |   |  |  LockstepInputLog (NEW on server)     | |
-|  +--------------------------------------+ |   |  |  bounded ring buffer of relayed       | |
-|  +--------------------------------------+ |   |  |  build:queued + destroy:queued events | |
-|  |  DesyncDetector (NEW)                | |   |  +--------------------------------------+ |
-|  |  compare local hash to checkpoint    | |   |                                           |
-|  +--------------------------------------+ |   |  Emits (MODIFIED):                        |
-|  +--------------------------------------+ |   |    lockstep:checkpoint (hash + tick)      |
-|  |  ReconnectReplayEngine (NEW)         | |   |    build:queued (relayed to all clients)  |
-|  |  snapshot + input log replay         | |   |    destroy:queued (relayed to all)        |
-|  +--------------------------------------+ |   |    state (snapshot on join / fallback)    |
-+------------------------------------------+   |                                           |
-                                                |  SUPPRESSED in lockstep primary mode:     |
-                                                |    emitRoomState() heartbeat              |
-                                                |    build:outcome (or scope to sender)     |
-                                                |    destroy:outcome (or scope to sender)   |
-                                                +------------------------------------------+
++--------------------------------------------------+
+|  packages/bot-harness/                           |
+|  +--------------------------------------------+  |
+|  |  HeadlessMatchRunner                       |  |
+|  |  (creates RtsRoom, adds bot agents,        |  |
+|  |   runs tick loop until outcome)            |  |
+|  +--------------------------------------------+  |
+|  +--------------------------------------------+  |
+|  |  BotEnvironment (Gym-like)                 |  |
+|  |  step(action) -> {obs, reward, done, info} |  |
+|  |  reset() -> obs                            |  |
+|  +--------------------------------------------+  |
+|  +--------------------------------------------+  |
+|  |  ObservationEncoder                        |  |
+|  |  RoomState -> Float32Array feature vector  |  |
+|  +--------------------------------------------+  |
+|  +--------------------------------------------+  |
+|  |  ActionDecoder                             |  |
+|  |  model output -> queueBuildEvent() calls   |  |
+|  +--------------------------------------------+  |
+|  +--------------------------------------------+  |
+|  |  RewardSignal                              |  |
+|  |  RoomTickResult + state delta -> number    |  |
+|  +--------------------------------------------+  |
++--------------------------------------------------+
+
+TRAINING (Python, external process)
+
++--------------------------------------------------+
+|  training/                                       |
+|  +--------------------------------------------+  |
+|  |  PPO Training Loop (Stable Baselines3)     |  |
+|  |  Communicates with BotEnvironment via       |  |
+|  |  stdio JSON protocol or shared NDJSON file  |  |
+|  +--------------------------------------------+  |
+|  +--------------------------------------------+  |
+|  |  Self-Play Manager                         |  |
+|  |  Opponent pool, matchmaking, ELO tracking  |  |
+|  +--------------------------------------------+  |
+|  +--------------------------------------------+  |
+|  |  ONNX Export                               |  |
+|  |  Trained policy -> .onnx model file        |  |
+|  +--------------------------------------------+  |
++--------------------------------------------------+
+
+ANALYSIS (Node.js)
+
++--------------------------------------------------+
+|  packages/balance-analysis/                      |
+|  +--------------------------------------------+  |
+|  |  MatchDatabase (SQLite or NDJSON)          |  |
+|  |  match results, per-tick snapshots         |  |
+|  +--------------------------------------------+  |
+|  +--------------------------------------------+  |
+|  |  GlickoRatingEngine                        |  |
+|  |  structure/combo ratings via glicko2.ts    |  |
+|  +--------------------------------------------+  |
+|  +--------------------------------------------+  |
+|  |  BalanceReport                             |  |
+|  |  win rates, strategy distributions, maps   |  |
+|  +--------------------------------------------+  |
++--------------------------------------------------+
+
+LIVE GAME (Node.js + Socket.IO)
+
++--------------------------------------------------+
+|  apps/server/ (MODIFIED)                         |
+|  +--------------------------------------------+  |
+|  |  BotSocketAdapter                          |  |
+|  |  Connects as virtual Socket.IO client       |  |
+|  |  Loads ONNX model via onnxruntime-node     |  |
+|  |  Observation -> model -> action -> emit    |  |
+|  +--------------------------------------------+  |
++--------------------------------------------------+
 ```
 
-### Component Responsibilities
+### Component Boundaries
 
-| Component                  | Layer                 | Responsibility                                                                                                                                                     | Status                          |
-| -------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
-| `LockstepSimulationRunner` | `apps/web`            | Owns local `RtsRoom` clone; drives `tick()` on `tickMs` interval; applies relayed events at `executeTick`                                                          | **New**                         |
-| `InputLog`                 | `apps/web`            | Ordered buffer of all accepted `build:queued` / `destroy:queued` events indexed by `executeTick`; used for local tick execution and reconnect replay               | **New**                         |
-| `DesyncDetector`           | `apps/web`            | Receives `lockstep:checkpoint`; calls `localRoom.createDeterminismCheckpoint()` at the matching tick; compares hashes; triggers resync on mismatch                 | **New**                         |
-| `ReconnectReplayEngine`    | `apps/web`            | On reconnect: receives initial `state` snapshot from `room:joined` plus bounded input log; hydrates local room; replays events to advance to current tick          | **New**                         |
-| `LockstepRuntimeState`     | `apps/server`         | Already exists: turn buffer, shadow room, checkpoint emission, fallback logic. Needs: bounded input log for reconnect                                              | **Existing + modified**         |
-| `RtsRoom`                  | `packages/rts-engine` | Already fully deterministic: `tick()`, `queueBuildEvent()`, `queueDestroyEvent()`, `createDeterminismCheckpoint()`                                                 | **Existing, no changes needed** |
-| `socket-contract.ts`       | `packages/rts-engine` | Already has all lockstep event types. Needs: `LockstepInputLogPayload` for reconnect; `kind` discriminant on queued event union                                    | **Existing + minor additions**  |
-| `RoomBroadcastService`     | `apps/server`         | Already emits checkpoints. Needs: suppress periodic full-state broadcast when lockstep active; emit `build:queued`/`destroy:queued` to all clients unconditionally | **Existing + modified**         |
+| Component | Layer | Responsibility | Communicates With |
+|-----------|-------|----------------|-------------------|
+| `HeadlessMatchRunner` | `packages/bot-harness` | Creates `RtsRoom`, adds virtual players, runs tick loop, collects outcomes | `RtsRoom` (rts-engine), `BotAgent` interface |
+| `BotEnvironment` | `packages/bot-harness` | Gymnasium-style wrapper: `reset()`, `step(action)`, observation/action spaces | `HeadlessMatchRunner`, `ObservationEncoder`, `ActionDecoder`, `RewardSignal` |
+| `ObservationEncoder` | `packages/bot-harness` | Extracts fixed-size `Float32Array` feature vector from `RoomState` for one team's perspective | `RoomState` (read-only) |
+| `ActionDecoder` | `packages/bot-harness` | Converts model output (template selection + grid coordinates) into `queueBuildEvent()` / `queueDestroyEvent()` calls | `RtsRoom` via `HeadlessMatchRunner` |
+| `RewardSignal` | `packages/bot-harness` | Computes per-tick reward from `RoomTickResult` and state deltas (resource gain, territory change, core HP damage, build success) | `RoomTickResult`, `RoomState` snapshots |
+| PPO Training Loop | `training/` (Python) | Stable Baselines3 PPO with custom Gymnasium env wrapping the Node.js `BotEnvironment` via IPC | `BotEnvironment` via stdio/subprocess |
+| Self-Play Manager | `training/` (Python) | Manages opponent pool, selects opponents from historical checkpoints, tracks training progress | PPO Training Loop, saved model checkpoints |
+| ONNX Export | `training/` (Python) | Exports trained PyTorch policy to `.onnx` format | Trained PPO model |
+| `GlickoRatingEngine` | `packages/balance-analysis` | Computes Glicko-2 ratings for individual structure templates and template combinations based on match outcomes | `MatchDatabase` |
+| `MatchDatabase` | `packages/balance-analysis` | Stores match results, strategy selections, per-tick snapshots for analysis | `HeadlessMatchRunner` output |
+| `BalanceReport` | `packages/balance-analysis` | Generates win rate tables, strategy distribution analysis, per-map metrics | `MatchDatabase`, `GlickoRatingEngine` |
+| `BotSocketAdapter` | `apps/server` | Virtual Socket.IO client that loads ONNX model and plays in live matches | `onnxruntime-node`, socket-contract types, `ObservationEncoder`, `ActionDecoder` |
 
 ---
 
-## Recommended Structure (New Files Only)
+## Key Design Decision: Where Does the Headless Match Runner Live?
+
+**Decision: New package `packages/bot-harness`**
+
+**Rationale:**
+1. **Layer boundary enforcement.** The existing rule is strict: `packages/*` contains deterministic, runtime-agnostic logic; `apps/*` contains runtime-specific code. A headless match runner is deterministic and runtime-agnostic — it uses only `RtsRoom` from `packages/rts-engine`. It belongs in `packages/`.
+2. **Separation from rts-engine.** Putting it inside `rts-engine` would bloat that package with ML-specific concerns (observation encoding, reward computation, Gym interface) that have nothing to do with game rules. The bot harness is a *consumer* of rts-engine, not part of it.
+3. **Testability.** A separate package can be tested independently. Its unit tests verify observation encoding, action decoding, and reward computation without touching Socket.IO or browser APIs.
+4. **Reuse.** The same `BotEnvironment` interface serves both the Python training pipeline (via IPC) and the Node.js live bot adapter (via direct import). A package alias (`#bot-harness`) makes it importable from both `training/` scripts and `apps/server/`.
+
+**Import direction:**
+```
+packages/bot-harness  ->  packages/rts-engine  (consumer imports engine)
+packages/bot-harness  ->  packages/conway-core  (for Grid utilities)
+apps/server           ->  packages/bot-harness  (live bot adapter imports harness)
+training/             ->  packages/bot-harness  (training scripts import harness)
+packages/rts-engine   -X- packages/bot-harness  (engine must NOT import harness)
+```
+
+---
+
+## Key Design Decision: Training in Python, Inference in TypeScript
+
+**Decision: Train PPO in Python (Stable Baselines3), export to ONNX, run inference in Node.js (onnxruntime-node)**
+
+**Rationale:**
+1. **Python RL ecosystem is 10x more mature.** Stable Baselines3 provides a production-grade PPO implementation with hundreds of tested hyperparameter configurations, curriculum learning, and self-play wrappers. The TypeScript RL ecosystem (ppo-tfjs, rl-ts) consists of minimally maintained hobby projects with 1-10 weekly npm downloads.
+2. **TensorFlow.js PPO is not viable for training.** TensorFlow.js has a known tensor creation bottleneck (4x slower than Python for RL observation loops). The `@tensorflow/tfjs-node-gpu` backend has documented performance inconsistencies. No mature PPO implementation exists in the ecosystem.
+3. **ONNX bridge is well-established.** Stable Baselines3 has official ONNX export documentation. `onnxruntime-node` is maintained by Microsoft, supports Node.js 20+, and provides TypeScript type definitions. The pattern "train in Python, deploy via ONNX" is standard practice for game AI.
+4. **Clean separation of concerns.** Training is a batch process that runs offline; inference is a real-time process that runs in the game server. ONNX is the serialization boundary. The Node.js codebase never needs to import PyTorch or TensorFlow.
+
+**The alternative considered (all-TypeScript with ppo-tfjs) was rejected because:**
+- `ppo-tfjs` has 1 weekly download and 1 maintainer, last updated over a year ago
+- Tensor creation overhead makes RL training loops 4x slower than Python
+- No community, no debugging support, no proven hyperparameter configurations
+- Would require maintaining a custom PPO implementation alongside game development
+
+---
+
+## Detailed Component Architecture
+
+### 1. HeadlessMatchRunner
+
+```typescript
+// packages/bot-harness/headless-match-runner.ts
+
+interface HeadlessMatchConfig {
+  width: number;
+  height: number;
+  maxTicks: number;           // safety limit to prevent infinite matches
+  ticksPerDecision: number;   // how often bots can act (e.g., every 10 ticks)
+  templates?: StructureTemplateInput[];  // override default templates
+}
+
+interface BotAgent {
+  id: string;
+  name: string;
+  selectAction(observation: BotObservation): BotAction;
+}
+
+interface HeadlessMatchResult {
+  outcome: MatchOutcome;
+  totalTicks: number;
+  strategyLog: StrategyLogEntry[];  // what each agent built and when
+  tickSnapshots: TickSnapshot[];     // periodic state captures for analysis
+}
+
+class HeadlessMatchRunner {
+  static runMatch(
+    config: HeadlessMatchConfig,
+    agents: [BotAgent, BotAgent],
+  ): HeadlessMatchResult;
+}
+```
+
+**How it works:**
+1. `RtsRoom.create()` with the given dimensions
+2. `room.addPlayer()` for each agent (assigns teams, spawns bases)
+3. Loop: for each tick until `maxTicks` or match finishes:
+   a. Every `ticksPerDecision` ticks, call `agent.selectAction(observation)`
+   b. Convert action to `room.queueBuildEvent()` or `room.queueDestroyEvent()`
+   c. Call `room.tick()`
+   d. Check `result.outcome` — if non-null, match is over
+4. Return `HeadlessMatchResult`
+
+**Why `ticksPerDecision` matters:** The Conway grid evolves every tick, but strategic decisions (placing structures) should happen less frequently to be meaningful. A decision every 10 ticks (matching `DEFAULT_QUEUE_DELAY_TICKS`) means the bot decides once per build cycle.
+
+### 2. ObservationEncoder
+
+```typescript
+// packages/bot-harness/observation-encoder.ts
+
+interface BotObservation {
+  features: Float32Array;       // fixed-size feature vector for ML model
+  validActions: BotActionMask;  // which actions are legal right now
+}
+
+interface BotActionMask {
+  canBuild: boolean[];          // per-template: has resources and valid placement
+  canDestroy: boolean[];        // per-owned-structure: can be destroyed
+}
+```
+
+**Observation space design (extracted from RoomState):**
+
+| Feature Group | Source | Size | Description |
+|---------------|--------|------|-------------|
+| Global | `room.state.tick`, `room.state.width`, `room.state.height` | 3 | Normalized tick progress, map dimensions |
+| Own team economy | `team.resources`, `team.income`, `team.incomeBreakdown` | 4 | Current resources, income rate, structure/base income |
+| Own team structures | `team.structures` | ~20 | Count per template type, total HP, core HP, active count |
+| Own team pending | `team.pendingBuildEvents`, `team.pendingDestroyEvents` | 4 | Pending build count, pending destroy count, reserved cost |
+| Enemy team economy | `enemyTeam.resources`, `enemyTeam.income` | 4 | Mirror of own team features |
+| Enemy team structures | `enemyTeam.structures` | ~20 | Mirror of own team features |
+| Enemy team pending | `enemyTeam.pendingBuildEvents` | 4 | Mirror |
+| Grid spatial | `room.state.grid` | Variable | Downsampled grid density map (e.g., 8x8 or 16x16 average density bins) |
+| Territory | Derived from grid + base positions | ~16 | Cells near own base vs enemy base, frontier density |
+| Build zone | Derived from structure positions + radii | ~16 | Available build area coverage |
+
+**Total observation vector size:** ~100-200 floats (configurable). The grid spatial features use a fixed-size downsampled representation regardless of actual grid dimensions.
+
+**Grid downsampling strategy:** Divide the grid into NxN bins (e.g., 8x8 = 64 bins). Each bin contains the ratio of alive cells in that region. This gives the model spatial awareness without a variable-size observation.
+
+### 3. ActionDecoder
+
+```typescript
+// packages/bot-harness/action-decoder.ts
+
+interface BotAction {
+  type: 'build' | 'destroy' | 'wait';
+  templateId?: string;    // for build
+  x?: number;             // for build (grid coordinates)
+  y?: number;             // for build
+  structureKey?: string;  // for destroy
+}
+```
+
+**Action space design:**
+
+The action space is a discrete multi-dimensional space:
+1. **Action type:** `build` | `destroy` | `wait` (3 choices)
+2. **Template selection (if build):** index into template catalogue (5 templates + core excluded = 5 choices)
+3. **Placement (if build):** (x, y) on the grid. To keep the action space manageable, quantize to a coarser grid (e.g., every 4 cells = ~25x25 = 625 positions for a 100x100 map)
+
+**Total discrete action space:** 3 + (5 * 625) + (structure_count) = ~3130 actions. For PPO with discrete actions, this is manageable.
+
+**Action masking is critical:** The `BotActionMask` prevents the model from choosing invalid actions (building when broke, placing outside build zone, destroying enemy structures). Invalid actions waste training time. The mask is computed by calling `RtsRoom.previewBuildPlacement()` for each template at candidate positions.
+
+**Efficient action masking:** Rather than testing every position, pre-compute the build zone from active structures and only test positions within it. This reduces the preview calls from 625 per template to ~50-100.
+
+### 4. RewardSignal
+
+```typescript
+// packages/bot-harness/reward-signal.ts
+
+interface RewardConfig {
+  winReward: number;              // e.g., +10.0
+  loseReward: number;             // e.g., -10.0
+  coreDamageDealtReward: number;  // e.g., +0.5 per HP dealt
+  coreDamageTakenPenalty: number; // e.g., -0.5 per HP lost
+  resourceGainReward: number;     // e.g., +0.01 per resource earned
+  territoryGainReward: number;    // e.g., +0.02 per cell gained
+  buildSuccessReward: number;     // e.g., +0.1 per successful build
+  buildFailPenalty: number;       // e.g., -0.05 per rejected build
+  idleTickPenalty: number;        // e.g., -0.001 per tick with no action
+}
+```
+
+**Reward design principles:**
+1. **Sparse terminal reward dominates:** Win/loss is the primary signal. All shaping rewards are 10-100x smaller.
+2. **Shaping rewards accelerate early learning:** Without them, random agents rarely win, so the gradient signal is near zero for thousands of episodes.
+3. **Core HP delta is the strongest shaping signal:** It directly correlates with the win condition.
+4. **Build success/fail shapes exploration:** Encourages the agent to learn valid placements early.
+5. **Reward is computed per team perspective:** Each agent gets its own reward from the shared `RoomTickResult`.
+
+**Implementation:** After each `room.tick()`, the `RewardSignal` compares pre-tick and post-tick `TeamState` snapshots to compute deltas.
+
+### 5. BotEnvironment (Gym-like Interface)
+
+```typescript
+// packages/bot-harness/bot-environment.ts
+
+interface EnvironmentConfig extends HeadlessMatchConfig {
+  reward: RewardConfig;
+  observationSize: number;
+  actionGridResolution: number;  // e.g., 4 = quantize to every 4 cells
+}
+
+interface StepResult {
+  observation: Float32Array;
+  reward: number;
+  done: boolean;
+  truncated: boolean;  // hit maxTicks without outcome
+  info: {
+    outcome?: MatchOutcome;
+    tick: number;
+    validActions: BotActionMask;
+  };
+}
+
+class BotEnvironment {
+  constructor(config: EnvironmentConfig);
+  reset(): Float32Array;
+  step(action: number): StepResult;  // single int encoding the discrete action
+  get observationSpace(): { shape: number[] };
+  get actionSpace(): { n: number };
+}
+```
+
+**This is the boundary between TypeScript game logic and Python training.** The `BotEnvironment` consumes the `HeadlessMatchRunner`, `ObservationEncoder`, `ActionDecoder`, and `RewardSignal` to present a clean `reset()/step()` interface.
+
+### 6. Python-TypeScript IPC Bridge
+
+**Decision: Subprocess with NDJSON (newline-delimited JSON) over stdio**
 
 ```
-apps/web/src/
-  lockstep-simulation-runner.ts    # NEW: owns local RtsRoom, drives tick loop, applies events
-  lockstep-input-log.ts            # NEW: ordered input buffer indexed by executeTick
-  lockstep-desync-detector.ts      # NEW: hash comparison, desync signal, resync trigger
-  lockstep-reconnect-engine.ts     # NEW: snapshot + input replay coordination
+Python (SB3)  <--stdin/stdout-->  Node.js (BotEnvironment)
+```
 
-packages/rts-engine/
-  socket-contract.ts               # MODIFIED: add LockstepInputLogPayload; add kind discriminant
+**Protocol:**
+```json
+// Python -> Node.js (action)
+{"type": "step", "action": 42}
+{"type": "reset"}
+
+// Node.js -> Python (observation)
+{"type": "observation", "obs": [0.1, 0.2, ...], "reward": 0.5, "done": false, "truncated": false, "info": {...}}
+{"type": "reset_obs", "obs": [0.1, 0.2, ...], "info": {...}}
+```
+
+**Why NDJSON over stdio:**
+1. **Zero dependencies.** No ZeroMQ, no gRPC, no shared memory libraries.
+2. **Cross-platform.** Works identically on Linux, macOS, Windows.
+3. **Debuggable.** You can literally `cat` the pipe to see what's happening.
+4. **Fast enough.** A single match step takes ~1ms (tick loop). JSON serialization of a 200-float observation is ~50us. The bottleneck is the PPO update, not the bridge.
+
+**Alternative considered (shared memory / gRPC) was rejected because:**
+- Adds dependency complexity
+- PPO training is I/O bound on gradient updates, not on environment stepping
+- NDJSON is the standard for lightweight Gym bridges (used by Gymnasium's subprocess vec env)
+
+### 7. Self-Play Architecture
+
+```
+training/
+  self_play.py          # Main training script
+  sb3_env_wrapper.py    # Gymnasium env wrapping the Node.js subprocess
+  opponent_pool.py      # Historical model management
+  export_onnx.py        # ONNX export after training
+```
+
+**Self-play strategy: Opponent pool with prioritized sampling**
+
+1. Training starts with two random agents
+2. Every N episodes (e.g., 100), save the current model as a checkpoint
+3. The opponent for each episode is sampled from the pool:
+   - 50% chance: latest checkpoint (ensures training against strong opponents)
+   - 30% chance: random historical checkpoint (prevents forgetting)
+   - 20% chance: random policy (ensures robustness against naive play)
+4. When the current model's win rate against all pool members exceeds 60%, add it to the pool as the new "best"
+
+**Match configuration for self-play:**
+- Map size: use the default (or a small set of fixed sizes for variety)
+- `maxTicks`: 500-1000 (most matches should resolve before this)
+- `ticksPerDecision`: 10 (one decision per build delay cycle)
+- Both agents see the same observation space but from their own team's perspective
+
+### 8. Balance Analysis: Glicko-2 Structure Ratings
+
+**Decision: Use `glicko2.ts` (npm package) for the Glicko-2 engine**
+
+**Rationale:** `glicko2.ts` is a TypeScript-native implementation with full type definitions, GPL-3.0 licensed, maintained, and supports the standard Glicko-2 algorithm. It handles rating periods, rating deviation, and volatility correctly.
+
+**How structure ratings work:**
+
+A "structure strategy" is defined as the set of structure templates a bot prioritized during a match (e.g., "primarily block + generator" or "early gosper rush"). After each match:
+
+1. Extract each team's **strategy profile**: the template distribution (normalized counts of each template built)
+2. Identify the **dominant strategy**: the template or 2-template combination that received the most investment
+3. Treat each strategy as a "player" in the Glicko-2 system
+4. Record the match outcome as a win/loss/draw for each strategy
+5. Update ratings at the end of each rating period (every 50-100 matches)
+
+**Rating entities:**
+
+| Entity Type | Key | What It Represents |
+|-------------|-----|--------------------|
+| Individual template | `"block"`, `"generator"`, etc. | How strong is this template when it's the primary build |
+| Template pair | `"block+generator"`, `"block+gosper"` | How strong is this 2-template combination |
+| Opening strategy | `"early-generator"`, `"early-gosper"` | How strong is this opening (first 3 builds) |
+
+**Database schema (NDJSON files for simplicity):**
+
+```
+data/
+  matches.ndjson         # One line per match: {id, agents, outcome, ticks, strategies}
+  strategy-ratings.json  # Current Glicko-2 ratings for each strategy
+  template-ratings.json  # Current Glicko-2 ratings for each template
+  balance-report.json    # Generated analysis report
+```
+
+**Why NDJSON files instead of SQLite:**
+- Zero native dependencies (SQLite requires node-gyp)
+- Append-only writes are safe for concurrent processes
+- Human-readable and git-trackable for small datasets
+- The expected dataset size (thousands of matches, not millions) is well within NDJSON's performance envelope
+
+### 9. BotSocketAdapter (Live Game Integration)
+
+```typescript
+// apps/server/src/bot-socket-adapter.ts
+
+interface BotSocketAdapterConfig {
+  modelPath: string;          // path to .onnx model file
+  botName: string;
+  ticksPerDecision: number;
+  observationSize: number;
+  actionGridResolution: number;
+}
+
+class BotSocketAdapter {
+  constructor(config: BotSocketAdapterConfig);
+
+  // Joins an existing room as a player via internal Socket.IO client
+  async joinRoom(roomId: string): Promise<void>;
+
+  // Called by the server's tick loop or by observing state events
+  async onTick(statePayload: RoomStatePayload): Promise<void>;
+}
+```
+
+**How the live bot works:**
+
+1. The `BotSocketAdapter` creates an internal `socket.io-client` connection to the same server
+2. It joins a room and claims a slot like any human player
+3. On each decision tick, it:
+   a. Converts the current `RoomStatePayload` into a `Float32Array` observation using the same `ObservationEncoder` from `packages/bot-harness`
+   b. Runs ONNX inference: `ort.InferenceSession.run(feeds)` returns the action
+   c. Converts the action to a `BuildQueuePayload` or `DestroyQueuePayload` using the same `ActionDecoder`
+   d. Emits `build:queue` or `destroy:queue` via its socket connection
+
+**Why an internal Socket.IO client (not direct RtsRoom access):**
+1. **Validates the full protocol.** The bot exercises the same validation path as human players
+2. **No special server modifications.** The bot is just another client
+3. **Testable.** Integration tests can verify bot behavior end-to-end
+4. **Lockstep compatible.** The bot's inputs go through the same lockstep relay pipeline
+
+**ONNX inference performance:** `onnxruntime-node` runs a small MLP (2 hidden layers, 64-128 neurons) in <1ms on CPU. The decision interval (every 10 ticks at ~100ms/tick = 1 second) gives plenty of headroom.
+
+---
+
+## Data Flow
+
+### Training Data Flow
+
+```
+BotEnvironment.reset()
+  |-> HeadlessMatchRunner creates RtsRoom
+  |-> Adds 2 virtual players
+  |-> ObservationEncoder extracts initial obs from RoomState
+  |-> Returns Float32Array to Python via NDJSON
+
+BotEnvironment.step(action)
+  |-> ActionDecoder converts int -> BotAction
+  |-> HeadlessMatchRunner calls room.queueBuildEvent() or room.queueDestroyEvent()
+  |-> HeadlessMatchRunner calls room.tick() (possibly multiple ticks until next decision point)
+  |-> RewardSignal computes reward from tick results and state deltas
+  |-> ObservationEncoder extracts new obs from RoomState
+  |-> Returns {obs, reward, done, info} to Python via NDJSON
+```
+
+### Live Bot Data Flow
+
+```
+Server emits state snapshot (via lockstep checkpoint or periodic state)
+  |-> BotSocketAdapter receives state via socket event
+  |-> ObservationEncoder converts RoomStatePayload to Float32Array
+  |-> onnxruntime-node runs inference on Float32Array
+  |-> ActionDecoder converts model output to BuildQueuePayload
+  |-> BotSocketAdapter emits build:queue via socket
+  |-> Server validates and relays as normal
+```
+
+### Balance Analysis Data Flow
+
+```
+HeadlessMatchRunner.runMatch() completes
+  |-> Returns HeadlessMatchResult {outcome, strategyLog, tickSnapshots}
+  |-> MatchDatabase appends to matches.ndjson
+  |-> After rating period (every N matches):
+      |-> GlickoRatingEngine reads match history
+      |-> Updates ratings for templates and combinations
+      |-> Writes updated ratings to JSON
+  |-> BalanceReport reads ratings + match history
+  |-> Generates summary statistics (win rates, strategy distribution, etc.)
+```
+
+---
+
+## Patterns to Follow
+
+### Pattern 1: Observation Extraction from RoomState
+
+**What:** Extract a fixed-size observation vector by reading `RoomState` fields, never modifying them.
+
+**When:** Every decision tick in both training and live play.
+
+**Key principle:** The `ObservationEncoder` must be a pure function: `(RoomState, teamId) -> Float32Array`. No side effects. Same state always produces same observation. This is critical for determinism and testability.
+
+```typescript
+function encodeObservation(state: RoomState, teamId: number): Float32Array {
+  const features = new Float32Array(OBSERVATION_SIZE);
+  let offset = 0;
+
+  // Global features
+  features[offset++] = state.tick / MAX_TICKS;  // normalized
+  features[offset++] = state.width;
+  features[offset++] = state.height;
+
+  // Own team features
+  const ownTeam = state.teams.get(teamId)!;
+  features[offset++] = ownTeam.resources / MAX_RESOURCES;
+  features[offset++] = ownTeam.income;
+  // ... etc
+
+  return features;
+}
+```
+
+### Pattern 2: Action Space with Masking
+
+**What:** Define a flat discrete action space but mask illegal actions before the model chooses.
+
+**When:** Every decision step.
+
+**Key principle:** The model outputs a probability distribution over all actions. Before sampling, zero out probabilities for invalid actions and renormalize. This prevents the model from wasting gradient signal on learning which actions are legal (the engine already knows).
+
+```typescript
+function computeActionMask(state: RoomState, teamId: number): boolean[] {
+  const mask = new Array(ACTION_SPACE_SIZE).fill(false);
+
+  // "wait" is always valid
+  mask[WAIT_ACTION_INDEX] = true;
+
+  // For each template, check if we can afford it and have valid placements
+  for (const template of state.templates) {
+    const team = state.teams.get(teamId)!;
+    if (team.resources >= template.activationCost) {
+      // Mark build actions for this template as potentially valid
+      // (actual placement validity checked per-position)
+      markBuildActionsValid(mask, template, state, teamId);
+    }
+  }
+
+  return mask;
+}
+```
+
+### Pattern 3: Reward Shaping with Sparse Terminal Signal
+
+**What:** Small per-tick shaping rewards plus large terminal win/loss reward.
+
+**When:** After every `room.tick()` call.
+
+**Key principle:** The terminal reward (win/loss) must dominate the cumulative shaping rewards. If shaping rewards sum to +5 over a match but the win reward is +10, the agent learns that winning matters more than just building structures. A common mistake is making shaping rewards too large, causing the agent to optimize for resource hoarding rather than winning.
+
+---
+
+## Anti-Patterns to Avoid
+
+### Anti-Pattern 1: Modifying RtsRoom for Bot Support
+
+**What:** Adding bot-specific methods or flags to `RtsRoom` or `RoomState`.
+
+**Why bad:** Violates the principle that `packages/rts-engine` is purely about game rules. Bot support is a consumption pattern, not a game rule. Adding bot hooks to the engine creates coupling that makes the engine harder to maintain and test independently.
+
+**Instead:** The bot harness wraps `RtsRoom` from the outside. All interaction goes through the existing public API: `addPlayer()`, `queueBuildEvent()`, `queueDestroyEvent()`, `tick()`, `state` (read).
+
+### Anti-Pattern 2: Training PPO in TypeScript
+
+**What:** Implementing the full PPO algorithm in TypeScript using TensorFlow.js.
+
+**Why bad:** The TypeScript RL ecosystem has no production-grade PPO implementation. `ppo-tfjs` is unmaintained (1 download/week). TensorFlow.js has a 4x tensor creation overhead that specifically impacts RL training loops. You would spend more time debugging the PPO implementation than training the bot.
+
+**Instead:** Train in Python with Stable Baselines3 (battle-tested, well-documented), export to ONNX, run inference in Node.js.
+
+### Anti-Pattern 3: Embedding the Bot Directly in the Server Tick Loop
+
+**What:** Making the bot a special case in the server's tick processing, bypassing the socket event system.
+
+**Why bad:** Breaks the lockstep protocol (bot actions wouldn't be relayed to other clients). Introduces a code path that human players can't exercise. Makes the bot untestable through normal integration tests.
+
+**Instead:** Use `BotSocketAdapter` as an internal Socket.IO client. The bot's actions go through the same validation and relay pipeline as human actions.
+
+### Anti-Pattern 4: Using Variable-Size Observations
+
+**What:** Passing the full grid as a variable-length array, or having observation size depend on structure count.
+
+**Why bad:** Neural networks require fixed-size inputs. Variable observations would require padding/masking complexity that adds bugs and training instability.
+
+**Instead:** Use a fixed-size downsampled grid representation and fixed-size per-team feature vector. Structure counts are scalar features, not variable-length lists.
+
+---
+
+## Recommended File Structure
+
+```
+packages/bot-harness/
+  index.ts                      # Package exports
+  headless-match-runner.ts      # HeadlessMatchRunner class
+  bot-environment.ts            # BotEnvironment (Gym-like wrapper)
+  observation-encoder.ts        # RoomState -> Float32Array
+  action-decoder.ts             # Model output -> game actions
+  reward-signal.ts              # Tick result -> reward number
+  action-space.ts               # Action space definition and masking
+  types.ts                      # Shared interfaces (BotAgent, BotAction, etc.)
+  headless-match-runner.test.ts # Unit tests
+  observation-encoder.test.ts   # Unit tests
+  action-decoder.test.ts        # Unit tests
+  reward-signal.test.ts         # Unit tests
+  bot-environment.test.ts       # Integration tests
+
+packages/balance-analysis/
+  index.ts                      # Package exports
+  match-database.ts             # NDJSON match result storage
+  glicko-rating-engine.ts       # Glicko-2 wrapper for structure ratings
+  strategy-extractor.ts         # Extract strategy profiles from match logs
+  balance-report.ts             # Generate analysis reports
+  types.ts                      # Shared interfaces
+  glicko-rating-engine.test.ts  # Unit tests
+  strategy-extractor.test.ts    # Unit tests
+
+training/
+  requirements.txt              # Python deps: stable-baselines3, onnx, onnxruntime
+  sb3_env_wrapper.py            # Gymnasium wrapper for Node.js subprocess
+  self_play.py                  # Self-play training loop
+  opponent_pool.py              # Model checkpoint management
+  export_onnx.py                # ONNX export script
+  README.md                     # How to train
 
 apps/server/src/
-  server.ts                        # MODIFIED: suppress state heartbeat in lockstep mode;
-                                   #   maintain bounded input log; attach input log to room:joined
+  bot-socket-adapter.ts         # NEW: Virtual Socket.IO client for live bots
+  bot-socket-adapter.test.ts    # Unit tests
+
+data/
+  models/                       # Trained .onnx model files
+  matches/                      # Match result NDJSON files
+  ratings/                      # Glicko-2 rating JSON files
 
 tests/integration/server/
-  lockstep-client-sim.test.ts      # NEW: client simulation determinism contract
-  lockstep-reconnect.test.ts       # NEW: snapshot + replay reconnect contract
-
-tests/web/
-  lockstep-simulation-runner.test.ts  # NEW: pure simulation logic tests
-  lockstep-input-log.test.ts          # NEW: insert, dueAt, bounded ring
-  lockstep-desync-detector.test.ts    # NEW: hash match, mismatch, trigger
+  bot-match.test.ts             # NEW: End-to-end bot vs bot via socket
 ```
 
 ---
 
-## Architectural Patterns
+## Scalability Considerations
 
-### Pattern 1: Server Validates Inputs, Clients Execute Locally
+| Concern | At 100 matches | At 10K matches | At 100K matches |
+|---------|---------------|----------------|-----------------|
+| Match storage | <1MB NDJSON | ~100MB NDJSON, still fast | Consider SQLite migration or NDJSON rotation |
+| Training time | Minutes (SB3 on CPU) | Hours (SB3 on CPU, GPU recommended) | Days (multi-GPU, parallel environments recommended) |
+| Glicko-2 computation | Instant | <1 second per rating period | Consider batch processing, rating period pruning |
+| ONNX inference latency | <1ms | N/A (inference is per-request, not batch) | N/A |
+| NDJSON parse for analysis | Instant | ~1 second full scan | Stream-parse, or migrate to SQLite for indexed queries |
 
-**What:** The server continues to run `RtsRoom.tick()` authoritatively. Clients also run `RtsRoom.tick()` locally on the same `tickMs` interval. The server relays all accepted `build:queued`/`destroy:queued` events to all room clients — including the originating client. Clients apply these relayed events to their local room at `executeTick` and advance the simulation locally. The server sends full state only on: join/reconnect, desync recovery, and explicit `state:request`.
+---
 
-**When to use:** This is the v0.0.3 authority model — server validates at queue time; clients run deterministic simulation for rendering.
+## Package Configuration
 
-**Trade-offs:** Clients need the simulation engine code (already true — `#rts-engine` is imported by `apps/web`). Desyncs are caught by periodic hash comparison, not per-tick. Local simulation decouples client rendering from server round-trip latency. No client-side prediction or rollback needed because no local execution happens before server confirmation.
+The new packages require additions to `package.json`:
 
-**Existing leverage:** `apps/web/src/client.ts` already imports `RtsEngine`. `room:joined` already includes a full `state` snapshot. `BuildQueuedPayload` and `DestroyQueuedPayload` already carry `executeTick`, `playerId`, `teamId`, `transform`, and all fields needed to reconstruct the queue event on the local room.
-
-```typescript
-// LockstepSimulationRunner — conceptual shape
-class LockstepSimulationRunner {
-  private localRoom: RtsRoom;
-  private inputLog: InputLog;
-  private tickIntervalId: ReturnType<typeof setInterval> | null = null;
-
-  start(tickMs: number): void {
-    this.tickIntervalId = setInterval(() => this.advanceTick(), tickMs);
-  }
-
-  applyQueuedEvent(event: BuildQueuedPayload | DestroyQueuedPayload): void {
-    this.inputLog.insert(event);
-  }
-
-  private advanceTick(): void {
-    const tick = this.localRoom.state.tick;
-    for (const event of this.inputLog.dueAt(tick)) {
-      if (isBuildQueued(event)) {
-        this.localRoom.queueBuildEvent(
-          event.playerId,
-          toBuildQueuePayload(event),
-        );
-      } else {
-        this.localRoom.queueDestroyEvent(
-          event.playerId,
-          toDestroyQueuePayload(event),
-        );
-      }
+```json
+{
+  "imports": {
+    "#bot-harness": {
+      "development": "./packages/bot-harness/index.ts",
+      "default": "./dist/packages/bot-harness/index.js"
+    },
+    "#balance-analysis": {
+      "development": "./packages/balance-analysis/index.ts",
+      "default": "./dist/packages/balance-analysis/index.js"
     }
-    this.localRoom.tick();
   }
 }
 ```
 
-### Pattern 2: Bounded Input Log for Reconnect Replay
-
-**What:** Every relayed `build:queued`/`destroy:queued` event accepted by the server is appended to a bounded ring buffer keyed by tick. On reconnect, the server sends the most recent `lockstep:checkpoint` snapshot tick plus all events from that tick forward. The client hydrates its local room from the snapshot and replays the input log to advance to the current server tick.
-
-**When to use:** For reconnect within the hold window, and for desync recovery when a fallback full-state snapshot is received.
-
-**Trade-offs:** The input log only needs to retain events from the last snapshot checkpoint tick forward, not the entire match history. Buffer size is bounded by `Math.ceil(reconnectHoldMs / tickMs) + checkpointIntervalTicks`.
-
-**Existing leverage:** Server already maintains `lockstepRuntime.checkpoints[]` capped at 16 entries — the latest provides the snapshot anchor tick. `room:joined` already delivers full state.
-
-```typescript
-// New type in socket-contract.ts
-export interface LockstepInputLogEntry {
-  kind: 'build' | 'destroy';
-  executeTick: number;
-  payload: BuildQueuedPayload | DestroyQueuedPayload;
-}
-
-export interface LockstepInputLogPayload {
-  roomId: string;
-  fromTick: number; // tick of the accompanying state snapshot
-  toTick: number; // current server tick at time of reconnect
-  entries: LockstepInputLogEntry[];
+New TypeScript path mappings in `tsconfig.json`:
+```json
+{
+  "include": ["apps/server/src/**/*", "packages/**/*", "tests/**/*.ts"]
 }
 ```
 
-### Pattern 3: Hash Checkpoint as Desync Circuit Breaker
-
-**What:** Server emits `lockstep:checkpoint` at `checkpointIntervalTicks` (already wired). Client computes `localRoom.createDeterminismCheckpoint()` at the matching tick and compares the hash. On mismatch: client emits `state:request`; server sends full state; client resets its local room from the server snapshot and resumes.
-
-**When to use:** Always active during lockstep mode. No per-tick hashing needed.
-
-**Trade-offs:** Catch-and-recover is coarser than per-tick but avoids per-tick overhead. Mismatches indicate a bug, not normal operation — the checkpoint interval determines how far a desync can drift before detection.
-
-**Existing leverage:** `RtsRoom.createDeterminismCheckpoint()` returns `{ tick, generation, hashAlgorithm, hashHex }`. The `DesyncDetector` is a thin module: receive checkpoint, call local room method, compare, signal if different.
-
-### Pattern 4: Client-Side Event Rejection Via Local Engine
-
-**What:** The local `LockstepSimulationRunner` applies each `build:queued` event by calling `localRoom.queueBuildEvent()` on the local room. The local room validates the event using the same deterministic engine rules as the server. If the local engine rejects an event that the server accepted (or vice versa), the client is desynced and requests a resync.
-
-**When to use:** Standard operation. The `build:outcome`/`destroy:outcome` payloads (carrying `outcome: 'applied' | 'rejected'` and `eventId`) can be used to cross-validate the client's local decision against the server's authoritative outcome.
-
-**Trade-offs:** Client simulation enforces legality rather than blindly applying events. This avoids displaying effects that the server would not have applied. The `build:outcome`/`destroy:outcome` events become cross-checks rather than the primary rendering trigger.
-
----
-
-## Data Flow Changes
-
-### Before Lockstep (Current v0.0.2 State-Broadcast Model)
-
-```
-[Player input]
-     |
-     v
-build:queue / destroy:queue --> Server validates --> queueBuildEvent()
-                                                          |
-                                               build:queued (broadcast)
-                                               build:outcome (broadcast)
-                                                          |
-                              Server tick() runs --> emitRoomState() (periodic heartbeat)
-                                                          |
-                                Client receives full state each heartbeat, renders
-```
-
-### After Lockstep (v0.0.3 Input-Relay Model)
-
-```
-[Player input]
-     |
-     v
-build:queue / destroy:queue --> Server validates --> queueBuildEvent() + store in InputLog
-                                                          |
-                                    build:queued (broadcast to ALL clients including sender)
-                                    [build:outcome SUPPRESSED in lockstep primary mode
-                                     OR scoped to originating client only as confirmation]
-                                    [emitRoomState() heartbeat SUPPRESSED in lockstep mode]
-                                                          |
-Client A receives build:queued --> InputLog.insert(event)
-Client B receives build:queued --> InputLog.insert(event)
-                                                          |
-[Client tick loop: both clients call localRoom.tick() at tickMs interval]
-[At executeTick: both call queueBuildEvent() on local room, then tick()]
-[Both local rooms produce identical tick results deterministically]
-                                                          |
-Server tick() still runs authoritatively (no broadcast)
-At checkpointIntervalTicks --> lockstep:checkpoint (hash broadcast)
-                                                          |
-Client A: DesyncDetector compares local hash to checkpoint hash
-Client B: DesyncDetector compares local hash to checkpoint hash
-If mismatch --> state:request --> server emits full state --> client resets local room
-```
-
-### Reconnect Flow
-
-```
-Client disconnects (hold timer starts on server)
-     |
-     v
-Client reconnects within hold window
-     |
-     v
-Server: room:joined with state snapshot at tick T
-        + LockstepInputLogPayload (entries from tick T to current tick T_now)
-     |
-     v
-Client: ReconnectReplayEngine.hydrate(state, inputLog)
-  1. Reconstruct RtsRoom from state snapshot (Grid.fromPacked + team state)
-  2. For each entry in inputLog from tick T to T_now:
-       At entry.executeTick: queueBuildEvent() or queueDestroyEvent() on local room
-       tick() forward one step
-  3. At T_now: local room matches authoritative server state
-     |
-     v
-Client resumes normal lockstep simulation loop
-```
-
----
-
-## Integration Points: New vs Modified
-
-### New Components (Must Build)
-
-| Component                   | Location                                 | Depends On                                                        | Test Location                                         |
-| --------------------------- | ---------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------- |
-| `LockstepSimulationRunner`  | `apps/web/src/`                          | `RtsRoom` via `#rts-engine`, `InputLog`                           | `tests/web/lockstep-simulation-runner.test.ts`        |
-| `InputLog`                  | `apps/web/src/`                          | `BuildQueuedPayload`, `DestroyQueuedPayload`                      | `tests/web/lockstep-input-log.test.ts`                |
-| `DesyncDetector`            | `apps/web/src/`                          | `LockstepCheckpointPayload`, `LockstepSimulationRunner`           | `tests/web/lockstep-desync-detector.test.ts`          |
-| `ReconnectReplayEngine`     | `apps/web/src/`                          | `LockstepSimulationRunner`, `InputLog`, `LockstepInputLogPayload` | `tests/integration/server/lockstep-reconnect.test.ts` |
-| `LockstepInputLogPayload`   | `packages/rts-engine/socket-contract.ts` | `BuildQueuedPayload`, `DestroyQueuedPayload`                      | Used in integration tests                             |
-| Bounded input log in server | `apps/server/src/server.ts`              | `LockstepRuntimeState`                                            | `tests/integration/server/lockstep-reconnect.test.ts` |
-
-### Modified Components (Existing, Targeted Changes)
-
-| Component                          | What Changes                                                                                                                                                                                                                                     | Risk                                                                                                                |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- | ------------------- |
-| `server.ts` tick loop              | Suppress `emitRoomState()` when lockstep primary mode is active. The conditional `emitActiveStateSnapshot` already exists — add a mode check.                                                                                                    | LOW                                                                                                                 |
-| `server.ts` build/destroy handlers | Already emit `build:queued`/`destroy:queued` to room channel. Decide: suppress `build:outcome`/`destroy:outcome` in lockstep primary mode, or scope to originating client only.                                                                  | MEDIUM                                                                                                              |
-| `server.ts` reconnect join         | Add `inputLog?: LockstepInputLogPayload` to the `room:joined` payload when lockstep is active. Server must maintain a bounded ring buffer of relayed events.                                                                                     | MEDIUM                                                                                                              |
-| `socket-contract.ts`               | Add `LockstepInputLogPayload` interface. Add optional `kind: 'build'                                                                                                                                                                             | 'destroy'`discriminant or a new union type for input log entries. Extend`RoomJoinedPayload`with optional`inputLog`. | LOW — additive only |
-| `client.ts`                        | Wire `build:queued`/`destroy:queued` handlers to `InputLog` when lockstep active. Stop applying full state on every `build:outcome`/`destroy:outcome` when local simulation is running. Preserve non-lockstep state-broadcast path for fallback. | HIGH — largest web change                                                                                           |
-
-### Untouched Components
-
-- `packages/rts-engine/rts.ts` — No changes needed. All primitives (`tick()`, `queueBuildEvent()`, `queueDestroyEvent()`, `createDeterminismCheckpoint()`, `createStatePayload()`, `fromState()`) are already suitable.
-- `packages/conway-core/` — No changes needed. `Grid.step()` and `Grid.toPacked()`/`fromPacked()` are already deterministic.
-- Existing `socket-contract.ts` lockstep types — `LockstepCheckpointPayload`, `LockstepFallbackPayload`, `LockstepStatusPayload` are fully usable as-is.
-- `apps/server/src/lobby-session.ts` — No changes needed.
-- `apps/server/src/server-room-broadcast.ts` — No changes needed unless input log emission is added here.
-- All existing non-lockstep integration tests — Must continue to pass unchanged.
-
----
-
-## Build Order (Dependency-Driven)
-
-**1. Package contract extension (additive, no behavior change)**
-
-- Add `LockstepInputLogPayload` and `LockstepInputLogEntry` to `socket-contract.ts`
-- Add optional `inputLog` field to `RoomJoinedPayload`
-- Unit test: contracts compile and are exported via `#rts-engine`
-
-**2. Client InputLog (pure module, testable in isolation)**
-
-- `apps/web/src/lockstep-input-log.ts`: insert by `executeTick`, `dueAt(tick)`, bounded ring
-- `tests/web/lockstep-input-log.test.ts`: sorted ordering, boundary correctness
-
-**3. LockstepSimulationRunner (depends on InputLog + RtsRoom)**
-
-- `apps/web/src/lockstep-simulation-runner.ts`: drives `tick()`, applies dueAt events, exposes local room state
-- `tests/web/lockstep-simulation-runner.test.ts`: advance N ticks with known events, assert determinism matches `RtsEngine.tickRoom()`
-
-**4. DesyncDetector (depends on LockstepSimulationRunner)**
-
-- `apps/web/src/lockstep-desync-detector.ts`: receive checkpoint, compare hash, emit desync signal
-- `tests/web/lockstep-desync-detector.test.ts`: matching hash passes silently; mismatched hash triggers signal
-
-**5. Server-side bounded input log**
-
-- Add ring buffer to `LockstepRuntimeState` accumulating relayed events
-- On `build:queued`/`destroy:queued` emission: also append to log
-- `tests/integration/server/lockstep-client-sim.test.ts`: server emits events; client simulation runner produces same hash as server checkpoint
-
-**6. ReconnectReplayEngine + server reconnect payload**
-
-- `apps/web/src/lockstep-reconnect-engine.ts`: hydrate from snapshot, replay log, resume
-- Server: attach bounded input log to `room:joined` for reconnecting clients
-- `tests/integration/server/lockstep-reconnect.test.ts`: disconnect mid-match; reconnect; local state converges
-
-**7. State broadcast suppression**
-
-- Suppress `emitRoomState()` heartbeat when lockstep primary mode active
-- Decide and implement `build:outcome`/`destroy:outcome` scoping
-- `tests/integration/server/lockstep-client-sim.test.ts`: no full-state broadcast during active lockstep ticks
-
-**8. Client wiring in client.ts**
-
-- Wire `build:queued`/`destroy:queued` to `InputLog` when lockstep active
-- Stop applying state-update-on-outcome when local simulation is running
-- Preserve non-lockstep fallback path
-- Existing integration tests must remain green
-
----
-
-## Anti-Patterns
-
-### Anti-Pattern 1: Driving Client Tick Loop From Wall Clock Without Server tickMs
-
-**What people do:** Create a `setInterval(() => tick(), 100)` hardcoded in the client.
-
-**Why it is wrong:** Wall-clock drift between server and client means the client's local tick counter diverges from `executeTick` values in relayed events. Events applied at the wrong tick produce different game state and checkpoint mismatch on every comparison.
-
-**Do this instead:** Initialize `LockstepSimulationRunner` with the `tickMs` value from `room:joined`. Start the interval on `room:match-started`. Stop and reset on `room:match-finished` or `room:left`. The interval drives local tick advancement, and `executeTick` from the server is the canonical gate for applying each event.
-
-### Anti-Pattern 2: Embedding Simulation State Directly in client.ts
-
-**What people do:** Add `localRoom`, `inputLog`, and `desyncDetector` as closures inside `client.ts`'s existing socket handler block.
-
-**Why it is wrong:** `client.ts` already requires DOM, canvas, and Socket.IO to instantiate. Mixing simulation logic into it makes the simulation runner impossible to unit test in isolation. `tests/web/` tests run in Node.js without a browser.
-
-**Do this instead:** Implement `LockstepSimulationRunner`, `InputLog`, `DesyncDetector`, and `ReconnectReplayEngine` as standalone, pure-logic modules. Test them in `tests/web/` with synthetic `RtsRoom` instances. Wire them into `client.ts` via simple function calls or constructor injection — `client.ts` stays as the orchestrator, not the simulation host.
-
-### Anti-Pattern 3: Removing build:outcome / destroy:outcome Broadcasts Instead of Suppressing
-
-**What people do:** Delete the `emitBuildOutcomes`/`emitDestroyOutcomes` calls from the server tick loop when enabling lockstep.
-
-**Why it is wrong:** The existing handlers in `client.ts` support the non-lockstep fallback mode (`lockstepMode: 'off'` or after `lockstep:fallback`). Removing the emissions breaks fallback recovery. The `build:outcome` payload carries `resolvedTick` and `eventId` which the desync detector needs for cross-validation.
-
-**Do this instead:** Suppress or scope (to originating client only) rather than remove. When `lockstep:fallback` is received, client reverts to the full-state-broadcast path, and `build:outcome` emissions resume their original role.
-
-### Anti-Pattern 4: Unbounded Server Input Log
-
-**What people do:** Accumulate all `build:queued`/`destroy:queued` events in an unbounded array on the server for the lifetime of the match.
-
-**Why it is wrong:** Matches run for thousands of ticks. An unbounded log grows until the match ends. The log is only needed to cover the reconnect window.
-
-**Do this instead:** Maintain a ring buffer bounded by `Math.ceil(reconnectHoldMs / tickMs) + checkpointIntervalTicks` entries. On reconnect, attach the most recent checkpoint snapshot tick and all events from that tick forward. The `checkpoints[]` array already retained in `lockstepRuntime` provides the anchor.
-
-### Anti-Pattern 5: Testing Client Simulation Only Via Integration Tests
-
-**What people do:** Test `LockstepSimulationRunner` correctness through full server + socket integration tests.
-
-**Why it is wrong:** Determinism bugs in the client simulation are hard to reproduce in integration tests because they depend on exact event ordering and tick timing. Integration tests are also slow to iterate on.
-
-**Do this instead:** Test the simulation runner in `tests/web/` with synthetic `RtsRoom` instances via `RtsEngine.createRoom()`. Advance both a server-side room and a local client room with the same event sequence and assert identical `createDeterminismCheckpoint()` outputs at each tick.
-
----
-
-## Scaling Considerations
-
-| Scale                         | Architecture Adjustments                                                                                                                                                                        |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Current prototype (2 players) | Input log ring buffer is tiny (reconnectHoldMs=30s, tickMs=100ms = 300 entries max). Full state snapshot on join is acceptable.                                                                 |
-| Larger maps or tick rates     | Grid `toPacked()` / `fromPacked()` is already bit-packed; snapshot size is bounded by grid dimensions, not tick count. No changes needed for lockstep.                                          |
-| Spectators                    | Spectators can receive `build:queued`/`destroy:queued` relay events and run local simulation without queue write access. Requires no architecture changes — they just don't call `build:queue`. |
-
----
-
-## Confidence Assessment
-
-| Area                                    | Confidence | Notes                                                                                                   |
-| --------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------- |
-| Existing server lockstep infrastructure | HIGH       | Direct read of server.ts — turnBuffer, shadowRoom, checkpoints, checkpoint emission all confirmed       |
-| Existing RtsRoom determinism primitives | HIGH       | Direct read of rts.ts — tick(), queueBuildEvent(), createDeterminismCheckpoint() all confirmed suitable |
-| socket-contract.ts extensibility        | HIGH       | Direct read — all existing types confirmed; additions are purely additive                               |
-| Client simulation runner pattern        | HIGH       | Standard lockstep literature pattern + `#rts-engine` already importable in web confirmed                |
-| Input log reconnect pattern             | MEDIUM     | Pattern is well-established; exact buffer sizing needs profiling in implementation                      |
-| State broadcast suppression             | HIGH       | `emitActiveStateSnapshot` conditional already exists in server.ts tick loop                             |
+The existing `include` glob already covers `packages/**/*`, so new packages are automatically included.
 
 ---
 
 ## Sources
 
-- [Deterministic Lockstep | Gaffer On Games](https://gafferongames.com/post/deterministic_lockstep/) — input delay buffer, acknowledgment pattern, redundant transmission
-- [Netcode Architectures Part 1: Lockstep | SnapNet](https://www.snapnet.dev/blog/netcode-architectures-part-1-lockstep/) — bitwise determinism requirement, reconnect via snapshot vs input history
-- [Game Networking Demystified, Part III: Lockstep | Ruoyusun](https://ruoyusun.com/2019/04/06/game-networking-3.html) — relay server role, input-only transport, anti-cheat via commitment
-- [Deterministic Simulation for Lockstep Multiplayer Engines | Daydreamsoft](https://www.daydreamsoft.com/blog/deterministic-simulation-for-lockstep-multiplayer-engines) — bandwidth benefits, state checksum desync detection
-- Direct codebase analysis: `apps/server/src/server.ts` (confirmed LockstepRuntimeState, tick loop, emitActiveStateSnapshot), `packages/rts-engine/rts.ts` (confirmed tick(), queueBuildEvent(), createDeterminismCheckpoint()), `packages/rts-engine/socket-contract.ts` (confirmed all lockstep payload types)
-
----
-
-_Architecture research for: v0.0.3 Deterministic Lockstep Protocol, Conway RTS TypeScript prototype_
-_Researched: 2026-03-29_
+- [SB3 ONNX Export Documentation](https://stable-baselines3.readthedocs.io/en/master/guide/export.html) (HIGH confidence)
+- [onnxruntime-node npm](https://www.npmjs.com/package/onnxruntime-node) (HIGH confidence)
+- [ONNX Runtime JavaScript API](https://onnxruntime.ai/docs/get-started/with-javascript/node.html) (HIGH confidence)
+- [glicko2.ts](https://github.com/animafps/glicko2.ts) (MEDIUM confidence — working library, but GPL-3.0 license needs consideration)
+- [glicko-two (TypeScript)](https://github.com/ReedD/glicko-two) (MEDIUM confidence — alternative if GPL is a concern)
+- [ppo-tfjs](https://github.com/zemlyansky/ppo-tfjs) (LOW confidence — evaluated and rejected for training)
+- [RL.ts](https://github.com/StoneT2000/rl-ts) (LOW confidence — Gym interface reference, not production-ready)
+- [SIMPLE Self-Play Pattern](https://towardsdatascience.com/training-an-agent-to-master-a-simple-game-through-self-play-88bdd0d60928/) (MEDIUM confidence — architecture reference)
+- [Hugging Face Self-Play Guide](https://huggingface.co/learn/deep-rl-course/en/unit7/self-play) (MEDIUM confidence — training strategy reference)
+- [37 Implementation Details of PPO](https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/) (HIGH confidence — hyperparameter guidance)
+- Codebase analysis of `packages/rts-engine/rts.ts`, `packages/conway-core/grid.ts`, `apps/server/src/server.ts` (HIGH confidence)

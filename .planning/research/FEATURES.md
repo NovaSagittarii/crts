@@ -1,171 +1,375 @@
-# Feature Research
+# Feature Landscape
 
-**Domain:** Deterministic lockstep networking protocol — Conway RTS prototype v0.0.3
-**Researched:** 2026-03-29
-**Confidence:** HIGH (v0.0.3 scope is defined in PROJECT.md; server-side lockstep infrastructure already exists and was inspected; domain research from authoritative sources confirmed)
+**Domain:** RL Bot Harness, Balance Analysis & Structure Ratings for Conway RTS
+**Researched:** 2026-03-30
+**Confidence:** HIGH (features derived from PROJECT.md requirements; observation/action/reward design informed by Gym-MicroRTS, AlphaGo, GridNet, and SB3 documentation; Glicko-2 application validated by IEEE gaming analytics literature; all mapped to existing RtsEngine API surface)
 
-## Context
+---
 
-This milestone migrates the existing full-state-broadcast protocol to deterministic lockstep. The server already has a substantial lockstep infrastructure (`LockstepMode`, turn buffering, shadow simulation, checkpoint events, fallback reasons). The gaps are on the **client side**: clients currently receive full state every tick and render from it. v0.0.3 makes clients run the simulation locally and only exchange inputs.
+## Table Stakes
 
-Existing features NOT re-implemented in v0.0.3 (already shipped):
+Features that developers running balance analysis and training bots expect. Missing any = the milestone deliverable is non-functional.
 
-- Server-side turn buffering and turn boundary tracking
-- `lockstep:checkpoint` and `lockstep:fallback` socket events
-- Shadow simulation mode (server runs a second RTS room to verify hash parity)
-- Periodic authoritative state snapshots at configurable intervals
-- Reconnect-safe full state snapshot on `room:joined`
-- Hash-based desync detection with FNV1a-32 hashing for grid, structures, and economy
+| Feature | Why Expected | Complexity | RtsEngine API Dependency | Notes |
+|---------|--------------|------------|--------------------------|-------|
+| Headless match runner | Cannot train bots without rendering-free game execution at max speed | Low | `RtsRoom.create()`, `RtsRoom.tick()`, `addPlayer()`, `RoomTickResult.outcome` | RtsRoom already supports headless deterministic ticks. Wrap in a match-runner loop that handles lobby-to-active-to-finished lifecycle without Socket.IO. No tick timer during training (run as fast as CPU allows). |
+| Observation encoder | RL agent needs structured numeric input representing game state; must be deterministic (same RoomState + teamId = same output) | Medium | `RoomState.grid` (Uint8Array via `Grid.toUnpacked()`), `TeamState.resources/income/structures/defeated`, `pendingBuildEvents`, `pendingDestroyEvents`, `TeamState.baseTopLeft`, `TeamState.territoryRadius` | Encode as multi-plane tensor `(H, W, C)` following AlphaGo/Gym-MicroRTS conventions. See detailed design below. |
+| Action decoder | ML model outputs must map to game actions (`BuildQueuePayload` / `DestroyQueuePayload`) | Medium | `RtsRoom.queueBuildEvent()`, `RtsRoom.queueDestroyEvent()`, `RoomState.templateMap` (5 templates: block, generator, glider, eater-1, gosper), `PlacementTransformState` | MultiDiscrete: (action_type, template_id, grid_x, grid_y, transform_index) for builds + (structure_index) for destroys + no-op. Must mask invalid actions per decision step. |
+| Reward signal (terminal: win/loss) | Terminal reward is the minimum viable signal for competitive training | Low | `RoomTickResult.outcome`, `MatchOutcome.winner`, `RankedTeamOutcome` | +1.0 win, -1.0 loss. Sparse but essential baseline. |
+| Reward shaping (economy/territory/damage) | Sparse win/loss alone makes PPO training prohibitively slow for RTS games due to delayed credit assignment | Medium | `TeamState.resources`, `TeamState.income`, `TeamIncomeBreakdown`, `TeamOutcomeSnapshot.territoryCellCount`, core `Structure.hp` | Economy delta, territory delta, opponent core damage per tick. Anneal shaping coefficient from 1.0 to 0.0 over training to prevent reward hacking. See detailed design below. |
+| Gym-like environment wrapper | Standard `reset()`/`step()` interface that the training pipeline consumes | Low | Thin orchestration over HeadlessMatchRunner + ObservationEncoder + ActionDecoder + RewardSignal | Follows Gymnasium pattern. `reset()` creates new match, `step(action)` advances N ticks. Returns `(obs, reward, terminated, truncated, info)`. |
+| Self-play match loop | Standard method for competitive RL without requiring external opponents | Medium | Headless match runner + environment wrapper | Pit current policy vs. frozen snapshot from opponent pool. Minimum: play current vs. latest frozen. Use SIMPLE framework pattern. |
+| PPO training loop (Python) | PPO is the standard algorithm; Python ecosystem (SB3/CleanRL/gymnasium) is vastly more mature than any JS alternative | High | None directly; consumes observation/reward from Gym environment via IPC | Train in Python with Stable-Baselines3 (`PPO("MlpPolicy", env)`). TypeScript headless env communicates via stdin/stdout JSON lines or subprocess pipe. |
+| ONNX model export | Bridge between Python training and TypeScript inference | Low | None | `torch.onnx.export()` from SB3's `OnnxableSB3Policy` wrapper. Produces `.onnx` file. Well-documented in SB3 export guide (opset 17). |
+| ONNX inference in Node.js | Bot must run in the existing Node.js server ecosystem | Low-Medium | `onnxruntime-node` npm package (native C++ bindings, Node.js v16+) | Load `.onnx` model, feed observation Float32Array, get action logits. Apply action mask, argmax or sample. |
+| Playable in-game bot (Socket.IO adapter) | Bots must be indistinguishable from human players on the wire | Medium | Full `ClientToServerEvents`/`ServerToClientEvents` socket contract: `room:join`, `room:claim-slot`, `room:set-ready`, `build:queue`, `destroy:queue`, `room:joined`, `state`, `build:queued` | Bot connects as a `socket.io-client`, receives game events, runs inference each decision interval, emits actions. Wraps inference runtime with socket lifecycle. |
+| Match result logging | Cannot analyze balance without persistent match outcome data | Low | `MatchOutcome`, `RankedTeamOutcome`, `TeamOutcomeSnapshot`, `TimelineEvent` via `RtsRoom.getTimelineEvents()` | Store per-match: teams, templates used, build sequences, tick count, winner, core HP at end. NDJSON file or SQLite. |
+| Win rate computation | Most fundamental balance metric | Low | Match result logs (no direct engine dependency) | Aggregate win rates by template usage, opening strategy, map size. Filter by minimum sample size for significance. |
 
-## Feature Landscape
+---
 
-### Table Stakes (Protocol Correctness — Must Have)
+## Differentiators
 
-These behaviors define whether lockstep is "working." Missing any makes the migration non-functional.
+Features that elevate this from "basic bot" to "balance analysis platform." Not strictly required for a working bot, but deliver high analytical value.
 
-| Feature                                                                     | Why Expected                                                                                                                                                                                                                          | Complexity | Notes                                                                                                                                                                                                                                                              |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `CLIENT-SIM`: Client-side deterministic simulation                          | Core lockstep requirement: clients run `Grid.step()`, economy tick, build/destroy processing locally each tick. Without this, input-only transport has no consumer on the client side.                                                | HIGH       | Engine is already deterministic in `packages/rts-engine`. Client needs to import and invoke `RtsRoom` tick locally. Must preserve existing tick order (economy → build apply → grid step → integrity → outcome).                                                   |
-| `INPUT-TRANSPORT`: Input-only transport — no full-state broadcasts per tick | Lockstep's primary bandwidth benefit. Server relays queued events only (`build:queued`, `destroy:queued`, `build:outcome`, `destroy:outcome`) and suppresses per-tick `state` broadcasts during active matches.                       | HIGH       | Server already has `state` emission on every tick. Active match tick handler must gate `state` broadcast on lockstep mode. Clients must use their local simulation state for rendering instead of waiting for server state.                                        |
-| `HASH-CHECKPOINT`: Hash-based desync detection at lockstep checkpoints      | Standard lockstep practice since Age of Empires. Clients compute state hash at checkpoint turns and verify against server's `lockstep:checkpoint` broadcasts. Mismatch = desync.                                                      | MEDIUM     | Server already emits `lockstep:checkpoint` with `hashHex`. Client needs to compute the same `RoomDeterminismCheckpoint` hash locally and compare. Infrastructure (FNV1a-32 hash over grid+structures+economy) is already in `rts.ts`.                              |
-| `DESYNC-FALLBACK`: Fallback to authoritative state on hash mismatch         | When desync is detected, client must re-sync from server's authoritative state. Prevents silent divergence.                                                                                                                           | MEDIUM     | Server already broadcasts `lockstep:fallback` with reason. Client must handle `lockstep:fallback` by requesting a full state resync (`state:request`) and resetting local simulation from that snapshot.                                                           |
-| `RECONNECT-SNAPSHOT`: Reconnect via state snapshot + input replay           | Reconnecting player gets full state snapshot at join time, then replays any buffered inputs to reach current turn.                                                                                                                    | MEDIUM     | Server already sends full `state` in `room:joined`. The new requirement is that the client must reconstitute a live `RtsRoom` from that snapshot and continue running locally rather than waiting for per-tick broadcasts.                                         |
-| `CLIENT-REJECT`: Client-side event rejection                                | Clients independently reject queued events that are no longer valid at process time (e.g., build rejected because another event consumed the resources first). Prevents clients from applying stale accepted-then-invalidated events. | MEDIUM     | Server already sends `build:outcome` and `destroy:outcome` with accepted/rejected status. Client simulation must apply these outcomes at the correct tick using `executeTick` from `BuildQueuedPayload`/`DestroyQueuedPayload`.                                    |
-| `TICK-ALIGN`: Client tick clock aligned to server turn boundaries           | Clients must advance their local simulation on the same logical ticks as the server. Without this, local simulation diverges purely from timing.                                                                                      | HIGH       | Server tracks `nextTurn`, `turnLengthTicks`, `bufferedTurn`, `scheduledByTurn` per queued event. Client must receive these values and use them to sequence local simulation steps. `LockstepStatusPayload` is already sent in `room:joined` and `room:membership`. |
+| Feature | Value Proposition | Complexity | RtsEngine API Dependency | Notes |
+|---------|-------------------|------------|--------------------------|-------|
+| Action masking in policy network | Prevents agent from wasting samples on illegal actions (out-of-zone placements, unaffordable templates), dramatically improving sample efficiency | Medium | `RtsRoom.previewBuildPlacement()` (`accepted` + `reason`), `TeamState.resources` for affordability check, `collectBuildZoneContributors()` + `isBuildZoneCoveredByContributor()` for zone coverage | Without masking, raw build action space is ~2.6M on a 256x256 map (5 templates * 256 * 256 * 8 transforms). Masking reduces to hundreds of valid options per step. |
+| Glicko-2 structure template ratings | Rate individual structure templates (block, generator, glider, eater-1, gosper) by competitive strength using a principled probabilistic system, not just raw win rate | Medium | `TeamState.structures` (template IDs per team), match outcomes | Use `glicko2.ts` npm package (TypeScript-native). Each template becomes a Glicko-2 entity. Rating Deviation reveals how well-tested each template is. Volatility reveals context-dependence. |
+| Glicko-2 combo ratings | Rate specific template combinations as composite entities, revealing emergent synergies and dominated strategies | High | Same as above but requires defining combo identifiers from build sequences | Map each team's build history to a canonical combo signature (order-independent multiset, e.g., `block:3,generator:2`). Only rate combos appearing >= 5 times. |
+| Strategy distribution analysis | Identify whether the metagame is diverse or collapsed to a single dominant strategy | Medium | Match logs + template/combo frequencies | Compute pick rate, usage-weighted win rate, Shannon entropy over combo frequencies. High entropy = healthy diverse meta. Low entropy = degenerate. |
+| Self-play opponent pool with prioritized sampling | Training against mixed opponent strengths prevents catastrophic forgetting and promotes robust play | Medium | Self-play loop | Maintain pool of frozen policy snapshots with Glicko-2 ratings. Sample proportional to rating (stronger = more likely). Standard practice from AlphaZero/SIMPLE. 50% latest + 30% historical + 20% random is a good starting split. |
+| Intransitivity detection | Discover rock-paper-scissors dynamics among templates/combos (desirable for strategic depth) | High | Pairwise win rate matrix from match logs | Build pairwise win rate matrix. Detect directed cycles. Some intransitivity is good (creates metagame cycling); extreme intransitivity is opaque. |
+| Snowball curve analysis | Measure whether early economic advantages are insurmountable | Medium | `TeamState.resources` time series, `TimelineEvent` timestamps, match outcomes | Pearson correlation between "resource lead at tick N" and final outcome. High correlation at low N = steep snowball. Current economy: `DEFAULT_STARTING_RESOURCES=40`, generator income 1/tick. |
+| Per-map balance metrics | Ensure balance holds across different grid sizes since spawn distance varies | Low | `CreateRoomOptions.width/height`, `SPAWN_MIN_WRAPPED_DISTANCE = 25` | Run tournaments at multiple map sizes (64x64, 128x128, 256x256). Report win rates and distributions per map. |
+| Configurable reward weights | Iterate on reward design without code changes. Different reward configs produce different play styles. | Low | Reward config is a plain object passed to RewardSignal class | Enables rapid experimentation. |
+| Curriculum training schedule | Progressively increase opponent difficulty and fade out reward shaping | Medium | Training pipeline configuration | Phase 1: random opponents + full shaping. Phase 2: weak snapshots + declining shaping. Phase 3: recent snapshots + pure win/loss. |
+| Determinism hash verification for bot matches | Ensure bot-driven headless matches maintain identical determinism guarantees as human lockstep matches | Low | `RtsRoom.createDeterminismCheckpoint()`, `RoomDeterminismCheckpoint` | Reuses existing FNV1a-32 hashing infrastructure. Critical for reproducible balance analysis. |
+| Replay/trajectory storage | Save full action sequences for offline analysis and debugging of surprising bot behavior | Low-Medium | `InputLogEntry` from `input-event-log.ts`, `TimelineEvent` | Store complete input log per match. Enables deterministic replay and counterfactual analysis. |
+| Bot difficulty levels | Multiple ONNX models from different training checkpoints (early = easy, late = hard) | Low | Just load different `.onnx` files | No code changes needed. Natural byproduct of checkpoint-based training. |
+| Strategy profile extraction | Classify each match's play style (e.g., "generator rush", "defensive block", "gosper push") for richer Glicko-2 analysis | Medium | Build order, timing, template distribution from match logs | Heuristic classification. Enriches balance reports beyond raw template counts. |
 
-### Differentiators (Valuable but Not Required for Correctness)
+---
 
-These make the lockstep experience noticeably better but the protocol still works without them.
+## Anti-Features
 
-| Feature                                                                          | Value Proposition                                                                                                                                                                                                              | Complexity | Notes                                                                                                                                                                                                                                                                                            |
-| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `SHADOW-VERIFY`: Shadow simulation mode (server runs a parallel RTS room)        | Allows server to detect hash mismatches without waiting for client-reported hashes. Catches desyncs that a client would silently absorb.                                                                                       | HIGH       | Already implemented server-side (`shadowRoom` in `LockstepRuntimeState`, `shadow-unavailable` fallback reason). Client value is in the fallback signal quality — shadow provides mismatches proactively rather than reactively. Client-side: handle `fromMode: 'shadow'` in `lockstep:fallback`. |
-| `INPUT-ACK`: Input confirmation round-trip with `bufferedTurn`/`scheduledByTurn` | Clients can show "queued but not yet confirmed" state precisely rather than optimistically applying immediately. Prevents misleading preview states when an event is accepted at queue time but executed several turns later.  | MEDIUM     | Already present in `BuildQueuedPayload` and `DestroyQueuedPayload` via `bufferedTurn`, `scheduledByTurn`, `executeTick`. Client just needs to render pending-until-turn states correctly.                                                                                                        |
-| `STATE-REQUEST-GATE`: Hash-gated state request deduplication                     | Server already deduplicates `state:request` responses by hash so unchanged sections aren't re-sent. Reduces bandwidth on reconnect where client re-requests sections that haven't changed.                                     | LOW        | Already implemented in `shouldServeStateRequest` in `server.ts`. Client benefit: safe to call `state:request` aggressively on reconnect without worrying about flooding.                                                                                                                         |
-| `CHECKPOINT-REPLAY`: Checkpoint replayed to reconnecting client                  | Reconnecting clients receive the last confirmed checkpoint hash immediately in `room:joined.lockstep.lastPrimaryHash`, then receive the next checkpoint event shortly after. Makes client hash comparison easier to bootstrap. | LOW        | Already implemented (integration test `lockstep-reconnect-diagnostics.test.ts` verifies this). Client benefit: can immediately validate local simulation state after reconnect by comparing against the first received checkpoint.                                                               |
-| `TURN-BUFFER-OVERFLOW`: Graceful degradation on turn buffer overflow             | If the server's command buffer fills (e.g., a bot or test flooding inputs), the server falls back cleanly rather than corrupting state.                                                                                        | LOW        | Already implemented server-side (`turn-buffer-overflow` fallback reason). Client benefit: receive `lockstep:fallback` and resync rather than experiencing silent corruption.                                                                                                                     |
+Features to explicitly NOT build in v0.0.4.
 
-### Anti-Features (Explicitly Out of Scope for v0.0.3)
+| Anti-Feature | Why Avoid | What to Do Instead |
+|--------------|-----------|-------------------|
+| All-TypeScript PPO training | No viable TypeScript PPO library exists. TensorFlow.js supports basic RL but the Python ecosystem (SB3, CleanRL, gymnasium, PyTorch) is vastly more mature, better documented, and orders of magnitude faster. Would require months of ML framework development. | Train in Python (SB3 + PPO), export to ONNX, infer in Node.js via `onnxruntime-node`. |
+| Full client-side bot (browser inference) | `onnxruntime-web` is 11-17x slower than native per GitHub issue #11181. Adds WASM/WebGPU complexity, increases bundle size, provides no balance-analysis value. | Bot runs server-side in Node.js only. Browser bots are a future milestone if needed for single-player. |
+| Real-time training during live matches | Training requires thousands of episodes and gradient updates. Running updates during live matches would lag the server catastrophically. | Train offline in batch, deploy frozen ONNX model for live play. |
+| Visual replay viewer | High UI effort, low balance-analysis ROI. | Store replay data (input logs + timeline events). Viewer deferred to spectator mode milestone (already identified as `UX2-01` future candidate). |
+| Multi-agent training (>2 players per match) | The game is effectively 1v1 (one player per team). Multi-agent adds massive non-stationarity and credit assignment complexity. | Keep 1v1 self-play. HeadlessMatchRunner takes exactly 2 agents. |
+| Fog-of-war for bots | The game does not have fog-of-war yet (future candidate `UX2-01`). Simulating partial observability is premature. | Bots see full state, same as human players. Add fog support when the feature ships. |
+| GPU training support in Node.js | `@tensorflow/tfjs-node-gpu` has documented inconsistencies. Not worth the debugging effort. | Train in Python where CUDA support is reliable. Conway RTS is computationally cheap; CPU PPO is sufficient. |
+| Automated balance patching | Automatically adjusting game parameters (template costs, HP, income rates) based on balance metrics. | Produce analysis reports and recommendations. Human decides what to change. Automated patching risks unintended cascading effects. |
+| Neural architecture search / hyperparameter optimization | Premature optimization before basic PPO self-play is validated. | Use SB3 defaults: 2 hidden layers, 64 neurons each, tanh activation. Tune manually only if training clearly fails. |
+| Persistent player ELO leaderboard | No auth system exists. No persistent player identities to track. | Glicko-2 ratings are for structures/strategies, not players. Player ratings are out of scope per PROJECT.md. |
 
-| Feature                                                                    | Why Requested                                                                                            | Why Problematic                                                                                                                                                                                                   | Alternative                                                                                                                                                        |
-| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Client-predicted simulation (optimistic local apply before server confirm) | Faster perceived responsiveness — input effects appear immediately rather than after next confirmed turn | Violates lockstep's authority model: local prediction + server correction = rollback/reconciliation complexity that is explicitly excluded from scope in PROJECT.md. Also contradicts queue-only mutation design. | Keep server-authoritative queue model. Accept that build/destroy effects apply at `executeTick`, not at queue time. Use "pending" UI indicators to mask the delay. |
-| Rollback netcode                                                           | Compensates for high latency without input delay                                                         | Orthogonal architecture to lockstep; requires rewinding/replaying simulation state; incompatible with the existing queue-based mutation model                                                                     | Not for this prototype at this scale; lockstep with reasonable turn delay is sufficient                                                                            |
-| Peer-to-peer lockstep (direct client-to-client input relay)                | Eliminates server as relay bottleneck                                                                    | NAT traversal complexity, fog-of-war cheating vulnerability, and lag switch attacks. Project already uses server-relay model which is superior for a two-player TypeScript web game.                              | Keep server as the relay and validator. P2P adds no benefit here.                                                                                                  |
-| Replay/spectator mode                                                      | Observers want to watch matches; recordings enable post-game analysis                                    | Transport redesign (input-only) enables it technically, but it requires additional client state management and is explicitly deferred in PROJECT.md to a future milestone.                                        | Deferred. The input log structure will already support it once implemented.                                                                                        |
-| Dynamic input delay adjustment based on RTT                                | Smoother experience under variable latency                                                               | Adds adaptive clock management complexity. The current prototype runs two players locally or on low-latency connections. Not worth the complexity for the prototype scope.                                        | Use a fixed turn delay. This can be tuned as a server config value if needed.                                                                                      |
-| Full desync recovery (auto-resync without user-visible interruption)       | Seamless experience when hash mismatch occurs                                                            | State resync requires a full snapshot transfer which briefly freezes the simulation. Hard to make invisible. Supreme Commander and similar games show error dialogs and require quit.                             | Implement `lockstep:fallback` → `state:request` → resync cycle. Accept a brief visible pause. This is standard lockstep behavior.                                  |
-| Binary/protobuf transport encoding                                         | Reduced wire size for high-frequency input messages                                                      | Input-only lockstep with queue-based gameplay already uses very low bandwidth. JSON over Socket.IO is sufficient for a two-player prototype. Premature optimization.                                              | Keep JSON/Socket.IO. Revisit only if profiling identifies bandwidth as a bottleneck.                                                                               |
+---
 
 ## Feature Dependencies
 
 ```
-[Server lockstep infrastructure] (already exists: turn buffer, shadow sim, checkpoints, fallback)
-    └──required-by──> [CLIENT-SIM: client-side deterministic simulation]
-                           └──required-by──> [INPUT-TRANSPORT: suppress per-tick state broadcast]
-                           └──required-by──> [HASH-CHECKPOINT: client computes hash, compares to checkpoint]
-                           └──required-by──> [CLIENT-REJECT: client applies outcomes at executeTick]
-
-[CLIENT-SIM]
-    └──required-by──> [TICK-ALIGN: client clock follows server turn boundaries]
-
-[HASH-CHECKPOINT]
-    └──required-by──> [DESYNC-FALLBACK: fallback triggers state:request + simulation reset]
-
-[RECONNECT-SNAPSHOT]
-    └──depends-on──> [CLIENT-SIM] (reconnect only works if client can run simulation locally from snapshot)
-    └──depends-on──> [TICK-ALIGN] (must re-align clock to current turn after snapshot)
-
-[INPUT-TRANSPORT]
-    └──enhances──> [INPUT-ACK] (bufferedTurn/scheduledByTurn values become meaningful once client uses local sim)
-
-[SHADOW-VERIFY] (server-side, already exists)
-    └──observed-by──> [DESYNC-FALLBACK] (shadow mismatch triggers lockstep:fallback to client)
+HeadlessMatchRunner (foundation)
+  |
+  |-> ObservationEncoder (needs runner to provide RoomState)
+  |-> ActionDecoder (needs runner to submit actions via queueBuildEvent/queueDestroyEvent)
+  |-> RewardSignal (needs runner to provide RoomTickResult)
+  |     |
+  |     v
+  |   BotEnvironment [Gym-like wrapper] (wraps runner + encoder + decoder + reward)
+  |     |
+  |     |-> Python IPC Bridge (wraps BotEnvironment for SB3 consumption)
+  |     |     |
+  |     |     v
+  |     |   PPO Training Loop (consumes bridge, produces policy checkpoints)
+  |     |     |
+  |     |     |-> Curriculum Training Schedule (configures opponent difficulty + reward annealing)
+  |     |     |-> Self-Play Opponent Pool (stores/samples frozen snapshots)
+  |     |     |
+  |     |     v
+  |     |   ONNX Export (consumes trained PyTorch model)
+  |     |         |
+  |     |         v
+  |     |   TypeScript Inference Runtime (onnxruntime-node loads .onnx)
+  |     |         |
+  |     |         v
+  |     |   BotSocketAdapter (wraps inference + ObservationEncoder + ActionDecoder)
+  |     |
+  |     |-> Action Masking (enhances BotEnvironment, needs previewBuildPlacement + buildZone)
+  |
+  |-> MatchResultLogger (stores match outcomes from runner)
+  |     |
+  |     v
+  |   Win Rate Computation (aggregates match logs)
+  |     |
+  |     |-> Glicko-2 Template Ratings (rates individual templates from pairwise match data)
+  |     |     |
+  |     |     |-> Glicko-2 Combo Ratings (rates template combinations, needs sufficient volume)
+  |     |
+  |     |-> Strategy Distribution Analysis (entropy, pick rates)
+  |     |     |
+  |     |     |-> Intransitivity Detection (pairwise matrix cycles)
+  |     |
+  |     |-> Snowball Curve Analysis (resource trajectory correlation)
+  |     |-> Per-Map Balance Metrics (win rates per grid size)
+  |     |-> Balance Report (aggregates all analysis outputs)
+  |
+  |-> Determinism Hash Verification (reuses createDeterminismCheckpoint)
+  |-> Replay/Trajectory Storage (reuses InputLogEntry + TimelineEvent)
 ```
 
-### Dependency Notes
+**Key dependency chains:**
 
-- **`CLIENT-SIM` is the critical path**: all other v0.0.3 features depend on clients running simulation locally. Ship this first.
-- **`INPUT-TRANSPORT` must follow `CLIENT-SIM`**: suppressing `state` broadcasts before the client can simulate locally would break the client entirely.
-- **`HASH-CHECKPOINT` and `DESYNC-FALLBACK` are a pair**: detection without recovery leaves clients stuck in a diverged state. Implement together.
-- **`RECONNECT-SNAPSHOT` depends on `CLIENT-SIM` being correct**: reconnect bootstraps a local simulation from snapshot; if local sim is wrong, reconnect is also wrong.
-- **`TICK-ALIGN` is a precondition for correctness**: misaligned clocks will cause the local simulation to produce different results than the server, producing false desync signals.
-
-## MVP Definition
-
-### Launch With (v0.0.3)
-
-- [ ] `CLIENT-SIM` — client imports `RtsRoom`/`RtsEngine` from `#rts-engine`, runs full tick locally (economy → build apply → grid step → integrity → match outcome). Engine is already deterministic; this is a new execution site in `apps/web/`.
-- [ ] `TICK-ALIGN` — client tick clock initialized from `room:joined.lockstep` (`turnLengthTicks`, `nextTurn`) and advanced per server turn boundary signals.
-- [ ] `INPUT-TRANSPORT` — server gates `state` broadcast on lockstep mode during active matches. Client renders from local simulation state instead of server-sent state.
-- [ ] `CLIENT-REJECT` — client applies `build:outcome` and `destroy:outcome` at `executeTick` using the event pipeline already in `socket-contract.ts`.
-- [ ] `HASH-CHECKPOINT` — client computes `RoomDeterminismCheckpoint` hash on checkpoint turns and compares to `lockstep:checkpoint` payload.
-- [ ] `DESYNC-FALLBACK` — client handles `lockstep:fallback` by calling `state:request`, resetting local simulation from response, and re-aligning clock.
-- [ ] `RECONNECT-SNAPSHOT` — client reconstitutes a live `RtsRoom` from `room:joined.state` snapshot, applies any buffered pending events, and resumes local simulation.
-
-### Add After Validation (v0.0.3.x)
-
-- [ ] `INPUT-ACK` rendering — display pending-until-turn states using `bufferedTurn`/`scheduledByTurn` values in queued event payloads. Trigger: players report confusing "did my build register?" feedback.
-- [ ] Checkpoint diagnostics UI — surface mismatch count and last hash in a developer overlay. Trigger: debugging desync issues in manual testing.
-
-### Future Consideration (v0.0.4+)
-
-- [ ] Dynamic input delay tuning based on measured round-trip time (requires adaptive clock management).
-- [ ] Replay/spectator mode (input log already captured; needs separate client consumer).
-- [ ] Binary transport encoding if profiling shows bandwidth pressure at scale.
-- [ ] Multiple concurrent rooms with per-room lockstep configuration.
-
-## Feature Prioritization Matrix
-
-| Feature               | User Value                                | Implementation Cost                                   | Priority |
-| --------------------- | ----------------------------------------- | ----------------------------------------------------- | -------- |
-| `CLIENT-SIM`          | HIGH — enables entire protocol            | HIGH — new execution site in web client               | P1       |
-| `TICK-ALIGN`          | HIGH — correctness precondition           | MEDIUM — clock wiring from existing payloads          | P1       |
-| `INPUT-TRANSPORT`     | HIGH — bandwidth goal                     | MEDIUM — gate on lockstep mode in server tick handler | P1       |
-| `CLIENT-REJECT`       | HIGH — correctness                        | MEDIUM — apply outcomes at executeTick in client      | P1       |
-| `HASH-CHECKPOINT`     | HIGH — desync detection                   | MEDIUM — client hash computation already available    | P1       |
-| `DESYNC-FALLBACK`     | HIGH — recovery path                      | MEDIUM — state:request + simulation reset             | P1       |
-| `RECONNECT-SNAPSHOT`  | HIGH — existing reconnect must still work | MEDIUM — reconstruct RtsRoom from snapshot            | P1       |
-| `INPUT-ACK` rendering | MEDIUM — UX polish                        | LOW — reuse existing payload fields                   | P2       |
-| `CHECKPOINT-REPLAY`   | MEDIUM — reconnect diagnostics            | LOW — already server-side, client just reads it       | P2       |
-| Shadow mode awareness | LOW — server-side already works           | LOW — client handles fallback from shadow mode        | P2       |
-| Replay/spectator      | LOW — not in scope                        | HIGH — separate client architecture                   | P3       |
-| Dynamic input delay   | LOW — not at prototype scale              | HIGH — adaptive clock management                      | P3       |
-
-**Priority key:**
-
-- P1: Must have for v0.0.3 milestone closure
-- P2: Add once P1 behaviors are validated in integration tests
-- P3: Explicitly deferred to future milestones
-
-## Complexity Notes
-
-**Where implementation is genuinely hard:**
-
-- `CLIENT-SIM` tick ordering must exactly match `RtsRoom.tick()` in `packages/rts-engine`. Any divergence in tick order (even re-ordering economy before build apply) produces immediate desync. Existing tick order from CLAUDE.md must be treated as a contract.
-- `TICK-ALIGN` is subtle: the server assigns `bufferedTurn` and `scheduledByTurn` to events, and the client must apply those events at `executeTick`. If the client clock runs at a different phase than the server, events will apply on the wrong local tick.
-- `RECONNECT-SNAPSHOT` requires constructing an `RtsRoom` from a `RoomStatePayload` using `RtsEngine.createRoomState` / `RtsRoom.fromState` — the engine already enforces this constructor constraint. The web client will need to call these directly.
-- `DESYNC-FALLBACK` must handle the case where the client receives a fallback mid-tick. It must wait for a clean tick boundary before resetting, or risk corrupting in-progress state.
-
-**Where implementation is straightforward given existing infrastructure:**
-
-- `HASH-CHECKPOINT`: the `createStateHashes()` method already exists on `RtsRoom`. The client just needs to call it at the right tick and compare.
-- `CLIENT-REJECT`: event outcomes already have `accepted: boolean` and `executeTick`. Client just needs to check at that tick whether to apply or skip.
-- `INPUT-TRANSPORT`: the server already has lockstep mode as a concept. Gating `state` broadcast on `lockstepRuntime.mode !== 'off'` is a targeted change in the tick handler.
-
-## Sources
-
-- `/home/alpine/crts-opencode/.planning/PROJECT.md` (HIGH — defines v0.0.3 feature scope)
-- `/home/alpine/crts-opencode/packages/rts-engine/socket-contract.ts` (HIGH — canonical wire protocol)
-- `/home/alpine/crts-opencode/apps/server/src/server.ts` (HIGH — existing lockstep runtime state)
-- [Gaffer on Games: Deterministic Lockstep](https://gafferongames.com/post/deterministic_lockstep/) (HIGH — authoritative reference)
-- [SnapNet: Netcode Architectures Part 1: Lockstep](https://www.snapnet.dev/blog/netcode-architectures-part-1-lockstep/) (MEDIUM — practical survey)
-- [Game Networking Demystified, Part III: Lockstep](https://ruoyusun.com/2019/04/06/game-networking-3.html) (MEDIUM — input buffering patterns)
-- [ForrestTheWoods: Synchronous RTS Engines and a Tale of Desyncs](https://www.forrestthewoods.com/blog/synchronous_rts_engines_and_a_tale_of_desyncs/) (MEDIUM — desync detection in practice, Supreme Commander reference)
-- [Game Developer: Minimizing the Pain of Lockstep Multiplayer](https://www.gamedeveloper.com/programming/minimizing-the-pain-of-lockstep-multiplayer) (MEDIUM — determinism requirements, fixed-point math)
-- [GameDev.net: Client-server RTS lockstep](https://gamedev.net/forums/topic/644053-client-server-rts-lockstep/) (MEDIUM — server relay vs P2P tradeoffs)
+1. **HeadlessMatchRunner is the root.** Everything depends on running matches without Socket.IO.
+2. **Observation + action + reward -> BotEnvironment** must exist before any training can start.
+3. **Python training -> ONNX export -> TS inference -> Socket.IO adapter** is the deployment chain.
+4. **MatchResultLogger** feeds all balance analysis features (Glicko-2, win rates, distributions, snowball).
+5. **Action masking** is technically independent but should be built alongside action space for practical training.
+6. **Glicko-2 combo ratings** depend on template ratings being validated first and sufficient match volume (>1000 matches).
 
 ---
 
-_Feature research for: deterministic lockstep networking protocol — Conway RTS prototype v0.0.3_
-_Researched: 2026-03-29_
+## Observation Space Design
+
+The observation space should be a 3D tensor of shape `(H, W, C)` where H and W are the grid dimensions and C is the number of feature channels. This follows the standard established by AlphaGo (19x19x48 planes), Gym-MicroRTS (h x w x 29 planes), and GridNet (global grid feature map with encoder-decoder CNN).
+
+**Recommended feature planes for Conway RTS:**
+
+| Channel | Type | Description | Engine Source |
+|---------|------|-------------|---------------|
+| 0 | Binary | Grid cell alive/dead | `RoomState.grid` via `Grid.toUnpacked()` |
+| 1 | Binary | Own team territory mask | Derived from `TeamState.baseTopLeft` + `TeamState.territoryRadius` |
+| 2 | Binary | Opponent team territory mask | Same derivation for opponent |
+| 3 | Binary | Own structure footprint (all cells occupied by own structures) | `TeamState.structures` -> each `Structure.projectPlacement(width, height)` |
+| 4 | Binary | Opponent structure footprint | Same for opponent structures |
+| 5 | Float [0,1] | Own structure HP normalized (per cell, by template startingHp) | `Structure.hp / Structure.template.startingHp` projected onto footprint |
+| 6 | Float [0,1] | Opponent structure HP normalized | Same for opponent |
+| 7 | Binary | Own build zone coverage | `collectBuildZoneContributors()` + `isBuildZoneCoveredByContributor()` |
+| 8 | Binary | Own core footprint | Core structure cells (from `CORE_STRUCTURE_TEMPLATE`, 11x11 with padding) |
+| 9 | Binary | Opponent core footprint | Same for opponent |
+| 10 | Binary | Pending own build locations | `TeamState.pendingBuildEvents` projected via template footprints |
+| 11 | Binary | Pending opponent build locations | Same for opponent |
+
+**Scalar features (appended as uniform-value planes or as a separate flat vector):**
+
+| Feature | Normalization | Engine Source |
+|---------|---------------|---------------|
+| Own resources | `resources / 200` (reasonable cap) | `TeamState.resources` |
+| Opponent resources | Same | Opponent `TeamState.resources` |
+| Own income per tick | `incomeBreakdown.total / 10` | `TeamIncomeBreakdown.total` |
+| Opponent income per tick | Same | Opponent `TeamIncomeBreakdown.total` |
+| Current tick | `tick / MAX_TICKS` | `RoomState.tick` |
+| Own core HP | `coreHp / 500` | Core `Structure.hp` (startingHp=500) |
+| Opponent core HP | Same | Opponent core `Structure.hp` |
+
+**Total: 12 spatial planes + 7 scalar features.**
+
+For smaller observation space (faster training), consider downsampling the grid to a fixed size (e.g., 32x32) using max-pooling or nearest-neighbor. This trades spatial precision for reduced model input size.
+
+**Confidence:** MEDIUM. Feature plane design is well-established in literature. The specific channels are derived from what `RoomState` and `TeamState` expose. Exact plane count needs empirical tuning.
+
+---
+
+## Action Space Design
+
+MultiDiscrete action space, evaluated once per N ticks (decision frequency is a tunable hyperparameter; recommend starting at every 5 ticks since `DEFAULT_QUEUE_DELAY_TICKS = 10`).
+
+**Action dimensions:**
+
+| Dimension | Range | Description |
+|-----------|-------|-------------|
+| action_type | Discrete(3) | 0=no-op, 1=build, 2=destroy |
+| template_id | Discrete(5) | block(0), generator(1), glider(2), eater-1(3), gosper(4) |
+| grid_x | Discrete(W) | X coordinate for placement |
+| grid_y | Discrete(H) | Y coordinate for placement |
+| transform_index | Discrete(8) | Identity + 3 rotations + 4 reflections |
+| structure_index | Discrete(S) | Index into own non-core structures (only for destroy) |
+
+**Action masking is critical.** Without masking, raw build action space is 5 * W * H * 8 = 2,621,440 on a 256x256 map. With masking, this reduces to a few hundred valid options per step.
+
+**Mask computation per decision step:**
+
+1. If `TeamState.defeated`, mask everything except no-op
+2. Filter templates by `template.activationCost <= TeamState.resources` (uses `AffordabilityResult`)
+3. For affordable templates, valid cells = build zone cells (from `BuildZoneContributor`) AND unoccupied
+4. For destroy, valid targets = own structures where `isCore === false`
+5. Optional: use `RtsRoom.previewBuildPlacement()` for authoritative validation
+
+**Alternative for large maps:** Coarsen action space to regions (e.g., 16x16 blocks) and snap to nearest valid cell within the selected region. Reduces action space by ~256x.
+
+**Confidence:** MEDIUM. Follows Gym-MicroRTS patterns closely. Maps cleanly to existing engine APIs.
+
+---
+
+## Reward Signal Design
+
+Based on research on reward shaping for RTS games, particularly the "Action Guidance" approach (NeurIPS) and curriculum-based reward annealing:
+
+**Terminal rewards (always active):**
+
+| Signal | Value | Trigger | Engine Source |
+|--------|-------|---------|---------------|
+| Win | +1.0 | `MatchOutcome.winner.teamId === ownTeamId` | `RoomTickResult.outcome` |
+| Loss | -1.0 | Match finished, not winner | `RoomTickResult.outcome` |
+| Draw/timeout | 0.0 | Match exceeds max ticks without outcome | Custom timeout in runner |
+
+**Shaped rewards (annealed during training via configurable coefficient):**
+
+| Signal | Value | Per | Engine Source | Risk |
+|--------|-------|-----|---------------|------|
+| Economy delta | `+0.01 * (income_t - income_{t-1})` | Tick | `TeamIncomeBreakdown.total` | Agent farms generators, never attacks |
+| Territory delta | `+0.005 * (territory_t - territory_{t-1})` | Tick | Territory cell count delta | Agent spreads without defending core |
+| Structure HP preservation | `-0.01 * own_hp_damage` | Tick | HP deltas on own structures | Overly defensive play |
+| Opponent core damage | `+0.02 * opponent_core_hp_damage` | Tick | Opponent core HP delta | Well-aligned incentive |
+| Invalid action penalty | `-0.001` | Decision step | Build rejected / masked action | Teaches valid action selection fast |
+
+**Curriculum annealing schedule:**
+
+| Training Phase | Range | Shaping Coefficient | Opponent Source |
+|----------------|-------|---------------------|-----------------|
+| Phase 1: Exploration | 0-30% | 1.0 (full shaping) | Random actions / weakest snapshots |
+| Phase 2: Transition | 30-70% | Linear decay 1.0 -> 0.0 | Mix of weak + recent snapshots |
+| Phase 3: Competition | 70-100% | 0.0 (pure win/loss) | Recent strong snapshots only |
+
+**Confidence:** MEDIUM. Reward shaping for RTS is well-studied. Action Guidance validates the anneal-to-sparse approach. Exact coefficients need empirical tuning. The configurable-weights pattern enables rapid iteration.
+
+---
+
+## Glicko-2 for Structure/Combo Ratings
+
+### How Glicko-2 Works
+
+Glicko-2 (Mark Glickman, Boston University) extends Elo with two additional parameters per rated entity:
+
+- **Rating (r):** Estimated strength (default 1500)
+- **Rating Deviation (RD):** Uncertainty in the rating (default 350; decreases with more data)
+- **Volatility (sigma):** Expected fluctuation in performance (default 0.06)
+
+95% confidence interval: `[r - 2*RD, r + 2*RD]`. System constant tau (constrains volatility change speed) should be 0.3-1.2.
+
+### Application to Structure Templates
+
+Each of the 5 structure templates becomes a Glicko-2 entity. After each self-play match:
+
+1. Identify templates used by the winning team and losing team
+2. Each winning-team template records a "win" against each losing-team template
+3. Batch Glicko-2 updates in rating periods of 10-50 matches
+4. Use `glicko2.ts` npm package (TypeScript-native, MIT license, supports multi-competitor matches)
+
+**Interpretation matrix:**
+
+| Rating | RD | Volatility | Meaning |
+|--------|-----|-----------|---------|
+| High | Low | Low | Reliably strong template |
+| High | High | Any | Possibly strong but under-tested |
+| Low | Low | Low | Reliably weak (candidate for cost reduction / buff) |
+| Any | Any | High | Context-dependent — strong in some matchups, weak in others. This is actually desirable for game health (rock-paper-scissors dynamics). |
+
+### Application to Template Combos
+
+Define a combo as the canonical multiset of templates built during a match (e.g., `block:3,generator:2`). Each unique combo becomes its own Glicko-2 entity.
+
+**Mitigations for combinatorial explosion:**
+
+- Only rate combos appearing >= 5 times in the match corpus
+- Order-independent: count template frequencies, not build order
+- Truncate to first N builds if sequences are very long
+- Cross-reference combo rating with component template ratings to detect synergy (combo >> sum of parts) and anti-synergy (combo << sum of parts)
+
+**Confidence:** MEDIUM. Glicko-2 for non-player entities is validated in classifier benchmarking (entity -> player, evaluation -> match). IEEE 2025 paper confirms its adoption across gaming genres for balance analysis. Application to RTS structure templates is a direct mapping of the same formalism.
+
+---
+
+## Balance Metrics Taxonomy
+
+### Tier 1: Essential (Must Have for Milestone)
+
+| Metric | Computation | Healthy Range |
+|--------|-------------|---------------|
+| First-mover win rate | `wins_team1 / total_matches` | 45-55% |
+| Per-template usage rate | `matches_using_template / total` | No single template > 80% |
+| Per-template win rate | `wins_using_template / uses` | 40-60% per template |
+| Average match length | `mean(match_ticks)` | 50-500 ticks (too short = rushes dominate, too long = stalemates) |
+| Glicko-2 template ratings | Algorithm output per template | Rating spread < 300 between best and worst |
+
+### Tier 2: Diagnostic (Should Have)
+
+| Metric | What It Reveals |
+|--------|-----------------|
+| Strategy entropy (`-sum(p_i * log(p_i))`) | Meta diversity; low = collapsed to dominant strategy |
+| Snowball coefficient (Pearson r at tick N) | How deterministic early advantages are |
+| Pairwise counter-rate matrix | Hard counters and dominated strategies |
+| Glicko-2 rating distribution histogram | Tight = balanced; wide spread = imbalanced |
+| Economy divergence tick | When winner/loser resource curves separate decisively |
+
+### Tier 3: Advanced (Nice to Have, Likely Deferred)
+
+| Metric | Complexity | What It Reveals |
+|--------|------------|-----------------|
+| Nash equilibrium approximation | High (linear programming) | Theoretically optimal strategy mix |
+| Effective strategy count (`exp(entropy)`) | Low | Practical number of viable strategies |
+| Build order timing analysis | Medium | Rush vs economy vs defensive strategy prevalence |
+| Core HP trajectory percentiles | Medium | How quickly cores are typically threatened |
+
+**Confidence:** HIGH for Tier 1 (standard RTS metrics). MEDIUM for Tier 2 (sound methodology, needs adaptation). LOW for Tier 3 (research-level, may exceed milestone scope).
+
+---
+
+## MVP Recommendation
+
+Build these features in priority order:
+
+1. **HeadlessMatchRunner** (Table stakes, Low) -- foundation; unlocks everything else. Testable immediately with random agents.
+2. **ObservationEncoder + ActionDecoder + RewardSignal** (Table stakes, Medium) -- completes bot harness. Unit testable against known game states.
+3. **BotEnvironment (Gym-like wrapper)** (Table stakes, Low) -- enables training. Testable with scripted agent.
+4. **Action masking** (Differentiator, Medium) -- add alongside action decoder; without it, training on grid games is impractically slow.
+5. **Python IPC bridge + PPO training + self-play** (Table stakes, High) -- first real training run. Even a poorly trained agent validates the pipeline.
+6. **Match result logging + win rate computation** (Table stakes, Low) -- can run against random-vs-random data while PPO trains in parallel.
+7. **Glicko-2 template ratings** (Table stakes, Medium) -- key balance insight unique to this milestone.
+8. **ONNX export + TypeScript inference** (Table stakes, Low-Medium) -- bridge to production.
+9. **BotSocketAdapter (playable in-game bot)** (Table stakes, Medium) -- milestone's user-facing deliverable.
+10. **Balance analysis reports (strategy distribution, per-map)** (Table stakes/Differentiator, Low-Medium) -- final analytical output.
+
+**Defer to later iterations or milestone extensions:**
+
+- **Glicko-2 combo ratings:** Requires significant match volume (1000+ matches) and validated template ratings
+- **Intransitivity detection:** Depends on combo ratings and large pairwise matrix
+- **Snowball curve analysis:** Valuable but secondary to template balance
+- **Nash equilibrium:** Research-level complexity, unclear ROI for 5-template game
+- **Visual replay:** Deferred per PROJECT.md to spectator milestone
+- **Strategy profile extraction:** Add after basic Glicko ratings work
+
+---
+
+## Sources
+
+- [Gym-MicroRTS (Farama Foundation)](https://github.com/Farama-Foundation/MicroRTS-Py) -- observation/action space design patterns for grid-based RTS RL (29 feature planes, MultiDiscrete action space)
+- [Deep RTS](https://github.com/cair/deep-rts) -- headless RTS RL environment architecture, >6M steps/sec
+- [GridNet: Grid-Wise Control for Multi-Agent RL (ICML 2019)](https://proceedings.mlr.press/v97/han19a/han19a.pdf) -- encoder-decoder CNN for grid observation spaces
+- [SIMPLE: Selfplay In MultiPlayer Environments](https://github.com/davidADSP/SIMPLE) -- PPO self-play opponent pool design with historical sampling
+- [PPO with Elo-based Opponent Selection (IEEE CoG 2021)](https://ieee-cog.org/2021/assets/papers/paper_299.pdf) -- Elo-based opponent sampling during training
+- [Hugging Face Deep RL Course: Self-Play](https://huggingface.co/learn/deep-rl-course/unit7/self-play) -- self-play variants (vanilla, fictitious, prioritized)
+- [Reward Shaping for RTS Games (arXiv 2311.16339)](https://ar5iv.labs.arxiv.org/html/2311.16339) -- PPO + reward shaping effectiveness in CTF RTS
+- [Action Guidance: Sparse + Shaped Rewards for RTS](https://openreview.net/forum?id=1OQ90khuUGZ) -- curriculum anneal from shaped to sparse rewards
+- [Glicko-2 System Specification (Mark Glickman)](https://www.glicko.net/glicko/glicko2.pdf) -- rating algorithm with RD and volatility
+- [glicko2.ts TypeScript Library](https://github.com/animafps/glicko2.ts) -- TypeScript-native Glicko-2, team/race support, MIT
+- [From Ratings to Balance: Glicko in Competitive Gaming (IEEE 2025)](https://ieeexplore.ieee.org/document/10959302/) -- Glicko for game balance analysis across genres
+- [Abstracting Glicko-2 for Team Games (Rhetoric Studios)](https://rhetoricstudios.com/downloads/AbstractingGlicko2ForTeamGames.pdf) -- composite opponent method
+- [SB3 ONNX Export Guide](https://stable-baselines3.readthedocs.io/en/master/guide/export.html) -- Python-to-ONNX pipeline with OnnxableSB3Policy (opset 17)
+- [SB3 Custom Environments Guide](https://stable-baselines3.readthedocs.io/en/master/guide/custom_env.html) -- Gymnasium interface for custom envs
+- [onnxruntime-node npm](https://www.npmjs.com/package/onnxruntime-node) -- native Node.js ONNX inference (C++ bindings, v16+)
+- [37 Implementation Details of PPO (ICLR Blog Track)](https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/) -- PPO implementation reference
+- [CleanRL PPO Reference](https://docs.cleanrl.dev/rl-algorithms/ppo/) -- battle-tested PPO implementation
+- [RTS Balancing Research](https://valdiviadev.github.io/RTS-balancing-research/) -- balance metrics taxonomy for RTS games
+- [The Balance of Power (Game Developer)](https://www.gamedeveloper.com/design/the-balance-of-power-progression-and-equilibrium-in-real-time-strategy-games) -- snowball curves and power progression in RTS
+- [Conway's Game of Life AI (lkwilson/cgolai)](https://github.com/lkwilson/Conways-Game-of-Life-AI) -- RL agent for Game of Life grid control
+- [Predicting Impact of Game Balance Changes (arXiv 2409.07340)](https://arxiv.org/pdf/2409.07340) -- AI-driven balance prediction framework
+
+---
+
+_Feature research for: RL Bot Harness, Balance Analysis & Structure Ratings -- Conway RTS v0.0.4_
+_Researched: 2026-03-30_
