@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.0.3
-milestone_name: Deterministic Lockstep Protocol
-status: verifying
-stopped_at: Completed 17-02-PLAN.md (ArrayBuffer round-trip integration test)
-last_updated: '2026-03-30T03:10:24.044Z'
+milestone: v0.0.4
+milestone_name: RL Bot Harness & Balance Analysis
+status: requirements
+stopped_at: null
+last_updated: '2026-03-30'
 last_activity: 2026-03-30
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 10
-  completed_plans: 10
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
   percent: 0
 ---
 
@@ -18,28 +18,28 @@ progress:
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-03-29)
+See: `.planning/PROJECT.md` (updated 2026-03-30)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 17 — quality-gate
+**Current focus:** Defining requirements for v0.0.4
 
 ## Current Position
 
-Phase: 17
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-03-30
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-30 — Milestone v0.0.4 started
 
-Progress: [░░░░░░░░░░] 0% (v0.0.3)
+Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Completed phases: 12
-- Completed plans: 30
-- Completed tasks: 74
-- Shipped milestones: 2 (`v0.0.1`, `v0.0.2`)
+- Completed phases: 17
+- Completed plans: 40
+- Completed tasks: 91
+- Shipped milestones: 3 (`v0.0.1`, `v0.0.2`, `v0.0.3`)
 
 ## Accumulated Context
 
@@ -51,18 +51,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.3)
 - Keep server-authoritative state as the only gameplay source of truth for clients.
 - Archive milestone roadmap/requirements artifacts to keep active planning files small.
 - Migrate to lockstep: server validates inputs, clients run simulation locally, periodic hash verification for desync detection.
-- [Phase 13-01]: Added reservedCost (optional) to PendingBuildPayload for hash-faithful payload reconstruction
-- [Phase 13-01]: Core template auto-injected into fromPayload templateMap since it is not in createDefaultStructureTemplates()
-- [Phase 14]: bufferLockstepCommand returns assigned sequence number instead of boolean for downstream payload population
-- [Phase 14]: isInputOnlyMode checks both mode=primary AND status=running, ensuring fallback continues full broadcasts
-- [Phase 14]: InputEventLog discard window based on reconnectHoldMs/tickMs for reconnect replay support
-- [Phase 15]: Used resync() convenience method (destroy + initialize) rather than separate reinitialize for ClientSimulation desync recovery
-- [Phase 15]: Server flush guard uses isInputOnlyMode && sections.includes('full') to limit flush to primary lockstep full-snapshot requests
-- [Phase 15]: Used lockstepCheckpointIntervalTicks: 5 for realistic checkpoint spacing in integration tests
-- [Phase 16]: Removed unused InputLogEntry import from client.ts -- payload.inputLog type inferred from RoomJoinedPayload
-- [Phase 16]: Used waitForBuildQueueResponse helper for build:queued matching existing lockstep test patterns
-- [Phase 17]: Used 52x52 grid for property-based tests (CI-friendly ~170s); snapshot-after-queue strategy avoids ClientSimulation reservedCost mismatch
-- [Phase 17]: Used toUint8Array helper to normalize Buffer vs ArrayBuffer in Node.js integration tests for Socket.IO binary transport validation
 
 ### Pending Todos
 
@@ -70,13 +58,10 @@ Progress: [░░░░░░░░░░] 0% (v0.0.3)
 
 ### Blockers/Concerns
 
-- Phase 13 implementation must guard against wrong-tick initialization: client must use `tick` from `RoomJoinedPayload.state`, not wall-clock time.
-- `RtsRoom.fromState()` Map insertion order must use canonical sorted order (consistent with `createShadowRoom`) to avoid divergence.
-- Fallback state broadcast (Phase 15) must be delayed until all turn-buffer commands for ticks at or before the fallback tick have executed.
-- `RtsRoom.fromState()` WeakMap reattachment behavior should be verified before Phase 16 implementation begins.
+(None for new milestone)
 
 ## Session Continuity
 
-**Last session:** 2026-03-30T01:04:34.082Z
-**Stopped At:** Completed 17-02-PLAN.md (ArrayBuffer round-trip integration test)
+**Last session:** 2026-03-30
+**Stopped At:** Milestone v0.0.4 started — defining requirements
 **Resume File:** None

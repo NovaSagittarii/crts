@@ -8,6 +8,17 @@ This is a shipped TypeScript multiplayer Conway RTS prototype: two players can f
 
 Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
 
+## Current Milestone: v0.0.4 RL Bot Harness & Balance Analysis
+
+**Goal:** Build a headless bot harness against the RtsEngine API with PPO-based RL training, use self-play for balance analysis, and rate individual structures/combos via a Glicko-like strength system.
+
+**Target features:**
+- Bot harness: observation space, action space, reward signal, headless match runner
+- PPO training loop with self-play
+- Balance analysis with win rates, strategy distributions, per-map metrics
+- Structure strength ratings (Glicko-like) for individual templates and combinations
+- Playable in-game bot via Socket.IO adapter
+
 ## Current State
 
 **Shipped version:** `v0.0.3` (2026-03-30)
@@ -46,7 +57,13 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 
 ### Active
 
-(No active requirements — next milestone not yet defined)
+Current milestone: v0.0.4 — RL Bot Harness & Balance Analysis
+
+- [ ] Headless bot harness with observation/action/reward interface against RtsEngine
+- [ ] PPO training loop with self-play
+- [ ] Balance analysis: win rates, strategy distributions, per-map metrics
+- [ ] Structure strength ratings (Glicko-like) for templates and combinations
+- [ ] Playable in-game bot via Socket.IO adapter
 
 ### Future Candidates
 
@@ -110,4 +127,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-_Last updated: 2026-03-30 after v0.0.3 milestone completion_
+_Last updated: 2026-03-30 after v0.0.4 milestone start_
