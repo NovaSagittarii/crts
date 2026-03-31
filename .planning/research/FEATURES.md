@@ -1,123 +1,171 @@
 # Feature Research
 
-**Domain:** Conway RTS prototype - v0.0.2 Gameplay Expansion
-**Researched:** 2026-03-01
-**Confidence:** HIGH (milestone scope and behavior are defined in project docs)
+**Domain:** Deterministic lockstep networking protocol — Conway RTS prototype v0.0.3
+**Researched:** 2026-03-29
+**Confidence:** HIGH (v0.0.3 scope is defined in PROJECT.md; server-side lockstep infrastructure already exists and was inspected; domain research from authoritative sources confirmed)
+
+## Context
+
+This milestone migrates the existing full-state-broadcast protocol to deterministic lockstep. The server already has a substantial lockstep infrastructure (`LockstepMode`, turn buffering, shadow simulation, checkpoint events, fallback reasons). The gaps are on the **client side**: clients currently receive full state every tick and render from it. v0.0.3 makes clients run the simulation locally and only exchange inputs.
+
+Existing features NOT re-implemented in v0.0.3 (already shipped):
+
+- Server-side turn buffering and turn boundary tracking
+- `lockstep:checkpoint` and `lockstep:fallback` socket events
+- Shadow simulation mode (server runs a second RTS room to verify hash parity)
+- Periodic authoritative state snapshots at configurable intervals
+- Reconnect-safe full state snapshot on `room:joined`
+- Hash-based desync detection with FNV1a-32 hashing for grid, structures, and economy
 
 ## Feature Landscape
 
-### Table Stakes (Users Expect These)
+### Table Stakes (Protocol Correctness — Must Have)
 
-Features players should experience as baseline in v0.0.2. Missing these makes the gameplay expansion feel incomplete.
+These behaviors define whether lockstep is "working." Missing any makes the migration non-functional.
 
-| Feature                                                         | Expected Player-Facing Behavior                                                                                                                   | Complexity | Dependencies (Existing Systems)                                                                                                    | Milestone Notes                                              |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `STRUCT-INT`: Template-wide integrity + HP repair loop          | Structures that fail integrity auto-restore on repair intervals by consuming structure HP; exhausted HP leads to predictable collapse/degradation | HIGH       | Deterministic tick simulation; structure HP/state model; authoritative state snapshots; unit/integration quality gates from v0.0.1 | Land backend + tests before rich UI for structure status     |
-| `BASE-SHAPE`: 5x5 base footprint (16 cells)                     | Bases are easier to pressure and breach paths are broader, creating more active attack/defense play than a tiny core                              | MEDIUM     | Spawn/base initialization rules; breach/defeat resolution; client rendering for base geometry                                      | Keep one canonical 5x5 layout for this milestone             |
-| `BUILD-ZONE`: Union of per-structure build zones (radius 15)    | Build eligibility expands or contracts from owned structures, replacing one global build radius with spatially meaningful pressure zones          | HIGH       | Existing build queue validation/rejection flow; structure ownership index; geometry helpers; affordability feedback loop           | Radius is fixed at 15 in v0.0.2 to avoid rebalance churn     |
-| `UI-ARCH`: Lobby and in-game screen separation with transitions | Players move through a clear lobby flow into a focused in-game view with explicit state transitions at match start/end                            | MEDIUM     | Existing room/match lifecycle events and reconnect state; current web state machine                                                | Keep Socket.IO lobby contract stable while UI flow changes   |
-| `UI-ARCH` enabler: UI modularization into focused files         | No direct new button, but players get fewer regressions while new controls/overlays ship and iterate                                              | MEDIUM     | Existing `apps/web/src/client.ts` responsibilities; build tooling and event wiring                                                 | Treat as mandatory delivery foundation, not optional cleanup |
+| Feature                                                                     | Why Expected                                                                                                                                                                                                                          | Complexity | Notes                                                                                                                                                                                                                                                              |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `CLIENT-SIM`: Client-side deterministic simulation                          | Core lockstep requirement: clients run `Grid.step()`, economy tick, build/destroy processing locally each tick. Without this, input-only transport has no consumer on the client side.                                                | HIGH       | Engine is already deterministic in `packages/rts-engine`. Client needs to import and invoke `RtsRoom` tick locally. Must preserve existing tick order (economy → build apply → grid step → integrity → outcome).                                                   |
+| `INPUT-TRANSPORT`: Input-only transport — no full-state broadcasts per tick | Lockstep's primary bandwidth benefit. Server relays queued events only (`build:queued`, `destroy:queued`, `build:outcome`, `destroy:outcome`) and suppresses per-tick `state` broadcasts during active matches.                       | HIGH       | Server already has `state` emission on every tick. Active match tick handler must gate `state` broadcast on lockstep mode. Clients must use their local simulation state for rendering instead of waiting for server state.                                        |
+| `HASH-CHECKPOINT`: Hash-based desync detection at lockstep checkpoints      | Standard lockstep practice since Age of Empires. Clients compute state hash at checkpoint turns and verify against server's `lockstep:checkpoint` broadcasts. Mismatch = desync.                                                      | MEDIUM     | Server already emits `lockstep:checkpoint` with `hashHex`. Client needs to compute the same `RoomDeterminismCheckpoint` hash locally and compare. Infrastructure (FNV1a-32 hash over grid+structures+economy) is already in `rts.ts`.                              |
+| `DESYNC-FALLBACK`: Fallback to authoritative state on hash mismatch         | When desync is detected, client must re-sync from server's authoritative state. Prevents silent divergence.                                                                                                                           | MEDIUM     | Server already broadcasts `lockstep:fallback` with reason. Client must handle `lockstep:fallback` by requesting a full state resync (`state:request`) and resetting local simulation from that snapshot.                                                           |
+| `RECONNECT-SNAPSHOT`: Reconnect via state snapshot + input replay           | Reconnecting player gets full state snapshot at join time, then replays any buffered inputs to reach current turn.                                                                                                                    | MEDIUM     | Server already sends full `state` in `room:joined`. The new requirement is that the client must reconstitute a live `RtsRoom` from that snapshot and continue running locally rather than waiting for per-tick broadcasts.                                         |
+| `CLIENT-REJECT`: Client-side event rejection                                | Clients independently reject queued events that are no longer valid at process time (e.g., build rejected because another event consumed the resources first). Prevents clients from applying stale accepted-then-invalidated events. | MEDIUM     | Server already sends `build:outcome` and `destroy:outcome` with accepted/rejected status. Client simulation must apply these outcomes at the correct tick using `executeTick` from `BuildQueuedPayload`/`DestroyQueuedPayload`.                                    |
+| `TICK-ALIGN`: Client tick clock aligned to server turn boundaries           | Clients must advance their local simulation on the same logical ticks as the server. Without this, local simulation diverges purely from timing.                                                                                      | HIGH       | Server tracks `nextTurn`, `turnLengthTicks`, `bufferedTurn`, `scheduledByTurn` per queued event. Client must receive these values and use them to sequence local simulation steps. `LockstepStatusPayload` is already sent in `room:joined` and `room:membership`. |
 
-### Differentiators (High-Value Gameplay/UI Leverage)
+### Differentiators (Valuable but Not Required for Correctness)
 
-These features increase strategic expression and readability once table stakes are stable.
+These make the lockstep experience noticeably better but the protocol still works without them.
 
-| Feature                                                           | Value Proposition                                                                                              | Complexity | Dependencies (Existing Systems)                                                                              | Milestone Notes                                                        |
-| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| `PLACE-XFORM`: Rotate/mirror placement transforms                 | Players can adapt the same template to many tactical contexts without requiring a much larger template catalog | HIGH       | Template placement pipeline; server-side build validation; client preview/ghost placement handling           | Ship canonical transforms only (90-degree rotations + mirror)          |
-| `UI-MAP`: Structure hover details + destroy action                | Players can inspect ownership/health role and intentionally remove weak or misplaced structures                | MEDIUM     | Authoritative structure identifiers and metadata in snapshots; action validation and acknowledgment pipeline | Start with single-structure select + confirm destroy (no bulk actions) |
-| `UI-MAP`: Pan/zoom camera + in-grid overlays (economy/build/team) | Larger base/build-zone mechanics stay readable and pressure is understandable at gameplay speed                | HIGH       | Camera/world coordinate transform layer; authoritative economy/team/build-zone data feeds; render layering   | Prioritize correctness and legibility over animation polish            |
+| Feature                                                                          | Value Proposition                                                                                                                                                                                                              | Complexity | Notes                                                                                                                                                                                                                                                                                            |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `SHADOW-VERIFY`: Shadow simulation mode (server runs a parallel RTS room)        | Allows server to detect hash mismatches without waiting for client-reported hashes. Catches desyncs that a client would silently absorb.                                                                                       | HIGH       | Already implemented server-side (`shadowRoom` in `LockstepRuntimeState`, `shadow-unavailable` fallback reason). Client value is in the fallback signal quality — shadow provides mismatches proactively rather than reactively. Client-side: handle `fromMode: 'shadow'` in `lockstep:fallback`. |
+| `INPUT-ACK`: Input confirmation round-trip with `bufferedTurn`/`scheduledByTurn` | Clients can show "queued but not yet confirmed" state precisely rather than optimistically applying immediately. Prevents misleading preview states when an event is accepted at queue time but executed several turns later.  | MEDIUM     | Already present in `BuildQueuedPayload` and `DestroyQueuedPayload` via `bufferedTurn`, `scheduledByTurn`, `executeTick`. Client just needs to render pending-until-turn states correctly.                                                                                                        |
+| `STATE-REQUEST-GATE`: Hash-gated state request deduplication                     | Server already deduplicates `state:request` responses by hash so unchanged sections aren't re-sent. Reduces bandwidth on reconnect where client re-requests sections that haven't changed.                                     | LOW        | Already implemented in `shouldServeStateRequest` in `server.ts`. Client benefit: safe to call `state:request` aggressively on reconnect without worrying about flooding.                                                                                                                         |
+| `CHECKPOINT-REPLAY`: Checkpoint replayed to reconnecting client                  | Reconnecting clients receive the last confirmed checkpoint hash immediately in `room:joined.lockstep.lastPrimaryHash`, then receive the next checkpoint event shortly after. Makes client hash comparison easier to bootstrap. | LOW        | Already implemented (integration test `lockstep-reconnect-diagnostics.test.ts` verifies this). Client benefit: can immediately validate local simulation state after reconnect by comparing against the first received checkpoint.                                                               |
+| `TURN-BUFFER-OVERFLOW`: Graceful degradation on turn buffer overflow             | If the server's command buffer fills (e.g., a bot or test flooding inputs), the server falls back cleanly rather than corrupting state.                                                                                        | LOW        | Already implemented server-side (`turn-buffer-overflow` fallback reason). Client benefit: receive `lockstep:fallback` and resync rather than experiencing silent corruption.                                                                                                                     |
 
-### Anti-Features (Out of Scope / Risky Scope Expansion)
+### Anti-Features (Explicitly Out of Scope for v0.0.3)
 
-| Anti-Feature                                                 | Why Requested                                    | Why Problematic in v0.0.2                                                                                                  | Alternative                                                      |
-| ------------------------------------------------------------ | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Full custom template editor + user-uploaded template sharing | More creativity and content variety              | Expands validation surface, abuse risk, and balance volatility while core transform/build-zone rules are still stabilizing | Keep curated templates and ship rotate/mirror first              |
-| Minimap, fog-of-war, cinematic camera effects                | Feels "more complete RTS"                        | High UI/system cost that competes with required pan/zoom + overlay correctness                                             | Deliver practical pan/zoom with clear, trustworthy overlays      |
-| Bulk destroy, undo/redo timeline editing                     | Convenience for correcting mistakes              | Requires rollback/history semantics and increases deterministic desync risk                                                | Single destroy action with explicit server acknowledgment        |
-| Multiple base archetypes or custom base geometry             | Variety/replayability request                    | Undercuts `BASE-SHAPE` balancing objective and multiplies breach test matrix                                               | Lock to one 5x5 (16-cell) base shape this milestone              |
-| Frontend framework migration during modularization           | Team ergonomics and long-term architecture goals | High delivery risk and minimal immediate player value for this milestone                                                   | Modularize the current TypeScript/Vite client incrementally      |
-| Client-predicted build-zone/repair outcomes                  | Faster apparent responsiveness                   | Risks divergence from authoritative simulation and confusing mismatch states                                               | Keep server-authoritative outcomes with clear pending indicators |
+| Feature                                                                    | Why Requested                                                                                            | Why Problematic                                                                                                                                                                                                   | Alternative                                                                                                                                                        |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Client-predicted simulation (optimistic local apply before server confirm) | Faster perceived responsiveness — input effects appear immediately rather than after next confirmed turn | Violates lockstep's authority model: local prediction + server correction = rollback/reconciliation complexity that is explicitly excluded from scope in PROJECT.md. Also contradicts queue-only mutation design. | Keep server-authoritative queue model. Accept that build/destroy effects apply at `executeTick`, not at queue time. Use "pending" UI indicators to mask the delay. |
+| Rollback netcode                                                           | Compensates for high latency without input delay                                                         | Orthogonal architecture to lockstep; requires rewinding/replaying simulation state; incompatible with the existing queue-based mutation model                                                                     | Not for this prototype at this scale; lockstep with reasonable turn delay is sufficient                                                                            |
+| Peer-to-peer lockstep (direct client-to-client input relay)                | Eliminates server as relay bottleneck                                                                    | NAT traversal complexity, fog-of-war cheating vulnerability, and lag switch attacks. Project already uses server-relay model which is superior for a two-player TypeScript web game.                              | Keep server as the relay and validator. P2P adds no benefit here.                                                                                                  |
+| Replay/spectator mode                                                      | Observers want to watch matches; recordings enable post-game analysis                                    | Transport redesign (input-only) enables it technically, but it requires additional client state management and is explicitly deferred in PROJECT.md to a future milestone.                                        | Deferred. The input log structure will already support it once implemented.                                                                                        |
+| Dynamic input delay adjustment based on RTT                                | Smoother experience under variable latency                                                               | Adds adaptive clock management complexity. The current prototype runs two players locally or on low-latency connections. Not worth the complexity for the prototype scope.                                        | Use a fixed turn delay. This can be tuned as a server config value if needed.                                                                                      |
+| Full desync recovery (auto-resync without user-visible interruption)       | Seamless experience when hash mismatch occurs                                                            | State resync requires a full snapshot transfer which briefly freezes the simulation. Hard to make invisible. Supreme Commander and similar games show error dialogs and require quit.                             | Implement `lockstep:fallback` → `state:request` → resync cycle. Accept a brief visible pause. This is standard lockstep behavior.                                  |
+| Binary/protobuf transport encoding                                         | Reduced wire size for high-frequency input messages                                                      | Input-only lockstep with queue-based gameplay already uses very low bandwidth. JSON over Socket.IO is sufficient for a two-player prototype. Premature optimization.                                              | Keep JSON/Socket.IO. Revisit only if profiling identifies bandwidth as a bottleneck.                                                                               |
 
 ## Feature Dependencies
 
-```text
-[Deterministic tick + authoritative state broadcast] (v0.0.1 baseline)
-    └──enables──> [STRUCT-INT integrity/HP repair loop]
-                        └──feeds──> [Hover structure health/details]
+```
+[Server lockstep infrastructure] (already exists: turn buffer, shadow sim, checkpoints, fallback)
+    └──required-by──> [CLIENT-SIM: client-side deterministic simulation]
+                           └──required-by──> [INPUT-TRANSPORT: suppress per-tick state broadcast]
+                           └──required-by──> [HASH-CHECKPOINT: client computes hash, compares to checkpoint]
+                           └──required-by──> [CLIENT-REJECT: client applies outcomes at executeTick]
 
-[Spawn/base initialization + breach resolver] (v0.0.1 baseline)
-    └──required-by──> [BASE-SHAPE 5x5/16-cell footprint]
+[CLIENT-SIM]
+    └──required-by──> [TICK-ALIGN: client clock follows server turn boundaries]
 
-[Build queue validation + rejection reasons] (v0.0.1 baseline)
-    └──required-by──> [BUILD-ZONE union radius=15]
-                            └──enhanced-by──> [PLACE-XFORM rotate/mirror]
-                            └──updated-by──> [Destroy action shrinks zones]
+[HASH-CHECKPOINT]
+    └──required-by──> [DESYNC-FALLBACK: fallback triggers state:request + simulation reset]
 
-[UI modularization]
-    └──enables──> [Lobby/in-game separation]
-                       └──enables──> [Pan/zoom + overlays + hover interactions]
+[RECONNECT-SNAPSHOT]
+    └──depends-on──> [CLIENT-SIM] (reconnect only works if client can run simulation locally from snapshot)
+    └──depends-on──> [TICK-ALIGN] (must re-align clock to current turn after snapshot)
+
+[INPUT-TRANSPORT]
+    └──enhances──> [INPUT-ACK] (bufferedTurn/scheduledByTurn values become meaningful once client uses local sim)
+
+[SHADOW-VERIFY] (server-side, already exists)
+    └──observed-by──> [DESYNC-FALLBACK] (shadow mismatch triggers lockstep:fallback to client)
 ```
 
 ### Dependency Notes
 
-- **`STRUCT-INT` before rich structure UI:** hover/detail surfaces are only trustworthy once template-wide integrity and HP behavior are authoritative.
-- **`BASE-SHAPE` and `BUILD-ZONE` should be validated together:** footprint/radius changes jointly define pressure lanes and breach pacing.
-- **`PLACE-XFORM` depends on stable legality checks:** transformed placements must run through the same authoritative validation as non-transformed placements.
-- **Destroy must immediately affect build eligibility:** removing structures must recompute union zones to avoid stale client previews.
-- **UI modularization should precede heavy map UI work:** lowers regression risk while adding camera transforms, overlays, and hover interactions.
+- **`CLIENT-SIM` is the critical path**: all other v0.0.3 features depend on clients running simulation locally. Ship this first.
+- **`INPUT-TRANSPORT` must follow `CLIENT-SIM`**: suppressing `state` broadcasts before the client can simulate locally would break the client entirely.
+- **`HASH-CHECKPOINT` and `DESYNC-FALLBACK` are a pair**: detection without recovery leaves clients stuck in a diverged state. Implement together.
+- **`RECONNECT-SNAPSHOT` depends on `CLIENT-SIM` being correct**: reconnect bootstraps a local simulation from snapshot; if local sim is wrong, reconnect is also wrong.
+- **`TICK-ALIGN` is a precondition for correctness**: misaligned clocks will cause the local simulation to produce different results than the server, producing false desync signals.
 
 ## MVP Definition
 
-### Launch With (v0.0.2)
+### Launch With (v0.0.3)
 
-- [ ] `STRUCT-INT` template-wide integrity/HP repair loop with deterministic tests
-- [ ] `BASE-SHAPE` 5x5/16-cell base footprint integrated with breach outcomes
-- [ ] `BUILD-ZONE` union-of-structure build eligibility at radius 15
-- [ ] `PLACE-XFORM` rotate/mirror placement supported in validation + UI controls
-- [ ] `UI-MAP` baseline structure hover details + single-structure destroy flow
-- [ ] `UI-MAP` practical pan/zoom + economy/build/team overlays
-- [ ] `UI-ARCH` lobby/in-game separation and modularized UI code organization
+- [ ] `CLIENT-SIM` — client imports `RtsRoom`/`RtsEngine` from `#rts-engine`, runs full tick locally (economy → build apply → grid step → integrity → match outcome). Engine is already deterministic; this is a new execution site in `apps/web/`.
+- [ ] `TICK-ALIGN` — client tick clock initialized from `room:joined.lockstep` (`turnLengthTicks`, `nextTurn`) and advanced per server turn boundary signals.
+- [ ] `INPUT-TRANSPORT` — server gates `state` broadcast on lockstep mode during active matches. Client renders from local simulation state instead of server-sent state.
+- [ ] `CLIENT-REJECT` — client applies `build:outcome` and `destroy:outcome` at `executeTick` using the event pipeline already in `socket-contract.ts`.
+- [ ] `HASH-CHECKPOINT` — client computes `RoomDeterminismCheckpoint` hash on checkpoint turns and compares to `lockstep:checkpoint` payload.
+- [ ] `DESYNC-FALLBACK` — client handles `lockstep:fallback` by calling `state:request`, resetting local simulation from response, and re-aligning clock.
+- [ ] `RECONNECT-SNAPSHOT` — client reconstitutes a live `RtsRoom` from `room:joined.state` snapshot, applies any buffered pending events, and resumes local simulation.
 
-### Add After Validation (v0.0.2.x)
+### Add After Validation (v0.0.3.x)
 
-- [ ] Overlay polish (extra visual modes, richer toggles) after readability is confirmed in playtests
-- [ ] Transform QoL (hotkeys, repeat placement workflows) after baseline rotate/mirror adoption is validated
-- [ ] Advanced structure panel workflows (sorting/filtering/history) after baseline hover/destroy telemetry exists
+- [ ] `INPUT-ACK` rendering — display pending-until-turn states using `bufferedTurn`/`scheduledByTurn` values in queued event payloads. Trigger: players report confusing "did my build register?" feedback.
+- [ ] Checkpoint diagnostics UI — surface mismatch count and last hash in a developer overlay. Trigger: debugging desync issues in manual testing.
 
-### Future Consideration (v0.0.3+)
+### Future Consideration (v0.0.4+)
 
-- [ ] New transport/runtime stack changes (WASM/protobuf/protocol redesign)
-- [ ] Auth, progression, and matchmaking services
-- [ ] High-scale map/performance rearchitecture
-- [ ] Replay, spectator, or timeline-scrubbing systems
+- [ ] Dynamic input delay tuning based on measured round-trip time (requires adaptive clock management).
+- [ ] Replay/spectator mode (input log already captured; needs separate client consumer).
+- [ ] Binary transport encoding if profiling shows bandwidth pressure at scale.
+- [ ] Multiple concurrent rooms with per-room lockstep configuration.
 
 ## Feature Prioritization Matrix
 
-| Feature                                           | User Value               | Implementation Cost | Priority |
-| ------------------------------------------------- | ------------------------ | ------------------- | -------- |
-| `STRUCT-INT`                                      | HIGH                     | HIGH                | P1       |
-| `BASE-SHAPE`                                      | HIGH                     | MEDIUM              | P1       |
-| `BUILD-ZONE`                                      | HIGH                     | HIGH                | P1       |
-| `UI-ARCH` separation + modularization             | HIGH                     | MEDIUM              | P1       |
-| `PLACE-XFORM`                                     | HIGH                     | HIGH                | P1       |
-| `UI-MAP` hover + destroy                          | HIGH                     | MEDIUM              | P1       |
-| `UI-MAP` pan/zoom + overlays                      | HIGH                     | HIGH                | P1       |
-| Overlay/transform QoL polish                      | MEDIUM                   | MEDIUM              | P2       |
-| Minimap/fog-of-war/replay/custom-template systems | LOW (for this milestone) | HIGH                | P3       |
+| Feature               | User Value                                | Implementation Cost                                   | Priority |
+| --------------------- | ----------------------------------------- | ----------------------------------------------------- | -------- |
+| `CLIENT-SIM`          | HIGH — enables entire protocol            | HIGH — new execution site in web client               | P1       |
+| `TICK-ALIGN`          | HIGH — correctness precondition           | MEDIUM — clock wiring from existing payloads          | P1       |
+| `INPUT-TRANSPORT`     | HIGH — bandwidth goal                     | MEDIUM — gate on lockstep mode in server tick handler | P1       |
+| `CLIENT-REJECT`       | HIGH — correctness                        | MEDIUM — apply outcomes at executeTick in client      | P1       |
+| `HASH-CHECKPOINT`     | HIGH — desync detection                   | MEDIUM — client hash computation already available    | P1       |
+| `DESYNC-FALLBACK`     | HIGH — recovery path                      | MEDIUM — state:request + simulation reset             | P1       |
+| `RECONNECT-SNAPSHOT`  | HIGH — existing reconnect must still work | MEDIUM — reconstruct RtsRoom from snapshot            | P1       |
+| `INPUT-ACK` rendering | MEDIUM — UX polish                        | LOW — reuse existing payload fields                   | P2       |
+| `CHECKPOINT-REPLAY`   | MEDIUM — reconnect diagnostics            | LOW — already server-side, client just reads it       | P2       |
+| Shadow mode awareness | LOW — server-side already works           | LOW — client handles fallback from shadow mode        | P2       |
+| Replay/spectator      | LOW — not in scope                        | HIGH — separate client architecture                   | P3       |
+| Dynamic input delay   | LOW — not at prototype scale              | HIGH — adaptive clock management                      | P3       |
 
 **Priority key:**
 
-- P1: Must have for v0.0.2 milestone closure
-- P2: Add once v0.0.2 core behavior is validated
-- P3: Explicitly deferred
+- P1: Must have for v0.0.3 milestone closure
+- P2: Add once P1 behaviors are validated in integration tests
+- P3: Explicitly deferred to future milestones
+
+## Complexity Notes
+
+**Where implementation is genuinely hard:**
+
+- `CLIENT-SIM` tick ordering must exactly match `RtsRoom.tick()` in `packages/rts-engine`. Any divergence in tick order (even re-ordering economy before build apply) produces immediate desync. Existing tick order from CLAUDE.md must be treated as a contract.
+- `TICK-ALIGN` is subtle: the server assigns `bufferedTurn` and `scheduledByTurn` to events, and the client must apply those events at `executeTick`. If the client clock runs at a different phase than the server, events will apply on the wrong local tick.
+- `RECONNECT-SNAPSHOT` requires constructing an `RtsRoom` from a `RoomStatePayload` using `RtsEngine.createRoomState` / `RtsRoom.fromState` — the engine already enforces this constructor constraint. The web client will need to call these directly.
+- `DESYNC-FALLBACK` must handle the case where the client receives a fallback mid-tick. It must wait for a clean tick boundary before resetting, or risk corrupting in-progress state.
+
+**Where implementation is straightforward given existing infrastructure:**
+
+- `HASH-CHECKPOINT`: the `createStateHashes()` method already exists on `RtsRoom`. The client just needs to call it at the right tick and compare.
+- `CLIENT-REJECT`: event outcomes already have `accepted: boolean` and `executeTick`. Client just needs to check at that tick whether to apply or skip.
+- `INPUT-TRANSPORT`: the server already has lockstep mode as a concept. Gating `state` broadcast on `lockstepRuntime.mode !== 'off'` is a targeted change in the tick handler.
 
 ## Sources
 
-- `/home/alpine/crts-opencode/.planning/PROJECT.md` (HIGH)
-- `/home/alpine/crts-opencode/conway-rts/DESIGN.md` (HIGH)
+- `/home/alpine/crts-opencode/.planning/PROJECT.md` (HIGH — defines v0.0.3 feature scope)
+- `/home/alpine/crts-opencode/packages/rts-engine/socket-contract.ts` (HIGH — canonical wire protocol)
+- `/home/alpine/crts-opencode/apps/server/src/server.ts` (HIGH — existing lockstep runtime state)
+- [Gaffer on Games: Deterministic Lockstep](https://gafferongames.com/post/deterministic_lockstep/) (HIGH — authoritative reference)
+- [SnapNet: Netcode Architectures Part 1: Lockstep](https://www.snapnet.dev/blog/netcode-architectures-part-1-lockstep/) (MEDIUM — practical survey)
+- [Game Networking Demystified, Part III: Lockstep](https://ruoyusun.com/2019/04/06/game-networking-3.html) (MEDIUM — input buffering patterns)
+- [ForrestTheWoods: Synchronous RTS Engines and a Tale of Desyncs](https://www.forrestthewoods.com/blog/synchronous_rts_engines_and_a_tale_of_desyncs/) (MEDIUM — desync detection in practice, Supreme Commander reference)
+- [Game Developer: Minimizing the Pain of Lockstep Multiplayer](https://www.gamedeveloper.com/programming/minimizing-the-pain-of-lockstep-multiplayer) (MEDIUM — determinism requirements, fixed-point math)
+- [GameDev.net: Client-server RTS lockstep](https://gamedev.net/forums/topic/644053-client-server-rts-lockstep/) (MEDIUM — server relay vs P2P tradeoffs)
 
 ---
 
-_Feature research for: Conway RTS prototype - v0.0.2 Gameplay Expansion_
-_Researched: 2026-03-01_
+_Feature research for: deterministic lockstep networking protocol — Conway RTS prototype v0.0.3_
+_Researched: 2026-03-29_

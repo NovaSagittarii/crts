@@ -1,22 +1,36 @@
+---
+gsd_state_version: 1.0
+milestone: v0.0.3
+milestone_name: Deterministic Lockstep Protocol
+status: verifying
+stopped_at: Completed 17-02-PLAN.md (ArrayBuffer round-trip integration test)
+last_updated: '2026-03-30T03:10:24.044Z'
+last_activity: 2026-03-30
+progress:
+  total_phases: 5
+  completed_phases: 5
+  total_plans: 10
+  completed_plans: 10
+  percent: 0
+---
+
 # Project State
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-03-03)
+See: `.planning/PROJECT.md` (updated 2026-03-29)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Plan the next milestone scope and create a fresh requirements file.
+**Current focus:** Phase 17 — quality-gate
 
 ## Current Position
 
-**Current Milestone:** v0.0.2 Gameplay Expansion (shipped and archived)
-**Phase:** 12 of 12 (Structure Hover and Tactical Overlays)
-**Plan:** 2 of 2
-**Current Plan:** Complete
-**Total Plans in Phase:** 2
-**Status:** Milestone archived; ready for next milestone planning
-**Last Activity:** 2026-03-03
-**Progress:** [██████████] 100%
+Phase: 17
+Plan: Not started
+Status: Phase complete — ready for verification
+Last activity: 2026-03-30
+
+Progress: [░░░░░░░░░░] 0% (v0.0.3)
 
 ## Performance Metrics
 
@@ -27,13 +41,6 @@ See: `.planning/PROJECT.md` (updated 2026-03-03)
 - Completed tasks: 74
 - Shipped milestones: 2 (`v0.0.1`, `v0.0.2`)
 
-**Recent Milestone Snapshot (`v0.0.2`):**
-
-- Milestone phases: 7 (Phases 6-12)
-- Milestone plans: 14
-- Milestone tasks: 33
-- Git scope: `1cba7f0..5c4018d`
-
 ## Accumulated Context
 
 ### Decisions
@@ -43,20 +50,33 @@ See: `.planning/PROJECT.md` (updated 2026-03-03)
 - Front-load backend rule changes + deterministic tests before UI-heavy integration work.
 - Keep server-authoritative state as the only gameplay source of truth for clients.
 - Archive milestone roadmap/requirements artifacts to keep active planning files small.
+- Migrate to lockstep: server validates inputs, clients run simulation locally, periodic hash verification for desync detection.
+- [Phase 13-01]: Added reservedCost (optional) to PendingBuildPayload for hash-faithful payload reconstruction
+- [Phase 13-01]: Core template auto-injected into fromPayload templateMap since it is not in createDefaultStructureTemplates()
+- [Phase 14]: bufferLockstepCommand returns assigned sequence number instead of boolean for downstream payload population
+- [Phase 14]: isInputOnlyMode checks both mode=primary AND status=running, ensuring fallback continues full broadcasts
+- [Phase 14]: InputEventLog discard window based on reconnectHoldMs/tickMs for reconnect replay support
+- [Phase 15]: Used resync() convenience method (destroy + initialize) rather than separate reinitialize for ClientSimulation desync recovery
+- [Phase 15]: Server flush guard uses isInputOnlyMode && sections.includes('full') to limit flush to primary lockstep full-snapshot requests
+- [Phase 15]: Used lockstepCheckpointIntervalTicks: 5 for realistic checkpoint spacing in integration tests
+- [Phase 16]: Removed unused InputLogEntry import from client.ts -- payload.inputLog type inferred from RoomJoinedPayload
+- [Phase 16]: Used waitForBuildQueueResponse helper for build:queued matching existing lockstep test patterns
+- [Phase 17]: Used 52x52 grid for property-based tests (CI-friendly ~170s); snapshot-after-queue strategy avoids ClientSimulation reservedCost mismatch
+- [Phase 17]: Used toUint8Array helper to normalize Buffer vs ArrayBuffer in Node.js integration tests for Socket.IO binary transport validation
 
 ### Pending Todos
 
-- Run `/gsd-new-milestone` to define the next milestone (requirements -> roadmap).
-- Create a fresh `.planning/REQUIREMENTS.md` as part of next milestone kickoff.
 - Optionally run `/gsd-audit-milestone` retroactively for `v0.0.2` to close audit debt.
 
 ### Blockers/Concerns
 
-- `.planning/v0.0.2-MILESTONE-AUDIT.md` was not present at closeout; audit debt is recorded.
-- Canonical base geometry, build-zone legality, and destroy/reconnect semantics must stay deterministic across runtime layers.
+- Phase 13 implementation must guard against wrong-tick initialization: client must use `tick` from `RoomJoinedPayload.state`, not wall-clock time.
+- `RtsRoom.fromState()` Map insertion order must use canonical sorted order (consistent with `createShadowRoom`) to avoid divergence.
+- Fallback state broadcast (Phase 15) must be delayed until all turn-buffer commands for ticks at or before the fallback tick have executed.
+- `RtsRoom.fromState()` WeakMap reattachment behavior should be verified before Phase 16 implementation begins.
 
 ## Session Continuity
 
-**Last session:** 2026-03-03
-**Stopped At:** Milestone archival complete (`v0.0.2`)
-**Resume File:** `.planning/PROJECT.md`
+**Last session:** 2026-03-30T01:04:34.082Z
+**Stopped At:** Completed 17-02-PLAN.md (ArrayBuffer round-trip integration test)
+**Resume File:** None

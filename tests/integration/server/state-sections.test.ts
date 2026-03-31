@@ -293,7 +293,7 @@ describe('section sync and queued fanout', () => {
   );
 
   lockstepSectionsTest(
-    'broadcasts authoritative queued intents and queue hashes immediately in primary mode',
+    'broadcasts authoritative queued intents and queue hashes in primary mode',
     async ({ connectedRoom, startLockstepMatch }) => {
       const setup = await startLockstepMatch(connectedRoom, {
         waitForActiveMembership: false,
@@ -348,26 +348,6 @@ describe('section sync and queued fanout', () => {
         'build:queued',
         4_000,
       );
-      const hostHashesPromise = waitForStateHashes(
-        setup.host,
-        (payload) =>
-          payload.roomId === setup.roomId &&
-          payload.structuresHash !== initialStructuresHash,
-        {
-          attempts: 10,
-          timeoutMs: 1_000,
-        },
-      );
-      const guestHashesPromise = waitForStateHashes(
-        setup.guest,
-        (payload) =>
-          payload.roomId === setup.roomId &&
-          payload.structuresHash !== initialStructuresHash,
-        {
-          attempts: 10,
-          timeoutMs: 1_000,
-        },
-      );
 
       setup.host.emit('build:queue', {
         templateId: generatorTemplate.id,
@@ -398,6 +378,32 @@ describe('section sync and queued fanout', () => {
         hostQueued.bufferedTurn,
       );
       await waitForNoEvent(setup.host, 'build:queued', 150);
+
+      // In primary mode state:hashes is suppressed on queue; request state
+      // explicitly to verify the structures hash changed on the server.
+      const hostHashesPromise = waitForStateHashes(
+        setup.host,
+        (payload) =>
+          payload.roomId === setup.roomId &&
+          payload.structuresHash !== initialStructuresHash,
+        {
+          attempts: 10,
+          timeoutMs: 1_000,
+        },
+      );
+      const guestHashesPromise = waitForStateHashes(
+        setup.guest,
+        (payload) =>
+          payload.roomId === setup.roomId &&
+          payload.structuresHash !== initialStructuresHash,
+        {
+          attempts: 10,
+          timeoutMs: 1_000,
+        },
+      );
+      setup.host.emit('state:request', { sections: ['full'] });
+      setup.guest.emit('state:request', { sections: ['full'] });
+      await connectedRoom.clock.advanceMs(STATE_REQUEST_ADVANCE_MS);
       const [hostHashes, guestHashes] = await Promise.all([
         hostHashesPromise,
         guestHashesPromise,

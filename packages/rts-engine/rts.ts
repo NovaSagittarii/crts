@@ -215,6 +215,7 @@ export interface PendingBuildPayload {
   x: number;
   y: number;
   transform: PlacementTransformState;
+  reservedCost?: number;
 }
 
 export interface PendingDestroyPayload {
@@ -464,9 +465,11 @@ interface BuildPlacementSnapshotEvaluationInput extends BuildPlacementSnapshotPr
 type IntegrityOutcomeCategory = 'repaired' | 'destroyed-debris' | 'core-defeat';
 
 export class RtsEngine {
-  private static readonly FNV_OFFSET_BASIS = 2166136261;
-
-  private static readonly FNV_PRIME = 16777619;
+  // FNV-1a 32-bit hash constants used for deterministic state checksums.
+  // Chosen for speed, simplicity, and good distribution — critical for
+  // lockstep hash verification between server and client simulations.
+  private static readonly FNV_OFFSET_BASIS = 2166136261; // 0x811c9dc5
+  private static readonly FNV_PRIME = 16777619; // 0x01000193
 
   private static readonly aliveIntegrityPatch = new Grid(
     1,
@@ -703,11 +706,11 @@ export class RtsEngine {
     });
   }
 
-  private static insertBuildEventSorted(
-    queue: BuildEvent[],
-    event: BuildEvent,
+  private static insertEventSorted<T>(
+    queue: T[],
+    event: T,
+    compare: (a: T, b: T) => number,
   ): void {
-    const compare = RtsEngine.compareBuildEvents;
     let insertIndex = queue.length;
     for (let index = queue.length - 1; index >= 0; index -= 1) {
       if (compare(queue[index], event) <= 0) {
@@ -719,50 +722,18 @@ export class RtsEngine {
     queue.splice(insertIndex, 0, event);
   }
 
-  private static insertDestroyEventSorted(
-    queue: DestroyEvent[],
-    event: DestroyEvent,
-  ): void {
-    const compare = RtsEngine.compareDestroyEvents;
-    let insertIndex = queue.length;
-    for (let index = queue.length - 1; index >= 0; index -= 1) {
-      if (compare(queue[index], event) <= 0) {
-        break;
-      }
-      insertIndex = index;
-    }
-
-    queue.splice(insertIndex, 0, event);
-  }
-
-  private static compareBuildEvents(
+  private static compareEventsByTick(
     this: void,
-    a: BuildEvent,
-    b: BuildEvent,
+    a: { executeTick: number; id: number },
+    b: { executeTick: number; id: number },
   ): number {
     return a.executeTick - b.executeTick || a.id - b.id;
   }
 
-  private static compareDestroyEvents(
+  private static compareOutcomesByTick(
     this: void,
-    a: DestroyEvent,
-    b: DestroyEvent,
-  ): number {
-    return a.executeTick - b.executeTick || a.id - b.id;
-  }
-
-  private static compareBuildOutcomes(
-    this: void,
-    a: BuildOutcome,
-    b: BuildOutcome,
-  ): number {
-    return a.executeTick - b.executeTick || a.eventId - b.eventId;
-  }
-
-  private static compareDestroyOutcomes(
-    this: void,
-    a: DestroyOutcome,
-    b: DestroyOutcome,
+    a: { executeTick: number; eventId: number },
+    b: { executeTick: number; eventId: number },
   ): number {
     return a.executeTick - b.executeTick || a.eventId - b.eventId;
   }
@@ -772,7 +743,7 @@ export class RtsEngine {
     team: TeamState,
   ): PendingBuildPayload[] {
     const pending = [...team.pendingBuildEvents];
-    pending.sort(RtsEngine.compareBuildEvents);
+    pending.sort(RtsEngine.compareEventsByTick);
     return pending.map((event) => {
       const templateName = room.templateMap.get(event.templateId)?.name;
       return {
@@ -784,6 +755,7 @@ export class RtsEngine {
         x: event.x,
         y: event.y,
         transform: event.transform,
+        reservedCost: event.reservedCost,
       };
     });
   }
@@ -792,7 +764,7 @@ export class RtsEngine {
     team: TeamState,
   ): PendingDestroyPayload[] {
     const pending = [...team.pendingDestroyEvents];
-    pending.sort(RtsEngine.compareDestroyEvents);
+    pending.sort(RtsEngine.compareEventsByTick);
     return pending.map((event) => {
       const structure = team.structures.get(event.structureKey);
       const template = structure?.template;
@@ -929,6 +901,45 @@ export class RtsEngine {
     return next;
   }
 
+  private static hashTeamBaseAndQueue(
+    hash: number,
+    room: RoomState,
+    team: TeamState,
+  ): number {
+    hash = RtsEngine.hashInt32(hash, team.id);
+    hash = RtsEngine.hashNumber(hash, team.resources);
+    hash = RtsEngine.hashNumber(hash, team.income);
+    hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.base);
+    hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.structures);
+    hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.total);
+    hash = RtsEngine.hashNumber(
+      hash,
+      team.incomeBreakdown.activeStructureCount,
+    );
+    hash = RtsEngine.hashBoolean(hash, team.defeated);
+    hash = RtsEngine.hashInt32(hash, team.baseTopLeft.x);
+    hash = RtsEngine.hashInt32(hash, team.baseTopLeft.y);
+    hash = RtsEngine.hashBoolean(hash, RtsEngine.isBaseIntact(room, team));
+
+    const pendingBuilds = [...team.pendingBuildEvents].sort(
+      RtsEngine.compareEventsByTick,
+    );
+    hash = RtsEngine.hashInt32(hash, pendingBuilds.length);
+    for (const pendingBuild of pendingBuilds) {
+      hash = RtsEngine.hashBuildEvent(hash, pendingBuild);
+    }
+
+    const pendingDestroys = [...team.pendingDestroyEvents].sort(
+      RtsEngine.compareEventsByTick,
+    );
+    hash = RtsEngine.hashInt32(hash, pendingDestroys.length);
+    for (const pendingDestroy of pendingDestroys) {
+      hash = RtsEngine.hashDestroyEvent(hash, pendingDestroy);
+    }
+
+    return hash;
+  }
+
   private static hashStructuresSection(
     room: RoomState,
     orderedTeams: readonly TeamState[],
@@ -937,20 +948,7 @@ export class RtsEngine {
     hash = RtsEngine.hashInt32(hash, orderedTeams.length);
 
     for (const team of orderedTeams) {
-      hash = RtsEngine.hashInt32(hash, team.id);
-      hash = RtsEngine.hashNumber(hash, team.resources);
-      hash = RtsEngine.hashNumber(hash, team.income);
-      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.base);
-      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.structures);
-      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.total);
-      hash = RtsEngine.hashNumber(
-        hash,
-        team.incomeBreakdown.activeStructureCount,
-      );
-      hash = RtsEngine.hashBoolean(hash, team.defeated);
-      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.x);
-      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.y);
-      hash = RtsEngine.hashBoolean(hash, RtsEngine.isBaseIntact(room, team));
+      hash = RtsEngine.hashTeamBaseAndQueue(hash, room, team);
 
       const structures = [...team.structures.values()].sort(
         RtsEngine.compareStructuresByKey,
@@ -958,22 +956,6 @@ export class RtsEngine {
       hash = RtsEngine.hashInt32(hash, structures.length);
       for (const structure of structures) {
         hash = RtsEngine.hashStructure(hash, structure);
-      }
-
-      const pendingBuilds = [...team.pendingBuildEvents].sort(
-        RtsEngine.compareBuildEvents,
-      );
-      hash = RtsEngine.hashInt32(hash, pendingBuilds.length);
-      for (const pendingBuild of pendingBuilds) {
-        hash = RtsEngine.hashBuildEvent(hash, pendingBuild);
-      }
-
-      const pendingDestroys = [...team.pendingDestroyEvents].sort(
-        RtsEngine.compareDestroyEvents,
-      );
-      hash = RtsEngine.hashInt32(hash, pendingDestroys.length);
-      for (const pendingDestroy of pendingDestroys) {
-        hash = RtsEngine.hashDestroyEvent(hash, pendingDestroy);
       }
     }
 
@@ -988,36 +970,7 @@ export class RtsEngine {
     hash = RtsEngine.hashInt32(hash, orderedTeams.length);
 
     for (const team of orderedTeams) {
-      hash = RtsEngine.hashInt32(hash, team.id);
-      hash = RtsEngine.hashNumber(hash, team.resources);
-      hash = RtsEngine.hashNumber(hash, team.income);
-      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.base);
-      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.structures);
-      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.total);
-      hash = RtsEngine.hashNumber(
-        hash,
-        team.incomeBreakdown.activeStructureCount,
-      );
-      hash = RtsEngine.hashBoolean(hash, team.defeated);
-      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.x);
-      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.y);
-      hash = RtsEngine.hashBoolean(hash, RtsEngine.isBaseIntact(room, team));
-
-      const pendingBuilds = [...team.pendingBuildEvents].sort(
-        RtsEngine.compareBuildEvents,
-      );
-      hash = RtsEngine.hashInt32(hash, pendingBuilds.length);
-      for (const pendingBuild of pendingBuilds) {
-        hash = RtsEngine.hashBuildEvent(hash, pendingBuild);
-      }
-
-      const pendingDestroys = [...team.pendingDestroyEvents].sort(
-        RtsEngine.compareDestroyEvents,
-      );
-      hash = RtsEngine.hashInt32(hash, pendingDestroys.length);
-      for (const pendingDestroy of pendingDestroys) {
-        hash = RtsEngine.hashDestroyEvent(hash, pendingDestroy);
-      }
+      hash = RtsEngine.hashTeamBaseAndQueue(hash, room, team);
     }
 
     return hash;
@@ -1081,7 +1034,7 @@ export class RtsEngine {
       team.pendingBuildEvents = [];
     }
 
-    pendingEvents.sort(RtsEngine.compareBuildEvents);
+    pendingEvents.sort(RtsEngine.compareEventsByTick);
 
     for (const event of pendingEvents) {
       const team = room.teams.get(event.teamId);
@@ -1113,7 +1066,7 @@ export class RtsEngine {
       team.pendingDestroyEvents = [];
     }
 
-    pendingEvents.sort(RtsEngine.compareDestroyEvents);
+    pendingEvents.sort(RtsEngine.compareEventsByTick);
 
     for (const event of pendingEvents) {
       const team = room.teams.get(event.teamId);
@@ -1793,6 +1746,10 @@ export class RtsEngine {
     };
   }
 
+  // Recalculates team income, active structures, and territory each tick.
+  // A structure is "active" if it has HP and its grid footprint cells are
+  // all alive (integrity check). Active non-core structures contribute
+  // income and expand the team's build territory via their buildRadius.
   private static refreshTeamEconomy(room: RoomState, team: TeamState): void {
     const baseIncome = 0;
     let structureIncome = 0;
@@ -1821,6 +1778,8 @@ export class RtsEngine {
     team.income = team.incomeBreakdown.total;
     team.territoryRadius = DEFAULT_TEAM_TERRITORY_RADIUS + territoryBonus;
 
+    // Accumulate resources only when the tick has advanced, preventing
+    // double-counting if refreshTeamEconomy runs multiple times per tick.
     if (room.tick > team.lastIncomeTick) {
       const elapsed = room.tick - team.lastIncomeTick;
       team.resources += elapsed * team.income;
@@ -1901,6 +1860,12 @@ export class RtsEngine {
     team.pendingDestroyEvents = deferredDestroys;
   }
 
+  // Processes build events whose executeTick has arrived. For each due event:
+  // 1. Validate the template still exists
+  // 2. Re-evaluate placement (terrain/zone may have changed since queuing)
+  // 3. Check for footprint collisions with builds already accepted this tick
+  // 4. Accept (reserve footprint) or reject (refund cost)
+  // Future events are deferred to the next tick cycle.
   private static processDueBuildEvents(
     room: RoomState,
     team: TeamState,
@@ -1910,6 +1875,7 @@ export class RtsEngine {
     const deferredBuilds: BuildEvent[] = [];
     const reservedFootprintCells = new Set<string>();
 
+    // Seed reserved cells from builds already accepted (e.g. from other teams)
     for (const acceptedEvent of acceptedEvents) {
       RtsEngine.addFootprintToCellSet(
         reservedFootprintCells,
@@ -1918,6 +1884,7 @@ export class RtsEngine {
     }
 
     for (const event of team.pendingBuildEvents) {
+      // Not yet due — defer to future tick
       if (event.executeTick > room.tick) {
         deferredBuilds.push(event);
         continue;
@@ -1956,6 +1923,8 @@ export class RtsEngine {
         continue;
       }
 
+      // Check for collisions with other builds accepted in the same tick:
+      // first by structure key (exact bounds match), then by cell footprint.
       const key = RtsEngine.createStructureKey(
         evaluation.projection.bounds.x,
         evaluation.projection.bounds.y,
@@ -2197,6 +2166,166 @@ export class RtsEngine {
     attachRoomRuntime(room, runtime);
 
     return room;
+  }
+
+  public static fromPayload(
+    payload: RoomStatePayload,
+    templates: StructureTemplate[],
+  ): RtsRoom {
+    // 1. Build template map (always include core template)
+    const templateMap = new Map<string, StructureTemplate>();
+    for (const template of templates) {
+      templateMap.set(template.id, template);
+    }
+    if (!templateMap.has(RtsEngine.CORE_STRUCTURE_TEMPLATE.id)) {
+      templateMap.set(
+        RtsEngine.CORE_STRUCTURE_TEMPLATE.id,
+        RtsEngine.CORE_STRUCTURE_TEMPLATE,
+      );
+    }
+
+    // 2. Compute spawn orientation seed
+    const spawnOrientationSeed = RtsEngine.hashSpawnSeed(
+      payload.roomId,
+      payload.width,
+      payload.height,
+    );
+
+    // 3. Create room runtime
+    const runtime = createRoomRuntime({
+      id: payload.roomId,
+      name: payload.roomName,
+      width: payload.width,
+      height: payload.height,
+      templateMap,
+      spawnOrientationSeed,
+    });
+
+    // 4. Reconstruct the grid from packed ArrayBuffer
+    const grid = Grid.fromPacked(payload.grid, payload.width, payload.height);
+
+    // 5. Create bare RoomState
+    const room = {
+      generation: payload.generation,
+      tick: payload.tick,
+      grid,
+      templates,
+      teams: new Map<number, TeamState>(),
+      players: new Map<string, RoomPlayerState>(),
+    } as unknown as RoomState;
+
+    defineRoomRuntimeProperties(room, runtime);
+    attachRoomRuntime(room, runtime);
+
+    // 6. Sort teams by id and reconstruct each team
+    const sortedTeamPayloads = [...payload.teams].sort((a, b) => a.id - b.id);
+
+    let maxEventId = 0;
+
+    for (const tp of sortedTeamPayloads) {
+      // Reconstruct structures sorted by key
+      const structures = new Map<string, Structure>();
+      const sortedStructures = [...tp.structures].sort((a, b) =>
+        a.key < b.key ? -1 : a.key > b.key ? 1 : 0,
+      );
+
+      for (const sp of sortedStructures) {
+        const template = templateMap.get(sp.templateId);
+        if (!template) {
+          continue;
+        }
+
+        const structure = template.instantiate({
+          key: sp.key,
+          x: sp.x,
+          y: sp.y,
+          transform: sp.transform,
+          active: sp.active,
+          isCore: sp.isCore,
+        });
+        structure.hp = sp.hp;
+        structures.set(sp.key, structure);
+      }
+
+      // Reconstruct pending build events
+      const pendingBuildEvents: BuildEvent[] = [];
+      for (const pb of tp.pendingBuilds) {
+        const buildEvent: BuildEvent = {
+          id: pb.eventId,
+          teamId: tp.id,
+          playerId: pb.playerId,
+          templateId: pb.templateId,
+          x: pb.x,
+          y: pb.y,
+          transform: pb.transform,
+          executeTick: pb.executeTick,
+          reservedCost: pb.reservedCost ?? 0,
+        };
+        pendingBuildEvents.push(buildEvent);
+        if (pb.eventId > maxEventId) {
+          maxEventId = pb.eventId;
+        }
+      }
+      pendingBuildEvents.sort(RtsEngine.compareEventsByTick);
+
+      // Reconstruct pending destroy events
+      const pendingDestroyEvents: DestroyEvent[] = [];
+      for (const pd of tp.pendingDestroys) {
+        const destroyEvent: DestroyEvent = {
+          id: pd.eventId,
+          teamId: tp.id,
+          playerId: pd.playerId,
+          structureKey: pd.structureKey,
+          executeTick: pd.executeTick,
+        };
+        pendingDestroyEvents.push(destroyEvent);
+        if (pd.eventId > maxEventId) {
+          maxEventId = pd.eventId;
+        }
+      }
+      pendingDestroyEvents.sort(RtsEngine.compareEventsByTick);
+
+      // Reconstruct TeamState
+      const team: TeamState = {
+        id: tp.id,
+        name: tp.name,
+        playerIds: new Set<string>(tp.playerIds),
+        resources: tp.resources,
+        income: tp.income,
+        incomeBreakdown: { ...tp.incomeBreakdown },
+        lastIncomeTick: payload.tick,
+        territoryRadius: DEFAULT_TEAM_TERRITORY_RADIUS,
+        baseTopLeft: { ...tp.baseTopLeft },
+        defeated: tp.defeated,
+        structures,
+        pendingBuildEvents,
+        pendingDestroyEvents,
+        buildStats: { queued: 0, applied: 0, rejected: 0 },
+      };
+
+      // Add players
+      for (const playerId of tp.playerIds) {
+        room.players.set(playerId, {
+          id: playerId,
+          name: playerId,
+          teamId: tp.id,
+        });
+      }
+
+      // Insert team
+      room.teams.set(tp.id, team);
+
+      // Reserve team id
+      reserveRoomTeamId(room, tp.id);
+    }
+
+    // 7. Fix runtime.nextBuildEventId
+    if (maxEventId > 0) {
+      runtime.nextBuildEventId = maxEventId + 1;
+    }
+
+    // 8. Return wrapped RtsRoom
+    return RtsRoom.fromState(room);
   }
 
   public static listRooms(rooms: Map<string, RoomState>): RoomListEntry[] {
@@ -2621,7 +2750,11 @@ export class RtsEngine {
     };
 
     team.resources -= event.reservedCost;
-    RtsEngine.insertBuildEventSorted(team.pendingBuildEvents, event);
+    RtsEngine.insertEventSorted(
+      team.pendingBuildEvents,
+      event,
+      RtsEngine.compareEventsByTick,
+    );
     team.buildStats.queued += 1;
     appendRoomTimelineEvent(room, {
       teamId: team.id,
@@ -2778,7 +2911,11 @@ export class RtsEngine {
       executeTick: room.tick + clampedDelay,
     };
 
-    RtsEngine.insertDestroyEventSorted(team.pendingDestroyEvents, event);
+    RtsEngine.insertEventSorted(
+      team.pendingDestroyEvents,
+      event,
+      RtsEngine.compareEventsByTick,
+    );
     appendRoomTimelineEvent(room, {
       teamId: team.id,
       type: 'destroy-queued',
@@ -3061,7 +3198,7 @@ export class RtsEngine {
       );
     }
 
-    acceptedEvents.sort(RtsEngine.compareBuildEvents);
+    acceptedEvents.sort(RtsEngine.compareEventsByTick);
 
     const appliedBuilds = RtsEngine.applyAcceptedBuildEvents(
       room,
@@ -3075,8 +3212,8 @@ export class RtsEngine {
       destroyOutcomes,
     );
 
-    buildOutcomes.sort(RtsEngine.compareBuildOutcomes);
-    destroyOutcomes.sort(RtsEngine.compareDestroyOutcomes);
+    buildOutcomes.sort(RtsEngine.compareOutcomesByTick);
+    destroyOutcomes.sort(RtsEngine.compareOutcomesByTick);
 
     return {
       appliedBuilds,
@@ -3102,6 +3239,13 @@ export class RtsRoom {
 
   public static create(options: CreateRoomOptions): RtsRoom {
     return RtsEngine.createRoom(options);
+  }
+
+  public static fromPayload(
+    payload: RoomStatePayload,
+    templates: StructureTemplate[],
+  ): RtsRoom {
+    return RtsEngine.fromPayload(payload, templates);
   }
 
   public static fromState(state: RoomState): RtsRoom {

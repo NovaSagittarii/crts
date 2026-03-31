@@ -1,11 +1,10 @@
 {
   "mode": "yolo",
-  "depth": "standard",
   "parallelization": true,
   "commit_docs": true,
-  "model_profile": "smart",
+  "model_profile": "quality",
   "profiles": {
-    "profile_type": "smart",
+    "profile_type": "quality",
     "models": {
       "planning": "rightcode-codex/gpt-5.3-codex-xhigh",
       "execution": "rightcode-codex/gpt-5.3-codex-high",
@@ -16,6 +15,21 @@
     "research": true,
     "plan_check": true,
     "verifier": true,
-    "auto_advance": true
-  }
+    "auto_advance": true,
+    "nyquist_validation": true,
+    "ui_phase": true,
+    "ui_safety_gate": true,
+    "research_before_questions": true,
+    "skip_discuss": true,
+    "_auto_chain_active": false
+  },
+  "git": {
+    "branching_strategy": "phase",
+    "quick_branch_template": null
+  },
+  "hooks": {
+    "context_warnings": true,
+    "workflow_guard": true
+  },
+  "granularity": "standard"
 }

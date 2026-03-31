@@ -1,20 +1,11 @@
 import { describe, expect } from 'vitest';
 
-import type {
-  BuildOutcomePayload,
-  BuildQueuedPayload,
-  DestroyQueuedPayload,
-  RoomJoinedPayload,
-} from '#rts-engine';
+import type { DestroyQueuedPayload, RoomJoinedPayload } from '#rts-engine';
 
-import type { IntegrationClock } from './fixtures.js';
 import { createMatchTest } from './match-fixtures.js';
 import {
-  type ActiveMatchSetup,
-  collectCandidatePlacements,
   getTeamByPlayerId,
-  waitForBuildOutcome,
-  waitForBuildQueueResponse,
+  queueAppliedHostBlock,
   waitForDestroyOutcome,
   waitForDestroyQueueResponse,
   waitForEvent,
@@ -33,90 +24,6 @@ const test = createMatchTest(
   {},
   { clockMode: 'manual' },
 );
-
-async function queueAppliedHostBlock(
-  match: ActiveMatchSetup,
-  clock: IntegrationClock,
-): Promise<{
-  queued: BuildQueuedPayload;
-  outcome: BuildOutcomePayload;
-  structureKey: string;
-}> {
-  const blockTemplate = match.hostJoined.templates.find(
-    ({ id }) => id === 'block',
-  );
-  if (!blockTemplate) {
-    throw new Error('Expected block template to be available');
-  }
-
-  const placements = collectCandidatePlacements(
-    match.hostTeam,
-    blockTemplate,
-    match.hostJoined.state.width,
-    match.hostJoined.state.height,
-  );
-
-  for (const placement of placements) {
-    const buildResponsePromise = waitForBuildQueueResponse(match.host);
-    match.host.emit('build:queue', {
-      templateId: blockTemplate.id,
-      x: placement.x,
-      y: placement.y,
-      delayTicks: 8,
-    });
-
-    const buildResponse = await buildResponsePromise;
-    if ('error' in buildResponse) {
-      continue;
-    }
-
-    const outcomePromise = waitForBuildOutcome(
-      match.host,
-      buildResponse.queued.eventId,
-    );
-    await clock.advanceTicks(
-      buildResponse.queued.delayTicks + OUTCOME_ADVANCE_MARGIN_TICKS,
-    );
-    const outcome = await outcomePromise;
-    if (outcome.outcome !== 'applied') {
-      continue;
-    }
-
-    const builtState = await waitForRoomState(
-      match.host,
-      match.roomId,
-      (payload) => {
-        const hostTeam = getTeamByPlayerId(payload, match.hostJoined.playerId);
-        return hostTeam.structures.some(
-          (structure) =>
-            !structure.isCore &&
-            structure.templateId === blockTemplate.id &&
-            structure.hp > 0,
-        );
-      },
-      { attempts: 40 },
-    );
-
-    const builtTeam = getTeamByPlayerId(builtState, match.hostJoined.playerId);
-    const builtStructure = builtTeam.structures.find(
-      (structure) =>
-        !structure.isCore &&
-        structure.templateId === blockTemplate.id &&
-        structure.hp > 0,
-    );
-    if (!builtStructure) {
-      continue;
-    }
-
-    return {
-      queued: buildResponse.queued,
-      outcome,
-      structureKey: builtStructure.key,
-    };
-  }
-
-  throw new Error('Unable to queue and apply host block before destroy tests');
-}
 
 describe('destroy reconnect determinism', () => {
   test('reconnects during pending destroy and converges on one authoritative terminal outcome', async ({

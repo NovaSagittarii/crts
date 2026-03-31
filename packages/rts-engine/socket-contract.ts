@@ -1,3 +1,4 @@
+import type { InputLogEntry } from './input-event-log.js';
 import type { RankedTeamOutcome } from './match-lifecycle.js';
 import type { PlacementTransformState } from './placement-transform.js';
 import type {
@@ -79,6 +80,7 @@ export interface BuildQueuedPayload {
   delayTicks: number;
   eventId: number;
   executeTick: number;
+  sequence: number;
 }
 
 export interface DestroyQueuedPayload {
@@ -93,6 +95,7 @@ export interface DestroyQueuedPayload {
   eventId: number;
   executeTick: number;
   idempotent: boolean;
+  sequence: number;
 }
 
 export type BuildQueueRejectedReason = string;
@@ -160,6 +163,7 @@ export interface RoomJoinedPayload {
   state: RoomStatePayload;
   stateHashes: RoomStateHashesPayload;
   lockstep?: LockstepStatusPayload;
+  inputLog?: InputLogEntry[];
 }
 
 export interface RoomLeftPayload {

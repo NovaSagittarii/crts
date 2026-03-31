@@ -13,9 +13,10 @@ import {
   normalizePlacementTransform,
 } from '#rts-engine';
 
-import { type IntegrationClock, createIntegrationTest } from './fixtures.js';
+import { createIntegrationTest } from './fixtures.js';
 import { createMatchTest } from './match-fixtures.js';
 import {
+  advanceUntilObservedCount,
   claimSlot,
   collectBuildOutcomes,
   collectBuildQueuedEvents,
@@ -102,23 +103,6 @@ function getTeam(state: RoomStatePayload, teamId: number): TeamPayload {
     throw new Error(`Unable to find team ${teamId}`);
   }
   return team;
-}
-
-async function advanceUntilObservedCount(
-  clock: IntegrationClock,
-  observer: { events: unknown[] },
-  count: number,
-  maxTicks: number,
-): Promise<void> {
-  for (
-    let advancedTicks = 0;
-    advancedTicks < maxTicks && observer.events.length < count;
-    advancedTicks += 1
-  ) {
-    await clock.advanceTicks(1);
-  }
-
-  expect(observer.events.length).toBeGreaterThanOrEqual(count);
 }
 
 describe('GameServer', () => {

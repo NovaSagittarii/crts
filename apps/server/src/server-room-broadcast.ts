@@ -355,19 +355,34 @@ export class RoomBroadcastService {
     room: RuntimeBroadcastRoom,
     outcomes: BuildOutcomePayload[],
   ): void {
-    const roomIo = this.io.to(this.roomChannel(room.rtsRoom.id));
-    for (const outcome of outcomes) {
-      roomIo.emit('build:outcome', outcome);
-    }
+    this.emitOutcomesToRoom(room, 'build:outcome', outcomes);
   }
 
   public emitDestroyOutcomes(
     room: RuntimeBroadcastRoom,
     outcomes: DestroyOutcomePayload[],
   ): void {
+    this.emitOutcomesToRoom(room, 'destroy:outcome', outcomes);
+  }
+
+  private emitOutcomesToRoom(
+    room: RuntimeBroadcastRoom,
+    event: 'build:outcome',
+    outcomes: BuildOutcomePayload[],
+  ): void;
+  private emitOutcomesToRoom(
+    room: RuntimeBroadcastRoom,
+    event: 'destroy:outcome',
+    outcomes: DestroyOutcomePayload[],
+  ): void;
+  private emitOutcomesToRoom(
+    room: RuntimeBroadcastRoom,
+    event: 'build:outcome' | 'destroy:outcome',
+    outcomes: (BuildOutcomePayload | DestroyOutcomePayload)[],
+  ): void {
     const roomIo = this.io.to(this.roomChannel(room.rtsRoom.id));
     for (const outcome of outcomes) {
-      roomIo.emit('destroy:outcome', outcome);
+      roomIo.emit(event, outcome as never);
     }
   }
 

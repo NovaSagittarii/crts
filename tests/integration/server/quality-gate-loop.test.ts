@@ -16,6 +16,7 @@ import {
   type ActiveMatchSetup,
   collectCandidatePlacements,
   getTeamByPlayerId,
+  queueAppliedHostBlock,
   waitForBuildOutcome,
   waitForBuildQueueResponse,
   waitForDestroyOutcome,
@@ -90,95 +91,6 @@ async function queueValidHostBuild(
   }
 
   throw new Error('Unable to queue a valid build for QUAL-02 scenario');
-}
-
-async function queueAppliedHostBuild(
-  match: ActiveMatchSetup,
-  clock: IntegrationClock,
-): Promise<{
-  queued: BuildQueuedPayload;
-  outcome: BuildOutcomePayload;
-  structureKey: string;
-}> {
-  const blockTemplate = match.hostJoined.templates.find(
-    ({ id }) => id === 'block',
-  );
-  if (!blockTemplate) {
-    throw new Error('Expected block template to be available');
-  }
-
-  const placements = collectCandidatePlacements(
-    match.hostTeam,
-    blockTemplate,
-    match.hostJoined.state.width,
-    match.hostJoined.state.height,
-  );
-
-  for (const placement of placements) {
-    const responsePromise = waitForBuildQueueResponse(match.host);
-    match.host.emit('build:queue', {
-      templateId: blockTemplate.id,
-      x: placement.x,
-      y: placement.y,
-      delayTicks: 8,
-    });
-
-    const response = await responsePromise;
-    if ('error' in response) {
-      continue;
-    }
-
-    const outcomePromise = waitForBuildOutcome(
-      match.host,
-      response.queued.eventId,
-    );
-    await clock.advanceTicks(
-      response.queued.delayTicks + OUTCOME_ADVANCE_MARGIN_TICKS,
-    );
-    const outcome = await outcomePromise;
-    if (outcome.outcome !== 'applied') {
-      continue;
-    }
-
-    const stateWithBuiltBlock = await waitForRoomState(
-      match.host,
-      match.roomId,
-      (payload) => {
-        const hostTeam = getTeamByPlayerId(payload, match.hostJoined.playerId);
-        return hostTeam.structures.some(
-          (structure) =>
-            !structure.isCore &&
-            structure.templateId === blockTemplate.id &&
-            structure.hp > 0,
-        );
-      },
-      { attempts: 40 },
-    );
-
-    const hostTeam = getTeamByPlayerId(
-      stateWithBuiltBlock,
-      match.hostJoined.playerId,
-    );
-    const structure = hostTeam.structures.find(
-      (candidate) =>
-        !candidate.isCore &&
-        candidate.templateId === blockTemplate.id &&
-        candidate.hp > 0,
-    );
-    if (!structure) {
-      continue;
-    }
-
-    return {
-      queued: response.queued,
-      outcome,
-      structureKey: structure.key,
-    };
-  }
-
-  throw new Error(
-    'Unable to queue and apply a host block structure for destroy scenario',
-  );
 }
 
 describe('QUAL-02 quality gate integration loop', () => {
@@ -278,7 +190,7 @@ describe('QUAL-02 quality gate integration loop', () => {
   }) => {
     const match = activeMatch;
 
-    const appliedBuild = await queueAppliedHostBuild(match, integration.clock);
+    const appliedBuild = await queueAppliedHostBlock(match, integration.clock);
     expect(appliedBuild.outcome.outcome).toBe('applied');
 
     const destroyQueueResponsePromise = waitForDestroyQueueResponse(match.host);

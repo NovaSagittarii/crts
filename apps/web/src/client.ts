@@ -33,6 +33,7 @@ import {
   RtsEngine,
   ServerToClientEvents,
   StateRequestPayload,
+  StructureTemplate,
   StructureTemplatePayload,
   TeamPayload,
 } from '#rts-engine';
@@ -66,6 +67,7 @@ import {
   DEFAULT_CHAT_LOG_MAX_MESSAGES,
   getChatOverflowCount,
 } from './chat-log-view-model.js';
+import { ClientSimulation, templateFromPayload } from './client-simulation.js';
 import {
   type AuthoritativePreviewRefreshState,
   type AuthoritativePreviewSection,
@@ -601,6 +603,10 @@ let playerIdentityState = createPlayerIdentityState(
   playerNameEl.value.trim(),
 );
 let availableTemplates: StructureTemplatePayload[] = [];
+let joinedTemplates: StructureTemplate[] | null = null;
+let pendingSimInit = false;
+let pendingSimResync = false;
+const clientSimulation = new ClientSimulation();
 const templateMaxHpByTemplateId = new Map<string, number>();
 let templateMaxHpLookup: Record<string, number> = {};
 const previewTemplateSnapshotsById = new Map<
@@ -618,6 +624,7 @@ let persistentDefeatReason: string | null = null;
 let latestOutcomeTimelineMetadata: unknown = null;
 const buildModeController = new BuildModeController();
 let latestBuildPreview: BuildPreview | null = null;
+let cachedIllegalCellKeys: Set<string> = new Set();
 let previewPending = false;
 let authoritativePreviewRefreshState: AuthoritativePreviewRefreshState =
   createAuthoritativePreviewRefreshState();
@@ -1358,6 +1365,7 @@ function shouldDeduplicateBuildErrorToast(
 function clearSelectedTemplatePlacement(): void {
   buildModeController.clearCandidate();
   latestBuildPreview = null;
+  cachedIllegalCellKeys = new Set();
   previewPending = false;
   authoritativePreviewRefreshState = createAuthoritativePreviewRefreshState();
   resetQueueFeedbackOverride();
@@ -2450,6 +2458,9 @@ function emitBuildPreviewForSelectedPlacement(): void {
   resetQueueFeedbackOverride();
   previewPending = false;
   latestBuildPreview = deriveLocalBuildPreview(previewRequest);
+  cachedIllegalCellKeys = latestBuildPreview
+    ? new Set(latestBuildPreview.illegalCells.map(({ x, y }) => `${x},${y}`))
+    : new Set();
 }
 
 function emitDestroyQueueForSelection(): void {
@@ -3054,9 +3065,7 @@ function renderBuildPreviewOverlay(
     return;
   }
 
-  const illegalCellKeys = new Set(
-    latestBuildPreview.illegalCells.map(({ x, y }) => `${x},${y}`),
-  );
+  const illegalCellKeys = cachedIllegalCellKeys;
 
   for (const cell of latestBuildPreview.illegalCells) {
     if (
@@ -3828,7 +3837,23 @@ socket.on('room:joined', (payload: RoomJoinedPayload) => {
       : `Joined ${payload.roomName} as team #${payload.teamId}.`,
   );
 
+  // Store converted templates for sim initialization
+  joinedTemplates = payload.templates.map(templateFromPayload);
+
   applyStatePayload(payload.state);
+
+  // Initialize client simulation if match is already active (reconnect / mid-match join)
+  if (currentRoomStatus === 'active' || payload.state.tick > 0) {
+    clientSimulation.initialize(payload.state, joinedTemplates);
+
+    // RECON-01: replay input log for reconnect catchup
+    if (payload.inputLog && payload.inputLog.length > 0) {
+      clientSimulation.replayInputLog(payload.inputLog);
+    }
+
+    pendingSimInit = false;
+  }
+
   resizeCanvas();
   resetCameraForCurrentTeam();
   requestRender();
@@ -3842,6 +3867,11 @@ socket.on('room:left', (payload: RoomLeftPayload) => {
   if (!shouldApplyCurrentRoomPayload(payload.roomId)) {
     return;
   }
+
+  clientSimulation.destroy();
+  joinedTemplates = null;
+  pendingSimInit = false;
+  pendingSimResync = false;
 
   currentRoomId = '-';
   currentRoomCode = '-';
@@ -3994,12 +4024,20 @@ socket.on('room:match-started', (payload: MatchStartedPayload) => {
   }
   addToast('Match started. Good luck.');
   requestStateSnapshot(true);
+
+  // Flag that the next 'state' event should trigger sim initialization
+  if (!clientSimulation.isActive) {
+    pendingSimInit = true;
+  }
 });
 
 socket.on('room:match-finished', (payload: MatchFinishedPayload) => {
   if (payload.roomId !== currentRoomId) {
     return;
   }
+
+  clientSimulation.destroy();
+  pendingSimResync = false;
 
   const payloadWithTimeline = payload as MatchFinishedPayload & {
     timeline?: unknown;
@@ -4031,8 +4069,28 @@ socket.on('lockstep:checkpoint', (payload: LockstepCheckpointPayload) => {
     return;
   }
 
-  if (payload.tick % 50 === 0) {
-    requestStateSections(['grid']);
+  if (clientSimulation.isActive) {
+    // Skip verification while a resync is already in flight
+    if (pendingSimResync) {
+      return;
+    }
+
+    clientSimulation.advanceToTick(payload.tick);
+    const match = clientSimulation.verifyCheckpoint(payload);
+    if (!match) {
+      console.warn(
+        `[lockstep] Desync detected at tick ${String(payload.tick)}: requesting resync`,
+      );
+      // Request full state snapshot for resync (SYNC-01 -> SYNC-02)
+      requestStateSnapshot(true);
+      pendingSimResync = true;
+    }
+    // In input-only mode with matching hash: no state request needed
+  } else {
+    // No active simulation -- use legacy grid request for visual sync
+    if (payload.tick % 50 === 0) {
+      requestStateSections(['grid']);
+    }
   }
 });
 
@@ -4041,7 +4099,10 @@ socket.on('lockstep:fallback', (payload: LockstepFallbackPayload) => {
     return;
   }
 
-  requestStateSnapshot(true);
+  if (!pendingSimResync) {
+    requestStateSnapshot(true);
+    pendingSimResync = true;
+  }
 });
 
 socket.on('room:slot-claimed', (payload: RoomSlotClaimedPayload) => {
@@ -4110,6 +4171,10 @@ socket.on('build:queued', (payload: BuildQueuedPayload) => {
     return;
   }
 
+  if (clientSimulation.isActive) {
+    clientSimulation.applyQueuedBuild(payload);
+  }
+
   if (routing.sections) {
     requestStateSections(routing.sections);
   }
@@ -4173,6 +4238,10 @@ socket.on('destroy:queued', (payload: DestroyQueuedPayload) => {
   );
   if (!routing.appliesToRoom) {
     return;
+  }
+
+  if (clientSimulation.isActive) {
+    clientSimulation.applyQueuedDestroy(payload);
   }
 
   if (routing.sections) {
@@ -4252,6 +4321,19 @@ socket.on('state', (payload: RoomStatePayload) => {
 
   stateHashResyncState = markAwaitingHashesAfterFullState(stateHashResyncState);
   applyStatePayload(payload);
+
+  // Deferred sim initialization: match started while in lobby
+  if (pendingSimInit && currentRoomStatus === 'active' && joinedTemplates) {
+    clientSimulation.initialize(payload, joinedTemplates);
+    pendingSimInit = false;
+  }
+
+  // Resync after desync detection (SYNC-02)
+  if (pendingSimResync && currentRoomStatus === 'active' && joinedTemplates) {
+    clientSimulation.resync(payload, joinedTemplates);
+    pendingSimResync = false;
+    console.log(`[lockstep] Resync complete at tick ${String(payload.tick)}`);
+  }
 });
 
 setNameButton.addEventListener('click', () => {

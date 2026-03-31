@@ -5,6 +5,8 @@ import express, { Express } from 'express';
 import { Socket, Server as SocketIOServer } from 'socket.io';
 
 import {
+  InputEventLog,
+  type InputLogEntry,
   type LobbyRejectionReason,
   LobbyRoom,
   type LobbySlotDefinition,
@@ -182,6 +184,7 @@ interface LockstepRuntimeState {
   lastPrimaryHash: string | null;
   lastShadowHash: string | null;
   checkpoints: LockstepCheckpointPayload[];
+  inputEventLog: InputEventLog;
 }
 
 interface StateRequestBudget {
@@ -556,6 +559,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
   const defaultRoomId = '1';
   let roomCounter = 2;
   let guestCounter = 1;
+  let lastBufferedSequence = -1;
 
   const roomTemplates = RtsEngine.createDefaultTemplates();
   const rooms = new Map<string, RuntimeRoom>();
@@ -580,6 +584,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       lastPrimaryHash: null,
       lastShadowHash: null,
       checkpoints: [],
+      inputEventLog: new InputEventLog(2048),
     };
   }
 
@@ -881,6 +886,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       delayTicks: createQueueDelayTicks(room, event.executeTick),
       eventId: event.id,
       executeTick: event.executeTick,
+      sequence: lastBufferedSequence,
     };
   }
 
@@ -911,6 +917,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       eventId: event.id,
       executeTick: event.executeTick,
       idempotent: Boolean(result.idempotent),
+      sequence: lastBufferedSequence,
     };
   }
 
@@ -1151,7 +1158,15 @@ export function createServer(options: ServerOptions = {}): GameServer {
     payload: BuildQueuedPayload,
   ): void {
     roomBroadcast.emitBuildQueued(room, payload);
-    roomBroadcast.emitStateHashes(room);
+    room.lockstepRuntime.inputEventLog.append({
+      tick: payload.executeTick,
+      sequence: payload.sequence,
+      kind: 'build',
+      payload,
+    });
+    if (!isInputOnlyMode(room)) {
+      roomBroadcast.emitStateHashes(room);
+    }
   }
 
   function emitBuildQueueRejected(
@@ -1166,7 +1181,15 @@ export function createServer(options: ServerOptions = {}): GameServer {
     payload: DestroyQueuedPayload,
   ): void {
     roomBroadcast.emitDestroyQueued(room, payload);
-    roomBroadcast.emitStateHashes(room);
+    room.lockstepRuntime.inputEventLog.append({
+      tick: payload.executeTick,
+      sequence: payload.sequence,
+      kind: 'destroy',
+      payload,
+    });
+    if (!isInputOnlyMode(room)) {
+      roomBroadcast.emitStateHashes(room);
+    }
   }
 
   function emitDestroyQueueRejected(
@@ -1239,6 +1262,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     lockstepRuntime.lastPrimaryHash = null;
     lockstepRuntime.lastShadowHash = null;
     lockstepRuntime.checkpoints = [];
+    lockstepRuntime.inputEventLog.clear();
 
     if (lockstepRuntime.mode === 'shadow') {
       if (forcedLockstepFallbackReason === 'shadow-unavailable') {
@@ -1260,13 +1284,13 @@ export function createServer(options: ServerOptions = {}): GameServer {
   function bufferLockstepCommand(
     room: RuntimeRoom,
     command: Omit<BufferedLockstepCommand, 'sequence' | 'turn'>,
-  ): boolean {
+  ): number {
     const lockstepRuntime = room.lockstepRuntime;
     if (
       lockstepRuntime.mode === 'off' ||
       lockstepRuntime.status !== 'running'
     ) {
-      return false;
+      return -1;
     }
 
     const turn =
@@ -1274,9 +1298,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
         ? getLockstepTurnForTick(lockstepRuntime, room.rtsRoom.state.tick)
         : room.rtsRoom.state.tick;
     const bufferedCommands = lockstepRuntime.turnBuffer.get(turn) ?? [];
+    const assignedSequence = lockstepRuntime.nextSequence;
     bufferedCommands.push({
       ...command,
-      sequence: lockstepRuntime.nextSequence,
+      sequence: assignedSequence,
       turn,
     });
     lockstepRuntime.nextSequence += 1;
@@ -1291,11 +1316,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
       lockstepRuntime.bufferedCommandCount > lockstepRuntime.maxBufferedCommands
     ) {
       fallbackToLegacyLockstep(room, 'turn-buffer-overflow');
-      return true;
+      return assignedSequence;
     }
 
     syncLockstepStatus(room);
-    return true;
+    return assignedSequence;
   }
 
   function replayBufferedCommandInShadow(
@@ -1359,6 +1384,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
     syncLockstepStatus(room);
   }
 
+  // In primary lockstep, player commands are buffered by turn number.
+  // Each tick, we flush commands from the *previous* turn (turn - 1) so
+  // they take effect one turn after being issued — this gives clients a
+  // full turn window to receive and locally apply inputs before execution.
   function flushPrimaryTurnCommands(room: RuntimeRoom): void {
     const lockstepRuntime = room.lockstepRuntime;
     if (
@@ -1372,7 +1401,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       lockstepRuntime,
       room.rtsRoom.state.tick,
     );
-    const turn = currentTurn - 1;
+    const turn = currentTurn - 1; // flush previous turn's commands
     if (turn <= lockstepRuntime.lastFlushedTurn) {
       return;
     }
@@ -1391,6 +1420,9 @@ export function createServer(options: ServerOptions = {}): GameServer {
     syncLockstepStatus(room);
   }
 
+  // In shadow lockstep, the server maintains a parallel "shadow" RtsRoom
+  // that replays the same commands. After each tick, hashes are compared
+  // to detect non-determinism. A mismatch triggers fallback to legacy mode.
   function runShadowTick(room: RuntimeRoom): void {
     const lockstepRuntime = room.lockstepRuntime;
     if (
@@ -1426,6 +1458,16 @@ export function createServer(options: ServerOptions = {}): GameServer {
     shadowRoom.tick();
     lockstepRuntime.nextTurn = room.rtsRoom.state.tick;
     syncLockstepStatus(room);
+  }
+
+  // In input-only mode (primary lockstep, running), the server suppresses
+  // periodic state broadcasts and per-tick outcomes — clients run their own
+  // simulation and only receive inputs + checkpoints for verification.
+  function isInputOnlyMode(room: RuntimeRoom): boolean {
+    return (
+      room.lockstepRuntime.mode === 'primary' &&
+      room.lockstepRuntime.status === 'running'
+    );
   }
 
   function recordLockstepCheckpoint(
@@ -1753,7 +1795,22 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
     sessionCoordinator.setRoom(session.id, room.rtsRoom.id);
 
+    // RECON-01: flush turn buffer before snapshot for reconnect consistency
+    if (isInputOnlyMode(room) && room.status === 'active') {
+      flushPrimaryTurnCommands(room);
+    }
+
+    const statePayload = room.rtsRoom.createStatePayload();
     const teamId = room.rtsRoom.state.players.get(session.id)?.teamId ?? null;
+
+    // RECON-01: include input log entries for reconnect replay
+    let inputLog: InputLogEntry[] | undefined;
+    if (isInputOnlyMode(room) && room.status === 'active') {
+      inputLog = room.lockstepRuntime.inputEventLog.getEntriesFromTick(
+        statePayload.tick + 1,
+      );
+    }
+
     socket.emit('room:joined', {
       roomId: room.rtsRoom.id,
       roomCode: room.roomCode,
@@ -1765,9 +1822,10 @@ export function createServer(options: ServerOptions = {}): GameServer {
       templates: room.rtsRoom.state.templates.map((template) =>
         template.toPayload(),
       ),
-      state: room.rtsRoom.createStatePayload(),
+      state: statePayload,
       stateHashes: createStateHashesPayload(room),
       lockstep: room.lockstep,
+      inputLog,
     });
 
     const latestCheckpoint = room.lockstepRuntime.checkpoints.at(-1);
@@ -2001,6 +2059,24 @@ export function createServer(options: ServerOptions = {}): GameServer {
     roomBroadcast.emitMatchFinished(room);
   }
 
+  function completeCountdown(room: RuntimeRoom): void {
+    stopCountdown(room);
+    const transition = transitionMatchLifecycle(
+      room.status,
+      'countdown-complete',
+    );
+    if (!transition.allowed) {
+      return;
+    }
+
+    room.status = transition.nextStatus;
+    emitMembership(room);
+    emitRoomList();
+    io.to(roomChannel(room.rtsRoom.id)).emit('room:match-started', {
+      roomId: room.rtsRoom.id,
+    });
+  }
+
   function startCountdown(room: RuntimeRoom): void {
     if (room.countdownTimer) {
       return;
@@ -2018,42 +2094,14 @@ export function createServer(options: ServerOptions = {}): GameServer {
     });
 
     if (countdownSeconds <= 0) {
-      stopCountdown(room);
-      const transition = transitionMatchLifecycle(
-        room.status,
-        'countdown-complete',
-      );
-      if (!transition.allowed) {
-        return;
-      }
-
-      room.status = transition.nextStatus;
-      emitMembership(room);
-      emitRoomList();
-      io.to(roomChannel(room.rtsRoom.id)).emit('room:match-started', {
-        roomId: room.rtsRoom.id,
-      });
+      completeCountdown(room);
       return;
     }
 
     room.countdownTimer = setIntervalHook(() => {
       const next = (room.countdownSecondsRemaining ?? 1) - 1;
       if (next <= 0) {
-        stopCountdown(room);
-        const transition = transitionMatchLifecycle(
-          room.status,
-          'countdown-complete',
-        );
-        if (!transition.allowed) {
-          return;
-        }
-
-        room.status = transition.nextStatus;
-        emitMembership(room);
-        emitRoomList();
-        io.to(roomChannel(room.rtsRoom.id)).emit('room:match-started', {
-          roomId: room.rtsRoom.id,
-        });
+        completeCountdown(room);
         return;
       }
 
@@ -2207,7 +2255,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
       >;
     },
   ): void {
-    bufferLockstepCommand(room, {
+    lastBufferedSequence = bufferLockstepCommand(room, {
       intentId: context.intentId,
       bufferedTurn: context.bufferedTurn,
       scheduledByTurn: context.scheduledByTurn,
@@ -2346,6 +2394,12 @@ export function createServer(options: ServerOptions = {}): GameServer {
       const sections = normalizeStateRequestSections(payload);
       if (!shouldServeStateRequest(session.id, room, sections)) {
         return;
+      }
+
+      // SYNC-02: flush buffered turn commands before generating snapshot
+      // to ensure the fallback state includes all executed inputs
+      if (isInputOnlyMode(room) && sections.includes('full')) {
+        flushPrimaryTurnCommands(room);
       }
 
       emitRequestedStateSections(room, socket, sections);
@@ -2788,22 +2842,39 @@ export function createServer(options: ServerOptions = {}): GameServer {
           continue;
         }
 
+        const inputOnly = isInputOnlyMode(room);
+
         flushPrimaryTurnCommands(room);
         const tickResult = room.rtsRoom.tick();
-        const buildOutcomes: BuildOutcomePayload[] =
-          tickResult.buildOutcomes.map((outcome) => ({
-            ...outcome,
-            roomId: room.rtsRoom.id,
-          }));
-        const destroyOutcomes: DestroyOutcomePayload[] =
-          tickResult.destroyOutcomes.map((outcome) => ({
-            ...outcome,
-            roomId: room.rtsRoom.id,
-          }));
-        emitBuildOutcomes(room, buildOutcomes);
-        emitDestroyOutcomes(room, destroyOutcomes);
+
+        if (!inputOnly || tickResult.outcome) {
+          const buildOutcomes: BuildOutcomePayload[] =
+            tickResult.buildOutcomes.map((outcome) => ({
+              ...outcome,
+              roomId: room.rtsRoom.id,
+            }));
+          const destroyOutcomes: DestroyOutcomePayload[] =
+            tickResult.destroyOutcomes.map((outcome) => ({
+              ...outcome,
+              roomId: room.rtsRoom.id,
+            }));
+          emitBuildOutcomes(room, buildOutcomes);
+          emitDestroyOutcomes(room, destroyOutcomes);
+        }
+
         runShadowTick(room);
         emitLockstepCheckpointIfDue(room);
+
+        // Keep input history for the reconnect hold window so disconnected
+        // players can replay missed inputs when they rejoin. Discard entries
+        // older than (currentTick - holdDurationInTicks) to bound memory.
+        if (inputOnly) {
+          const oldestNeededTick = Math.max(
+            0,
+            room.rtsRoom.state.tick - Math.ceil(reconnectHoldMs / tickMs),
+          );
+          room.lockstepRuntime.inputEventLog.discardBefore(oldestNeededTick);
+        }
 
         if (tickResult.outcome) {
           const transition = transitionMatchLifecycle(room.status, 'finish');
@@ -2824,7 +2895,11 @@ export function createServer(options: ServerOptions = {}): GameServer {
       }
 
       if (room.lobby.participantCount() > 0) {
-        if (room.status === 'active' && emitActiveStateSnapshot) {
+        if (
+          room.status === 'active' &&
+          emitActiveStateSnapshot &&
+          !isInputOnlyMode(room)
+        ) {
           emitRoomState(room);
         } else if (room.status === 'finished' && emitFinishedRoomResync) {
           emitRoomState(room);

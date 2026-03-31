@@ -1,133 +1,144 @@
 # Stack Research
 
-**Domain:** v0.0.2 Conway RTS gameplay expansion (deterministic engine + canvas UI)
-**Researched:** 2026-03-01
-**Confidence:** HIGH for required changes; MEDIUM for optional ergonomics libraries
+**Domain:** v0.0.3 Deterministic Lockstep Protocol migration
+**Researched:** 2026-03-29
+**Confidence:** HIGH for all decisions — verified against current npm registry, Socket.IO official docs, and codebase inspection
+
+## Scope
+
+This document replaces the v0.0.2 STACK.md. It focuses exclusively on **new** capabilities needed for the lockstep migration. The base stack (TypeScript 5.4.5, Socket.IO 4.8.3, Vite 8.0.3, Vitest 4.1.2, Express 4.19.2) is unchanged and not re-examined here.
+
+---
 
 ## Recommended Stack
 
-### Required vs Optional Changes
+### Core Technologies (NEW for v0.0.3)
 
-**Required for v0.0.2 scope**
+| Technology       | Version | Purpose                                     | Why Recommended                                                                                                                                                                                                                                                                    |
+| ---------------- | ------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bufferutil`     | `4.1.0` | Native WebSocket frame masking/unmasking    | Grid snapshots are `ArrayBuffer` (bit-packed). Each tick-boundary snapshot and reconnect payload traverses at least one full `Uint8Array`; native buffer ops measurably reduce CPU overhead on the ws layer. Optional install — server gracefully falls back to pure-JS if absent. |
+| `utf-8-validate` | `6.0.6` | Native UTF-8 validation of WebSocket frames | Pair with `bufferutil` to complete native ws performance. Both are `--save-optional` to keep the base install clean; Socket.IO docs recommend installing together.                                                                                                                 |
 
-1. Align Socket.IO server/client to the same current patch line (`4.8.3`) before adding new rotate/mirror/destroy events.
-2. Add property-based testing (`fast-check`) for transform/build-zone invariants so backend-first delivery catches deterministic edge cases before UI work.
-3. Keep runtime rendering stack as Canvas 2D + Pointer Events (no framework or renderer migration) for pan/zoom and overlays.
+Both packages are maintained by the Socket.IO team (bufferutil last updated December 2025; utf-8-validate last updated December 2024 — verified via npm registry). They are the official recommendation in the Socket.IO performance tuning guide.
 
-**Optional (only if complexity increases)**
+### Supporting Libraries (NEW for v0.0.3)
 
-1. Add `zod` runtime schemas at socket boundaries if ad-hoc payload guards become hard to maintain.
-2. Add `d3-zoom` only if custom pointer/wheel camera controls become fragile across devices.
-3. Upgrade `vite`/`vitest` together only when you explicitly schedule tooling modernization.
+| Library      | Version | Purpose                                        | When to Use                                                                                                                                                                                                                                                                                          |
+| ------------ | ------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fast-check` | `4.6.0` | Property-based testing for lockstep invariants | Required for snapshot round-trip and input-log serialization tests. The determinism contract demands: "same input list + same snapshot produces same final hash." Property tests catch floating-point and ordering regressions that unit tests miss. Vitest 4.x integrates natively via `fc.test()`. |
 
-### Core Technologies
+`fast-check` was already recommended in v0.0.2 STACK.md but not installed. v0.0.3 makes it required, not optional — lockstep correctness is only verifiable with invariant testing across random input sequences.
 
-| Technology                     | Version                                      | Purpose                                                                | Why Recommended                                                                                                                 |
-| ------------------------------ | -------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Socket.IO (server + client)    | `4.8.3`                                      | Typed event transport for new placement transforms and destroy actions | New milestone adds event surface area; version parity avoids protocol drift while preserving current server-authoritative flow. |
-| TypeScript                     | `5.4.5` (current baseline), `5.9.3` (target) | Strict typing for new engine geometry and UI modules                   | You can ship v0.0.2 on current strict config; move to 5.9.3 when adopting libs (like Zod 4) that expect TS 5.5+.                |
-| Canvas 2D API + Pointer Events | Web platform baseline (widely available)     | Pan/zoom camera and grid overlays without architecture rewrite         | `setTransform`/`scale` and pointer capture already cover milestone camera needs in current `apps/web` canvas architecture.      |
-| Vitest                         | `1.6.0` (current), `4.0.18` (upgrade path)   | Deterministic unit/integration testing for backend-first slices        | Existing setup is sufficient for milestone delivery; prioritize new tests now and postpone runner migration unless needed.      |
+### Development Tools (unchanged, no new additions)
 
-### Supporting Libraries
+| Tool                       | Purpose                 | Notes                                                                      |
+| -------------------------- | ----------------------- | -------------------------------------------------------------------------- |
+| Vitest 4.1.2               | All existing test modes | No change needed. `fc.test()` from fast-check plugs in directly.           |
+| ESLint + typescript-eslint | Payload type safety     | Strict mode catches any `any` leakage in new input-log serialization code. |
 
-| Library      | Version | Purpose                                                                                       | When to Use                                                                                                                         |
-| ------------ | ------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `fast-check` | `4.5.3` | Property-based tests for rotate/mirror correctness and build-zone union invariants            | **Required for this milestone** in `packages/rts-engine/*.test.ts` to validate algebraic rules (e.g., 4 rotations return identity). |
-| `zod`        | `4.3.6` | Runtime validation for new socket payloads (`build:queue` transform fields, destroy requests) | Optional. Add if manual guards in `apps/server/src/server.ts` become repetitive. Requires TypeScript 5.5+ per official docs.        |
-| `d3-zoom`    | `3.0.0` | Cross-device pan/zoom behavior abstraction (wheel, drag, touch)                               | Optional. Use only if native pointer/wheel camera module becomes difficult to stabilize; otherwise keep zero extra UI runtime deps. |
+---
 
-### Development Tools
+## What NOT to Add
 
-| Tool                                 | Purpose                                                     | Notes                                                                                                         |
-| ------------------------------------ | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Vitest + fast-check                  | Backend-first determinism and invariant testing             | Add focused suites for: transform round-trip, K-tick integrity cadence, and build-area union edge boundaries. |
-| Existing `npm run test:quality` gate | Keep requirement-traceable confidence before UI integration | Continue running unit + integration after each backend slice to keep milestone ordering intact.               |
-| ESLint + strict TypeScript           | Catch unsafe payload coercions and coordinate math mistakes | Keep explicit numeric normalization and typed payload contracts in `packages/rts-engine/socket-contract.ts`.  |
+| Avoid                               | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Use Instead                                                                                                      |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `socket.io-msgpack-parser`          | Last published November 2022 (3 years stale); notepack.io dependency has no active maintainer. The protocol requires binary data to be sent as `ArrayBuffer`/`Buffer` natively via Socket.IO's built-in binary framing. Grid snapshots are already `ArrayBuffer` via `Grid.toPacked()` — Socket.IO sends these in a single WebSocket frame automatically. Adding an unmaintained parser solely for frame-packing is premature optimization with real maintenance risk. | Native Socket.IO binary events with `ArrayBuffer` payloads (already used for grid state via `toPacked`).         |
+| `@msgpack/msgpack`                  | The lockstep protocol sends inputs (small JSON objects), not large binary blobs. Input payloads are `BuildQueuePayload` / `DestroyQueuePayload` — already typed, small, and handled by existing socket contract. Reconnect snapshots use `Grid.toPacked()` for grid (binary) and JSON for team state. Adding a serialization library for what TypeScript interfaces already model cleanly is over-engineering.                                                         | Existing typed JSON socket contract for inputs; `ArrayBuffer` via `toPacked()` for grid state.                   |
+| `flatbuffers` / `protobuf`          | Schema-first binary protocols add codegen tooling, breaking changes across schema versions, and build pipeline complexity. The project constraint is TypeScript-only prototype. The engine already has a well-defined typed contract in `socket-contract.ts`.                                                                                                                                                                                                          | `socket-contract.ts` typed interfaces remain the canonical wire contract.                                        |
+| `@geckos.io/snapshot-interpolation` | Client-side interpolation library for position-based games. This project uses deterministic lockstep with grid cells, not continuous position values. Reconnect recovery uses snapshot + input replay, not interpolation.                                                                                                                                                                                                                                              | Custom snapshot serialization: `RoomStatePayload` (JSON) + `Grid.toPacked()` (binary ArrayBuffer).               |
+| `netplayjs`                         | Rollback-first browser game library. This project uses server-authoritative lockstep with a turn buffer already implemented in `server.ts`. The engine is already deterministic with a complete `LockstepRuntimeState`. Adding a third-party lockstep library over an existing one causes a rewrite, not a migration.                                                                                                                                                  | Extend the existing `LockstepRuntimeState` and `BufferedLockstepCommand` in `server.ts`.                         |
+| `zod`                               | v0.0.2 STACK.md marked this optional. At current payload surface area, manual guards in `server.ts` are sufficient and already in place. Lockstep input payloads reuse existing `BuildQueuePayload`/`DestroyQueuePayload` validation.                                                                                                                                                                                                                                  | Existing runtime payload guards at socket boundary. Revisit if payload variants multiply past current milestone. |
 
-## Monorepo Integration Points
+---
 
-| Path                                                                          | Milestone Integration                                                                                                                               |
-| ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/rts-engine/rts.ts`                                                  | Add generalized structure integrity scheduler, 5x5 base layout logic, radius-union build eligibility, and rotate/mirror-aware template application. |
-| `packages/rts-engine/socket-contract.ts`                                      | Extend typed contracts for transform metadata and destroy action payloads/results.                                                                  |
-| `apps/server/src/server.ts`                                                   | Validate and normalize incoming transform/destroy payloads before calling engine APIs.                                                              |
-| `apps/web/src/` (split from `client.ts`)                                      | Create focused modules for camera controls, overlays, placement controls, structure detail/destroy actions, and lobby/in-game screen transitions.   |
-| `packages/rts-engine/*.test.ts` and `tests/integration/server/server.test.ts` | Backend-first tests: deterministic rules first, then event-contract integration coverage.                                                           |
+## Integration Points
+
+### Where New Code Lives
+
+| Layer                                    | File(s)                  | New Responsibility                                                                                                                                                                                                                                                                      |
+| ---------------------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/rts-engine/`                   | New file: `input-log.ts` | Typed input-log record: maps turn number to ordered array of `BuildQueuePayload \| DestroyQueuePayload` with sequence and team metadata. Pure data structure, no I/O. Consumed by server for reconnect replay and by clients for local simulation.                                      |
+| `packages/rts-engine/socket-contract.ts` | Existing file            | Add 3–4 new event types: `lockstep:input-turn` (server→clients, relays inputs for a turn), `lockstep:snapshot` (server→reconnecting client, packed state + turn index), `lockstep:input-log-replay` (server→reconnecting client, ordered input log from snapshot turn to current turn). |
+| `apps/server/src/server.ts`              | Existing file            | Extend `LockstepRuntimeState` with an input log ring buffer (bounded by snapshot interval). Add snapshot generation at checkpoint intervals. Add reconnect handler that sends snapshot + log slice to rejoining player.                                                                 |
+| `apps/web/src/client.ts` / new file      | Existing + new           | Add client-side tick loop: receive `lockstep:input-turn`, apply to local `RtsRoom`, step simulation. Handle `lockstep:snapshot` + `lockstep:input-log-replay` for reconnect. Hash checkpoint verification against `lockstep:checkpoint`.                                                |
+| `packages/rts-engine/rts.ts`             | Existing file            | No changes expected. `RtsRoom.tick()` and `RtsEngine.tick()` are already the deterministic simulation entry point. Clients call the same method server does.                                                                                                                            |
+
+### Binary Payload Strategy
+
+Grid state (`Grid.toPacked()`) is already `ArrayBuffer` — Socket.IO 4.8.3 sends it as a single binary WebSocket frame natively. No parser changes needed.
+
+Input-turn payloads are small JSON objects (1–5 queued commands per turn). JSON frames remain appropriate. Do not binary-encode inputs — the overhead is negligible and the loss of debug visibility is real.
+
+Reconnect snapshot = `{ stateJson: RoomStatePayload, gridBuffer: ArrayBuffer, turn: number }`. Mixed binary+JSON payload in one Socket.IO event is supported and tested as of 4.8.1 (binary data bug was patched in 4.8.1).
+
+### Input Log Ring Buffer
+
+The server must maintain a bounded ring buffer of input logs per room for reconnect replay. Size = `snapshotIntervalTicks / turnLengthTicks` turns. At default config (snapshot every 50 ticks, turn length 1 tick), this is 50 entries — trivially small.
+
+Data structure per entry: `{ turn: number, sequence: number, commands: SerializedCommand[] }` where `SerializedCommand` is the existing `BufferedLockstepCommand` shape without server-internal fields.
+
+This is pure TypeScript data, no library needed.
+
+### Client-Side Simulation
+
+Clients need to run `RtsRoom.tick()` locally. `RtsRoom` is in `packages/rts-engine` — it is already runtime-agnostic (no Socket.IO / DOM imports). The client imports it via the `#rts-engine` alias already wired in `package.json`. No new import path or bundler config needed.
+
+The client creates a local `RtsRoom` from the snapshot received on reconnect (or from `room:joined` on initial join), then ticks it each turn-boundary using inputs from `lockstep:input-turn`.
+
+---
 
 ## Installation
 
 ```bash
-# Required changes
-npm install socket.io@^4.8.3
-npm install -D fast-check@^4.5.3
+# Native WebSocket performance (optional — server degrades gracefully without these)
+npm install --save-optional bufferutil utf-8-validate
 
-# Optional hardening
-npm install zod@^4.3.6 d3-zoom@^3.0.0
-
-# Optional only if adopting Zod 4 (TypeScript requirement)
-npm install -D typescript@^5.9.3
-
-# Optional tooling modernization (must upgrade together)
-npm install -D vite@^7.3.1 vitest@^4.0.18 @vitest/coverage-v8@^4.0.18
+# Property-based testing — required for lockstep invariant coverage
+npm install -D fast-check@^4.6.0
 ```
 
-## Alternatives Considered
-
-| Recommended                                  | Alternative                   | When to Use Alternative                                                              |
-| -------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------ |
-| Native Canvas camera module + Pointer Events | `d3-zoom`                     | Use `d3-zoom` when touch/wheel gesture normalization becomes a recurring bug source. |
-| Manual payload guards (current pattern)      | `zod` schemas                 | Use `zod` once event variants multiply and guard duplication starts causing drift.   |
-| Integer grid transform helpers in engine     | Generic matrix/math libraries | Use math libraries only if you move beyond orthogonal rotate/mirror transforms.      |
-
-## What NOT to Use
-
-| Avoid                                                      | Why                                                                                                   | Use Instead                                                                            |
-| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| React/Vue UI rewrite for this milestone                    | UI architecture churn does not help gameplay rule delivery; slows backend-first sequencing            | Keep vanilla TypeScript modules and split `apps/web/src/client.ts` into focused files. |
-| Pixi/WebGL renderer migration now                          | Large rendering-stack migration for features solvable with Canvas 2D transforms and overlays          | Keep Canvas 2D; revisit GPU renderer only after map scale/perf proves it necessary.    |
-| Spatial database/geospatial toolkits for build-zone unions | Union-of-radius-squares is small, deterministic integer-grid math; external spatial stack is overkill | Implement pure grid math in `packages/rts-engine` with invariant tests.                |
-| Event-sourcing/CQRS framework adoption                     | Adds operational/model complexity for a 2-player prototype milestone                                  | Keep current authoritative in-memory room model and typed Socket.IO contracts.         |
-
-## Stack Patterns by Variant
-
-**If backend-first slices (recommended for v0.0.2):**
-
-- Implement all new rules in `packages/rts-engine` first.
-- Gate each rule with deterministic unit/property tests before touching UI controls.
-
-**If UI pan/zoom polish starts consuming excessive time:**
-
-- Introduce `d3-zoom` only for camera interaction handling.
-- Keep rendering and simulation ownership unchanged (Canvas draw path in web app, simulation in packages).
-
-## Version Compatibility
-
-| Package A         | Compatible With                                        | Notes                                                                                            |
-| ----------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| `socket.io@4.8.3` | `socket.io-client@4.8.3`                               | Keep server/client on the same patch to reduce event-contract surprises while adding new events. |
-| `zod@4.3.6`       | TypeScript `>=5.5` (tested range in docs)              | If staying on TS 5.4.5, keep manual payload guards until TS upgrade is scheduled.                |
-| `vitest@4.0.18`   | Vite `>=6`, Node `>=20`                                | Upgrade Vitest and Vite together; do not partially upgrade one without the other.                |
-| `d3-zoom@3.0.0`   | `d3-selection@2-3`, `d3-drag@2-3`, `d3-transition@2-3` | `d3-zoom` pulls D3 interaction dependencies; keep it optional unless needed.                     |
-
-## Sources
-
-- [HIGH] Socket.IO TypeScript docs (typed server/client events and validation caveat): https://socket.io/docs/v4/typescript/
-- [HIGH] Socket.IO delivery guarantees (ordering guarantees): https://socket.io/docs/v4/delivery-guarantees
-- [HIGH] Vite guide (current version and Node requirements): https://vite.dev/guide/
-- [HIGH] Vitest guide (Vite/Node requirements): https://vitest.dev/guide/
-- [HIGH] Vitest coverage guide (`@vitest/coverage-v8` and provider behavior): https://vitest.dev/guide/coverage.html
-- [HIGH] Zod docs (Zod 4 stable, TS 5.5+ tested): https://zod.dev/
-- [HIGH] fast-check docs (property-based testing and Vitest compatibility): https://fast-check.dev/
-- [HIGH] D3 zoom docs (canvas-compatible pan/zoom behavior): https://d3js.org/d3-zoom
-- [HIGH] MDN Canvas `setTransform` and `scale` docs (camera transforms):
-  - https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/setTransform
-  - https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/scale
-- [MEDIUM] MDN `wheel` event caveats (non-baseline warning): https://developer.mozilla.org/en-US/docs/Web/API/Element/wheel_event
-- [HIGH] MDN pointer events and pointer capture guidance: https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events
-- [HIGH] npm registry metadata checked on 2026-03-01 (`npm view <pkg> version/time`) for: `socket.io`, `socket.io-client`, `typescript`, `vite`, `vitest`, `zod`, `fast-check`, `d3-zoom`, `pixi.js`
+No new runtime production dependencies. `bufferutil` and `utf-8-validate` are optional native add-ons. `fast-check` is dev-only.
 
 ---
 
-_Stack research for: v0.0.2 Conway RTS gameplay expansion_
-_Researched: 2026-03-01_
+## Alternatives Considered
+
+| Recommended                                                        | Alternative                                   | When to Use Alternative                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native Socket.IO binary framing (`ArrayBuffer`) for grid snapshots | `socket.io-msgpack-parser`                    | Use msgpack only if payload analysis shows the JSON overhead of team-state fields in reconnect snapshots is a measured bottleneck AND maintainer risk is acceptable. Not recommended at prototype scale.                                                      |
+| Extend existing `LockstepRuntimeState`                             | New lockstep library (netplayjs, lockstep.io) | Use a library only if building a new project from scratch without existing lockstep infrastructure. This project already has turn buffering, shadow room, checkpoint/fallback events, and FNV-1a hashing — adding a library means deleting more than it adds. |
+| JSON for input-turn events                                         | Binary encoding for inputs                    | Use binary encoding for inputs only at 10+ players per room or if profiling shows serialization is on the hot path. At 2 players with 1–5 commands/turn, JSON serialization time is unmeasurable.                                                             |
+| `Grid.toPacked()` for snapshot grid encoding                       | Delta encoding                                | Use delta encoding when grids are large (>500×500) and change sparsely between snapshots. At current prototype grid sizes (configurable, default order of magnitude 100s of cells), full packed snapshots are < 1 KB and delta complexity is not warranted.   |
+
+---
+
+## Version Compatibility
+
+| Package                                 | Compatible With                           | Notes                                                                                                                                                                     |
+| --------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bufferutil@4.1.0`                      | `ws@8.x` (used by Socket.IO 4.8.3 server) | Optional C++ add-on. Verifies with `npm ls ws` to confirm the indirect dependency. Graceful fallback if build fails (e.g., Alpine/musl environments without build tools). |
+| `utf-8-validate@6.0.6`                  | `ws@8.x`                                  | Same as bufferutil. Install together.                                                                                                                                     |
+| `fast-check@4.6.0`                      | Vitest 4.1.2                              | `fc.test()` helper is native to Vitest 4.x. No additional wiring needed.                                                                                                  |
+| `RtsRoom` (local package)               | Node.js and browser                       | Already runtime-agnostic per AGENTS.md constraints. Confirmed: no Socket.IO / DOM imports in `packages/rts-engine`. Safe to import from `apps/web`.                       |
+| Socket.IO 4.8.3 mixed binary+JSON event | All modern browsers                       | Binary data bug was patched in 4.8.1. Current 4.8.3 is safe for mixed `{ gridBuffer: ArrayBuffer, stateJson: string }` payloads.                                          |
+
+---
+
+## Sources
+
+- [HIGH] Socket.IO performance tuning guide (bufferutil, utf-8-validate, binary modes): https://socket.io/docs/v4/performance-tuning/
+- [HIGH] Socket.IO custom parser docs (msgpack tradeoffs, "MUST use on both sides" requirement): https://socket.io/docs/v4/custom-parser/
+- [HIGH] Socket.IO 4.8.1 changelog (binary data bug patched): https://socket.io/docs/v4/changelog/4.8.1
+- [HIGH] socket.io-msgpack-parser npm page (3.0.2, last published 2022 — verified stale): https://www.npmjs.com/package/socket.io-msgpack-parser
+- [HIGH] fast-check docs (Vitest integration, `fc.test()`): https://fast-check.dev/
+- [HIGH] bufferutil npm registry (4.1.0, December 2025): https://www.npmjs.com/package/bufferutil
+- [HIGH] utf-8-validate npm registry (6.0.6): https://www.npmjs.com/package/utf-8-validate
+- [HIGH] @msgpack/msgpack npm registry (3.1.3, December 2025): https://www.npmjs.com/package/@msgpack/msgpack
+- [MEDIUM] Gaffer On Games — Deterministic Lockstep (reconnect via snapshot + replay pattern): https://gafferongames.com/post/deterministic_lockstep/
+- [MEDIUM] Game Networking Demystified, Part III: Lockstep (input buffer and turn model): https://ruoyusun.com/2019/04/06/game-networking-3.html
+- [HIGH] npm registry version checks run 2026-03-29: socket.io@4.8.3, socket.io-client@4.8.3, vite@8.0.3, vitest@4.1.2, typescript@6.0.2, fast-check@4.6.0, bufferutil@4.1.0, utf-8-validate@6.0.6
+
+---
+
+_Stack research for: v0.0.3 Deterministic Lockstep Protocol_
+_Researched: 2026-03-29_

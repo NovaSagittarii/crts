@@ -4,6 +4,7 @@ export * from './build-zone.js';
 export * from './structure.js';
 export * from './lobby.js';
 export * from './match-lifecycle.js';
+export * from './input-event-log.js';
 export * from './placement-transform.js';
 export * from './rts.js';
 export * from './socket-contract.js';
