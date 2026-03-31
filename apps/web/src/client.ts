@@ -624,6 +624,7 @@ let persistentDefeatReason: string | null = null;
 let latestOutcomeTimelineMetadata: unknown = null;
 const buildModeController = new BuildModeController();
 let latestBuildPreview: BuildPreview | null = null;
+let cachedIllegalCellKeys: Set<string> = new Set();
 let previewPending = false;
 let authoritativePreviewRefreshState: AuthoritativePreviewRefreshState =
   createAuthoritativePreviewRefreshState();
@@ -1364,6 +1365,7 @@ function shouldDeduplicateBuildErrorToast(
 function clearSelectedTemplatePlacement(): void {
   buildModeController.clearCandidate();
   latestBuildPreview = null;
+  cachedIllegalCellKeys = new Set();
   previewPending = false;
   authoritativePreviewRefreshState = createAuthoritativePreviewRefreshState();
   resetQueueFeedbackOverride();
@@ -2456,6 +2458,9 @@ function emitBuildPreviewForSelectedPlacement(): void {
   resetQueueFeedbackOverride();
   previewPending = false;
   latestBuildPreview = deriveLocalBuildPreview(previewRequest);
+  cachedIllegalCellKeys = latestBuildPreview
+    ? new Set(latestBuildPreview.illegalCells.map(({ x, y }) => `${x},${y}`))
+    : new Set();
 }
 
 function emitDestroyQueueForSelection(): void {
@@ -3060,9 +3065,7 @@ function renderBuildPreviewOverlay(
     return;
   }
 
-  const illegalCellKeys = new Set(
-    latestBuildPreview.illegalCells.map(({ x, y }) => `${x},${y}`),
-  );
+  const illegalCellKeys = cachedIllegalCellKeys;
 
   for (const cell of latestBuildPreview.illegalCells) {
     if (
