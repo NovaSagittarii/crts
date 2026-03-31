@@ -7,16 +7,17 @@ import type {
   LockstepFallbackPayload,
   MatchFinishedPayload,
   RoomJoinedPayload,
-  TeamPayload,
 } from '#rts-engine';
 
 import { createLockstepTest } from './lockstep-fixtures.js';
 import {
+  advanceUntilObservedCount,
   collectBuildOutcomes,
   collectBuildQueuedEvents,
   collectCandidatePlacements,
   expectBuildQueueRejected,
   observeEvents,
+  resolveTeamForPlayer,
   waitForBuildQueueResponse,
   waitForDestroyOutcome,
   waitForDestroyQueueResponse,
@@ -31,23 +32,6 @@ const PRIMARY_BOUNDARY_TICK_MS = 30;
 const PRIMARY_BOUNDARY_TURN_TICKS = 20;
 const PRIMARY_FINISH_ADVANCE_LIMIT_TICKS = 55;
 const PRIMARY_STATE_REQUEST_ADVANCE_MS = 100;
-
-async function advanceUntilObservedCount(
-  clock: { advanceTicks(ticks: number): Promise<void> },
-  observer: { events: unknown[] },
-  count: number,
-  maxTicks: number,
-): Promise<void> {
-  for (
-    let advancedTicks = 0;
-    advancedTicks < maxTicks && observer.events.length < count;
-    advancedTicks += 1
-  ) {
-    await clock.advanceTicks(1);
-  }
-
-  expect(observer.events.length).toBeGreaterThanOrEqual(count);
-}
 
 const primaryTest = createLockstepTest(
   {
@@ -153,17 +137,6 @@ const rejectTest = createLockstepTest(
     guestSessionId: 'primary-reject-guest',
   },
 );
-
-function resolveTeamForPlayer(
-  teams: TeamPayload[],
-  playerId: string,
-): TeamPayload {
-  const team = teams.find(({ playerIds }) => playerIds.includes(playerId));
-  if (!team) {
-    throw new Error(`Failed to find team for player ${playerId}`);
-  }
-  return team;
-}
 
 describe('lockstep primary mode', () => {
   primaryTest(

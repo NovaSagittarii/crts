@@ -1,4 +1,5 @@
 import { type Socket, io } from 'socket.io-client';
+import { expect } from 'vitest';
 
 import {
   BASE_FOOTPRINT_HEIGHT,
@@ -1040,4 +1041,118 @@ export function waitForDestroyOutcome(
     eventId,
     timeoutMs,
   );
+}
+
+export function resolveTeamForPlayer(
+  teams: TeamPayload[],
+  playerId: string,
+): TeamPayload {
+  const team = teams.find(({ playerIds }) => playerIds.includes(playerId));
+  if (!team) {
+    throw new Error(`Failed to find team for player ${playerId}`);
+  }
+  return team;
+}
+
+export async function advanceUntilObservedCount(
+  clock: { advanceTicks(ticks: number): Promise<void> },
+  observer: { events: unknown[] },
+  count: number,
+  maxTicks: number,
+): Promise<void> {
+  for (
+    let advancedTicks = 0;
+    advancedTicks < maxTicks && observer.events.length < count;
+    advancedTicks += 1
+  ) {
+    await clock.advanceTicks(1);
+  }
+
+  expect(observer.events.length).toBeGreaterThanOrEqual(count);
+}
+
+const APPLIED_BUILD_ADVANCE_MARGIN_TICKS = 2;
+
+export async function queueAppliedHostBlock(
+  match: ActiveMatchSetup,
+  clock: { advanceTicks(ticks: number): Promise<void> },
+): Promise<{
+  queued: BuildQueuedPayload;
+  outcome: BuildOutcomePayload;
+  structureKey: string;
+}> {
+  const blockTemplate = match.hostJoined.templates.find(
+    ({ id }) => id === 'block',
+  );
+  if (!blockTemplate) {
+    throw new Error('Expected block template to be available');
+  }
+
+  const placements = collectCandidatePlacements(
+    match.hostTeam,
+    blockTemplate,
+    match.hostJoined.state.width,
+    match.hostJoined.state.height,
+  );
+
+  for (const placement of placements) {
+    const responsePromise = waitForBuildQueueResponse(match.host);
+    match.host.emit('build:queue', {
+      templateId: blockTemplate.id,
+      x: placement.x,
+      y: placement.y,
+      delayTicks: 8,
+    });
+
+    const response = await responsePromise;
+    if ('error' in response) {
+      continue;
+    }
+
+    const outcomePromise = waitForBuildOutcome(
+      match.host,
+      response.queued.eventId,
+    );
+    await clock.advanceTicks(
+      response.queued.delayTicks + APPLIED_BUILD_ADVANCE_MARGIN_TICKS,
+    );
+    const outcome = await outcomePromise;
+    if (outcome.outcome !== 'applied') {
+      continue;
+    }
+
+    const builtState = await waitForRoomState(
+      match.host,
+      match.roomId,
+      (payload) => {
+        const hostTeam = getTeamByPlayerId(payload, match.hostJoined.playerId);
+        return hostTeam.structures.some(
+          (structure) =>
+            !structure.isCore &&
+            structure.templateId === blockTemplate.id &&
+            structure.hp > 0,
+        );
+      },
+      { attempts: 40 },
+    );
+
+    const hostTeam = getTeamByPlayerId(builtState, match.hostJoined.playerId);
+    const structure = hostTeam.structures.find(
+      (candidate) =>
+        !candidate.isCore &&
+        candidate.templateId === blockTemplate.id &&
+        candidate.hp > 0,
+    );
+    if (!structure) {
+      continue;
+    }
+
+    return {
+      queued: response.queued,
+      outcome,
+      structureKey: structure.key,
+    };
+  }
+
+  throw new Error('Unable to queue and apply a host block structure');
 }

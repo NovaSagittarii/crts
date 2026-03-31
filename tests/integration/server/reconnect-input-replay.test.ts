@@ -4,12 +4,12 @@ import type {
   BuildQueuedPayload,
   RoomJoinedPayload,
   RoomStatePayload,
-  TeamPayload,
 } from '#rts-engine';
 
 import { createLockstepTest } from './lockstep-fixtures.js';
 import {
   observeEvents,
+  resolveTeamForPlayer,
   waitForBuildQueueResponse,
   waitForEvent,
   waitForState,
@@ -34,17 +34,6 @@ const test = createLockstepTest(
   {},
   { clockMode: 'manual' },
 );
-
-function resolveTeamForPlayer(
-  teams: TeamPayload[],
-  playerId: string,
-): TeamPayload {
-  const team = teams.find(({ playerIds }) => playerIds.includes(playerId));
-  if (!team) {
-    throw new Error(`Failed to find team for player ${playerId}`);
-  }
-  return team;
-}
 
 describe('reconnect input-log replay (RECON-01)', () => {
   test('reconnecting player receives inputLog field in room:joined payload (RECON-01)', async ({
