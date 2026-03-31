@@ -899,6 +899,45 @@ export class RtsEngine {
     return next;
   }
 
+  private static hashTeamBaseAndQueue(
+    hash: number,
+    room: RoomState,
+    team: TeamState,
+  ): number {
+    hash = RtsEngine.hashInt32(hash, team.id);
+    hash = RtsEngine.hashNumber(hash, team.resources);
+    hash = RtsEngine.hashNumber(hash, team.income);
+    hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.base);
+    hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.structures);
+    hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.total);
+    hash = RtsEngine.hashNumber(
+      hash,
+      team.incomeBreakdown.activeStructureCount,
+    );
+    hash = RtsEngine.hashBoolean(hash, team.defeated);
+    hash = RtsEngine.hashInt32(hash, team.baseTopLeft.x);
+    hash = RtsEngine.hashInt32(hash, team.baseTopLeft.y);
+    hash = RtsEngine.hashBoolean(hash, RtsEngine.isBaseIntact(room, team));
+
+    const pendingBuilds = [...team.pendingBuildEvents].sort(
+      RtsEngine.compareEventsByTick,
+    );
+    hash = RtsEngine.hashInt32(hash, pendingBuilds.length);
+    for (const pendingBuild of pendingBuilds) {
+      hash = RtsEngine.hashBuildEvent(hash, pendingBuild);
+    }
+
+    const pendingDestroys = [...team.pendingDestroyEvents].sort(
+      RtsEngine.compareEventsByTick,
+    );
+    hash = RtsEngine.hashInt32(hash, pendingDestroys.length);
+    for (const pendingDestroy of pendingDestroys) {
+      hash = RtsEngine.hashDestroyEvent(hash, pendingDestroy);
+    }
+
+    return hash;
+  }
+
   private static hashStructuresSection(
     room: RoomState,
     orderedTeams: readonly TeamState[],
@@ -907,20 +946,7 @@ export class RtsEngine {
     hash = RtsEngine.hashInt32(hash, orderedTeams.length);
 
     for (const team of orderedTeams) {
-      hash = RtsEngine.hashInt32(hash, team.id);
-      hash = RtsEngine.hashNumber(hash, team.resources);
-      hash = RtsEngine.hashNumber(hash, team.income);
-      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.base);
-      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.structures);
-      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.total);
-      hash = RtsEngine.hashNumber(
-        hash,
-        team.incomeBreakdown.activeStructureCount,
-      );
-      hash = RtsEngine.hashBoolean(hash, team.defeated);
-      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.x);
-      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.y);
-      hash = RtsEngine.hashBoolean(hash, RtsEngine.isBaseIntact(room, team));
+      hash = RtsEngine.hashTeamBaseAndQueue(hash, room, team);
 
       const structures = [...team.structures.values()].sort(
         RtsEngine.compareStructuresByKey,
@@ -928,22 +954,6 @@ export class RtsEngine {
       hash = RtsEngine.hashInt32(hash, structures.length);
       for (const structure of structures) {
         hash = RtsEngine.hashStructure(hash, structure);
-      }
-
-      const pendingBuilds = [...team.pendingBuildEvents].sort(
-        RtsEngine.compareEventsByTick,
-      );
-      hash = RtsEngine.hashInt32(hash, pendingBuilds.length);
-      for (const pendingBuild of pendingBuilds) {
-        hash = RtsEngine.hashBuildEvent(hash, pendingBuild);
-      }
-
-      const pendingDestroys = [...team.pendingDestroyEvents].sort(
-        RtsEngine.compareEventsByTick,
-      );
-      hash = RtsEngine.hashInt32(hash, pendingDestroys.length);
-      for (const pendingDestroy of pendingDestroys) {
-        hash = RtsEngine.hashDestroyEvent(hash, pendingDestroy);
       }
     }
 
@@ -958,36 +968,7 @@ export class RtsEngine {
     hash = RtsEngine.hashInt32(hash, orderedTeams.length);
 
     for (const team of orderedTeams) {
-      hash = RtsEngine.hashInt32(hash, team.id);
-      hash = RtsEngine.hashNumber(hash, team.resources);
-      hash = RtsEngine.hashNumber(hash, team.income);
-      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.base);
-      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.structures);
-      hash = RtsEngine.hashNumber(hash, team.incomeBreakdown.total);
-      hash = RtsEngine.hashNumber(
-        hash,
-        team.incomeBreakdown.activeStructureCount,
-      );
-      hash = RtsEngine.hashBoolean(hash, team.defeated);
-      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.x);
-      hash = RtsEngine.hashInt32(hash, team.baseTopLeft.y);
-      hash = RtsEngine.hashBoolean(hash, RtsEngine.isBaseIntact(room, team));
-
-      const pendingBuilds = [...team.pendingBuildEvents].sort(
-        RtsEngine.compareEventsByTick,
-      );
-      hash = RtsEngine.hashInt32(hash, pendingBuilds.length);
-      for (const pendingBuild of pendingBuilds) {
-        hash = RtsEngine.hashBuildEvent(hash, pendingBuild);
-      }
-
-      const pendingDestroys = [...team.pendingDestroyEvents].sort(
-        RtsEngine.compareEventsByTick,
-      );
-      hash = RtsEngine.hashInt32(hash, pendingDestroys.length);
-      for (const pendingDestroy of pendingDestroys) {
-        hash = RtsEngine.hashDestroyEvent(hash, pendingDestroy);
-      }
+      hash = RtsEngine.hashTeamBaseAndQueue(hash, room, team);
     }
 
     return hash;
