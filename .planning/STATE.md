@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
 status: executing
-stopped_at: Completed 20-02-PLAN.md
-last_updated: "2026-04-01T12:45:51.364Z"
+stopped_at: Completed 20-04-PLAN.md
+last_updated: "2026-04-01T13:36:06.144Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-30)
 ## Current Position
 
 Phase: 20 (ppo-training-with-self-play) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-04-01
 
@@ -72,6 +72,9 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 20]: Weight save uses Float32Array clone to standalone ArrayBuffer for SharedArrayBuffer type safety
 - [Phase 20]: Float32 precision tolerance: GAE tests use toBeCloseTo(x, 3) due to Float32Array accumulated rounding
 - [Phase 20]: Advantages normalized across full buffer before mini-batching, not per-batch
+- [Phase 20]: Worker shim using tsx tsImport() for Node 24 worker_threads TS loading (tsx --import flag broken for .js->.ts resolution)
+- [Phase 20]: Queue-based sequential episode dispatch per worker to avoid message listener race conditions
+- [Phase 20]: Minimum grid size 15x15 for BotEnvironment: RtsRoom spawn footprint requires at least this size
 
 ### Pending Todos
 
@@ -83,6 +86,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-01T12:45:51.261Z
-**Stopped At:** Completed 20-02-PLAN.md
+**Last session:** 2026-04-01T13:36:06.029Z
+**Stopped At:** Completed 20-04-PLAN.md
 **Resume File:** None

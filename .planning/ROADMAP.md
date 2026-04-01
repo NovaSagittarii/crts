@@ -88,12 +88,12 @@ Plans:
   3. Training CLI launches configurable runs from the command line (episodes, learning rate, opponent pool size, worker count)
   4. Match simulations parallelize across worker threads, utilizing multiple CPU cores during episode collection
   5. A policy trained for N episodes achieves a measurably higher win rate against random play than an untrained policy
-**Plans:** 3/5 plans executed
+**Plans:** 4/5 plans executed
 Plans:
 - [x] 20-01-PLAN.md — TF.js installation, training config types, PPO network builder
 - [x] 20-02-PLAN.md — Trajectory buffer with GAE and PPO trainer with clipped surrogate loss
 - [x] 20-03-PLAN.md — Self-play opponent pool and structured training logger
-- [ ] 20-04-PLAN.md — Training worker threads and training coordinator
+- [x] 20-04-PLAN.md — Training worker threads and training coordinator
 - [ ] 20-05-PLAN.md — Training CLI entry point and pipeline verification
 
 ### Phase 21: Balance Analysis
@@ -139,7 +139,7 @@ Note: Phase 21 can begin alongside Phase 20 using early match data.
 | 13-17 (archived) | v0.0.3 | -- | Complete | 2026-03-30 |
 | 18. Headless Match Runner | v0.0.4 | 3/3 | Complete    | 2026-04-01 |
 | 19. Observation, Action, and Reward Interface | v0.0.4 | 3/3 | Complete    | 2026-04-01 |
-| 20. PPO Training with Self-Play | v0.0.4 | 3/5 | In Progress|  |
+| 20. PPO Training with Self-Play | v0.0.4 | 4/5 | In Progress|  |
 | 21. Balance Analysis | v0.0.4 | 0/? | Not started | - |
 | 22. Structure Strength Ratings | v0.0.4 | 0/? | Not started | - |
 | 23. Playable In-Game Bot | v0.0.4 | 0/? | Not started | - |

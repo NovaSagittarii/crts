@@ -19,7 +19,7 @@ Requirements for RL Bot Harness & Balance Analysis milestone.
 - [x] **TRAIN-01**: PPO training loop runs policy gradient updates against headless matches using TF.js (with Python/SB3 decision gate)
 - [x] **TRAIN-02**: Self-play system maintains an opponent pool of historical checkpoints to prevent mode collapse
 - [x] **TRAIN-03**: Training CLI launches configurable training runs (episodes, learning rate, opponent pool size) from the command line
-- [ ] **TRAIN-04**: Training step parallelizes match simulations across worker threads to utilize multiple CPU cores
+- [x] **TRAIN-04**: Training step parallelizes match simulations across worker threads to utilize multiple CPU cores
 
 ### Balance Analysis
 
@@ -67,7 +67,7 @@ Deferred to future milestones.
 | TRAIN-01 | Phase 20 | Complete |
 | TRAIN-02 | Phase 20 | Complete |
 | TRAIN-03 | Phase 20 | Complete |
-| TRAIN-04 | Phase 20 | Pending |
+| TRAIN-04 | Phase 20 | Complete |
 | BAL-01 | Phase 18 | Complete |
 | BAL-02 | Phase 21 | Pending |
 | BAL-03 | Phase 21 | Pending |
