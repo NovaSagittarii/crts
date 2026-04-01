@@ -45,6 +45,7 @@
     "coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@tensorflow/tfjs": "^4.23.0-rc.0",
     "express": "^4.19.2",
     "socket.io": "^4.7.5"
   },
