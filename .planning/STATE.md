@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
-status: verifying
-stopped_at: Completed 22-03-PLAN.md
-last_updated: "2026-04-01T21:05:31.557Z"
+status: executing
+stopped_at: Completed 23-01-PLAN.md
+last_updated: "2026-04-01T22:38:57.748Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 18
-  completed_plans: 18
+  total_plans: 21
+  completed_plans: 19
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-30)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 22 — structure-strength-ratings
+**Current focus:** Phase 23 — playable-in-game-bot
 
 ## Current Position
 
-Phase: 22 (structure-strength-ratings) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
+Phase: 23 (playable-in-game-bot) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
 Last activity: 2026-04-01
 
 Progress: [░░░░░░░░░░] 0% (v0.0.4)
@@ -98,6 +98,8 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 22-structure-strength-ratings]: Usage-matrix outlier detection uses median of non-provisional entities for threshold boundaries
 - [Phase 22]: Worker threads spawn one worker per pool (no intra-pool D-05b) -- overhead not justified for 5-9 pools
 - [Phase 22]: CLI subcommand routing uses strict:false with allowPositionals for backward compatibility with existing no-subcommand usage
+- [Phase 23]: PayloadObservationEncoder computes territoryRadius as DEFAULT_TEAM_TERRITORY_RADIUS + sum of non-core buildRadius, matching RtsRoom formula without RtsRoom dependency
+- [Phase 23]: TickBudgetTracker uses manual startTick/endTick bracketing for caller-controlled timing
 
 ### Pending Todos
 
@@ -109,6 +111,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-01T21:05:31.452Z
-**Stopped At:** Completed 22-03-PLAN.md
+**Last session:** 2026-04-01T22:38:57.625Z
+**Stopped At:** Completed 23-01-PLAN.md
 **Resume File:** None

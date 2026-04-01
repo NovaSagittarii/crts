@@ -31,7 +31,7 @@ Requirements for RL Bot Harness & Balance Analysis milestone.
 
 ### Deployment
 
-- [ ] **DEPLOY-01**: Socket.IO bot adapter connects a trained model to a live game server as a virtual player
+- [x] **DEPLOY-01**: Socket.IO bot adapter connects a trained model to a live game server as a virtual player
 
 ## Future Requirements
 
@@ -73,7 +73,7 @@ Deferred to future milestones.
 | BAL-03 | Phase 21 | Complete |
 | BAL-04 | Phase 22 | Complete |
 | BAL-05 | Phase 22 | Complete |
-| DEPLOY-01 | Phase 23 | Pending |
+| DEPLOY-01 | Phase 23 | Complete |
 
 **Coverage:**
 - v0.0.4 requirements: 14 total
