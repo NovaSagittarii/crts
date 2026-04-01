@@ -1,4 +1,4 @@
-import type { BalanceReport, GenerationData, TemplateWinRate } from './types.js';
+import type { BalanceReport, GenerationData, RatedEntity, TemplateWinRate } from './types.js';
 
 /**
  * Format a balance report as a Markdown document.
@@ -202,6 +202,101 @@ export function formatMarkdownReport(report: BalanceReport): string {
             '> **Strategy shift:** Dominant strategy varies across generations. Further investigation recommended.',
           );
         }
+      }
+      lines.push('');
+    }
+  }
+
+  // ── Structure Ratings (Glicko-2) ───────────────────────────────────
+  if (report.ratings) {
+    lines.push('## Structure Ratings (Glicko-2)');
+    lines.push('');
+
+    const phases = [
+      { label: 'Early Game', entities: report.ratings.individual.early },
+      { label: 'Mid Game', entities: report.ratings.individual.mid },
+      { label: 'Late Game', entities: report.ratings.individual.late },
+    ] as const;
+
+    for (const { label, entities } of phases) {
+      if (entities.length === 0) continue;
+      lines.push(`### ${label}`);
+      lines.push('');
+      lines.push('| Template | Rating | RD | Volatility | Matches | Status |');
+      lines.push('| --- | --- | --- | --- | --- | --- |');
+
+      for (const entity of entities) {
+        const status = entity.provisional ? 'Provisional' : 'Established';
+        lines.push(
+          `| ${entity.name} | ${entity.rating.rating.toFixed(0)} | ${entity.rating.rd.toFixed(1)} | ${entity.rating.volatility.toFixed(4)} | ${String(entity.matchCount)} | ${status} |`,
+        );
+      }
+      lines.push('');
+    }
+
+    // Pairwise Combination Ratings
+    if (report.ratings.pairwise.length > 0) {
+      lines.push('## Pairwise Combination Ratings');
+      lines.push('');
+      lines.push('| Combination | Rating | RD | Matches | Status |');
+      lines.push('| --- | --- | --- | --- | --- |');
+
+      for (const entity of report.ratings.pairwise) {
+        const status = entity.provisional ? 'Provisional' : 'Established';
+        lines.push(
+          `| ${entity.name} | ${entity.rating.rating.toFixed(0)} | ${entity.rating.rd.toFixed(1)} | ${String(entity.matchCount)} | ${status} |`,
+        );
+      }
+      lines.push('');
+    }
+
+    // Frequent Set Ratings
+    if (report.ratings.frequentSets.length > 0) {
+      lines.push('## Frequent Set Ratings');
+      lines.push('');
+      lines.push('| Set | Rating | RD | Matches | Status |');
+      lines.push('| --- | --- | --- | --- | --- |');
+
+      for (const entity of report.ratings.frequentSets) {
+        const status = entity.provisional ? 'Provisional' : 'Established';
+        lines.push(
+          `| ${entity.name} | ${entity.rating.rating.toFixed(0)} | ${entity.rating.rd.toFixed(1)} | ${String(entity.matchCount)} | ${status} |`,
+        );
+      }
+      lines.push('');
+    }
+
+    // Balance Outliers
+    const allOutliers: RatedEntity[] = [
+      ...(report.ratings.outliers?.perPhase.early ?? []),
+      ...(report.ratings.outliers?.perPhase.mid ?? []),
+      ...(report.ratings.outliers?.perPhase.late ?? []),
+      ...(report.ratings.outliers?.overall ?? []),
+    ];
+
+    // Deduplicate
+    const seen = new Set<string>();
+    const uniqueOutliers: RatedEntity[] = [];
+    for (const e of allOutliers) {
+      const key = `${e.id}-${e.phase}`;
+      if (!seen.has(key) && e.outlierFlags.length > 0) {
+        seen.add(key);
+        uniqueOutliers.push(e);
+      }
+    }
+
+    if (uniqueOutliers.length > 0) {
+      lines.push('## Balance Outliers');
+      lines.push('');
+      lines.push('| Entity | Phase | Flags | Rating | Pick Rate |');
+      lines.push('| --- | --- | --- | --- | --- |');
+
+      for (const entity of uniqueOutliers) {
+        const flags = entity.outlierFlags.join(', ');
+        const pickRate = formatPct(entity.pickRate);
+        lines.push(
+          `| ${entity.name} | ${entity.phase} | ${flags} | ${entity.rating.rating.toFixed(0)} | ${pickRate} |`,
+        );
       }
       lines.push('');
     }

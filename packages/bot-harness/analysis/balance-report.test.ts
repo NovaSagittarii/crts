@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { assembleBalanceReport, DEFAULT_ANALYSIS_CONFIG } from './balance-report.js';
-import type { AnalysisConfig, ParsedMatch } from './types.js';
+import { assembleBalanceReport, assembleRatingsReport, DEFAULT_ANALYSIS_CONFIG } from './balance-report.js';
+import type { AnalysisConfig, ParsedMatch, RatingsReport } from './types.js';
 import type {
   MatchHeader,
   MatchOutcomeRecord,
@@ -192,5 +192,53 @@ describe('assembleBalanceReport', () => {
     expect(generatedAt.getTime()).toBeGreaterThanOrEqual(
       new Date(before).getTime() - 1000,
     );
+  });
+
+  it('includes ratings when ratingsOptions is provided', async () => {
+    const matches = makeSyntheticMatches(10);
+    const config: AnalysisConfig = { ...DEFAULT_ANALYSIS_CONFIG };
+
+    const report = await assembleBalanceReport(matches, config, {
+      matchDir: '/tmp/test-matches',
+      ratingsOptions: { parallel: false },
+    });
+
+    expect(report.ratings).toBeDefined();
+    expect(report.ratings!.hyperparameters).toBeDefined();
+    expect(report.ratings!.hyperparameters.initialRating).toBe(1500);
+    expect(report.ratings!.individual.early.length).toBeGreaterThan(0);
+    expect(report.ratings!.pairwise).toBeDefined();
+    expect(report.ratings!.frequentSets).toBeDefined();
+    expect(report.ratings!.outliers).toBeDefined();
+  });
+
+  it('does not include ratings when ratingsOptions is not provided', async () => {
+    const matches = makeSyntheticMatches(5);
+    const report = await assembleBalanceReport(matches, DEFAULT_ANALYSIS_CONFIG, {
+      matchDir: '/tmp/test-matches',
+    });
+
+    expect(report.ratings).toBeUndefined();
+  });
+});
+
+// ── assembleRatingsReport ───────────────────────────────────────────
+
+describe('assembleRatingsReport', () => {
+  it('returns a RatingsReport with individual/pairwise/frequentSets fields', async () => {
+    const matches = makeSyntheticMatches(10);
+
+    const ratingsReport: RatingsReport = await assembleRatingsReport(matches, {
+      parallel: false,
+    });
+
+    expect(ratingsReport.hyperparameters).toBeDefined();
+    expect(ratingsReport.individual).toBeDefined();
+    expect(ratingsReport.individual.early).toBeDefined();
+    expect(ratingsReport.individual.mid).toBeDefined();
+    expect(ratingsReport.individual.late).toBeDefined();
+    expect(ratingsReport.pairwise).toBeDefined();
+    expect(ratingsReport.frequentSets).toBeDefined();
+    expect(ratingsReport.outliers).toBeDefined();
   });
 });

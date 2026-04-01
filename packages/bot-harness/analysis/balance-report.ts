@@ -2,6 +2,7 @@ import type {
   AnalysisConfig,
   BalanceReport,
   ParsedMatch,
+  RatingsReport,
 } from './types.js';
 import { classifyAll } from './strategy-classifier.js';
 import { normalizeFeatures, kMeans } from './clustering.js';
@@ -12,6 +13,11 @@ import {
   splitMatchesByGeneration,
   computeGenerationData,
 } from './generation-tracker.js';
+import {
+  computeRatingsParallel,
+  computeRatingsSequential,
+} from './rating-coordinator.js';
+import type { RatingComputeOptions } from './rating-coordinator.js';
 
 /** Default analysis configuration */
 export const DEFAULT_ANALYSIS_CONFIG: AnalysisConfig = {
@@ -30,6 +36,8 @@ export interface AssembleOptions {
   checkpointDir?: string;
   /** Checkpoint interval in episodes (used for splitMatchesByGeneration) */
   checkpointInterval?: number;
+  /** Glicko-2 rating options. If provided, ratings are computed and included. */
+  ratingsOptions?: RatingComputeOptions & { workers?: number; parallel?: boolean };
 }
 
 /**
@@ -149,8 +157,19 @@ export async function assembleBalanceReport(
       ? kMeans(normalizedData, effectiveK, { seed: 42 })
       : { centroids: [], assignments: [], k: 0, wcss: 0, iterations: 0 };
 
+  // 8. Compute Glicko-2 ratings (if ratingsOptions provided)
+  let ratings: RatingsReport | undefined;
+  if (options?.ratingsOptions) {
+    const rOpts = options.ratingsOptions;
+    if (rOpts.parallel !== false) {
+      ratings = await computeRatingsParallel(matches, rOpts);
+    } else {
+      ratings = await computeRatingsSequential(matches, rOpts);
+    }
+  }
+
   // Assemble the final report
-  return {
+  const report: BalanceReport = {
     metadata: {
       matchDir: options?.matchDir ?? 'unknown',
       matchCount: matches.length,
@@ -164,4 +183,30 @@ export async function assembleBalanceReport(
     sequencePatterns,
     generations,
   };
+
+  if (ratings) {
+    report.ratings = ratings;
+  }
+
+  return report;
+}
+
+/**
+ * Compute only Glicko-2 ratings from match data (standalone function).
+ *
+ * Used by the `analyze ratings` CLI subcommand. Calls computeRatingsParallel
+ * or computeRatingsSequential based on the parallel flag.
+ *
+ * @param matches - Parsed match data
+ * @param options - Rating computation options
+ * @returns RatingsReport with individual/pairwise/frequentSets/outliers
+ */
+export async function assembleRatingsReport(
+  matches: ParsedMatch[],
+  options: RatingComputeOptions & { workers?: number; parallel?: boolean },
+): Promise<RatingsReport> {
+  if (options.parallel !== false) {
+    return computeRatingsParallel(matches, options);
+  }
+  return computeRatingsSequential(matches, options);
 }

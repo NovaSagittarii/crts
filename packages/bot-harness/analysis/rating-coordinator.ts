@@ -223,8 +223,8 @@ function assembleReport(
   const lateEntities = poolResults.get('individual-late') ?? [];
 
   // Get pairwise and frequent-set results (may be from -full or per-phase)
-  let pairwiseEntities: RatedEntity[] = [];
-  let frequentSetEntities: RatedEntity[] = [];
+  const pairwiseEntities: RatedEntity[] = [];
+  const frequentSetEntities: RatedEntity[] = [];
 
   for (const [name, entities] of poolResults) {
     if (name.startsWith('pairwise-')) {
@@ -301,7 +301,7 @@ function assembleReport(
  *
  * Useful for testing and as fallback when worker overhead is not justified.
  */
-export async function computeRatingsSequential(
+export function computeRatingsSequential(
   matches: ParsedMatch[],
   options: RatingComputeOptions,
 ): Promise<RatingsReport> {
@@ -327,7 +327,7 @@ export async function computeRatingsSequential(
     poolResults.set(pool.config.name, pool.getRatedEntities());
   }
 
-  return assembleReport(pools, poolResults, tau, sdThreshold);
+  return Promise.resolve(assembleReport(pools, poolResults, tau, sdThreshold));
 }
 
 // ---------------------------------------------------------------------------

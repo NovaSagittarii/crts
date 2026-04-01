@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { computeRatingsSequential, computeRatingsParallel } from './rating-coordinator.js';
 import type { RatingComputeOptions } from './rating-coordinator.js';
-import type { ParsedMatch, RatingsReport } from './types.js';
+import type { ParsedMatch } from './types.js';
 import type {
   MatchHeader,
   MatchOutcomeRecord,

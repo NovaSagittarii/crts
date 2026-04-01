@@ -1,4 +1,4 @@
-import type { BalanceReport } from './types.js';
+import type { BalanceReport, RatedEntity } from './types.js';
 
 /**
  * Format a balance report as a plain-text console summary.
@@ -153,6 +153,94 @@ export function formatConsoleSummary(report: BalanceReport): string {
             `  Strategy stabilizing: "${last}" dominant in recent generations`,
           );
         }
+      }
+      lines.push('');
+    }
+  }
+
+  // ── Section 6: Structure Ratings (Glicko-2) ─────────────────────────
+  if (report.ratings) {
+    lines.push('--- Structure Ratings (Glicko-2) ---');
+    lines.push('');
+
+    const phases = [
+      { label: 'Early Game Tier List', entities: report.ratings.individual.early },
+      { label: 'Mid Game Tier List', entities: report.ratings.individual.mid },
+      { label: 'Late Game Tier List', entities: report.ratings.individual.late },
+    ] as const;
+
+    for (const { label, entities } of phases) {
+      if (entities.length === 0) continue;
+      lines.push(`  ${label}:`);
+
+      for (const entity of entities) {
+        const name = entity.name.padEnd(14);
+        const rating = entity.rating.rating.toFixed(0).padStart(5);
+        const rd = entity.rating.rd.toFixed(0);
+        const n = String(entity.matchCount);
+        const prov = entity.provisional ? ', provisional' : '';
+        lines.push(`    ${name}  ${rating} +/- ${rd}  (n=${n}${prov})`);
+      }
+      lines.push('');
+    }
+
+    // Top 5 pairwise combinations
+    if (report.ratings.pairwise.length > 0) {
+      lines.push('  Top Pairwise Combinations:');
+      const topPairs = report.ratings.pairwise.slice(0, 5);
+      for (const entity of topPairs) {
+        const name = entity.name.padEnd(24);
+        const rating = entity.rating.rating.toFixed(0).padStart(5);
+        const n = String(entity.matchCount);
+        lines.push(`    ${name}  ${rating}  (n=${n})`);
+      }
+      lines.push('');
+    }
+
+    // Top 5 frequent-set combinations
+    if (report.ratings.frequentSets.length > 0) {
+      lines.push('  Top Frequent Sets:');
+      const topSets = report.ratings.frequentSets.slice(0, 5);
+      for (const entity of topSets) {
+        const name = entity.name.padEnd(30);
+        const rating = entity.rating.rating.toFixed(0).padStart(5);
+        const n = String(entity.matchCount);
+        lines.push(`    ${name}  ${rating}  (n=${n})`);
+      }
+      lines.push('');
+    }
+  }
+
+  // ── Section 7: Balance Outliers ────────────────────────────────────
+  if (report.ratings?.outliers) {
+    const allOutliers: RatedEntity[] = [
+      ...report.ratings.outliers.perPhase.early,
+      ...report.ratings.outliers.perPhase.mid,
+      ...report.ratings.outliers.perPhase.late,
+      ...report.ratings.outliers.overall,
+    ];
+
+    // Deduplicate by id+phase
+    const seen = new Set<string>();
+    const uniqueOutliers: RatedEntity[] = [];
+    for (const e of allOutliers) {
+      const key = `${e.id}-${e.phase}`;
+      if (!seen.has(key) && e.outlierFlags.length > 0) {
+        seen.add(key);
+        uniqueOutliers.push(e);
+      }
+    }
+
+    if (uniqueOutliers.length > 0) {
+      lines.push('--- Balance Outliers ---');
+      lines.push('');
+
+      for (const entity of uniqueOutliers) {
+        const flags = entity.outlierFlags.map((f) => f.toUpperCase()).join(', ');
+        const name = entity.name.padEnd(14);
+        const rating = entity.rating.rating.toFixed(0);
+        const pickRate = (entity.pickRate * 100).toFixed(0);
+        lines.push(`  [${flags}] ${name}  rating: ${rating}, pick rate: ${pickRate}%`);
       }
       lines.push('');
     }
