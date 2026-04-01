@@ -42,6 +42,7 @@ interface RoomBroadcastServiceOptions {
   sessionCoordinator: LobbySessionCoordinator;
   roomChannel: (roomId: string) => string;
   listRooms: () => Iterable<RuntimeBroadcastRoom>;
+  botSessionIds: ReadonlySet<string>;
 }
 
 export interface RoomMembershipHash {
@@ -80,11 +81,14 @@ export class RoomBroadcastService {
 
   private readonly listRooms: () => Iterable<RuntimeBroadcastRoom>;
 
+  private readonly botSessionIds: ReadonlySet<string>;
+
   public constructor(options: RoomBroadcastServiceOptions) {
     this.io = options.io;
     this.sessionCoordinator = options.sessionCoordinator;
     this.roomChannel = options.roomChannel;
     this.listRooms = options.listRooms;
+    this.botSessionIds = options.botSessionIds;
   }
 
   private buildMembershipPayloadBase(
@@ -153,6 +157,7 @@ export class RoomBroadcastService {
               hold?.disconnectReason ??
               null)
             : null,
+          isBot: this.botSessionIds.has(participant.sessionId),
         };
       }),
       heldSlots,
@@ -195,6 +200,7 @@ export class RoomBroadcastService {
           connectionStatus: participant.connectionStatus,
           holdExpiresAt: participant.holdExpiresAt,
           disconnectReason: participant.disconnectReason,
+          isBot: participant.isBot,
         })),
       heldSlots: Object.fromEntries(
         Object.entries(payload.heldSlots).sort(([left], [right]) =>

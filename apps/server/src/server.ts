@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -12,6 +13,8 @@ import {
   type LobbySlotDefinition,
 } from '#rts-engine';
 import {
+  type BotAddPayload,
+  type BotAddedPayload,
   type BuildOutcomePayload,
   type BuildQueuePayload,
   type BuildQueueRejectedPayload,
@@ -563,6 +566,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
 
   const roomTemplates = RtsEngine.createDefaultTemplates();
   const rooms = new Map<string, RuntimeRoom>();
+  const botSessionIds = new Set<string>();
   const stateRequestBudgetBySession = new Map<string, StateRequestBudget>();
 
   function createLockstepRuntimeState(): LockstepRuntimeState {
@@ -1075,6 +1079,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
     sessionCoordinator,
     roomChannel,
     listRooms: () => rooms.values(),
+    botSessionIds,
   });
   const activeDisconnectTimers = new Map<string, TimeoutHandle>();
 
@@ -2621,6 +2626,77 @@ export function createServer(options: ServerOptions = {}): GameServer {
       room.status = transition.nextStatus;
       emitMembership(room);
       emitRoomList();
+    });
+
+    socket.on('bot:add', (payload: unknown) => {
+      if (!ensureCurrentSocket(socket, session)) {
+        return;
+      }
+
+      const room = getRoomOrNull(session.roomId);
+      if (!room) {
+        roomError(socket, 'Join a room first', 'not-in-room');
+        return;
+      }
+
+      const roomId = getRuntimeRoomId(room);
+      const snapshot = room.lobby.snapshot();
+
+      if (snapshot.hostSessionId !== session.id) {
+        roomError(socket, 'Only the host can add bots', 'not-host', roomId);
+        return;
+      }
+
+      if (room.status !== 'lobby') {
+        roomError(
+          socket,
+          'Bots can only be added while in lobby',
+          'not-in-lobby',
+          roomId,
+        );
+        return;
+      }
+
+      const slotId =
+        payload && typeof payload === 'object'
+          ? (payload as BotAddPayload).slotId
+          : undefined;
+
+      if (typeof slotId !== 'string' || !slotId.trim()) {
+        roomError(socket, 'Invalid slot ID', 'invalid-slot', roomId);
+        return;
+      }
+
+      const slotDef = room.lobby
+        .slotIds()
+        .find((id) => id === slotId);
+      if (!slotDef) {
+        roomError(
+          socket,
+          `Slot ${slotId} does not exist`,
+          'invalid-slot',
+          roomId,
+        );
+        return;
+      }
+
+      const slotMembers = snapshot.slotMembers[slotId] ?? [];
+      const slotCapacity = snapshot.slotCapacities[slotId] ?? 0;
+      if (slotMembers.length >= slotCapacity) {
+        roomError(socket, `Slot ${slotId} is full`, 'slot-full', roomId);
+        return;
+      }
+
+      const botSessionId = `bot-${crypto.randomUUID().slice(0, 8)}`;
+      botSessionIds.add(botSessionId);
+
+      const botAddedPayload: BotAddedPayload = {
+        roomId,
+        slotId,
+        botSessionId,
+      };
+      socket.emit('bot:added', botAddedPayload);
+      emitMembership(room);
     });
 
     socket.on('chat:send', (payload: unknown) => {

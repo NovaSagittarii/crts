@@ -108,6 +108,7 @@ describe('lobby controls view model', () => {
             connectionStatus: 'connected',
             holdExpiresAt: null,
             disconnectReason: null,
+            isBot: false,
           },
         ],
       }),

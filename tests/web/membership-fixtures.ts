@@ -23,6 +23,7 @@ export function createMembershipParticipant(
     connectionStatus: 'connected',
     holdExpiresAt: null,
     disconnectReason: null,
+    isBot: false,
     ...overrides,
   };
 }

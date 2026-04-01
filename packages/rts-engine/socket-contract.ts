@@ -209,6 +209,7 @@ export interface MembershipParticipant {
   connectionStatus: ConnectionStatus;
   holdExpiresAt: number | null;
   disconnectReason: string | null;
+  isBot: boolean;
 }
 
 export interface RoomSlotDefinitionPayload {
@@ -275,6 +276,16 @@ export interface RoomStartPayload {
   force?: boolean;
 }
 
+export interface BotAddPayload {
+  slotId: string;
+}
+
+export interface BotAddedPayload {
+  roomId: string;
+  slotId: string;
+  botSessionId: string;
+}
+
 export interface ChatSendPayload {
   message: string;
 }
@@ -293,6 +304,7 @@ export interface ClientToServerEvents {
   'state:request': (payload?: StateRequestPayload) => void;
   'build:queue': (payload: BuildQueuePayload) => void;
   'destroy:queue': (payload: DestroyQueuePayload) => void;
+  'bot:add': (payload: BotAddPayload) => void;
 }
 
 export interface ServerToClientEvents {
@@ -319,4 +331,5 @@ export interface ServerToClientEvents {
   'lockstep:checkpoint': (payload: LockstepCheckpointPayload) => void;
   'lockstep:fallback': (payload: LockstepFallbackPayload) => void;
   'player:profile': (payload: PlayerProfilePayload) => void;
+  'bot:added': (payload: BotAddedPayload) => void;
 }
