@@ -29,6 +29,10 @@ export class LobbyScreenUi {
     this.slotListUi.setClaimHandler(handler);
   }
 
+  public setBotAddHandler(handler: (slotId: string) => void): void {
+    this.slotListUi.setBotAddHandler(handler);
+  }
+
   public render(
     membership: LobbyMembershipViewModel,
     controls: LobbyControlsViewModel,

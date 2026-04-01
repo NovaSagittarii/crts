@@ -26,6 +26,9 @@ function renderMemberRow(member: LobbySlotMemberViewModel): HTMLElement {
   if (member.isHost) {
     badges.append(createBadge('Host', 'badge--host'));
   }
+  if (member.isBot) {
+    badges.append(createBadge('Bot', 'badge--bot'));
+  }
   badges.append(
     createBadge(
       member.readyCopy,
@@ -62,6 +65,7 @@ function renderCompactSummary(slot: LobbySlotViewModel): HTMLElement {
 
 export class LobbySlotListUi {
   private claimHandler: ((slotId: string) => void) | null = null;
+  private botAddHandler: ((slotId: string) => void) | null = null;
 
   public constructor(private readonly rootEl: HTMLElement) {
     this.rootEl.addEventListener('click', (event) => {
@@ -70,22 +74,32 @@ export class LobbySlotListUi {
         return;
       }
 
-      const button = target.closest<HTMLButtonElement>('[data-slot-claim]');
-      if (!button || button.disabled) {
+      const claimButton = target.closest<HTMLButtonElement>('[data-slot-claim]');
+      if (claimButton && !claimButton.disabled) {
+        const slotId = claimButton.dataset.slotClaim;
+        if (slotId && this.claimHandler) {
+          this.claimHandler(slotId);
+        }
         return;
       }
 
-      const slotId = button.dataset.slotClaim;
-      if (!slotId || !this.claimHandler) {
-        return;
+      const botButton =
+        target.closest<HTMLButtonElement>('[data-slot-add-bot]');
+      if (botButton && !botButton.disabled) {
+        const slotId = botButton.dataset.slotAddBot;
+        if (slotId && this.botAddHandler) {
+          this.botAddHandler(slotId);
+        }
       }
-
-      this.claimHandler(slotId);
     });
   }
 
   public setClaimHandler(handler: (slotId: string) => void): void {
     this.claimHandler = handler;
+  }
+
+  public setBotAddHandler(handler: (slotId: string) => void): void {
+    this.botAddHandler = handler;
   }
 
   public render(slots: readonly LobbySlotViewModel[]): void {
@@ -149,6 +163,14 @@ export class LobbySlotListUi {
       claimButton.disabled = !slot.canClaim;
 
       actionRow.append(availability, claimButton);
+
+      if (slot.canAddBot) {
+        const addBotButton = document.createElement('button');
+        addBotButton.type = 'button';
+        addBotButton.textContent = 'Add Bot';
+        addBotButton.dataset.slotAddBot = slot.slotId;
+        actionRow.append(addBotButton);
+      }
 
       if (compactMode) {
         const summary = renderCompactSummary(slot);

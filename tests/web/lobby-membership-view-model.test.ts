@@ -144,4 +144,133 @@ describe('lobby membership view model', () => {
       true,
     );
   });
+
+  test('member with isBot true produces isBot true in view model', () => {
+    const payload = createMembershipPayload({
+      roomId: 'room-bot',
+      roomCode: 'BOT1',
+      roomName: 'Bot Lobby',
+      revision: 1,
+      hostSessionId: 'host-1',
+      slotDefinitions: [
+        createSlotDefinition('team-1', 1),
+        createSlotDefinition('team-2', 1),
+      ],
+      slots: {
+        'team-1': 'host-1',
+        'team-2': 'bot-abc123',
+      },
+      slotMembers: {
+        'team-1': ['host-1'],
+        'team-2': ['bot-abc123'],
+      },
+      participants: [
+        createMembershipParticipant({
+          sessionId: 'host-1',
+          displayName: 'Host',
+          role: 'player',
+          slotId: 'team-1',
+          ready: true,
+        }),
+        createMembershipParticipant({
+          sessionId: 'bot-abc123',
+          displayName: 'Bot',
+          role: 'player',
+          slotId: 'team-2',
+          ready: true,
+          isBot: true,
+        }),
+      ],
+      heldSlots: { 'team-1': null, 'team-2': null },
+      heldSlotMembers: { 'team-1': [], 'team-2': [] },
+    });
+
+    const viewModel = deriveLobbyMembershipViewModel(payload, 'host-1');
+    const botMember = viewModel.slots[1]?.members[0];
+    expect(botMember?.isBot).toBe(true);
+    expect(botMember?.displayName).toBe('Bot');
+    expect(viewModel.slots[0]?.members[0]?.isBot).toBe(false);
+  });
+
+  test('slot with open seats and host session produces canAddBot true', () => {
+    const payload = createMembershipPayload({
+      roomId: 'room-bot2',
+      roomCode: 'BOT2',
+      roomName: 'Bot Lobby 2',
+      revision: 1,
+      hostSessionId: 'host-1',
+      slotDefinitions: [
+        createSlotDefinition('team-1', 1),
+        createSlotDefinition('team-2', 1),
+      ],
+      slots: {
+        'team-1': 'host-1',
+        'team-2': null,
+      },
+      slotMembers: {
+        'team-1': ['host-1'],
+        'team-2': [],
+      },
+      participants: [
+        createMembershipParticipant({
+          sessionId: 'host-1',
+          displayName: 'Host',
+          role: 'player',
+          slotId: 'team-1',
+          ready: true,
+        }),
+      ],
+      heldSlots: { 'team-1': null, 'team-2': null },
+      heldSlotMembers: { 'team-1': [], 'team-2': [] },
+    });
+
+    const viewModel = deriveLobbyMembershipViewModel(payload, 'host-1');
+    expect(viewModel.slots[1]?.canAddBot).toBe(true);
+    expect(viewModel.slots[0]?.canAddBot).toBe(false);
+  });
+
+  test('slot with bot already present produces canAddBot false', () => {
+    const payload = createMembershipPayload({
+      roomId: 'room-bot3',
+      roomCode: 'BOT3',
+      roomName: 'Bot Lobby 3',
+      revision: 1,
+      hostSessionId: 'host-1',
+      slotDefinitions: [
+        createSlotDefinition('team-1', 1),
+        createSlotDefinition('team-2', 2),
+      ],
+      slots: {
+        'team-1': 'host-1',
+        'team-2': 'bot-abc123',
+      },
+      slotMembers: {
+        'team-1': ['host-1'],
+        'team-2': ['bot-abc123'],
+      },
+      participants: [
+        createMembershipParticipant({
+          sessionId: 'host-1',
+          displayName: 'Host',
+          role: 'player',
+          slotId: 'team-1',
+          ready: true,
+        }),
+        createMembershipParticipant({
+          sessionId: 'bot-abc123',
+          displayName: 'Bot',
+          role: 'player',
+          slotId: 'team-2',
+          ready: true,
+          isBot: true,
+        }),
+      ],
+      heldSlots: { 'team-1': null, 'team-2': null },
+      heldSlotMembers: { 'team-1': [], 'team-2': [] },
+    });
+
+    const viewModel = deriveLobbyMembershipViewModel(payload, 'host-1');
+    // team-2 has open capacity (2 slots, 1 member) but already has a bot
+    expect(viewModel.slots[1]?.canAddBot).toBe(false);
+  });
 });

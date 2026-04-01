@@ -4116,6 +4116,13 @@ socket.on('room:slot-claimed', (payload: RoomSlotClaimedPayload) => {
   addToast(`Slot claimed successfully: ${label}.`);
 });
 
+socket.on('bot:added', (payload) => {
+  console.log(
+    `Bot invited to slot ${payload.slotId} (sessionId: ${payload.botSessionId})`,
+  );
+  addToast(`Bot invited to ${getTeamLabel(payload.slotId)}.`);
+});
+
 socket.on('chat:message', (payload: ChatMessagePayload) => {
   if (!shouldApplyCurrentRoomPayload(payload.roomId)) {
     return;
@@ -4392,6 +4399,9 @@ leaveRoomButton.addEventListener('click', () => {
 });
 lobbyScreenUi.setClaimHandler((slotId) => {
   socket.emit('room:claim-slot', { slotId });
+});
+lobbyScreenUi.setBotAddHandler((slotId) => {
+  socket.emit('bot:add', { slotId });
 });
 
 toggleReadyButton.addEventListener('click', () => {

@@ -4,7 +4,10 @@ import {
   getLobbySlotColor,
   getLobbySlotLabel,
 } from './lobby-slot-presentation.js';
-import { selectSelfParticipant } from './player-identity-view-model.js';
+import {
+  selectIsHost,
+  selectSelfParticipant,
+} from './player-identity-view-model.js';
 
 export interface LobbySlotMemberViewModel {
   sessionId: string;
@@ -12,6 +15,7 @@ export interface LobbySlotMemberViewModel {
   metaCopy: string;
   readyCopy: string;
   isHost: boolean;
+  isBot: boolean;
   isHeld: boolean;
   heldLabel: string | null;
 }
@@ -23,6 +27,7 @@ export interface LobbySlotViewModel {
   capacity: number;
   openSeatCount: number;
   canClaim: boolean;
+  canAddBot: boolean;
   claimLabel: string;
   members: LobbySlotMemberViewModel[];
 }
@@ -71,6 +76,7 @@ export function deriveLobbyMembershipViewModel(
       .map((hold) => [hold.sessionId, hold]),
   );
   const self = selectSelfParticipant(payload, sessionId);
+  const isHost = selectIsHost(payload, sessionId);
   const canClaimAnySlot = payload.status === 'lobby' && self?.role !== 'player';
 
   const slots = payload.slotDefinitions.map(
@@ -85,6 +91,7 @@ export function deriveLobbyMembershipViewModel(
           metaCopy: `session: ${memberId}`,
           readyCopy: participant?.ready ? 'Ready' : 'Not Ready',
           isHost: payload.hostSessionId === memberId,
+          isBot: participant?.isBot ?? false,
           isHeld: hold !== null || participant?.connectionStatus === 'held',
           heldLabel: formatHeldLabel(
             participant,
@@ -95,6 +102,7 @@ export function deriveLobbyMembershipViewModel(
       });
 
       const openSeatCount = Math.max(0, capacity - members.length);
+      const hasBot = members.some((m) => m.isBot);
       return {
         slotId,
         label: getLobbySlotLabel(slotId),
@@ -102,6 +110,11 @@ export function deriveLobbyMembershipViewModel(
         capacity,
         openSeatCount,
         canClaim: canClaimAnySlot && openSeatCount > 0,
+        canAddBot:
+          isHost &&
+          payload.status === 'lobby' &&
+          openSeatCount > 0 &&
+          !hasBot,
         claimLabel: `Join ${getLobbySlotLabel(slotId)}`,
         members,
       } satisfies LobbySlotViewModel;

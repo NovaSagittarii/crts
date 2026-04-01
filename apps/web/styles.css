@@ -811,6 +811,11 @@ body.app--ingame .grid-viewport {
   color: var(--muted);
 }
 
+.badge--bot {
+  border-color: rgba(139, 92, 246, 0.5);
+  color: #8b5cf6;
+}
+
 .badge--slot {
   border-color: rgba(94, 201, 255, 0.35);
   color: var(--text);
