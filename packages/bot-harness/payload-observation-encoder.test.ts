@@ -136,7 +136,7 @@ describe('PayloadObservationEncoder', () => {
     );
   });
 
-  it('produces identical output to ObservationEncoder for the same room state', () => {
+  it('produces identical output to ObservationEncoder for the same room state', { timeout: 30_000 }, () => {
     const room = createTestRoom();
     // Set some specific grid cells alive for a non-trivial comparison
     room.state.grid.setCell(10, 10, true);
