@@ -3,21 +3,17 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { MatchCallbacks, MatchConfig, TickRecord } from './types.js';
-import { NoOpBot } from './noop-bot.js';
-import { RandomBot } from './random-bot.js';
+import { RtsRoom } from '#rts-engine';
+
 import {
   MatchLogger,
   createMatchHeader,
   createMatchOutcomeRecord,
 } from './match-logger.js';
-import {
-  applyBotActions,
-  createBotView,
-  createTickRecord,
-  runMatch,
-} from './match-runner.js';
-import { RtsRoom } from '#rts-engine';
+import { applyBotActions, createBotView, runMatch } from './match-runner.js';
+import { NoOpBot } from './noop-bot.js';
+import { RandomBot } from './random-bot.js';
+import type { MatchCallbacks, MatchConfig, TickRecord } from './types.js';
 
 function createSmallConfig(overrides: Partial<MatchConfig> = {}): MatchConfig {
   return {
@@ -75,7 +71,10 @@ describe('runMatch', () => {
     };
     runMatch(config, new NoOpBot(), new NoOpBot(), callbacks);
     expect(completeFn).toHaveBeenCalledTimes(1);
-    const result = completeFn.mock.calls[0][0];
+    const result = completeFn.mock.calls[0][0] as {
+      isDraw: boolean;
+      totalTicks: number;
+    };
     expect(result.isDraw).toBe(true);
     expect(result.totalTicks).toBe(10);
   });
@@ -106,11 +105,7 @@ describe('runMatch', () => {
     const config = createSmallConfig({ maxTicks: 20 });
     expect(() => {
       for (let i = 0; i < 10; i++) {
-        runMatch(
-          { ...config, seed: i },
-          new NoOpBot(),
-          new NoOpBot(),
-        );
+        runMatch({ ...config, seed: i }, new NoOpBot(), new NoOpBot());
       }
     }).not.toThrow();
   });
@@ -301,16 +296,20 @@ describe('end-to-end pipeline', () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it('RandomBot vs RandomBot match completes before maxTicks', { timeout: 30_000 }, () => {
-    const config: MatchConfig = {
-      seed: 555,
-      gridWidth: 52,
-      gridHeight: 52,
-      maxTicks: 500,
-      hashCheckpointInterval: 50,
-    };
-    const result = runMatch(config, new RandomBot(), new RandomBot());
-    expect(result.totalTicks).toBeLessThanOrEqual(500);
-    expect(result.totalTicks).toBeGreaterThan(0);
-  });
+  it(
+    'RandomBot vs RandomBot match completes before maxTicks',
+    { timeout: 30_000 },
+    () => {
+      const config: MatchConfig = {
+        seed: 555,
+        gridWidth: 52,
+        gridHeight: 52,
+        maxTicks: 500,
+        hashCheckpointInterval: 50,
+      };
+      const result = runMatch(config, new RandomBot(), new RandomBot());
+      expect(result.totalTicks).toBeLessThanOrEqual(500);
+      expect(result.totalTicks).toBeGreaterThan(0);
+    },
+  );
 });
