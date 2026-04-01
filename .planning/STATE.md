@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
-status: planning
-stopped_at: Phase 23 context gathered
-last_updated: "2026-04-01T08:00:47.089Z"
-last_activity: 2026-03-30 — Roadmap created for v0.0.4
+status: executing
+stopped_at: Completed 18-01-PLAN.md
+last_updated: "2026-04-01T08:52:28.727Z"
+last_activity: 2026-04-01
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 3
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-30)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 18 — Headless Match Runner
+**Current focus:** Phase 18 — headless-match-runner
 
 ## Current Position
 
-Phase: 18 of 23 (Headless Match Runner) — first of 6 phases in v0.0.4
-Plan: --
-Status: Ready to plan
-Last activity: 2026-03-30 — Roadmap created for v0.0.4
+Phase: 18 (headless-match-runner) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-04-01
 
 Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
@@ -52,6 +52,8 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - Archive milestone roadmap/requirements artifacts to keep active planning files small.
 - Migrate to lockstep: server validates inputs, clients run simulation locally, periodic hash verification for desync detection.
 - v0.0.4: TypeScript-native training via `@tensorflow/tfjs` (pure JS CPU backend) as default; decision gate in Phase 20 if throughput exceeds 8 hours.
+- [Phase 18-headless-match-runner]: BotView exposes full Grid + own-team-only TeamStateView (per D-02 fog-of-war constraint)
+- [Phase 18-headless-match-runner]: RandomBot uses Math.floor(buildRadius) for integer coordinate generation in build-zone scanning
 
 ### Pending Todos
 
@@ -63,6 +65,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-01T08:00:46.957Z
-**Stopped At:** Phase 23 context gathered
-**Resume File:** .planning/phases/23-playable-in-game-bot/23-CONTEXT.md
+**Last session:** 2026-04-01T08:52:28.619Z
+**Stopped At:** Completed 18-01-PLAN.md
+**Resume File:** None

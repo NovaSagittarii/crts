@@ -9,7 +9,7 @@ Requirements for RL Bot Harness & Balance Analysis milestone.
 
 ### Bot Harness
 
-- [ ] **HARN-01**: Headless match runner executes a full match between two bot agents using RtsRoom API without Socket.IO
+- [x] **HARN-01**: Headless match runner executes a full match between two bot agents using RtsRoom API without Socket.IO
 - [ ] **HARN-02**: Observation encoder extracts grid feature planes and scalar features from RoomState into a tensor-compatible format
 - [ ] **HARN-03**: Action decoder maps discrete action indices to valid build/destroy queue calls with action masking for invalid placements
 - [ ] **HARN-04**: Reward signal computes win/loss outcome reward plus shaped intermediate rewards (economy, territory, structure health) with configurable annealing
@@ -60,7 +60,7 @@ Deferred to future milestones.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| HARN-01 | Phase 18 | Pending |
+| HARN-01 | Phase 18 | Complete |
 | HARN-02 | Phase 19 | Pending |
 | HARN-03 | Phase 19 | Pending |
 | HARN-04 | Phase 19 | Pending |
