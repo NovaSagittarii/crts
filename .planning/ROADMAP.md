@@ -42,7 +42,7 @@ See archive: `.planning/milestones/v0.0.3-ROADMAP.md`
 - [x] **Phase 18: Headless Match Runner** - Bot agents execute full matches via RtsRoom without Socket.IO, with match results persisted for analysis (completed 2026-04-01)
 - [x] **Phase 19: Observation, Action, and Reward Interface** - Bot environment exposes structured observations, masked actions, and shaped rewards in a Gymnasium-style API (completed 2026-04-01)
 - [x] **Phase 20: PPO Training with Self-Play** - Training pipeline produces improving policies via PPO with self-play opponent pool across parallel workers (completed 2026-04-01)
-- [ ] **Phase 21: Balance Analysis** - Win rates and strategy distributions are computable from accumulated match data
+- [x] **Phase 21: Balance Analysis** - Win rates and strategy distributions are computable from accumulated match data (completed 2026-04-01)
 - [ ] **Phase 22: Structure Strength Ratings** - Individual structure templates have Glicko-2 ratings with a CLI balance report
 - [ ] **Phase 23: Playable In-Game Bot** - A trained bot joins a live game server as a virtual player via Socket.IO
 
@@ -104,12 +104,12 @@ Plans:
   1. Per-template and per-strategy win rates are computed from the match database with 95% confidence intervals
   2. Strategy distribution classifier identifies build-order archetypes and tracks their frequency across training generations
   3. Analysis runs against any NDJSON match log directory and produces structured output (not coupled to a live training run)
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 Plans:
 - [x] 21-01-PLAN.md — Data gap fix (templateId in build records), analysis types, stats utilities, match log reader
 - [x] 21-02-PLAN.md — Win rate analyzer with three attribution methods (presence, usage-weighted, first-build)
 - [x] 21-03-PLAN.md — Strategy classifier (feature extraction, rules, k-means clustering, sequence mining)
-- [ ] 21-04-PLAN.md — Generation tracker, balance report assembly, console/markdown formatters, CLI
+- [x] 21-04-PLAN.md — Generation tracker, balance report assembly, console/markdown formatters, CLI
 
 ### Phase 22: Structure Strength Ratings
 **Goal**: Individual structure templates and template combinations have quantified strength ratings derived from match outcomes, with a CLI report summarizing the competitive meta
@@ -145,6 +145,6 @@ Note: Phase 21 can begin alongside Phase 20 using early match data.
 | 18. Headless Match Runner | v0.0.4 | 3/3 | Complete    | 2026-04-01 |
 | 19. Observation, Action, and Reward Interface | v0.0.4 | 3/3 | Complete    | 2026-04-01 |
 | 20. PPO Training with Self-Play | v0.0.4 | 5/5 | Complete    | 2026-04-01 |
-| 21. Balance Analysis | v0.0.4 | 3/4 | In Progress|  |
+| 21. Balance Analysis | v0.0.4 | 4/4 | Complete   | 2026-04-01 |
 | 22. Structure Strength Ratings | v0.0.4 | 0/? | Not started | - |
 | 23. Playable In-Game Bot | v0.0.4 | 0/? | Not started | - |

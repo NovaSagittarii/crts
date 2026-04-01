@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
-status: executing
-stopped_at: Completed 21-03-PLAN.md
-last_updated: "2026-04-01T18:38:38.165Z"
+status: verifying
+stopped_at: Completed 21-04-PLAN.md
+last_updated: "2026-04-01T19:13:05.059Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 15
-  completed_plans: 14
+  completed_plans: 15
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-30)
 
 Phase: 21 (balance-analysis) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-01
 
 Progress: [░░░░░░░░░░] 0% (v0.0.4)
@@ -88,6 +88,8 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 21]: Conway-appropriate strategy labels (early-builder, diverse-placer, template-heavy, economy-saver, balanced) per D-08 -- no rush/turtle/macro
 - [Phase 21]: PrefixSpan projected-database approach for sequence mining with per-sequence deduplication for support counting
 - [Phase 21]: Multi-run k-means (10 runs default) with lowest-WCSS selection for stable clustering without external libraries
+- [Phase 21]: Generation boundary discovery reads checkpoint-<N> directory names directly (no training module coupling)
+- [Phase 21]: CLI uses stderr for status messages and stdout for report output, enabling piping
 
 ### Pending Todos
 
@@ -99,6 +101,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-01T18:38:38.061Z
-**Stopped At:** Completed 21-03-PLAN.md
+**Last session:** 2026-04-01T19:13:04.956Z
+**Stopped At:** Completed 21-04-PLAN.md
 **Resume File:** None
