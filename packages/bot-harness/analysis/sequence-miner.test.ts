@@ -1,21 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
-import { mineSequencePatterns, extractBuildSequence } from './sequence-miner.js';
-import type { ParsedMatch } from './types.js';
 import type {
   MatchHeader,
   MatchOutcomeRecord,
   TickActionRecord,
-  TickEconomyRecord,
   TickRecord,
 } from '../types.js';
+import {
+  extractBuildSequence,
+  mineSequencePatterns,
+} from './sequence-miner.js';
+import type { ParsedMatch } from './types.js';
 
 // ── helpers ────────────────────────────────────────────────────────────
 
-function makeTick(
-  tick: number,
-  actions: TickActionRecord[] = [],
-): TickRecord {
+function makeTick(tick: number, actions: TickActionRecord[] = []): TickRecord {
   return {
     type: 'tick',
     tick,
@@ -82,7 +81,8 @@ describe('mineSequencePatterns', () => {
 
     // [A, B] should appear with support 3
     const ab = patterns.find(
-      (p) => p.pattern.length === 2 && p.pattern[0] === 'A' && p.pattern[1] === 'B',
+      (p) =>
+        p.pattern.length === 2 && p.pattern[0] === 'A' && p.pattern[1] === 'B',
     );
     expect(ab).toBeDefined();
     expect(ab!.support).toBe(3);

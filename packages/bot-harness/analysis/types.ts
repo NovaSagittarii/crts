@@ -1,8 +1,4 @@
-import type {
-  MatchHeader,
-  MatchOutcomeRecord,
-  TickRecord,
-} from '../types.js';
+import type { MatchHeader, MatchOutcomeRecord, TickRecord } from '../types.js';
 
 /** Parsed NDJSON match file decomposed into header, ticks, and outcome */
 export interface ParsedMatch {
@@ -126,26 +122,26 @@ export interface AnalysisConfig {
 
 /** Glicko-2 rating for a single entity */
 export interface Glicko2Rating {
-  rating: number;     // Display scale (centered on 1500)
-  rd: number;         // Rating deviation (display scale)
+  rating: number; // Display scale (centered on 1500)
+  rd: number; // Rating deviation (display scale)
   volatility: number; // Sigma
 }
 
-/** Result of a single match from entity's perspective */
-export interface MatchResult {
-  opponentRating: number;  // Display scale
-  opponentRd: number;      // Display scale
-  score: number;           // 1.0 = win, 0.5 = draw, 0.0 = loss
+/** Result of a single match from entity's perspective (Glicko-2 context) */
+export interface Glicko2MatchResult {
+  opponentRating: number; // Display scale
+  opponentRd: number; // Display scale
+  score: number; // 1.0 = win, 0.5 = draw, 0.0 = loss
 }
 
 /** Template-vs-template encounter extracted from match data (D-01) */
 export interface TemplateEncounter {
-  entityA: string;       // Template/combo ID from winning (or team A) side
-  entityB: string;       // Template/combo ID from losing (or team B) side
-  scoreA: number;        // Fractional win credit (1.0 win, 0.5 draw, 0.0 loss)
-  scoreB: number;        // 1 - scoreA
-  weightA: number;       // log(1 + buildCountA) -- diminishing returns weighting
-  weightB: number;       // log(1 + buildCountB)
+  entityA: string; // Template/combo ID from winning (or team A) side
+  entityB: string; // Template/combo ID from losing (or team B) side
+  scoreA: number; // Fractional win credit (1.0 win, 0.5 draw, 0.0 loss)
+  scoreB: number; // 1 - scoreA
+  weightA: number; // log(1 + buildCountA) -- diminishing returns weighting
+  weightB: number; // log(1 + buildCountB)
 }
 
 /** Game phase definition for per-phase rating pools (D-02, D-03) */
@@ -176,7 +172,7 @@ export interface RatedEntity {
   entityType: RatingEntityType;
   phase: GamePhase;
   rating: Glicko2Rating;
-  provisional: boolean;  // RD > 150 per D-04
+  provisional: boolean; // RD > 150 per D-04
   matchCount: number;
   pickRate: number;
   outlierFlags: OutlierFlag[];

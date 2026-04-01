@@ -9,22 +9,19 @@
  * Per D-02: Individual templates get 3 pools (early/mid/late).
  * Per D-09: Combination ratings default to 1 pool (full match).
  */
-
+import {
+  GAME_PHASE_DEFAULTS,
+  extractTemplateEncounters,
+} from './encounter-extractor.js';
+import { GLICKO2_DEFAULTS, updateRating } from './glicko2-engine.js';
 import type {
-  GamePhaseRange,
   Glicko2Rating,
   ParsedMatch,
   RatedEntity,
-  RatingEntityType,
   RatingPoolConfig,
   TemplateEncounter,
 } from './types.js';
-import { GLICKO2_DEFAULTS, updateRating } from './glicko2-engine.js';
-import {
-  extractTemplateEncounters,
-  GAME_PHASE_DEFAULTS,
-} from './encounter-extractor.js';
-import type { MatchResult } from './types.js';
+import type { Glicko2MatchResult } from './types.js';
 
 // ---------------------------------------------------------------------------
 // RatingPool class
@@ -120,8 +117,8 @@ export class RatingPool {
         (this.entityMatchCounts.get(entityId) ?? 0) + matchCount,
       );
 
-      // Build MatchResult[] from pre-update snapshot
-      const matchResults: MatchResult[] = [];
+      // Build Glicko2MatchResult[] from pre-update snapshot
+      const matchResults: Glicko2MatchResult[] = [];
       for (const enc of encs) {
         const isEntityA = enc.entityA === entityId;
         const opponentId = isEntityA ? enc.entityB : enc.entityA;
@@ -184,9 +181,7 @@ export class RatingPool {
     for (const match of matches) {
       const encounters = extractTemplateEncounters(
         match,
-        tickRange
-          ? { start: tickRange.start, end: tickRange.end }
-          : undefined,
+        tickRange ? { start: tickRange.start, end: tickRange.end } : undefined,
       );
       this.addEncounters(encounters);
     }
@@ -211,9 +206,10 @@ export class RatingPool {
  * With perPhaseCombos (9 pools):
  * - 3 individual pools + 3 pairwise pools + 3 frequent-set pools
  */
-export function createRatingPools(
-  options?: { perPhaseCombos?: boolean; tau?: number },
-): RatingPool[] {
+export function createRatingPools(options?: {
+  perPhaseCombos?: boolean;
+  tau?: number;
+}): RatingPool[] {
   const perPhaseCombos = options?.perPhaseCombos ?? false;
   const tau = options?.tau ?? GLICKO2_DEFAULTS.tau;
 

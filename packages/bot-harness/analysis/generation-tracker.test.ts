@@ -1,12 +1,19 @@
-import { describe, expect, it, vi } from 'vitest';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
 
+import type {
+  MatchHeader,
+  MatchOutcomeRecord,
+  TickActionRecord,
+  TickEconomyRecord,
+  TickRecord,
+} from '../types.js';
 import {
+  computeGenerationData,
   discoverGenerations,
   splitMatchesByGeneration,
-  computeGenerationData,
 } from './generation-tracker.js';
 import type { GenerationBoundary } from './generation-tracker.js';
 import type {
@@ -15,13 +22,6 @@ import type {
   StrategyAssignment,
   StrategyFeatureVector,
 } from './types.js';
-import type {
-  MatchHeader,
-  MatchOutcomeRecord,
-  TickActionRecord,
-  TickEconomyRecord,
-  TickRecord,
-} from '../types.js';
 
 // ── helpers ────────────────────────────────────────────────────────────
 
@@ -156,7 +156,10 @@ const defaultConfig: AnalysisConfig = {
 
 describe('discoverGenerations', () => {
   it('reads checkpoint-50/, checkpoint-100/, checkpoint-150/ and returns sorted boundaries', async () => {
-    const dir = join(tmpdir(), `gen-test-${String(Date.now())}-${String(Math.random()).slice(2, 8)}`);
+    const dir = join(
+      tmpdir(),
+      `gen-test-${String(Date.now())}-${String(Math.random()).slice(2, 8)}`,
+    );
     await mkdir(join(dir, 'checkpoint-100'), { recursive: true });
     await mkdir(join(dir, 'checkpoint-50'), { recursive: true });
     await mkdir(join(dir, 'checkpoint-150'), { recursive: true });
@@ -170,7 +173,10 @@ describe('discoverGenerations', () => {
   });
 
   it('returns empty array when no checkpoint directories exist', async () => {
-    const dir = join(tmpdir(), `gen-test-empty-${String(Date.now())}-${String(Math.random()).slice(2, 8)}`);
+    const dir = join(
+      tmpdir(),
+      `gen-test-empty-${String(Date.now())}-${String(Math.random()).slice(2, 8)}`,
+    );
     await mkdir(dir, { recursive: true });
     // Create a non-checkpoint file
     await writeFile(join(dir, 'config.json'), '{}');
@@ -180,7 +186,10 @@ describe('discoverGenerations', () => {
   });
 
   it('parses episode number from directory name "checkpoint-<N>"', async () => {
-    const dir = join(tmpdir(), `gen-test-parse-${String(Date.now())}-${String(Math.random()).slice(2, 8)}`);
+    const dir = join(
+      tmpdir(),
+      `gen-test-parse-${String(Date.now())}-${String(Math.random()).slice(2, 8)}`,
+    );
     await mkdir(join(dir, 'checkpoint-999'), { recursive: true });
     await mkdir(join(dir, 'checkpoint-1'), { recursive: true });
 
@@ -197,7 +206,12 @@ describe('discoverGenerations', () => {
 describe('splitMatchesByGeneration', () => {
   it('assigns matches to generations based on match index and checkpoint interval', () => {
     const matches = [makeMatch(), makeMatch(), makeMatch(), makeMatch()];
-    const matchFiles = ['match-0.ndjson', 'match-1.ndjson', 'match-2.ndjson', 'match-3.ndjson'];
+    const matchFiles = [
+      'match-0.ndjson',
+      'match-1.ndjson',
+      'match-2.ndjson',
+      'match-3.ndjson',
+    ];
     const generations: GenerationBoundary[] = [
       { generation: 1, episode: 50 },
       { generation: 2, episode: 100 },
@@ -208,7 +222,12 @@ describe('splitMatchesByGeneration', () => {
     // match 1 => matchIndex 1 * 50 = episode 50 => gen 1 (episode 50) => generation 1
     // match 2 => matchIndex 2 * 50 = episode 100 => gen 2 (episode 100) => generation 2
     // match 3 => matchIndex 3 * 50 = episode 150 => after gen 2 (episode 100) => generation 2
-    const result = splitMatchesByGeneration(matches, matchFiles, generations, 50);
+    const result = splitMatchesByGeneration(
+      matches,
+      matchFiles,
+      generations,
+      50,
+    );
 
     expect(result.get(0)?.length).toBe(1);
     expect(result.get(1)?.length).toBe(1);
@@ -231,20 +250,50 @@ describe('computeGenerationData', () => {
   it('computes strategy distribution counts per generation', () => {
     const matches = [makeMatch(), makeMatch()];
     const assignments: StrategyAssignment[] = [
-      { matchIndex: 0, teamId: 0, features: makeFeatureVector(), ruleLabel: 'early-builder', clusterId: 0 },
-      { matchIndex: 0, teamId: 1, features: makeFeatureVector(), ruleLabel: 'balanced', clusterId: 1 },
-      { matchIndex: 1, teamId: 0, features: makeFeatureVector(), ruleLabel: 'early-builder', clusterId: 0 },
-      { matchIndex: 1, teamId: 1, features: makeFeatureVector(), ruleLabel: 'early-builder', clusterId: 0 },
+      {
+        matchIndex: 0,
+        teamId: 0,
+        features: makeFeatureVector(),
+        ruleLabel: 'early-builder',
+        clusterId: 0,
+      },
+      {
+        matchIndex: 0,
+        teamId: 1,
+        features: makeFeatureVector(),
+        ruleLabel: 'balanced',
+        clusterId: 1,
+      },
+      {
+        matchIndex: 1,
+        teamId: 0,
+        features: makeFeatureVector(),
+        ruleLabel: 'early-builder',
+        clusterId: 0,
+      },
+      {
+        matchIndex: 1,
+        teamId: 1,
+        features: makeFeatureVector(),
+        ruleLabel: 'early-builder',
+        clusterId: 0,
+      },
     ];
 
-    const result = computeGenerationData(matches, 1, 50, assignments, defaultConfig);
+    const result = computeGenerationData(
+      matches,
+      1,
+      50,
+      assignments,
+      defaultConfig,
+    );
 
     expect(result.generation).toBe(1);
     expect(result.episode).toBe(50);
     expect(result.matchCount).toBe(2);
     expect(result.strategyDistribution).toEqual({
       'early-builder': 3,
-      'balanced': 1,
+      balanced: 1,
     });
     expect(result.templateWinRates.length).toBeGreaterThan(0);
   });

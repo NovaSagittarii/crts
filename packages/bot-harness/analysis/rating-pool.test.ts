@@ -1,14 +1,12 @@
 import { describe, expect, it } from 'vitest';
+
+import { GLICKO2_DEFAULTS } from './glicko2-engine.js';
+import { RatingPool, createRatingPools } from './rating-pool.js';
 import type {
-  GamePhaseRange,
-  Glicko2Rating,
   ParsedMatch,
-  RatedEntity,
   RatingPoolConfig,
   TemplateEncounter,
 } from './types.js';
-import { GLICKO2_DEFAULTS } from './glicko2-engine.js';
-import { RatingPool, createRatingPools } from './rating-pool.js';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -29,7 +27,9 @@ function makeEncounter(
   };
 }
 
-function makePoolConfig(overrides?: Partial<RatingPoolConfig>): RatingPoolConfig {
+function makePoolConfig(
+  overrides?: Partial<RatingPoolConfig>,
+): RatingPoolConfig {
   return {
     name: 'test-pool',
     entityType: 'individual',
@@ -44,7 +44,10 @@ function makeParsedMatch(
   winnerId: number | null,
 ): ParsedMatch {
   // Build tick records from the list of builds
-  const tickMap = new Map<number, Array<{ teamId: number; templateId: string }>>();
+  const tickMap = new Map<
+    number,
+    Array<{ teamId: number; templateId: string }>
+  >();
   for (const b of builds) {
     if (!tickMap.has(b.tick)) tickMap.set(b.tick, []);
     tickMap.get(b.tick)!.push({ teamId: b.teamId, templateId: b.templateId });
@@ -133,9 +136,7 @@ describe('RatingPool', () => {
     const pool = new RatingPool(config);
 
     pool.registerEntity('solo');
-    pool.addEncounters([
-      makeEncounter('A', 'B', 1.0),
-    ]);
+    pool.addEncounters([makeEncounter('A', 'B', 1.0)]);
     pool.runUpdate();
 
     const entities = pool.getRatedEntities();
@@ -181,11 +182,15 @@ describe('RatingPool', () => {
     expect(names).toContain('frequent-set-full');
 
     // Check entity types
-    const individual = pools.filter((p) => p.config.entityType === 'individual');
+    const individual = pools.filter(
+      (p) => p.config.entityType === 'individual',
+    );
     expect(individual).toHaveLength(3);
     const pairwise = pools.filter((p) => p.config.entityType === 'pairwise');
     expect(pairwise).toHaveLength(1);
-    const frequentSet = pools.filter((p) => p.config.entityType === 'frequent-set');
+    const frequentSet = pools.filter(
+      (p) => p.config.entityType === 'frequent-set',
+    );
     expect(frequentSet).toHaveLength(1);
   });
 

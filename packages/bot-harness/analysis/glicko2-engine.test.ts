@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import { updateRating, GLICKO2_DEFAULTS } from './glicko2-engine.js';
-import type { Glicko2Rating, MatchResult } from './types.js';
+import { GLICKO2_DEFAULTS, updateRating } from './glicko2-engine.js';
+import type { Glicko2MatchResult, Glicko2Rating } from './types.js';
 
 describe('glicko2-engine', () => {
   describe('GLICKO2_DEFAULTS', () => {
@@ -25,7 +25,7 @@ describe('glicko2-engine', () => {
         volatility: 0.06,
       };
 
-      const matches: MatchResult[] = [
+      const matches: Glicko2MatchResult[] = [
         { opponentRating: 1400, opponentRd: 30, score: 1.0 },
         { opponentRating: 1550, opponentRd: 100, score: 0.0 },
         { opponentRating: 1700, opponentRd: 300, score: 0.0 },
@@ -65,7 +65,7 @@ describe('glicko2-engine', () => {
         volatility: 0.06,
       };
 
-      const matches: MatchResult[] = [
+      const matches: Glicko2MatchResult[] = [
         { opponentRating: 1200, opponentRd: 100, score: 1.0 },
       ];
 
@@ -82,7 +82,7 @@ describe('glicko2-engine', () => {
         volatility: 0.06,
       };
 
-      const matches: MatchResult[] = [
+      const matches: Glicko2MatchResult[] = [
         { opponentRating: 1200, opponentRd: 100, score: 0.0 },
       ];
 
@@ -101,7 +101,7 @@ describe('glicko2-engine', () => {
         volatility: 0.06,
       };
 
-      const matches: MatchResult[] = [
+      const matches: Glicko2MatchResult[] = [
         { opponentRating: 1900, opponentRd: 50, score: 1.0 },
         { opponentRating: 1100, opponentRd: 50, score: 0.0 },
       ];
@@ -122,7 +122,7 @@ describe('glicko2-engine', () => {
         volatility: 0.06,
       };
 
-      const matches: MatchResult[] = [
+      const matches: Glicko2MatchResult[] = [
         { opponentRating: 1400, opponentRd: 30, score: 1.0 },
       ];
 

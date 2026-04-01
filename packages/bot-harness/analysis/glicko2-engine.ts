@@ -9,8 +9,7 @@
  * Reference: Glickman, M. E. (2013). Example of the Glicko-2 system.
  * http://www.glicko.net/glicko/glicko2.pdf
  */
-
-import type { Glicko2Rating, MatchResult } from './types.js';
+import type { Glicko2MatchResult, Glicko2Rating } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -87,7 +86,7 @@ function computeVariance(opponents: ScaledOpponent[]): number {
  */
 export function updateRating(
   player: Glicko2Rating,
-  matches: MatchResult[],
+  matches: Glicko2MatchResult[],
   tau: number = GLICKO2_DEFAULTS.tau,
 ): Glicko2Rating {
   // Step 1: Convert to Glicko-2 scale
