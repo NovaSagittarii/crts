@@ -82,33 +82,34 @@ describe('BotEnvironment', () => {
     const env = new BotEnvironment(truncConfig);
     env.reset(42, noopOpponent);
 
-    let lastResult;
-    for (let i = 0; i < 10; i++) {
+    let lastResult = env.step(0);
+    for (let i = 1; i < 10; i++) {
       lastResult = env.step(0);
       if (lastResult.terminated) break;
     }
 
     // Either terminated naturally or truncated at tick limit
     expect(
-      lastResult!.terminated || lastResult!.truncated,
+      lastResult.terminated || lastResult.truncated,
     ).toBe(true);
 
-    if (!lastResult!.terminated) {
-      expect(lastResult!.truncated).toBe(true);
+    if (!lastResult.terminated) {
+      expect(lastResult.truncated).toBe(true);
     }
   });
 
   it('opponent BotStrategy executes each tick', { timeout: 15_000 }, () => {
+    const decideSpy = vi.fn((_view: BotView, _teamId: number): BotAction[] => []);
     const mockBot: BotStrategy = {
       name: 'MockBot',
-      decideTick: vi.fn((_view: BotView, _teamId: number): BotAction[] => []),
+      decideTick: decideSpy,
     };
 
     const env = new BotEnvironment(smallConfig);
     env.reset(42, mockBot);
     env.step(0);
 
-    expect(mockBot.decideTick).toHaveBeenCalledOnce();
+    expect(decideSpy).toHaveBeenCalledOnce();
   });
 
   it('reward is a finite number on each step', { timeout: 15_000 }, () => {
