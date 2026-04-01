@@ -57,10 +57,10 @@ See archive: `.planning/milestones/v0.0.3-ROADMAP.md`
   2. Match outcomes, build orders, and per-tick snapshots are persisted to NDJSON files after each headless match
   3. Headless matches produce identical results given the same PRNG seed (determinism preserved)
   4. Multiple matches can run in a single Node.js process without resource leaks
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 Plans:
 - [x] 18-01-PLAN.md — Package scaffolding, BotStrategy interface, NoOpBot, RandomBot
-- [ ] 18-02-PLAN.md — HeadlessMatchRunner tick loop and NDJSON MatchLogger
+- [x] 18-02-PLAN.md — HeadlessMatchRunner tick loop and NDJSON MatchLogger
 - [ ] 18-03-PLAN.md — CLI entry point and determinism integration tests
 
 ### Phase 19: Observation, Action, and Reward Interface
@@ -127,7 +127,7 @@ Note: Phase 21 can begin alongside Phase 20 using early match data.
 | 1-5 (archived) | v0.0.1 | -- | Complete | 2026-03-01 |
 | 6-12 (archived) | v0.0.2 | -- | Complete | 2026-03-03 |
 | 13-17 (archived) | v0.0.3 | -- | Complete | 2026-03-30 |
-| 18. Headless Match Runner | v0.0.4 | 1/3 | In Progress|  |
+| 18. Headless Match Runner | v0.0.4 | 2/3 | In Progress|  |
 | 19. Observation, Action, and Reward Interface | v0.0.4 | 0/? | Not started | - |
 | 20. PPO Training with Self-Play | v0.0.4 | 0/? | Not started | - |
 | 21. Balance Analysis | v0.0.4 | 0/? | Not started | - |

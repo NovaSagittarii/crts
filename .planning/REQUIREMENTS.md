@@ -23,7 +23,7 @@ Requirements for RL Bot Harness & Balance Analysis milestone.
 
 ### Balance Analysis
 
-- [ ] **BAL-01**: Match database logs match outcomes, build orders, and per-tick snapshots from headless simulations
+- [x] **BAL-01**: Match database logs match outcomes, build orders, and per-tick snapshots from headless simulations
 - [ ] **BAL-02**: Win rate analysis computes per-template and per-strategy win rates from the match database
 - [ ] **BAL-03**: Strategy distribution classifier identifies and tracks build-order archetypes across training generations
 - [ ] **BAL-04**: Glicko-2 rating engine rates individual structure templates and template combinations from match outcomes
@@ -68,7 +68,7 @@ Deferred to future milestones.
 | TRAIN-02 | Phase 20 | Pending |
 | TRAIN-03 | Phase 20 | Pending |
 | TRAIN-04 | Phase 20 | Pending |
-| BAL-01 | Phase 18 | Pending |
+| BAL-01 | Phase 18 | Complete |
 | BAL-02 | Phase 21 | Pending |
 | BAL-03 | Phase 21 | Pending |
 | BAL-04 | Phase 22 | Pending |
