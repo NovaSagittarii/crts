@@ -108,6 +108,7 @@ export interface BalanceReport {
   clusters: ClusterResult;
   sequencePatterns: SequencePattern[];
   generations: GenerationData[];
+  ratings?: RatingsReport;
 }
 
 /** Configuration for analysis pipeline */
@@ -117,4 +118,107 @@ export interface AnalysisConfig {
   maxPatternLength: number;
   k: number;
   firstNBuilds: number;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 22: Glicko-2 Structure Strength Ratings
+// ---------------------------------------------------------------------------
+
+/** Glicko-2 rating for a single entity */
+export interface Glicko2Rating {
+  rating: number;     // Display scale (centered on 1500)
+  rd: number;         // Rating deviation (display scale)
+  volatility: number; // Sigma
+}
+
+/** Result of a single match from entity's perspective */
+export interface MatchResult {
+  opponentRating: number;  // Display scale
+  opponentRd: number;      // Display scale
+  score: number;           // 1.0 = win, 0.5 = draw, 0.0 = loss
+}
+
+/** Template-vs-template encounter extracted from match data (D-01) */
+export interface TemplateEncounter {
+  entityA: string;       // Template/combo ID from winning (or team A) side
+  entityB: string;       // Template/combo ID from losing (or team B) side
+  scoreA: number;        // Fractional win credit (1.0 win, 0.5 draw, 0.0 loss)
+  scoreB: number;        // 1 - scoreA
+  weightA: number;       // log(1 + buildCountA) -- diminishing returns weighting
+  weightB: number;       // log(1 + buildCountB)
+}
+
+/** Game phase definition for per-phase rating pools (D-02, D-03) */
+export type GamePhase = 'early' | 'mid' | 'late' | 'full';
+
+/** Tick range for game phase filtering */
+export interface GamePhaseRange {
+  phase: GamePhase;
+  start: number;
+  end: number; // Infinity for unbounded (late phase)
+}
+
+/** Entity type for rating pools */
+export type RatingEntityType = 'individual' | 'pairwise' | 'frequent-set';
+
+/** Outlier classification flags (D-10, D-12) */
+export type OutlierFlag =
+  | 'statistical-outlier-high'
+  | 'statistical-outlier-low'
+  | 'dominant'
+  | 'niche-strong'
+  | 'trap';
+
+/** A rated entity with Glicko-2 rating and metadata */
+export interface RatedEntity {
+  id: string;
+  name: string;
+  entityType: RatingEntityType;
+  phase: GamePhase;
+  rating: Glicko2Rating;
+  provisional: boolean;  // RD > 150 per D-04
+  matchCount: number;
+  pickRate: number;
+  outlierFlags: OutlierFlag[];
+}
+
+/** Configuration for a rating pool */
+export interface RatingPoolConfig {
+  name: string;
+  entityType: RatingEntityType;
+  phase: GamePhase;
+  tickRange: GamePhaseRange | null;
+}
+
+/** Serialized rating pool for worker thread communication */
+export interface SerializedRatingPool {
+  config: RatingPoolConfig;
+  entities: Array<{ id: string; rating: Glicko2Rating }>;
+  encounters: TemplateEncounter[];
+}
+
+/** Ratings section of the extended BalanceReport (D-16) */
+export interface RatingsReport {
+  hyperparameters: {
+    initialRating: number;
+    initialRd: number;
+    initialVolatility: number;
+    tau: number;
+    phaseBoundaries: { earlyEnd: number; midEnd: number };
+  };
+  individual: {
+    early: RatedEntity[];
+    mid: RatedEntity[];
+    late: RatedEntity[];
+  };
+  pairwise: RatedEntity[];
+  frequentSets: RatedEntity[];
+  outliers: {
+    perPhase: {
+      early: RatedEntity[];
+      mid: RatedEntity[];
+      late: RatedEntity[];
+    };
+    overall: RatedEntity[];
+  };
 }
