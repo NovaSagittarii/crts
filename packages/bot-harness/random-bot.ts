@@ -19,7 +19,7 @@ export class RandomBot implements BotStrategy {
     // Collect candidate positions near existing structures
     const candidates: { x: number; y: number }[] = [];
     for (const structure of view.teamState.structures) {
-      const radius = structure.buildRadius;
+      const radius = Math.floor(structure.buildRadius);
       for (let dx = -radius; dx <= radius; dx++) {
         for (let dy = -radius; dy <= radius; dy++) {
           const x = structure.x + dx;
