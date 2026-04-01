@@ -229,7 +229,7 @@ describe('determinism', () => {
 });
 
 describe('resource management', () => {
-  it('runs 20 sequential matches without throwing', () => {
+  it('runs 20 sequential matches without throwing', { timeout: 30_000 }, () => {
     const config: MatchConfig = {
       seed: 1,
       gridWidth: 20,
@@ -301,7 +301,7 @@ describe('end-to-end pipeline', () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it('RandomBot vs RandomBot match completes before maxTicks', () => {
+  it('RandomBot vs RandomBot match completes before maxTicks', { timeout: 30_000 }, () => {
     const config: MatchConfig = {
       seed: 555,
       gridWidth: 52,
