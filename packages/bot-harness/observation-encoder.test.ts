@@ -37,31 +37,50 @@ describe('ObservationEncoder', () => {
     });
   });
 
-  it('plane 0 (alive cells) is all-zero on a fresh room with no alive cells', () => {
-    const room = createTestRoom();
+  it('plane 0 (alive cells) reflects grid state accurately', () => {
+    // Create a room with no players (no core structures => no alive cells)
+    const room = RtsRoom.create({
+      id: 'empty-test',
+      name: 'empty-test',
+      width: W,
+      height: H,
+    });
+
     const encoder = new ObservationEncoder(W, H);
+    // Use teamId=0 -- won't find a team, but we can test with a custom approach
+    // Instead, just verify the grid with no alive cells produces all-zero plane 0
+    // We need a room with teams for encode(), so add players and check non-structure cells
+    room.addPlayer('p1', 'Team1');
+    room.addPlayer('p2', 'Team2');
+
     const result = encoder.encode(room, 1, 0, 2000);
 
-    const planeSize = H * W;
-    // Check plane 0 only (alive cells)
-    // Core footprint might have alive cells set by room setup, but
-    // the initial grid should have no alive cells on a fresh room
-    // (structures write cells alive only during tick processing)
-    let allZero = true;
-    for (let i = 0; i < planeSize; i++) {
-      if (result.planes[i] !== 0.0) {
-        allZero = false;
-        break;
+    // Collect alive cell positions from the grid
+    const aliveCells = new Set<number>();
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (room.state.grid.isCellAlive(x, y)) {
+          aliveCells.add(y * W + x);
+        }
       }
     }
-    expect(allZero).toBe(true);
+
+    // Verify plane 0 matches the grid exactly
+    const planeSize = H * W;
+    for (let i = 0; i < planeSize; i++) {
+      if (aliveCells.has(i)) {
+        expect(result.planes[i]).toBe(1.0);
+      } else {
+        expect(result.planes[i]).toBe(0.0);
+      }
+    }
   });
 
   it('plane 0 (alive cells) has 1.0 at positions where cells are alive', () => {
     const room = createTestRoom();
     // Set specific cells alive
-    room.state.grid.set(3, 4, true);
-    room.state.grid.set(7, 2, true);
+    room.state.grid.setCell(3, 4, true);
+    room.state.grid.setCell(7, 2, true);
 
     const encoder = new ObservationEncoder(W, H);
     const result = encoder.encode(room, 1, 0, 2000);
@@ -170,7 +189,7 @@ describe('ObservationEncoder', () => {
 
   it('determinism: two calls with same RoomState + teamId produce byte-identical Float32Arrays', () => {
     const room = createTestRoom();
-    room.state.grid.set(5, 5, true);
+    room.state.grid.setCell(5, 5, true);
 
     const encoder = new ObservationEncoder(W, H);
     const result1 = encoder.encode(room, 1, 0, 2000);
