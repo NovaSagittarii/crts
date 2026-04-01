@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
-status: verifying
-stopped_at: Completed 18-03-PLAN.md
-last_updated: "2026-04-01T09:36:13.567Z"
+status: executing
+stopped_at: Completed 19-02-PLAN.md
+last_updated: "2026-04-01T10:23:46.151Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 6
+  completed_plans: 4
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-30)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 18 — headless-match-runner
+**Current focus:** Phase 19 — observation-action-and-reward-interface
 
 ## Current Position
 
-Phase: 18 (headless-match-runner) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
+Phase: 19 (observation-action-and-reward-interface) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
 Last activity: 2026-04-01
 
 Progress: [░░░░░░░░░░] 0% (v0.0.4)
@@ -58,6 +58,8 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 18]: Hash checkpoint fires at tick 0 to establish baseline determinism anchor
 - [Phase 18]: Used node:util parseArgs for zero-dependency CLI argument parsing
 - [Phase 18]: Added bin/ to tsconfig.json include and eslint node globals for full type-checking coverage of CLI files
+- [Phase 19]: Full grid (width * height) as action space position upper bound -- mask narrows valid set, action space size fixed per episode
+- [Phase 19]: Templates sorted alphabetically by id for deterministic action-to-template index mapping
 
 ### Pending Todos
 
@@ -69,6 +71,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-01T09:36:13.453Z
-**Stopped At:** Completed 18-03-PLAN.md
+**Last session:** 2026-04-01T10:23:46.033Z
+**Stopped At:** Completed 19-02-PLAN.md
 **Resume File:** None
