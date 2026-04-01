@@ -29,6 +29,7 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 - Disconnected players rejoin via snapshot + input log replay, resuming in sync without full state re-broadcast.
 - Property-based tests (fast-check, 350 random runs, 500+ ticks) confirm lockstep determinism.
 - 182 unit/web tests + 15 integration tests + 3 property-based tests all pass.
+- Phase 18 complete — `packages/bot-harness` provides headless match execution (BotStrategy interface, NoOpBot, RandomBot, NDJSON logging, CLI entry point). 36 bot-harness tests passing.
 
 ## Requirements
 
@@ -127,4 +128,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-_Last updated: 2026-03-30 after v0.0.4 milestone start_
+_Last updated: 2026-04-01 after Phase 18 completion_
