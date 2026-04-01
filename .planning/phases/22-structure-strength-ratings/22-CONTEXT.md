@@ -18,7 +18,9 @@ Glicko-2 ratings for individual structure templates and template combinations, w
 - **D-02:** Separate Glicko-2 rating pools per game phase: early, mid, late. Only builds within each configurable tick-range window contribute to that pool's ratings. Produces three independent tier lists per template.
 - **D-03:** Configurable game-phase boundaries (e.g., ticks 0-200 = early, 200-600 = mid, 600+ = late). Defaults chosen by Claude, tunable via CLI flags.
 - **D-04:** Templates with insufficient data (RD > 150) flagged as provisional rather than reported as definitive ratings. Per success criterion #2.
-- **D-05:** Glicko-2 computation parallelized via worker threads. Each rating pool (early/mid/late × individual/pairwise/frequent-set) runs as an independent Glicko-2 pass — natural parallelization target for computational efficiency.
+- **D-05:** Two-level parallelism for Glicko-2 computation via worker threads:
+  - (a) **Across pools:** Each rating pool (early/mid/late × individual/pairwise/frequent-set) runs as an independent Glicko-2 pass in its own worker thread.
+  - (b) **Within pools:** For larger pools (pairwise combos, frequent sets), partition the per-period entity update step across worker threads. Glicko-2 batch updates are embarrassingly parallel — each entity's new rating depends only on its current rating + opponents' pre-update ratings, with no cross-entity dependency within a period. Individual template pools (small N) may not need intra-pool parallelism; combination pools (N² pairs, hundreds of frequent sets) benefit from it.
 
 ### Combination Ratings
 - **D-06:** Pairwise combinations as primary model — rate every 2-template pair that co-occurs in a match. Manageable combinatorial space, shows synergies and anti-synergies.
@@ -46,7 +48,7 @@ Glicko-2 ratings for individual structure templates and template combinations, w
 - Default min support and max set size for frequent-set mining
 - Statistical deviation threshold (>2 SD recommended but tunable)
 - Rating + usage matrix threshold boundaries for dominant/niche/trap categories
-- Worker thread count and parallelization strategy for Glicko-2 passes
+- Worker thread count and partition strategy for intra-pool parallelism
 - Exact CLI flag names and defaults for new subcommands
 - Report formatting, section ordering, tier list presentation
 - Internal module structure within bot-harness for Phase 22 additions
