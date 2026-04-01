@@ -10,3 +10,4 @@ export * from './reward-signal.js';
 export * from './action-decoder.js';
 export * from './bot-environment.js';
 export * from './training/index.js';
+export * from './analysis/index.js';

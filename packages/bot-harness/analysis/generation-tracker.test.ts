@@ -77,7 +77,7 @@ function makeRanked(
   return {
     rank,
     teamId,
-    outcome: rank === 1 ? 'won' : 'lost',
+    outcome: rank === 1 ? 'winner' : 'defeated',
     finalCoreHp: rank === 1 ? 100 : 0,
     coreState: rank === 1 ? 'intact' : 'destroyed',
     territoryCellCount,
