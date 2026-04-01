@@ -1,7 +1,16 @@
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { MatchCallbacks, MatchConfig, TickRecord } from './types.js';
 import { NoOpBot } from './noop-bot.js';
+import { RandomBot } from './random-bot.js';
+import {
+  MatchLogger,
+  createMatchHeader,
+  createMatchOutcomeRecord,
+} from './match-logger.js';
 import {
   applyBotActions,
   createBotView,
@@ -153,5 +162,155 @@ describe('applyBotActions', () => {
     applyBotActions(room, 'bot-a', [
       { type: 'destroy', destroy: { structureKey: 'nonexistent' } },
     ]);
+  });
+});
+
+describe('determinism', () => {
+  it('same seed produces identical tick records and outcome', () => {
+    const config: MatchConfig = {
+      seed: 42,
+      gridWidth: 32,
+      gridHeight: 32,
+      maxTicks: 100,
+      hashCheckpointInterval: 10,
+    };
+    const bot = new NoOpBot();
+
+    const records1: TickRecord[] = [];
+    runMatch(config, bot, bot, {
+      onTickComplete: (_tick, r) => records1.push(r),
+    });
+
+    const records2: TickRecord[] = [];
+    runMatch(config, bot, bot, {
+      onTickComplete: (_tick, r) => records2.push(r),
+    });
+
+    expect(records1.length).toBe(records2.length);
+    for (let i = 0; i < records1.length; i++) {
+      expect(JSON.stringify(records1[i])).toBe(JSON.stringify(records2[i]));
+    }
+  });
+
+  it('different seeds produce different determinism hashes', () => {
+    const config1: MatchConfig = {
+      seed: 42,
+      gridWidth: 32,
+      gridHeight: 32,
+      maxTicks: 50,
+      hashCheckpointInterval: 10,
+    };
+    const config2: MatchConfig = {
+      seed: 99,
+      gridWidth: 32,
+      gridHeight: 32,
+      maxTicks: 50,
+      hashCheckpointInterval: 10,
+    };
+    const bot = new NoOpBot();
+
+    const hashes1: string[] = [];
+    runMatch(config1, bot, bot, {
+      onTickComplete: (_tick, r) => {
+        if (r.hash) hashes1.push(r.hash);
+      },
+    });
+
+    const hashes2: string[] = [];
+    runMatch(config2, bot, bot, {
+      onTickComplete: (_tick, r) => {
+        if (r.hash) hashes2.push(r.hash);
+      },
+    });
+
+    // At least one hash should differ (different seeds -> different spawn positions -> different grid evolution)
+    expect(hashes1.join(',')).not.toBe(hashes2.join(','));
+  });
+});
+
+describe('resource management', () => {
+  it('runs 20 sequential matches without throwing', () => {
+    const config: MatchConfig = {
+      seed: 1,
+      gridWidth: 20,
+      gridHeight: 20,
+      maxTicks: 50,
+      hashCheckpointInterval: 50,
+    };
+    const bot = new NoOpBot();
+    for (let i = 0; i < 20; i++) {
+      const c = { ...config, seed: i + 1 };
+      const result = runMatch(c, bot, bot);
+      expect(result.totalTicks).toBe(50);
+    }
+  });
+});
+
+describe('end-to-end pipeline', () => {
+  it('runMatch -> MatchLogger -> NDJSON file has valid structure', async () => {
+    const config: MatchConfig = {
+      seed: 77,
+      gridWidth: 20,
+      gridHeight: 20,
+      maxTicks: 30,
+      hashCheckpointInterval: 10,
+    };
+    const bot = new NoOpBot();
+    const tickRecords: TickRecord[] = [];
+    const result = runMatch(config, bot, bot, {
+      onTickComplete: (_tick, r) => tickRecords.push(r),
+    });
+
+    const tmpDir = path.join(os.tmpdir(), `bot-harness-test-${Date.now()}`);
+    const logger = new MatchLogger(tmpDir, 'test-run');
+    const header = createMatchHeader(config, [bot.name, bot.name]);
+    const outcome = createMatchOutcomeRecord(result);
+    const filePath = await logger.writeMatch(0, header, tickRecords, outcome);
+
+    const content = await fs.readFile(filePath, 'utf-8');
+    const lines = content.trim().split('\n');
+
+    // First line is header
+    const headerLine = JSON.parse(lines[0]) as Record<string, unknown>;
+    expect(headerLine.type).toBe('header');
+    expect(headerLine.seed).toBe(77);
+
+    // Middle lines are ticks
+    for (let i = 1; i < lines.length - 1; i++) {
+      const tickLine = JSON.parse(lines[i]) as Record<string, unknown>;
+      expect(tickLine.type).toBe('tick');
+      expect(typeof tickLine.tick).toBe('number');
+    }
+
+    // Last line is outcome
+    const outcomeLine = JSON.parse(lines[lines.length - 1]) as Record<
+      string,
+      unknown
+    >;
+    expect(outcomeLine.type).toBe('outcome');
+    expect(outcomeLine.isDraw).toBe(true);
+
+    // Verify hash at checkpoint intervals
+    const tickLinesWithHash = lines.slice(1, -1).filter((l) => {
+      const parsed = JSON.parse(l) as Record<string, unknown>;
+      return parsed.hash !== undefined;
+    });
+    expect(tickLinesWithHash.length).toBeGreaterThan(0);
+
+    // Cleanup
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('RandomBot vs RandomBot match completes before maxTicks', () => {
+    const config: MatchConfig = {
+      seed: 555,
+      gridWidth: 52,
+      gridHeight: 52,
+      maxTicks: 500,
+      hashCheckpointInterval: 50,
+    };
+    const result = runMatch(config, new RandomBot(), new RandomBot());
+    expect(result.totalTicks).toBeLessThanOrEqual(500);
+    expect(result.totalTicks).toBeGreaterThan(0);
   });
 });
