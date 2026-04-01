@@ -168,13 +168,13 @@ export class TrajectoryBuffer {
       const batchIndices = indices.slice(start, end);
       const size = batchIndices.length;
 
-      const planes: Float32Array[] = new Array(size);
-      const scalars: Float32Array[] = new Array(size);
+      const planes: Float32Array[] = new Array<Float32Array>(size);
+      const scalars: Float32Array[] = new Array<Float32Array>(size);
       const actions = new Int32Array(size);
       const oldLogProbs = new Float32Array(size);
       const advantages = new Float32Array(size);
       const returns = new Float32Array(size);
-      const actionMasks: Uint8Array[] = new Array(size);
+      const actionMasks: Uint8Array[] = new Array<Uint8Array>(size);
 
       for (let b = 0; b < size; b++) {
         const idx = batchIndices[b];
@@ -184,7 +184,7 @@ export class TrajectoryBuffer {
         actions[b] = step.action;
         oldLogProbs[b] = step.logProb;
         advantages[b] = normalizedAdvantages[idx];
-        returns[b] = this.returns![idx];
+        returns[b] = this.returns[idx];
         actionMasks[b] = step.actionMask;
       }
 
