@@ -12,6 +12,10 @@
     "#rts-engine": {
       "development": "./packages/rts-engine/index.ts",
       "default": "./dist/packages/rts-engine/index.js"
+    },
+    "#bot-harness": {
+      "development": "./packages/bot-harness/index.ts",
+      "default": "./dist/packages/bot-harness/index.js"
     }
   },
   "scripts": {
