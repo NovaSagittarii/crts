@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
 status: executing
-stopped_at: Completed 23-01-PLAN.md
-last_updated: "2026-04-01T22:38:57.748Z"
+stopped_at: Completed 23-02-PLAN.md
+last_updated: "2026-04-01T22:47:08.994Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 21
-  completed_plans: 19
+  completed_plans: 20
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-30)
 ## Current Position
 
 Phase: 23 (playable-in-game-bot) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-04-01
 
@@ -100,6 +100,8 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 22]: CLI subcommand routing uses strict:false with allowPositionals for backward compatibility with existing no-subcommand usage
 - [Phase 23]: PayloadObservationEncoder computes territoryRadius as DEFAULT_TEAM_TERRITORY_RADIUS + sum of non-core buildRadius, matching RtsRoom formula without RtsRoom dependency
 - [Phase 23]: TickBudgetTracker uses manual startTick/endTick bracketing for caller-controlled timing
+- [Phase 23]: Bot session IDs tracked in module-level Set in server.ts, passed to RoomBroadcastService for isBot population
+- [Phase 23]: canAddBot prevents duplicate bots per slot; bot session IDs use bot- prefix with truncated UUID
 
 ### Pending Todos
 
@@ -111,6 +113,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-01T22:38:57.625Z
-**Stopped At:** Completed 23-01-PLAN.md
+**Last session:** 2026-04-01T22:47:08.883Z
+**Stopped At:** Completed 23-02-PLAN.md
 **Resume File:** None
