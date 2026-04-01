@@ -32,16 +32,15 @@ export async function saveModelToDir(
 
   for (const w of model.weights) {
     const data = w.read().dataSync() as Float32Array;
-    const buffer = data.buffer.slice(
-      data.byteOffset,
-      data.byteOffset + data.byteLength,
-    );
+    // Clone into a standalone ArrayBuffer (dataSync may return shared backing)
+    const cloned = new ArrayBuffer(data.byteLength);
+    new Float32Array(cloned).set(data);
     weightSpecs.push({
       name: w.name,
       shape: w.shape as number[],
       dtype: w.dtype,
     });
-    weightBuffers.push(buffer);
+    weightBuffers.push(cloned);
   }
 
   // Concatenate weight buffers
