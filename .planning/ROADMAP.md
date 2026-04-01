@@ -104,7 +104,12 @@ Plans:
   1. Per-template and per-strategy win rates are computed from the match database with 95% confidence intervals
   2. Strategy distribution classifier identifies build-order archetypes and tracks their frequency across training generations
   3. Analysis runs against any NDJSON match log directory and produces structured output (not coupled to a live training run)
-**Plans**: TBD
+**Plans:** 4 plans
+Plans:
+- [ ] 21-01-PLAN.md — Data gap fix (templateId in build records), analysis types, stats utilities, match log reader
+- [ ] 21-02-PLAN.md — Win rate analyzer with three attribution methods (presence, usage-weighted, first-build)
+- [ ] 21-03-PLAN.md — Strategy classifier (feature extraction, rules, k-means clustering, sequence mining)
+- [ ] 21-04-PLAN.md — Generation tracker, balance report assembly, console/markdown formatters, CLI
 
 ### Phase 22: Structure Strength Ratings
 **Goal**: Individual structure templates and template combinations have quantified strength ratings derived from match outcomes, with a CLI report summarizing the competitive meta
@@ -139,7 +144,7 @@ Note: Phase 21 can begin alongside Phase 20 using early match data.
 | 13-17 (archived) | v0.0.3 | -- | Complete | 2026-03-30 |
 | 18. Headless Match Runner | v0.0.4 | 3/3 | Complete    | 2026-04-01 |
 | 19. Observation, Action, and Reward Interface | v0.0.4 | 3/3 | Complete    | 2026-04-01 |
-| 20. PPO Training with Self-Play | v0.0.4 | 5/5 | Complete   | 2026-04-01 |
-| 21. Balance Analysis | v0.0.4 | 0/? | Not started | - |
+| 20. PPO Training with Self-Play | v0.0.4 | 5/5 | Complete    | 2026-04-01 |
+| 21. Balance Analysis | v0.0.4 | 0/4 | Planned | - |
 | 22. Structure Strength Ratings | v0.0.4 | 0/? | Not started | - |
 | 23. Playable In-Game Bot | v0.0.4 | 0/? | Not started | - |
