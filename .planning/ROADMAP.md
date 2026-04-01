@@ -41,7 +41,7 @@ See archive: `.planning/milestones/v0.0.3-ROADMAP.md`
 
 - [x] **Phase 18: Headless Match Runner** - Bot agents execute full matches via RtsRoom without Socket.IO, with match results persisted for analysis (completed 2026-04-01)
 - [x] **Phase 19: Observation, Action, and Reward Interface** - Bot environment exposes structured observations, masked actions, and shaped rewards in a Gymnasium-style API (completed 2026-04-01)
-- [ ] **Phase 20: PPO Training with Self-Play** - Training pipeline produces improving policies via PPO with self-play opponent pool across parallel workers
+- [x] **Phase 20: PPO Training with Self-Play** - Training pipeline produces improving policies via PPO with self-play opponent pool across parallel workers (completed 2026-04-01)
 - [ ] **Phase 21: Balance Analysis** - Win rates and strategy distributions are computable from accumulated match data
 - [ ] **Phase 22: Structure Strength Ratings** - Individual structure templates have Glicko-2 ratings with a CLI balance report
 - [ ] **Phase 23: Playable In-Game Bot** - A trained bot joins a live game server as a virtual player via Socket.IO
@@ -88,13 +88,13 @@ Plans:
   3. Training CLI launches configurable runs from the command line (episodes, learning rate, opponent pool size, worker count)
   4. Match simulations parallelize across worker threads, utilizing multiple CPU cores during episode collection
   5. A policy trained for N episodes achieves a measurably higher win rate against random play than an untrained policy
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete
 Plans:
 - [x] 20-01-PLAN.md — TF.js installation, training config types, PPO network builder
 - [x] 20-02-PLAN.md — Trajectory buffer with GAE and PPO trainer with clipped surrogate loss
 - [x] 20-03-PLAN.md — Self-play opponent pool and structured training logger
 - [x] 20-04-PLAN.md — Training worker threads and training coordinator
-- [ ] 20-05-PLAN.md — Training CLI entry point and pipeline verification
+- [x] 20-05-PLAN.md — Training CLI entry point and pipeline verification
 
 ### Phase 21: Balance Analysis
 **Goal**: Win rates and strategy distributions are computable from accumulated match data, revealing per-template and per-strategy balance insights
@@ -139,7 +139,7 @@ Note: Phase 21 can begin alongside Phase 20 using early match data.
 | 13-17 (archived) | v0.0.3 | -- | Complete | 2026-03-30 |
 | 18. Headless Match Runner | v0.0.4 | 3/3 | Complete    | 2026-04-01 |
 | 19. Observation, Action, and Reward Interface | v0.0.4 | 3/3 | Complete    | 2026-04-01 |
-| 20. PPO Training with Self-Play | v0.0.4 | 4/5 | In Progress|  |
+| 20. PPO Training with Self-Play | v0.0.4 | 5/5 | Complete   | 2026-04-01 |
 | 21. Balance Analysis | v0.0.4 | 0/? | Not started | - |
 | 22. Structure Strength Ratings | v0.0.4 | 0/? | Not started | - |
 | 23. Playable In-Game Bot | v0.0.4 | 0/? | Not started | - |

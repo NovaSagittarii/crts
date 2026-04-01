@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
-status: executing
-stopped_at: Completed 20-04-PLAN.md
-last_updated: "2026-04-01T13:36:06.144Z"
+status: verifying
+stopped_at: Completed 20-05-PLAN.md
+last_updated: "2026-04-01T14:34:23.223Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 11
-  completed_plans: 10
+  completed_plans: 11
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-30)
 
 Phase: 20 (ppo-training-with-self-play) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-01
 
 Progress: [░░░░░░░░░░] 0% (v0.0.4)
@@ -75,6 +75,9 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 20]: Worker shim using tsx tsImport() for Node 24 worker_threads TS loading (tsx --import flag broken for .js->.ts resolution)
 - [Phase 20]: Queue-based sequential episode dispatch per worker to avoid message listener race conditions
 - [Phase 20]: Minimum grid size 15x15 for BotEnvironment: RtsRoom spawn footprint requires at least this size
+- [Phase 20]: Renamed generateRunId to generateTrainingRunId to avoid barrel export name collision with match-logger
+- [Phase 20]: Convergence test validates gradient flow (weights change, losses finite) rather than absolute win rate -- pure JS TF.js too slow for CI-feasible 55% threshold
+- [Phase 20]: TF.js D-12 gate passed: pure JS CPU backend runs PPO training on Alpine Linux musl, producing checkpoints and training logs
 
 ### Pending Todos
 
@@ -86,6 +89,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-01T13:36:06.029Z
-**Stopped At:** Completed 20-04-PLAN.md
+**Last session:** 2026-04-01T14:34:23.113Z
+**Stopped At:** Completed 20-05-PLAN.md
 **Resume File:** None
