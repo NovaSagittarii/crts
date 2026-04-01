@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
-status: verifying
-stopped_at: Completed 20-05-PLAN.md
-last_updated: "2026-04-01T14:34:23.223Z"
+status: executing
+stopped_at: Completed 21-01-PLAN.md
+last_updated: "2026-04-01T18:19:47.012Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 15
+  completed_plans: 12
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-30)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 20 — ppo-training-with-self-play
+**Current focus:** Phase 21 — balance-analysis
 
 ## Current Position
 
-Phase: 20 (ppo-training-with-self-play) — EXECUTING
-Plan: 5 of 5
-Status: Phase complete — ready for verification
+Phase: 21 (balance-analysis) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
 Last activity: 2026-04-01
 
 Progress: [░░░░░░░░░░] 0% (v0.0.4)
@@ -78,6 +78,9 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 20]: Renamed generateRunId to generateTrainingRunId to avoid barrel export name collision with match-logger
 - [Phase 20]: Convergence test validates gradient flow (weights change, losses finite) rather than absolute win rate -- pure JS TF.js too slow for CI-feasible 55% threshold
 - [Phase 20]: TF.js D-12 gate passed: pure JS CPU backend runs PPO training on Alpine Linux musl, producing checkpoints and training logs
+- [Phase 21]: Positional matching for build outcome correlation: build outcomes from RtsRoom arrive in same order as queued bot actions per team
+- [Phase 21]: Seeded LCG PRNG (multiplier 1664525, increment 1013904223) for deterministic bootstrap CI tests
+- [Phase 21]: NDJSON readline streaming for match log parsing to handle large files efficiently
 
 ### Pending Todos
 
@@ -89,6 +92,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-01T14:34:23.113Z
-**Stopped At:** Completed 20-05-PLAN.md
+**Last session:** 2026-04-01T18:19:46.910Z
+**Stopped At:** Completed 21-01-PLAN.md
 **Resume File:** None
