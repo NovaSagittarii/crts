@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
-status: executing
-stopped_at: Completed 23-02-PLAN.md
-last_updated: "2026-04-01T22:47:08.994Z"
+status: verifying
+stopped_at: Completed 23-03-PLAN.md
+last_updated: "2026-04-01T23:29:12.086Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 21
-  completed_plans: 20
+  completed_plans: 21
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-30)
 
 Phase: 23 (playable-in-game-bot) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-01
 
 Progress: [░░░░░░░░░░] 0% (v0.0.4)
@@ -102,6 +102,9 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 23]: TickBudgetTracker uses manual startTick/endTick bracketing for caller-controlled timing
 - [Phase 23]: Bot session IDs tracked in module-level Set in server.ts, passed to RoomBroadcastService for isBot population
 - [Phase 23]: canAddBot prevents duplicate bots per slot; bot session IDs use bot- prefix with truncated UUID
+- [Phase 23]: LiveBotStrategy transposes [C,H,W] to [H,W,C] per Phase 20 PPO network input convention
+- [Phase 23]: Simplified action mask checks resources >= 5 (min template cost) rather than full per-action validation; server validates all builds
+- [Phase 23]: teamId tracked as number|null with explicit null guard in state handler per socket contract nullability
 
 ### Pending Todos
 
@@ -113,6 +116,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-01T22:47:08.883Z
-**Stopped At:** Completed 23-02-PLAN.md
+**Last session:** 2026-04-01T23:29:11.877Z
+**Stopped At:** Completed 23-03-PLAN.md
 **Resume File:** None
