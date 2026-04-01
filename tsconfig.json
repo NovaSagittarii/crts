@@ -7,6 +7,6 @@
     "lib": ["ES2022"],
     "noEmit": true
   },
-  "include": ["apps/server/src/**/*", "packages/**/*", "tests/**/*.ts"],
+  "include": ["apps/server/src/**/*", "packages/**/*", "tests/**/*.ts", "bin/**/*"],
   "exclude": ["node_modules", "dist", "conway-rts", "apps/web"]
 }

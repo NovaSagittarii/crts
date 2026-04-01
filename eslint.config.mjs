@@ -102,6 +102,7 @@ export default tseslint.config(
       'apps/server/**/*.{ts,tsx}',
       'packages/**/*.{ts,tsx}',
       'tests/**/*.{ts,tsx}',
+      'bin/**/*.{ts,tsx}',
     ],
     languageOptions: {
       globals: {
