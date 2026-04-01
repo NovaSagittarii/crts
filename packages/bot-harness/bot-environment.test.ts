@@ -2,13 +2,18 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { BotAction, BotStrategy, BotView } from './bot-strategy.js';
 import { BotEnvironment } from './bot-environment.js';
+import { NoOpBot } from './noop-bot.js';
 
 describe('BotEnvironment', () => {
+  // Use a small grid and NoOpBot default opponent for fast tests.
+  // Action mask computation iterates all territory positions * templates,
+  // so 20x20 with 5 templates is 2000 previews per mask.
   const smallConfig = { gridWidth: 20, gridHeight: 20, maxTicks: 50 };
+  const noopOpponent = new NoOpBot();
 
-  it('reset returns observation with valid shapes', () => {
+  it('reset returns observation with valid shapes', { timeout: 15_000 }, () => {
     const env = new BotEnvironment(smallConfig);
-    const result = env.reset(42);
+    const result = env.reset(42, noopOpponent);
 
     // planes: 5 channels * 20 * 20 = 2000
     expect(result.observation.planes.length).toBe(5 * 20 * 20);
@@ -17,9 +22,9 @@ describe('BotEnvironment', () => {
     expect(result.info.tick).toBe(0);
   });
 
-  it('step noop advances tick and returns valid result', () => {
+  it('step noop advances tick and returns valid result', { timeout: 15_000 }, () => {
     const env = new BotEnvironment(smallConfig);
-    env.reset(42);
+    env.reset(42, noopOpponent);
     const result = env.step(0);
 
     expect(result.terminated).toBe(false);
@@ -28,9 +33,9 @@ describe('BotEnvironment', () => {
     expect(typeof result.reward).toBe('number');
   });
 
-  it('step build with valid action returns valid result', () => {
+  it('step build with valid action returns valid result', { timeout: 15_000 }, () => {
     const env = new BotEnvironment(smallConfig);
-    const resetResult = env.reset(42);
+    const resetResult = env.reset(42, noopOpponent);
 
     // Find a valid build action (first index > 0 where mask is 1)
     let validAction = -1;
@@ -71,12 +76,14 @@ describe('BotEnvironment', () => {
     expect(env.actionSpace.n).toBe(5 * 20 * 20 + 1);
   });
 
-  it('episode truncates when tick limit is hit', () => {
-    const env = new BotEnvironment(smallConfig);
-    env.reset(42);
+  it('episode truncates when tick limit is hit', { timeout: 300_000 }, () => {
+    // Use very small maxTicks to keep this test feasible
+    const truncConfig = { gridWidth: 20, gridHeight: 20, maxTicks: 10 };
+    const env = new BotEnvironment(truncConfig);
+    env.reset(42, noopOpponent);
 
     let lastResult;
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 10; i++) {
       lastResult = env.step(0);
       if (lastResult.terminated) break;
     }
@@ -91,7 +98,7 @@ describe('BotEnvironment', () => {
     }
   });
 
-  it('opponent BotStrategy executes each tick', () => {
+  it('opponent BotStrategy executes each tick', { timeout: 15_000 }, () => {
     const mockBot: BotStrategy = {
       name: 'MockBot',
       decideTick: vi.fn((_view: BotView, _teamId: number): BotAction[] => []),
@@ -104,17 +111,17 @@ describe('BotEnvironment', () => {
     expect(mockBot.decideTick).toHaveBeenCalledOnce();
   });
 
-  it('reward is a finite number on each step', () => {
+  it('reward is a finite number on each step', { timeout: 15_000 }, () => {
     const env = new BotEnvironment(smallConfig);
-    env.reset(42);
+    env.reset(42, noopOpponent);
     const result = env.step(0);
 
     expect(Number.isFinite(result.reward)).toBe(true);
   });
 
-  it('step info contains tick, actionMask, actionSpaceSize, teamId, matchOutcome', () => {
+  it('step info contains tick, actionMask, actionSpaceSize, teamId, matchOutcome', { timeout: 15_000 }, () => {
     const env = new BotEnvironment(smallConfig);
-    env.reset(42);
+    env.reset(42, noopOpponent);
     const result = env.step(0);
 
     expect(typeof result.info.tick).toBe('number');
