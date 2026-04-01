@@ -4,3 +4,4 @@ export * from './seed.js';
 export * from './noop-bot.js';
 export * from './random-bot.js';
 export * from './match-runner.js';
+export * from './match-logger.js';
