@@ -10,7 +10,7 @@ import {
   DEFAULT_NETWORK_CONFIG,
   DEFAULT_SELF_PLAY_CONFIG,
   DEFAULT_TRAINING_CONFIG,
-  generateRunId,
+  generateTrainingRunId,
   parseTrainingArgs,
 } from './training-config.js';
 
@@ -224,19 +224,19 @@ describe('parseTrainingArgs', () => {
   });
 });
 
-describe('generateRunId', () => {
+describe('generateTrainingRunId', () => {
   it('returns a string matching the run-YYYYMMDD-HHMMSS pattern', () => {
-    const id = generateRunId();
+    const id = generateTrainingRunId();
     expect(id).toMatch(/^run-\d{8}-\d{6}$/);
   });
 
   it('starts with "run-"', () => {
-    const id = generateRunId();
+    const id = generateTrainingRunId();
     expect(id.startsWith('run-')).toBe(true);
   });
 
   it('has 19 characters total (run- + 8 date + - + 6 time)', () => {
-    const id = generateRunId();
+    const id = generateTrainingRunId();
     // "run-" (4) + "YYYYMMDD" (8) + "-" (1) + "HHMMSS" (6) = 19
     expect(id).toHaveLength(19);
   });

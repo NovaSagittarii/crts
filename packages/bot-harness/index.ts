@@ -9,3 +9,4 @@ export * from './observation-encoder.js';
 export * from './reward-signal.js';
 export * from './action-decoder.js';
 export * from './bot-environment.js';
+export * from './training/index.js';

@@ -24,7 +24,7 @@ import type { PPOUpdateResult } from './ppo-trainer.js';
 import { TrajectoryBuffer } from './trajectory-buffer.js';
 import type { TrajectoryStep } from './trajectory-buffer.js';
 import type { TrainingConfig } from './training-config.js';
-import { generateRunId } from './training-config.js';
+import { generateTrainingRunId } from './training-config.js';
 import { TrainingLogger } from './training-logger.js';
 import type { SerializedTrajectory, EpisodeResultMessage } from './training-worker.js';
 
@@ -89,7 +89,7 @@ export class TrainingCoordinator {
       : this.workerCount * 4;
 
     // Generate or reuse run ID
-    this.runId = config.resumeRunId ?? generateRunId();
+    this.runId = config.resumeRunId ?? generateTrainingRunId();
   }
 
   /**

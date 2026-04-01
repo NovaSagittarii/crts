@@ -116,7 +116,7 @@ export const DEFAULT_TRAINING_CONFIG: TrainingConfig = {
 /**
  * Generate a timestamp-based run ID matching the `run-YYYYMMDD-HHMMSS` pattern.
  */
-export function generateRunId(): string {
+export function generateTrainingRunId(): string {
   const now = new Date();
   const y = String(now.getFullYear());
   const mo = String(now.getMonth() + 1).padStart(2, '0');
