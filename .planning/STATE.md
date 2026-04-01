@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
 status: executing
-stopped_at: Completed 21-01-PLAN.md
-last_updated: "2026-04-01T18:19:47.012Z"
+stopped_at: Completed 21-02-PLAN.md
+last_updated: "2026-04-01T18:32:15.270Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 15
-  completed_plans: 12
+  completed_plans: 13
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-30)
 ## Current Position
 
 Phase: 21 (balance-analysis) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-04-01
 
@@ -81,6 +81,9 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 21]: Positional matching for build outcome correlation: build outcomes from RtsRoom arrive in same order as queued bot actions per team
 - [Phase 21]: Seeded LCG PRNG (multiplier 1664525, increment 1013904223) for deterministic bootstrap CI tests
 - [Phase 21]: NDJSON readline streaming for match log parsing to handle large files efficiently
+- [Phase 21]: Presence-based counts each (match, team) pair where template appears as 1 observation
+- [Phase 21]: Usage-weighted weights by build count per (match, team) pair
+- [Phase 21]: First-build applies presence logic on subset of first N builds per team per match
 
 ### Pending Todos
 
@@ -92,6 +95,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-01T18:19:46.910Z
-**Stopped At:** Completed 21-01-PLAN.md
+**Last session:** 2026-04-01T18:32:15.142Z
+**Stopped At:** Completed 21-02-PLAN.md
 **Resume File:** None
