@@ -31,6 +31,7 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 - 182 unit/web tests + 15 integration tests + 3 property-based tests all pass.
 - Phase 18 complete — `packages/bot-harness` provides headless match execution (BotStrategy interface, NoOpBot, RandomBot, NDJSON logging, CLI entry point). 36 bot-harness tests passing.
 - Phase 19 complete — Gymnasium-style BotEnvironment with ObservationEncoder (5 feature planes + 7 scalars), ActionDecoder (territory-bounded discrete actions with exhaustive masking), and RewardSignal (terminal + shaped + annealing). 77 bot-harness tests passing.
+- Phase 20 complete — PPO training pipeline with TF.js (pure JS CPU backend), trajectory buffer + GAE, clipped surrogate loss trainer, self-play opponent pool, worker thread parallelization, training CLI, and convergence validation.
 
 ## Requirements
 
