@@ -1,5 +1,6 @@
 import type {
   BuildOutcome,
+  BuildQueuePayload,
   DestroyOutcome,
   RoomTickResult,
   StructureTemplateSummary,
@@ -69,12 +70,24 @@ export function applyBotActions(
   }
 }
 
-function mapBuildOutcomeToActionRecord(outcome: BuildOutcome): TickActionRecord {
-  return {
+function mapBuildOutcomeToActionRecord(
+  outcome: BuildOutcome,
+  buildPayload?: BuildQueuePayload,
+): TickActionRecord {
+  const record: TickActionRecord = {
     teamId: outcome.teamId,
     actionType: 'build',
     result: outcome.outcome === 'applied' ? 'applied' : (outcome.reason ?? 'rejected'),
   };
+  if (buildPayload) {
+    record.templateId = buildPayload.templateId;
+    record.x = buildPayload.x;
+    record.y = buildPayload.y;
+    if (buildPayload.transform !== undefined) {
+      record.transform = buildPayload.transform;
+    }
+  }
+  return record;
 }
 
 function mapDestroyOutcomeToActionRecord(outcome: DestroyOutcome): TickActionRecord {
@@ -91,12 +104,39 @@ export function createTickRecord(
   tick: number,
   result: RoomTickResult,
   room: RtsRoom,
-  _botActions: [BotAction[], BotAction[]],
-  _teamIds: [number, number],
+  botActions: [BotAction[], BotAction[]],
+  teamIds: [number, number],
   hashCheckpointInterval: number,
 ): TickRecord {
+  // Build a per-team queue of build payloads from bot actions for correlation
+  const buildPayloadsByTeam = new Map<number, BuildQueuePayload[]>();
+  for (let i = 0; i < 2; i++) {
+    const payloads: BuildQueuePayload[] = [];
+    for (const action of botActions[i]) {
+      if (action.type === 'build' && action.build) {
+        payloads.push(action.build);
+      }
+    }
+    buildPayloadsByTeam.set(teamIds[i], payloads);
+  }
+
+  // Track per-team consumption index for positional matching
+  const consumedIndexByTeam = new Map<number, number>();
+
+  const buildActions: TickActionRecord[] = result.buildOutcomes.map(
+    (outcome) => {
+      const teamPayloads = buildPayloadsByTeam.get(outcome.teamId);
+      const idx = consumedIndexByTeam.get(outcome.teamId) ?? 0;
+      const payload = teamPayloads && idx < teamPayloads.length
+        ? teamPayloads[idx]
+        : undefined;
+      consumedIndexByTeam.set(outcome.teamId, idx + 1);
+      return mapBuildOutcomeToActionRecord(outcome, payload);
+    },
+  );
+
   const actions: TickActionRecord[] = [
-    ...result.buildOutcomes.map(mapBuildOutcomeToActionRecord),
+    ...buildActions,
     ...result.destroyOutcomes.map(mapDestroyOutcomeToActionRecord),
   ];
 

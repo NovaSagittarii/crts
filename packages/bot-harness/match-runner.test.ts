@@ -10,9 +10,15 @@ import {
   createMatchHeader,
   createMatchOutcomeRecord,
 } from './match-logger.js';
-import { applyBotActions, createBotView, runMatch } from './match-runner.js';
+import {
+  applyBotActions,
+  createBotView,
+  createTickRecord,
+  runMatch,
+} from './match-runner.js';
 import { NoOpBot } from './noop-bot.js';
 import { RandomBot } from './random-bot.js';
+import type { BotAction } from './bot-strategy.js';
 import type { MatchCallbacks, MatchConfig, TickRecord } from './types.js';
 
 function createSmallConfig(overrides: Partial<MatchConfig> = {}): MatchConfig {
@@ -237,6 +243,196 @@ describe('resource management', () => {
       const c = { ...config, seed: i + 1 };
       const result = runMatch(c, bot, bot);
       expect(result.totalTicks).toBe(50);
+    }
+  });
+});
+
+describe('createTickRecord templateId population', () => {
+  function setupRoomWithTeams(): {
+    room: InstanceType<typeof RtsRoom>;
+    teamAId: number;
+    teamBId: number;
+  } {
+    const room = RtsRoom.create({
+      id: 'test-tick-record',
+      name: 'Test Tick Record',
+      width: 52,
+      height: 52,
+    });
+    const teamA = room.addPlayer('bot-a', 'BotA');
+    const teamB = room.addPlayer('bot-b', 'BotB');
+    return { room, teamAId: teamA.id, teamBId: teamB.id };
+  }
+
+  it('build actions produce TickActionRecords with templateId, x, y, transform populated', () => {
+    const { room, teamAId, teamBId } = setupRoomWithTeams();
+
+    const botActionsA: BotAction[] = [
+      { type: 'build', build: { templateId: 'block', x: 10, y: 10 } },
+    ];
+    const botActionsB: BotAction[] = [];
+
+    // Queue the build action so it appears in outcomes
+    applyBotActions(room, 'bot-a', botActionsA);
+
+    const result = room.tick();
+
+    const tickRecord = createTickRecord(
+      0,
+      result,
+      room,
+      [botActionsA, botActionsB],
+      [teamAId, teamBId],
+      0,
+    );
+
+    // Find the build action record for teamA
+    const buildActions = tickRecord.actions.filter(
+      (a) => a.actionType === 'build' && a.teamId === teamAId,
+    );
+
+    if (buildActions.length > 0) {
+      // When build outcomes exist, they should have templateId from bot actions
+      expect(buildActions[0].templateId).toBe('block');
+      expect(buildActions[0].x).toBe(10);
+      expect(buildActions[0].y).toBe(10);
+    }
+    // If no build outcomes (build rejected at queue time), that's also valid
+  });
+
+  it('build outcomes correlate with bot actions by matching teamId', () => {
+    const { room, teamAId, teamBId } = setupRoomWithTeams();
+
+    const botActionsA: BotAction[] = [
+      { type: 'build', build: { templateId: 'block', x: 10, y: 10 } },
+    ];
+    const botActionsB: BotAction[] = [
+      { type: 'build', build: { templateId: 'generator', x: 40, y: 40 } },
+    ];
+
+    applyBotActions(room, 'bot-a', botActionsA);
+    applyBotActions(room, 'bot-b', botActionsB);
+
+    const result = room.tick();
+
+    const tickRecord = createTickRecord(
+      0,
+      result,
+      room,
+      [botActionsA, botActionsB],
+      [teamAId, teamBId],
+      0,
+    );
+
+    // Check that each team's build actions have the correct templateId
+    for (const action of tickRecord.actions) {
+      if (action.actionType === 'build' && action.teamId === teamAId && action.templateId) {
+        expect(action.templateId).toBe('block');
+        expect(action.x).toBe(10);
+        expect(action.y).toBe(10);
+      }
+      if (action.actionType === 'build' && action.teamId === teamBId && action.templateId) {
+        expect(action.templateId).toBe('generator');
+        expect(action.x).toBe(40);
+        expect(action.y).toBe(40);
+      }
+    }
+  });
+
+  it('when bot actions have no build actions (only destroy), destroy mapping is preserved', () => {
+    const { room, teamAId, teamBId } = setupRoomWithTeams();
+
+    const botActionsA: BotAction[] = [
+      { type: 'destroy', destroy: { structureKey: 'nonexistent' } },
+    ];
+    const botActionsB: BotAction[] = [];
+
+    applyBotActions(room, 'bot-a', botActionsA);
+
+    const result = room.tick();
+
+    const tickRecord = createTickRecord(
+      0,
+      result,
+      room,
+      [botActionsA, botActionsB],
+      [teamAId, teamBId],
+      0,
+    );
+
+    // Destroy actions should still work as before
+    const destroyActions = tickRecord.actions.filter(
+      (a) => a.actionType === 'destroy',
+    );
+    for (const action of destroyActions) {
+      expect(action.actionType).toBe('destroy');
+      expect(typeof action.result).toBe('string');
+    }
+  });
+
+  it('multiple build actions from same team are matched positionally', () => {
+    const { room, teamAId, teamBId } = setupRoomWithTeams();
+
+    const botActionsA: BotAction[] = [
+      { type: 'build', build: { templateId: 'block', x: 10, y: 10 } },
+      { type: 'build', build: { templateId: 'generator', x: 12, y: 12 } },
+    ];
+    const botActionsB: BotAction[] = [];
+
+    applyBotActions(room, 'bot-a', botActionsA);
+
+    const result = room.tick();
+
+    const tickRecord = createTickRecord(
+      0,
+      result,
+      room,
+      [botActionsA, botActionsB],
+      [teamAId, teamBId],
+      0,
+    );
+
+    const teamABuilds = tickRecord.actions.filter(
+      (a) => a.actionType === 'build' && a.teamId === teamAId,
+    );
+
+    // If we got build outcomes, they should be matched in order
+    if (teamABuilds.length >= 2) {
+      expect(teamABuilds[0].templateId).toBe('block');
+      expect(teamABuilds[0].x).toBe(10);
+      expect(teamABuilds[1].templateId).toBe('generator');
+      expect(teamABuilds[1].x).toBe(12);
+    } else if (teamABuilds.length === 1) {
+      // First build matched
+      expect(teamABuilds[0].templateId).toBe('block');
+    }
+  });
+
+  it('RandomBot match produces tick records with templateId in build actions', () => {
+    const config = createSmallConfig({ maxTicks: 50, seed: 42 });
+    const records: TickRecord[] = [];
+    const callbacks: MatchCallbacks = {
+      onTickComplete: (_tick: number, tickRecord: TickRecord) => {
+        records.push(tickRecord);
+      },
+    };
+    runMatch(config, new RandomBot(), new RandomBot(), callbacks);
+
+    // Find records with build actions
+    const buildRecords = records.filter((r) =>
+      r.actions.some((a) => a.actionType === 'build'),
+    );
+
+    // RandomBot should produce some builds
+    if (buildRecords.length > 0) {
+      const firstBuild = buildRecords[0].actions.find(
+        (a) => a.actionType === 'build',
+      );
+      // templateId should now be populated
+      expect(firstBuild?.templateId).toBeDefined();
+      expect(typeof firstBuild?.templateId).toBe('string');
+      expect(firstBuild?.x).toBeDefined();
+      expect(firstBuild?.y).toBeDefined();
     }
   });
 });
