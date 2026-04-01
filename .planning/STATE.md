@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
 status: executing
-stopped_at: Completed 20-03-PLAN.md
-last_updated: "2026-04-01T12:43:01.755Z"
+stopped_at: Completed 20-02-PLAN.md
+last_updated: "2026-04-01T12:45:51.364Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 11
-  completed_plans: 8
+  completed_plans: 9
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-30)
 ## Current Position
 
 Phase: 20 (ppo-training-with-self-play) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-04-01
 
@@ -70,6 +70,8 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 20]: Custom TF.js file IO (saveModelToDir/loadWeightsFromDir) instead of file:// handler -- pure JS backend lacks it
 - [Phase 20]: loadWeightsFromDir reads raw weight data without creating TF.js model -- avoids variable name collisions
 - [Phase 20]: Weight save uses Float32Array clone to standalone ArrayBuffer for SharedArrayBuffer type safety
+- [Phase 20]: Float32 precision tolerance: GAE tests use toBeCloseTo(x, 3) due to Float32Array accumulated rounding
+- [Phase 20]: Advantages normalized across full buffer before mini-batching, not per-batch
 
 ### Pending Todos
 
@@ -81,6 +83,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-01T12:43:01.652Z
-**Stopped At:** Completed 20-03-PLAN.md
+**Last session:** 2026-04-01T12:45:51.261Z
+**Stopped At:** Completed 20-02-PLAN.md
 **Resume File:** None
