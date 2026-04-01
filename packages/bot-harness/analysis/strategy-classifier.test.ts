@@ -234,9 +234,10 @@ describe('extractFeatures', () => {
     const ticks: TickRecord[] = [];
     for (let t = 0; t < 50; t++) {
       const actions: TickActionRecord[] = [];
-      // Team 0 builds at (5, 5) and (10, 10)
+      // Team 0 builds at (5, 5), (10, 10), and (20, 5) -- 3 spread-out positions
       if (t === 10) actions.push(buildAction(0, 'generator', 'applied', 5, 5));
       if (t === 20) actions.push(buildAction(0, 'block', 'applied', 10, 10));
+      if (t === 25) actions.push(buildAction(0, 'glider', 'applied', 20, 5));
       // Team 1 builds at (40, 40) - for opponent reference
       if (t === 15) actions.push(buildAction(1, 'generator', 'applied', 40, 40));
       ticks.push(makeTick(t, actions, [economyEntry(0, 100, 10), economyEntry(1, 100, 10)]));
@@ -248,8 +249,10 @@ describe('extractFeatures', () => {
     };
 
     const features = extractFeatures(match, 0);
-    // With x/y data present, these should be computed (non-zero)
+    // With x/y data present and 3 non-collinear positions, spread should be non-zero
     expect(features.structureSpread).toBeGreaterThan(0);
+    // avgDistanceToEnemy should be non-zero since opponent builds at (40, 40)
+    expect(features.avgDistanceToEnemy).toBeGreaterThan(0);
   });
 
   it('produces a zero/default feature vector for empty tick records', () => {
