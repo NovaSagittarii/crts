@@ -72,9 +72,9 @@ Plans:
   2. ActionDecoder maps discrete action indices to valid build/destroy queue calls, and the action mask correctly excludes all placements that RtsRoom would reject
   3. RewardSignal computes terminal win/loss reward plus shaped intermediate rewards (economy, territory, structure health) with a configurable annealing coefficient
   4. BotEnvironment exposes reset()/step() interface that a training loop can consume without knowledge of RtsRoom internals
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 Plans:
-- [ ] 19-01-PLAN.md — ObservationEncoder and RewardSignal with tests
+- [x] 19-01-PLAN.md — ObservationEncoder and RewardSignal with tests
 - [x] 19-02-PLAN.md — ActionDecoder with territory enumeration and action masking
 - [ ] 19-03-PLAN.md — BotEnvironment Gymnasium API and index.ts re-exports
 
@@ -132,7 +132,7 @@ Note: Phase 21 can begin alongside Phase 20 using early match data.
 | 6-12 (archived) | v0.0.2 | -- | Complete | 2026-03-03 |
 | 13-17 (archived) | v0.0.3 | -- | Complete | 2026-03-30 |
 | 18. Headless Match Runner | v0.0.4 | 3/3 | Complete    | 2026-04-01 |
-| 19. Observation, Action, and Reward Interface | v0.0.4 | 1/3 | In Progress|  |
+| 19. Observation, Action, and Reward Interface | v0.0.4 | 2/3 | In Progress|  |
 | 20. PPO Training with Self-Play | v0.0.4 | 0/? | Not started | - |
 | 21. Balance Analysis | v0.0.4 | 0/? | Not started | - |
 | 22. Structure Strength Ratings | v0.0.4 | 0/? | Not started | - |

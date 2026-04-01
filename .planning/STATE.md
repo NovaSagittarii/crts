@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
 status: executing
-stopped_at: Completed 19-02-PLAN.md
-last_updated: "2026-04-01T10:23:46.151Z"
+stopped_at: Completed 19-01-PLAN.md
+last_updated: "2026-04-01T10:27:56.671Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-30)
 ## Current Position
 
 Phase: 19 (observation-action-and-reward-interface) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-04-01
 
@@ -60,6 +60,8 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 18]: Added bin/ to tsconfig.json include and eslint node globals for full type-checking coverage of CLI files
 - [Phase 19]: Full grid (width * height) as action space position upper bound -- mask narrows valid set, action space size fixed per episode
 - [Phase 19]: Templates sorted alphabetically by id for deterministic action-to-template index mapping
+- [Phase 19]: ObservationEncoder uses createStatePayload() for both own and enemy data; territoryRadius read directly from RoomState.teams
+- [Phase 19]: computeReward is a pure function with no internal state; episodeNumber for annealing passed in externally
 
 ### Pending Todos
 
@@ -71,6 +73,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-01T10:23:46.033Z
-**Stopped At:** Completed 19-02-PLAN.md
+**Last session:** 2026-04-01T10:27:56.562Z
+**Stopped At:** Completed 19-01-PLAN.md
 **Resume File:** None
