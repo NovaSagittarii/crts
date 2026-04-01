@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
 status: executing
-stopped_at: Completed 22-01-PLAN.md
-last_updated: "2026-04-01T20:13:54.914Z"
+stopped_at: Completed 22-02-PLAN.md
+last_updated: "2026-04-01T20:30:44.053Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 18
-  completed_plans: 16
+  completed_plans: 17
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-30)
 ## Current Position
 
 Phase: 22 (structure-strength-ratings) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-04-01
 
@@ -93,6 +93,9 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 22-structure-strength-ratings]: Glicko-2 Step 5 uses Illinois algorithm with 100-iteration cap and 1e-6 tolerance
 - [Phase 22-structure-strength-ratings]: Game-phase tick boundaries: early=0-200, mid=200-600, late=600+Infinity per economy curve
 - [Phase 22-structure-strength-ratings]: Combination encounter weight uses min(member counts) to penalize imbalanced combos
+- [Phase 22-structure-strength-ratings]: Batch update snapshots all entity ratings before update loop to prevent cross-entity contamination
+- [Phase 22-structure-strength-ratings]: Direct enumeration for frequent-set mining (5-template vocabulary yields 31 subsets max)
+- [Phase 22-structure-strength-ratings]: Usage-matrix outlier detection uses median of non-provisional entities for threshold boundaries
 
 ### Pending Todos
 
@@ -104,6 +107,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-01T20:13:54.788Z
-**Stopped At:** Completed 22-01-PLAN.md
+**Last session:** 2026-04-01T20:30:43.940Z
+**Stopped At:** Completed 22-02-PLAN.md
 **Resume File:** None
