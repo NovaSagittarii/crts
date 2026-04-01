@@ -33,6 +33,7 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 - Phase 19 complete — Gymnasium-style BotEnvironment with ObservationEncoder (5 feature planes + 7 scalars), ActionDecoder (territory-bounded discrete actions with exhaustive masking), and RewardSignal (terminal + shaped + annealing). 77 bot-harness tests passing.
 - Phase 20 complete — PPO training pipeline with TF.js (pure JS CPU backend), trajectory buffer + GAE, clipped surrogate loss trainer, self-play opponent pool, worker thread parallelization, training CLI, and convergence validation.
 - Phase 21 complete — Balance analysis with three win-rate attribution methods (presence/usage/first-build), Wilson score CIs, strategy classifier (rules + k-means + PrefixSpan), generational tracking, JSON/console/markdown output, CLI entry point. 82 analysis tests passing.
+- Phase 22 complete — Structure strength ratings with hand-rolled Glicko-2 engine, log-weighted encounter extraction, per-game-phase rating pools, combination mining (pairwise + frequent-set), outlier detection, worker parallelism, extended CLI with ratings/report/all subcommands.
 
 ## Requirements
 
