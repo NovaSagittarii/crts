@@ -17,7 +17,6 @@ import * as tf from '@tensorflow/tfjs';
 import { BotEnvironment } from '../bot-environment.js';
 
 import { OpponentPool } from './opponent-pool.js';
-import type { OpponentEntry } from './opponent-pool.js';
 import type { WeightData, PPOModelConfig } from './ppo-network.js';
 import { buildPPOModel, extractWeights, buildModelConfigFromEnv } from './ppo-network.js';
 import { PPOTrainer } from './ppo-trainer.js';
@@ -355,7 +354,8 @@ export class TrainingCoordinator {
    * next episode from the queue is dispatched to it.
    */
   private async collectBatch(batchSize: number): Promise<EpisodeResult[]> {
-    if (!this.opponentPool) throw new Error('OpponentPool not initialized');
+    const pool = this.opponentPool;
+    if (!pool) throw new Error('OpponentPool not initialized');
 
     // Pre-build all episode descriptors
     interface EpisodeDesc {
@@ -369,7 +369,7 @@ export class TrainingCoordinator {
 
     const episodes: EpisodeDesc[] = [];
     for (let i = 0; i < batchSize; i++) {
-      const opponent = this.opponentPool!.sampleOpponent();
+      const opponent = pool.sampleOpponent();
       const seed = Date.now() + i + this.episodeCounter;
       const episodeNumber = this.episodeCounter + i + 1;
 
@@ -380,7 +380,7 @@ export class TrainingCoordinator {
         opponentType = opponent.name === 'NoOpBot' ? 'noop' : 'random';
       } else {
         opponentType = 'checkpoint';
-        opponentWeights = await this.opponentPool!.loadOpponentWeights(opponent);
+        opponentWeights = await pool.loadOpponentWeights(opponent);
       }
 
       episodes.push({
@@ -511,7 +511,10 @@ export class TrainingCoordinator {
   public async saveOptimizerState(dir: string): Promise<void> {
     if (!this.trainer) return;
 
-    const optimizerWeights = await this.trainer.getOptimizerWeights();
+    const optimizerWeights = await this.trainer.getOptimizerWeights() as Array<{
+      name: string;
+      tensor: tf.Tensor;
+    }>;
     const serialized: Array<{ name: string; shape: number[]; data: number[] }> = [];
 
     for (const nw of optimizerWeights) {
@@ -555,8 +558,8 @@ export class TrainingCoordinator {
     this.wins = parsed.wins;
     this.totalGames = parsed.totalGames;
 
-    // Restore optimizer weights
-    const namedTensors: tf.NamedTensor[] = parsed.optimizerWeights.map((w) => ({
+    // Restore optimizer weights as {name, tensor} pairs
+    const namedTensors = parsed.optimizerWeights.map((w) => ({
       name: w.name,
       tensor: tf.tensor(w.data, w.shape),
     }));
