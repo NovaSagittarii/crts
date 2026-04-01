@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
 status: executing
-stopped_at: Completed 21-02-PLAN.md
-last_updated: "2026-04-01T18:32:15.270Z"
+stopped_at: Completed 21-03-PLAN.md
+last_updated: "2026-04-01T18:38:38.165Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 15
-  completed_plans: 13
+  completed_plans: 14
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-30)
 ## Current Position
 
 Phase: 21 (balance-analysis) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-04-01
 
@@ -84,6 +84,10 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 21]: Presence-based counts each (match, team) pair where template appears as 1 observation
 - [Phase 21]: Usage-weighted weights by build count per (match, team) pair
 - [Phase 21]: First-build applies presence logic on subset of first N builds per team per match
+- [Phase 21]: classifyStrategy accepts buildCounts Record and totalTicks separately, keeping StrategyFeatureVector purely numeric for clustering
+- [Phase 21]: Conway-appropriate strategy labels (early-builder, diverse-placer, template-heavy, economy-saver, balanced) per D-08 -- no rush/turtle/macro
+- [Phase 21]: PrefixSpan projected-database approach for sequence mining with per-sequence deduplication for support counting
+- [Phase 21]: Multi-run k-means (10 runs default) with lowest-WCSS selection for stable clustering without external libraries
 
 ### Pending Todos
 
@@ -95,6 +99,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-01T18:32:15.142Z
-**Stopped At:** Completed 21-02-PLAN.md
+**Last session:** 2026-04-01T18:38:38.061Z
+**Stopped At:** Completed 21-03-PLAN.md
 **Resume File:** None
