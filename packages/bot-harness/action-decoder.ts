@@ -1,15 +1,15 @@
 import type {
   BuildQueuePayload,
+  BuildZoneContributorProjectionInput,
   StructureTemplateSummary,
   Vector2,
 } from '#rts-engine';
 import {
-  RtsRoom,
   CORE_TEMPLATE_ID,
+  RtsRoom,
   collectBuildZoneContributors,
   isBuildZoneCoveredByContributor,
 } from '#rts-engine';
-import type { BuildZoneContributorProjectionInput } from '#rts-engine';
 
 /**
  * Descriptor for the discrete action space layout, consumed by PPO network
