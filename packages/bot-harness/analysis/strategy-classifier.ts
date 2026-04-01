@@ -3,7 +3,7 @@ import type {
   StrategyAssignment,
   StrategyFeatureVector,
 } from './types.js';
-import type { TickActionRecord, TickEconomyRecord } from '../types.js';
+import type { TickEconomyRecord } from '../types.js';
 import { mean, shannonEntropy, stddev } from './stats.js';
 
 /**

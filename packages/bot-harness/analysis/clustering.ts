@@ -28,16 +28,6 @@ function createLcg(seed: number): () => number {
   };
 }
 
-/** Euclidean distance between two points */
-function euclideanDistance(a: number[], b: number[]): number {
-  let sum = 0;
-  for (let i = 0; i < a.length; i++) {
-    const d = a[i] - b[i];
-    sum += d * d;
-  }
-  return Math.sqrt(sum);
-}
-
 /** Squared Euclidean distance (avoids sqrt for performance) */
 function squaredEuclideanDistance(a: number[], b: number[]): number {
   let sum = 0;
