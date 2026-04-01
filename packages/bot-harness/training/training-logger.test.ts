@@ -1,14 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { TrainingLogger } from './training-logger.js';
-import type { TrainingLogEntry } from './training-logger.js';
 import { DEFAULT_TRAINING_CONFIG } from './training-config.js';
 import type { TrainingConfig } from './training-config.js';
+import { TrainingLogger } from './training-logger.js';
+import type { TrainingLogEntry } from './training-logger.js';
 
-function makeSampleEntry(overrides?: Partial<TrainingLogEntry>): TrainingLogEntry {
+function makeSampleEntry(
+  overrides?: Partial<TrainingLogEntry>,
+): TrainingLogEntry {
   return {
     episode: 42,
     timestamp: '2026-04-01T12:00:00.000Z',
@@ -102,11 +104,14 @@ describe('TrainingLogger', () => {
 
     // Each line should be valid JSON
     for (const line of lines) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
       expect(() => JSON.parse(line)).not.toThrow();
     }
 
     // Verify episode numbers
-    const episodes = lines.map((l) => (JSON.parse(l) as TrainingLogEntry).episode);
+    const episodes = lines.map(
+      (l) => (JSON.parse(l) as TrainingLogEntry).episode,
+    );
     expect(episodes).toEqual([1, 2, 3]);
   });
 
@@ -135,12 +140,16 @@ describe('TrainingLogger', () => {
 
   it('getCheckpointDir returns the correct path', () => {
     const logger = new TrainingLogger(tmpDir, 'run-test-007');
-    expect(logger.getCheckpointDir()).toBe(join(tmpDir, 'run-test-007', 'checkpoints'));
+    expect(logger.getCheckpointDir()).toBe(
+      join(tmpDir, 'run-test-007', 'checkpoints'),
+    );
   });
 
   it('getFinalModelDir returns the correct path', () => {
     const logger = new TrainingLogger(tmpDir, 'run-test-008');
-    expect(logger.getFinalModelDir()).toBe(join(tmpDir, 'run-test-008', 'final-model'));
+    expect(logger.getFinalModelDir()).toBe(
+      join(tmpDir, 'run-test-008', 'final-model'),
+    );
   });
 
   it('formatLiveMetrics returns a human-readable string with key fields', () => {
@@ -160,15 +169,15 @@ describe('TrainingLogger', () => {
     const startTime = Date.now() - 60000; // 1 minute ago
     const result = logger.formatLiveMetrics(entry, 1000, startTime);
 
-    expect(result).toContain('42');        // episode
-    expect(result).toContain('1000');      // total
-    expect(result).toContain('1.23');      // reward
-    expect(result).toContain('0.65');      // winRate
-    expect(result).toContain('0.12');      // policyLoss
-    expect(result).toContain('0.34');      // valueLoss
-    expect(result).toContain('0.45');      // entropy
-    expect(result).toContain('0.008');     // approxKl
-    expect(result).toContain('150');       // episodeTicks
+    expect(result).toContain('42'); // episode
+    expect(result).toContain('1000'); // total
+    expect(result).toContain('1.23'); // reward
+    expect(result).toContain('0.65'); // winRate
+    expect(result).toContain('0.12'); // policyLoss
+    expect(result).toContain('0.34'); // valueLoss
+    expect(result).toContain('0.45'); // entropy
+    expect(result).toContain('0.008'); // approxKl
+    expect(result).toContain('150'); // episodeTicks
   });
 
   it('formatLiveMetrics includes ETA', () => {

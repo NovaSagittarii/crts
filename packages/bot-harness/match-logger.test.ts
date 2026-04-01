@@ -1,9 +1,8 @@
-import { existsSync, readFileSync, rmSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { NoOpBot } from './noop-bot.js';
 import {
   MatchLogger,
   createMatchHeader,
@@ -11,12 +10,13 @@ import {
   generateRunId,
 } from './match-logger.js';
 import { runMatch } from './match-runner.js';
+import { NoOpBot } from './noop-bot.js';
 import type {
   MatchConfig,
-  MatchResult,
-  TickRecord,
   MatchHeader,
   MatchOutcomeRecord,
+  MatchResult,
+  TickRecord,
 } from './types.js';
 
 function createSmallConfig(overrides: Partial<MatchConfig> = {}): MatchConfig {
@@ -47,7 +47,10 @@ describe('MatchLogger', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `match-logger-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    testDir = join(
+      tmpdir(),
+      `match-logger-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
     mkdirSync(testDir, { recursive: true });
   });
 
@@ -60,11 +63,19 @@ describe('MatchLogger', () => {
   it('writeMatch creates an NDJSON file with first line containing type header and seed and bot names', async () => {
     const config = createSmallConfig();
     const { result, tickRecords } = runCollectingRecords(config);
-    const header = createMatchHeader(config, [new NoOpBot().name, new NoOpBot().name]);
+    const header = createMatchHeader(config, [
+      new NoOpBot().name,
+      new NoOpBot().name,
+    ]);
     const outcomeRecord = createMatchOutcomeRecord(result);
 
     const logger = new MatchLogger(testDir, 'test-run');
-    const filePath = await logger.writeMatch(0, header, tickRecords, outcomeRecord);
+    const filePath = await logger.writeMatch(
+      0,
+      header,
+      tickRecords,
+      outcomeRecord,
+    );
 
     expect(existsSync(filePath)).toBe(true);
     const content = readFileSync(filePath, 'utf-8');
@@ -82,7 +93,12 @@ describe('MatchLogger', () => {
     const outcomeRecord = createMatchOutcomeRecord(result);
 
     const logger = new MatchLogger(testDir, 'test-run');
-    const filePath = await logger.writeMatch(0, header, tickRecords, outcomeRecord);
+    const filePath = await logger.writeMatch(
+      0,
+      header,
+      tickRecords,
+      outcomeRecord,
+    );
 
     const content = readFileSync(filePath, 'utf-8');
     const lines = content.trim().split('\n');
@@ -102,7 +118,12 @@ describe('MatchLogger', () => {
     const outcomeRecord = createMatchOutcomeRecord(result);
 
     const logger = new MatchLogger(testDir, 'test-run');
-    const filePath = await logger.writeMatch(0, header, tickRecords, outcomeRecord);
+    const filePath = await logger.writeMatch(
+      0,
+      header,
+      tickRecords,
+      outcomeRecord,
+    );
 
     const content = readFileSync(filePath, 'utf-8');
     const lines = content.trim().split('\n');
@@ -113,13 +134,21 @@ describe('MatchLogger', () => {
   });
 
   it('tick lines with hash checkpoint interval contain a hash field (string, non-empty)', async () => {
-    const config = createSmallConfig({ maxTicks: 20, hashCheckpointInterval: 5 });
+    const config = createSmallConfig({
+      maxTicks: 20,
+      hashCheckpointInterval: 5,
+    });
     const { result, tickRecords } = runCollectingRecords(config);
     const header = createMatchHeader(config, result.bots);
     const outcomeRecord = createMatchOutcomeRecord(result);
 
     const logger = new MatchLogger(testDir, 'test-run');
-    const filePath = await logger.writeMatch(0, header, tickRecords, outcomeRecord);
+    const filePath = await logger.writeMatch(
+      0,
+      header,
+      tickRecords,
+      outcomeRecord,
+    );
 
     const content = readFileSync(filePath, 'utf-8');
     const lines = content.trim().split('\n');
@@ -137,13 +166,21 @@ describe('MatchLogger', () => {
   });
 
   it('tick lines without hash checkpoint interval do NOT contain a hash field', async () => {
-    const config = createSmallConfig({ maxTicks: 20, hashCheckpointInterval: 5 });
+    const config = createSmallConfig({
+      maxTicks: 20,
+      hashCheckpointInterval: 5,
+    });
     const { result, tickRecords } = runCollectingRecords(config);
     const header = createMatchHeader(config, result.bots);
     const outcomeRecord = createMatchOutcomeRecord(result);
 
     const logger = new MatchLogger(testDir, 'test-run');
-    const filePath = await logger.writeMatch(0, header, tickRecords, outcomeRecord);
+    const filePath = await logger.writeMatch(
+      0,
+      header,
+      tickRecords,
+      outcomeRecord,
+    );
 
     const content = readFileSync(filePath, 'utf-8');
     const lines = content.trim().split('\n');
@@ -164,7 +201,12 @@ describe('MatchLogger', () => {
     const outcomeRecord = createMatchOutcomeRecord(result);
 
     const logger = new MatchLogger(testDir, 'my-run-id');
-    const filePath = await logger.writeMatch(3, header, tickRecords, outcomeRecord);
+    const filePath = await logger.writeMatch(
+      3,
+      header,
+      tickRecords,
+      outcomeRecord,
+    );
 
     expect(filePath).toBe(join(testDir, 'my-run-id', 'match-3.ndjson'));
     expect(existsSync(filePath)).toBe(true);
@@ -178,7 +220,12 @@ describe('MatchLogger', () => {
 
     const nestedDir = join(testDir, 'nested', 'deep');
     const logger = new MatchLogger(nestedDir, 'nested-run');
-    const filePath = await logger.writeMatch(0, header, tickRecords, outcomeRecord);
+    const filePath = await logger.writeMatch(
+      0,
+      header,
+      tickRecords,
+      outcomeRecord,
+    );
 
     expect(existsSync(filePath)).toBe(true);
     expect(filePath).toContain('nested-run');
@@ -191,12 +238,18 @@ describe('MatchLogger', () => {
     const outcomeRecord = createMatchOutcomeRecord(result);
 
     const logger = new MatchLogger(testDir, 'json-test');
-    const filePath = await logger.writeMatch(0, header, tickRecords, outcomeRecord);
+    const filePath = await logger.writeMatch(
+      0,
+      header,
+      tickRecords,
+      outcomeRecord,
+    );
 
     const content = readFileSync(filePath, 'utf-8');
     const lines = content.trim().split('\n');
     expect(lines.length).toBeGreaterThan(0);
     for (const line of lines) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
       expect(() => JSON.parse(line)).not.toThrow();
     }
   });

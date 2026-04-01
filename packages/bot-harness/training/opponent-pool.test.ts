@@ -1,15 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as tf from '@tensorflow/tfjs';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { OpponentPool } from './opponent-pool.js';
-import type { SelfPlayConfig } from './training-config.js';
 import type { PPOModelConfig } from './ppo-network.js';
 import { buildPPOModel } from './ppo-network.js';
+import type { SelfPlayConfig } from './training-config.js';
 
-function makeSelfPlayConfig(overrides?: Partial<SelfPlayConfig>): SelfPlayConfig {
+function makeSelfPlayConfig(
+  overrides?: Partial<SelfPlayConfig>,
+): SelfPlayConfig {
   return {
     latestRatio: 0.5,
     historicalRatio: 0.3,
@@ -85,12 +87,12 @@ describe('OpponentPool', () => {
     }
 
     // Check within 10% tolerance
-    expect(counts.latest / totalSamples).toBeGreaterThanOrEqual(0.40);
-    expect(counts.latest / totalSamples).toBeLessThanOrEqual(0.60);
-    expect(counts.historical / totalSamples).toBeGreaterThanOrEqual(0.20);
-    expect(counts.historical / totalSamples).toBeLessThanOrEqual(0.40);
-    expect(counts.random / totalSamples).toBeGreaterThanOrEqual(0.10);
-    expect(counts.random / totalSamples).toBeLessThanOrEqual(0.30);
+    expect(counts.latest / totalSamples).toBeGreaterThanOrEqual(0.4);
+    expect(counts.latest / totalSamples).toBeLessThanOrEqual(0.6);
+    expect(counts.historical / totalSamples).toBeGreaterThanOrEqual(0.2);
+    expect(counts.historical / totalSamples).toBeLessThanOrEqual(0.4);
+    expect(counts.random / totalSamples).toBeGreaterThanOrEqual(0.1);
+    expect(counts.random / totalSamples).toBeLessThanOrEqual(0.3);
   });
 
   it('sampleOpponent with no historical checkpoints falls back correctly', () => {
