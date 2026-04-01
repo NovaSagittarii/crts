@@ -30,6 +30,7 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 - Property-based tests (fast-check, 350 random runs, 500+ ticks) confirm lockstep determinism.
 - 182 unit/web tests + 15 integration tests + 3 property-based tests all pass.
 - Phase 18 complete — `packages/bot-harness` provides headless match execution (BotStrategy interface, NoOpBot, RandomBot, NDJSON logging, CLI entry point). 36 bot-harness tests passing.
+- Phase 19 complete — Gymnasium-style BotEnvironment with ObservationEncoder (5 feature planes + 7 scalars), ActionDecoder (territory-bounded discrete actions with exhaustive masking), and RewardSignal (terminal + shaped + annealing). 77 bot-harness tests passing.
 
 ## Requirements
 
