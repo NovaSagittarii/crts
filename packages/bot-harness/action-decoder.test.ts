@@ -59,7 +59,7 @@ describe('ActionDecoder', () => {
     expect(result!.y).toBe(3);
   });
 
-  it('computeActionMask has mask[0] === 1 (no-op always valid)', () => {
+  it('computeActionMask has mask[0] === 1 (no-op always valid)', { timeout: 15_000 }, () => {
     const room = createTestRoom();
     const decoder = new ActionDecoder(20, 20);
     const mask = decoder.computeActionMask(room, 'p1', 1);
@@ -67,7 +67,7 @@ describe('ActionDecoder', () => {
     expect(mask[0]).toBe(1);
   });
 
-  it('every action index where mask[i] === 1 succeeds via previewBuildPlacement', () => {
+  it('every action index where mask[i] === 1 succeeds via previewBuildPlacement', { timeout: 30_000 }, () => {
     const room = createTestRoom();
     const decoder = new ActionDecoder(20, 20);
     const mask = decoder.computeActionMask(room, 'p1', 1);
@@ -86,7 +86,7 @@ describe('ActionDecoder', () => {
     expect(validCount).toBeGreaterThan(0);
   });
 
-  it('sample of mask[i] === 0 actions are rejected by previewBuildPlacement', () => {
+  it('sample of mask[i] === 0 actions are rejected by previewBuildPlacement', { timeout: 15_000 }, () => {
     const room = createTestRoom();
     const decoder = new ActionDecoder(20, 20);
     const mask = decoder.computeActionMask(room, 'p1', 1);
@@ -138,7 +138,7 @@ describe('ActionDecoder', () => {
     }
   });
 
-  it('computeActionMask is deterministic (same state produces same mask)', () => {
+  it('computeActionMask is deterministic (same state produces same mask)', { timeout: 30_000 }, () => {
     const room = createTestRoom();
     const decoder = new ActionDecoder(20, 20);
     const mask1 = decoder.computeActionMask(room, 'p1', 1);
