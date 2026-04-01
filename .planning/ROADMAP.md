@@ -133,7 +133,11 @@ Plans:
   1. Socket.IO bot adapter connects a trained model to a live game server as a virtual player that appears identical to a human player from the opponent's perspective
   2. Bot completes a full match lifecycle (join lobby, play active match, handle match finish) without server errors
   3. Bot decision pipeline (observe + infer + act) completes within the per-tick budget, leaving headroom for game simulation
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 23-01-PLAN.md — Model loader, tick budget tracker, and payload observation encoder
+- [ ] 23-02-PLAN.md — Socket contract bot:add event, server handler, and web UI bot controls
+- [ ] 23-03-PLAN.md — LiveBotStrategy, bot CLI process, and integration tests
 
 ## Progress
 
@@ -150,5 +154,5 @@ Note: Phase 21 can begin alongside Phase 20 using early match data.
 | 19. Observation, Action, and Reward Interface | v0.0.4 | 3/3 | Complete    | 2026-04-01 |
 | 20. PPO Training with Self-Play | v0.0.4 | 5/5 | Complete    | 2026-04-01 |
 | 21. Balance Analysis | v0.0.4 | 4/4 | Complete    | 2026-04-01 |
-| 22. Structure Strength Ratings | v0.0.4 | 3/3 | Complete   | 2026-04-01 |
-| 23. Playable In-Game Bot | v0.0.4 | 0/? | Not started | - |
+| 22. Structure Strength Ratings | v0.0.4 | 3/3 | Complete    | 2026-04-01 |
+| 23. Playable In-Game Bot | v0.0.4 | 0/3 | Not started | - |
