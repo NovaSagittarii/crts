@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
-status: executing
-stopped_at: Completed 22-02-PLAN.md
-last_updated: "2026-04-01T20:30:44.053Z"
+status: verifying
+stopped_at: Completed 22-03-PLAN.md
+last_updated: "2026-04-01T21:05:31.557Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 18
-  completed_plans: 17
+  completed_plans: 18
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-30)
 
 Phase: 22 (structure-strength-ratings) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-01
 
 Progress: [░░░░░░░░░░] 0% (v0.0.4)
@@ -96,6 +96,8 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 22-structure-strength-ratings]: Batch update snapshots all entity ratings before update loop to prevent cross-entity contamination
 - [Phase 22-structure-strength-ratings]: Direct enumeration for frequent-set mining (5-template vocabulary yields 31 subsets max)
 - [Phase 22-structure-strength-ratings]: Usage-matrix outlier detection uses median of non-provisional entities for threshold boundaries
+- [Phase 22]: Worker threads spawn one worker per pool (no intra-pool D-05b) -- overhead not justified for 5-9 pools
+- [Phase 22]: CLI subcommand routing uses strict:false with allowPositionals for backward compatibility with existing no-subcommand usage
 
 ### Pending Todos
 
@@ -107,6 +109,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-01T20:30:43.940Z
-**Stopped At:** Completed 22-02-PLAN.md
+**Last session:** 2026-04-01T21:05:31.452Z
+**Stopped At:** Completed 22-03-PLAN.md
 **Resume File:** None

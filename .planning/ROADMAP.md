@@ -43,7 +43,7 @@ See archive: `.planning/milestones/v0.0.3-ROADMAP.md`
 - [x] **Phase 19: Observation, Action, and Reward Interface** - Bot environment exposes structured observations, masked actions, and shaped rewards in a Gymnasium-style API (completed 2026-04-01)
 - [x] **Phase 20: PPO Training with Self-Play** - Training pipeline produces improving policies via PPO with self-play opponent pool across parallel workers (completed 2026-04-01)
 - [x] **Phase 21: Balance Analysis** - Win rates and strategy distributions are computable from accumulated match data (completed 2026-04-01)
-- [ ] **Phase 22: Structure Strength Ratings** - Individual structure templates have Glicko-2 ratings with a CLI balance report
+- [x] **Phase 22: Structure Strength Ratings** - Individual structure templates have Glicko-2 ratings with a CLI balance report (completed 2026-04-01)
 - [ ] **Phase 23: Playable In-Game Bot** - A trained bot joins a live game server as a virtual player via Socket.IO
 
 ## Phase Details
@@ -119,11 +119,11 @@ Plans:
   1. Glicko-2 rating engine assigns ratings with RD/confidence intervals to each structure template based on match outcomes
   2. Templates with insufficient data (RD > 150) are flagged rather than reported as definitive ratings
   3. Balance report CLI generates summary reports covering win rates, ratings, strategy meta, and identifies balance outliers from match data
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 Plans:
 - [x] 22-01-PLAN.md — Glicko-2 core engine, types, and match-to-encounter extraction
 - [x] 22-02-PLAN.md — Rating pool management, combination mining, and outlier detection
-- [ ] 22-03-PLAN.md — Worker parallelism, CLI subcommands, report assembly, and formatter extensions
+- [x] 22-03-PLAN.md — Worker parallelism, CLI subcommands, report assembly, and formatter extensions
 
 ### Phase 23: Playable In-Game Bot
 **Goal**: A trained model can join a live game server as a virtual player, making decisions within the tick budget
@@ -150,5 +150,5 @@ Note: Phase 21 can begin alongside Phase 20 using early match data.
 | 19. Observation, Action, and Reward Interface | v0.0.4 | 3/3 | Complete    | 2026-04-01 |
 | 20. PPO Training with Self-Play | v0.0.4 | 5/5 | Complete    | 2026-04-01 |
 | 21. Balance Analysis | v0.0.4 | 4/4 | Complete    | 2026-04-01 |
-| 22. Structure Strength Ratings | v0.0.4 | 2/3 | In Progress|  |
+| 22. Structure Strength Ratings | v0.0.4 | 3/3 | Complete   | 2026-04-01 |
 | 23. Playable In-Game Bot | v0.0.4 | 0/? | Not started | - |
