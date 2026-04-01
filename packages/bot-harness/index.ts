@@ -9,5 +9,8 @@ export * from './observation-encoder.js';
 export * from './reward-signal.js';
 export * from './action-decoder.js';
 export * from './bot-environment.js';
+export * from './model-loader.js';
+export * from './tick-budget.js';
+export * from './payload-observation-encoder.js';
 export * from './training/index.js';
 export * from './analysis/index.js';
