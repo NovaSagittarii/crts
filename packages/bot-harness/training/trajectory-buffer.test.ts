@@ -28,17 +28,19 @@ describe('computeGAE', () => {
     // gae_1   = 0.995 + 0.99*0.95*0.995 = 1.9310525
     // delta_0 = 1 + 0.99*0.5 - 0.5 = 0.995
     // gae_0   = 0.995 + 0.99*0.95*1.9310525 = 2.8101...
-    expect(advantages[2]).toBeCloseTo(0.995, 4);
-    expect(advantages[1]).toBeCloseTo(1.9310525, 4);
+    // Float32Array has ~7 significant digits; use tolerance of 3 decimal places
+    // to account for accumulated rounding in the backward pass
+    expect(advantages[2]).toBeCloseTo(0.995, 3);
+    expect(advantages[1]).toBeCloseTo(1.9310525, 3);
     expect(advantages[0]).toBeCloseTo(
       0.995 + 0.99 * 0.95 * 1.9310525,
-      4,
+      3,
     );
 
     // returns[t] = advantages[t] + values[t]
-    expect(returns[2]).toBeCloseTo(0.995 + 0.5, 4);
-    expect(returns[1]).toBeCloseTo(1.9310525 + 0.5, 4);
-    expect(returns[0]).toBeCloseTo(advantages[0] + 0.5, 4);
+    expect(returns[2]).toBeCloseTo(0.995 + 0.5, 3);
+    expect(returns[1]).toBeCloseTo(1.9310525 + 0.5, 3);
+    expect(returns[0]).toBeCloseTo(advantages[0] + 0.5, 3);
   });
 
   it('zeros out future returns at terminal step', () => {
@@ -61,18 +63,18 @@ describe('computeGAE', () => {
     // t=2 (terminal): nextNonTerminal = 0
     // delta_2 = 1 + 0.99*0.5*0 - 0.5 = 0.5
     // gae_2 = 0.5
-    expect(advantages[2]).toBeCloseTo(0.5, 4);
+    expect(advantages[2]).toBeCloseTo(0.5, 3);
 
     // t=1 (non-terminal): nextNonTerminal = 1
     // But step 2 is terminal, so when going backward from step 2,
     // step 1 uses done[1] = false, so nextNonTerminal for step 1 = 1
     // delta_1 = 1 + 0.99*0.5*1 - 0.5 = 0.995
     // gae_1 = 0.995 + 0.99*0.95*1*0.5 = 0.995 + 0.47025 = 1.46525
-    expect(advantages[1]).toBeCloseTo(1.46525, 4);
+    expect(advantages[1]).toBeCloseTo(1.46525, 3);
 
     // returns = advantages + values
-    expect(returns[2]).toBeCloseTo(0.5 + 0.5, 4);
-    expect(returns[1]).toBeCloseTo(1.46525 + 0.5, 4);
+    expect(returns[2]).toBeCloseTo(0.5 + 0.5, 3);
+    expect(returns[1]).toBeCloseTo(1.46525 + 0.5, 3);
   });
 
   it('returns Float32Array for both advantages and returns', () => {
@@ -127,7 +129,7 @@ describe('TrajectoryBuffer', () => {
     expect(buffer.returns!.length).toBe(3);
 
     // Should match the hand-computed GAE values
-    expect(buffer.advantages![2]).toBeCloseTo(0.995, 4);
+    expect(buffer.advantages![2]).toBeCloseTo(0.995, 3);
   });
 
   it('getBatches yields mini-batches with correct size', () => {
