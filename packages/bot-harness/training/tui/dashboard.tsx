@@ -46,6 +46,12 @@ export interface DashboardProps {
   columns?: number;
   /** Override refresh interval in ms (for testing). */
   refreshMs?: number;
+  /**
+   * Called once when the Dashboard mounts with the progress handler callback.
+   * The caller should wire this to `coordinator.onProgress` to feed training
+   * data into the dashboard.
+   */
+  onReady?: (handler: TrainingProgressCallback) => void;
 }
 
 /**
@@ -115,6 +121,7 @@ export function Dashboard({
   runId = 'default',
   columns: columnsProp,
   refreshMs = DEFAULT_REFRESH_MS,
+  onReady,
 }: DashboardProps): React.ReactElement {
   const [state, setState] = useState<DashboardState>(createInitialState);
   const [paused, setPaused] = useState(false);
@@ -136,6 +143,13 @@ export function Dashboard({
     // Also store the direct handler for interval flushing
     (handlerRef as React.MutableRefObject<TrainingProgressCallback & { _direct?: TrainingProgressCallback }>).current._direct = directHandler;
   }
+
+  // Notify the caller that the progress handler is ready (for wiring to coordinator)
+  useEffect(() => {
+    if (onReady != null && handlerRef.current != null) {
+      onReady(handlerRef.current);
+    }
+  }, [onReady]);
 
   // Set up interval-based flush of pending data (D-05)
   useEffect(() => {

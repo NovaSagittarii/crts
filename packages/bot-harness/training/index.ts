@@ -20,3 +20,4 @@ export {
   initTfBackend as initTrainingCoordinatorTf,
 } from './training-coordinator.js';
 export type { EpisodeResult } from './training-coordinator.js';
+export * from './tui/index.js';
