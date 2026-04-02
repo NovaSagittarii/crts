@@ -5,6 +5,7 @@
     "moduleResolution": "NodeNext",
     "customConditions": ["development"],
     "lib": ["ES2022"],
+    "jsx": "react-jsx",
     "noEmit": true
   },
   "include": ["apps/server/src/**/*", "packages/**/*", "tests/**/*.ts", "bin/**/*"],

@@ -23,7 +23,7 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     // Keep the default include simple so `--root` can scope unit vs integration.
-    include: ['**/*.test.ts'],
+    include: ['**/*.test.{ts,tsx}'],
     exclude: [
       '**/node_modules/**',
       '**/dist/**',

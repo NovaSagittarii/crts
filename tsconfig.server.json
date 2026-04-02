@@ -5,12 +5,13 @@
     "moduleResolution": "NodeNext",
     "customConditions": ["development"],
     "lib": ["ES2022"],
+    "jsx": "react-jsx",
     "outDir": "./dist",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["apps/server/src/**/*", "packages/**/*"],
+  "include": ["apps/server/src/**/*", "packages/**/*", "packages/**/*.tsx"],
   "exclude": [
     "node_modules",
     "dist",

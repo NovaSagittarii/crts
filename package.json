@@ -46,7 +46,12 @@
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.23.0-rc.0",
+    "@types/asciichart": "^1.5.8",
+    "@types/react": "^19.2.14",
+    "asciichart": "^1.5.25",
     "express": "^4.19.2",
+    "ink": "^6.8.0",
+    "react": "^19.2.4",
     "socket.io": "^4.7.5"
   },
   "optionalDependencies": {
@@ -61,6 +66,7 @@
     "eslint": "^9.19.0",
     "fast-check": "^4.6.0",
     "globals": "^15.14.0",
+    "ink-testing-library": "^4.0.0",
     "prettier": "^3.3.3",
     "socket.io-client": "^4.8.3",
     "tsx": "^4.15.0",
