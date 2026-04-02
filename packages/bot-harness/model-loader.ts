@@ -6,7 +6,7 @@
  */
 import { access, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import * as tf from '@tensorflow/tfjs';
+import type * as tf from '@tensorflow/tfjs';
 
 import { loadModelFromDir } from './training/tfjs-file-io.js';
 

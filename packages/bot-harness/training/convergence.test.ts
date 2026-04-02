@@ -6,19 +6,29 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it, expect, afterAll } from 'vitest';
-import * as tf from '@tensorflow/tfjs';
+import { beforeAll, describe, it, expect, afterAll } from 'vitest';
+import { getTf } from '../tf-backend.js';
+import type { TfModule } from '../tf-backend.js';
+import type * as tf from '@tensorflow/tfjs';
 
 import { BotEnvironment } from '../bot-environment.js';
 import { RandomBot } from '../random-bot.js';
 
-import { buildPPOModel, buildModelConfigFromEnv, extractWeights } from './ppo-network.js';
+import { buildPPOModel, buildModelConfigFromEnv, extractWeights, initTfBackend as initPpoNetworkTf } from './ppo-network.js';
 import type { PPOModelConfig } from './ppo-network.js';
-import { PPOTrainer } from './ppo-trainer.js';
+import { PPOTrainer, initTfBackend as initPpoTrainerTf } from './ppo-trainer.js';
 import { TrajectoryBuffer } from './trajectory-buffer.js';
 import type { TrajectoryStep } from './trajectory-buffer.js';
 import type { NetworkConfig, TrainingConfig } from './training-config.js';
 import { DEFAULT_TRAINING_CONFIG } from './training-config.js';
+
+let tf: TfModule;
+
+beforeAll(async () => {
+  tf = await getTf();
+  await initPpoNetworkTf();
+  await initPpoTrainerTf();
+}, 15_000);
 
 // ---------------------------------------------------------------------------
 // Test configuration -- minimal for pure JS TF.js feasibility

@@ -1,13 +1,24 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import * as tf from '@tensorflow/tfjs';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { getTf } from '../tf-backend.js';
+import type { TfModule } from '../tf-backend.js';
+import type * as tf from '@tensorflow/tfjs';
 
 import { OpponentPool } from './opponent-pool.js';
 import type { PPOModelConfig } from './ppo-network.js';
-import { buildPPOModel } from './ppo-network.js';
+import { buildPPOModel, initTfBackend as initPpoNetworkTf } from './ppo-network.js';
 import type { SelfPlayConfig } from './training-config.js';
+import { initTfBackend as initTfjsFileIoTf } from './tfjs-file-io.js';
+
+let tf: TfModule;
+
+beforeAll(async () => {
+  tf = await getTf();
+  await initPpoNetworkTf();
+  await initTfjsFileIoTf();
+}, 15_000);
 
 function makeSelfPlayConfig(
   overrides?: Partial<SelfPlayConfig>,

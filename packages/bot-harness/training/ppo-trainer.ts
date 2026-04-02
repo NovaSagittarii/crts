@@ -263,6 +263,7 @@ export class PPOTrainer {
       );
 
       // Sample from categorical distribution
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
       const sampled = _tf.multinomial(maskedLogits.expandDims(0) as tf.Tensor2D, 1);
       const action = sampled.dataSync()[0];
 

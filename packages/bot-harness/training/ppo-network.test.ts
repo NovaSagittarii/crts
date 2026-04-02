@@ -1,14 +1,24 @@
-import { describe, expect, it } from 'vitest';
-import * as tf from '@tensorflow/tfjs';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { getTf } from '../tf-backend.js';
+import type { TfModule } from '../tf-backend.js';
+import type * as tf from '@tensorflow/tfjs';
 
 import {
   applyWeights,
   buildModelConfigFromEnv,
   buildPPOModel,
   extractWeights,
+  initTfBackend,
 } from './ppo-network.js';
 import type { PPOModelConfig } from './ppo-network.js';
 import { DEFAULT_NETWORK_CONFIG } from './training-config.js';
+
+let tf: TfModule;
+
+beforeAll(async () => {
+  tf = await getTf();
+  await initTfBackend();
+}, 15_000);
 
 // Small config to keep tests fast
 const SMALL_CONFIG: PPOModelConfig = {

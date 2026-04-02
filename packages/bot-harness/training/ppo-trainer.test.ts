@@ -1,14 +1,24 @@
-import * as tf from '@tensorflow/tfjs';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { beforeAll, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { getTf } from '../tf-backend.js';
+import type { TfModule } from '../tf-backend.js';
+import type * as tf from '@tensorflow/tfjs';
 
 import type { PPOModelConfig } from './ppo-network.js';
-import { buildPPOModel } from './ppo-network.js';
+import { buildPPOModel, initTfBackend as initPpoNetworkTf } from './ppo-network.js';
 import type { TrainStepResult } from './ppo-trainer.js';
-import { PPOTrainer } from './ppo-trainer.js';
+import { PPOTrainer, initTfBackend as initPpoTrainerTf } from './ppo-trainer.js';
 import type { TrajectoryBatch } from './trajectory-buffer.js';
 import { TrajectoryBuffer } from './trajectory-buffer.js';
 import type { TrainingConfig } from './training-config.js';
 import { DEFAULT_TRAINING_CONFIG } from './training-config.js';
+
+let tf: TfModule;
+
+beforeAll(async () => {
+  tf = await getTf();
+  await initPpoNetworkTf();
+  await initPpoTrainerTf();
+}, 15_000);
 
 // Small test model: 4x4 grid, 2 channels, 2 conv filters, 8 MLP units
 const TEST_MODEL_CONFIG: PPOModelConfig = {

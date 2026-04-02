@@ -5,11 +5,20 @@
  * RoomStatePayload, encodes observations, runs the model, and returns
  * an action index. Tensor lifecycle is managed with tf.tidy().
  */
-import * as tf from '@tensorflow/tfjs';
+import { getTf } from './tf-backend.js';
+import type { TfModule } from './tf-backend.js';
+import type * as tf from '@tensorflow/tfjs';
 import type { BuildQueuePayload, RoomStatePayload } from '#rts-engine';
 
 import { ActionDecoder } from './action-decoder.js';
 import { PayloadObservationEncoder } from './payload-observation-encoder.js';
+
+let _tf: TfModule;
+
+/** Initialize the TF.js backend for live bot inference. Must be called before infer/warmUp. */
+export async function initLiveBotTf(): Promise<void> {
+  _tf = await getTf();
+}
 
 /** Minimum resource cost to attempt any build (cheapest template). */
 const MIN_BUILD_COST = 5;
@@ -53,15 +62,15 @@ export class LiveBotStrategy {
     const obs = this.encoder.encode(payload, teamId, maxTicks);
     const { channels, height, width } = obs.shape;
 
-    // Use tf.tidy to automatically dispose intermediate tensors
-    const actionIndex = tf.tidy(() => {
+    // Use _tf.tidy to automatically dispose intermediate tensors
+    const actionIndex = _tf.tidy(() => {
       // Transpose planes from [C, H, W] to [H, W, C] for model input
-      const planesRaw = tf
+      const planesRaw = _tf
         .tensor3d(obs.planes, [channels, height, width])
         .transpose([1, 2, 0]);
       const planesBatched = planesRaw.expandDims(0); // [1, H, W, C]
 
-      const scalarsBatched = tf.tensor2d(obs.scalars, [
+      const scalarsBatched = _tf.tensor2d(obs.scalars, [
         1,
         obs.shape.scalarCount,
       ]);
@@ -83,8 +92,8 @@ export class LiveBotStrategy {
       }
 
       // Sample action from softmax of logits
-      const probs = tf.softmax(logits);
-      const sampled = tf.multinomial(
+      const probs = _tf.softmax(logits);
+      const sampled = _tf.multinomial(
         probs as tf.Tensor2D,
         1,
       );
@@ -113,14 +122,14 @@ export class LiveBotStrategy {
       return;
     }
 
-    tf.tidy(() => {
-      const dummyPlanes = tf.zeros([
+    _tf.tidy(() => {
+      const dummyPlanes = _tf.zeros([
         1,
         this.height,
         this.width,
         5, // NUM_CHANNELS
       ]);
-      const dummyScalars = tf.zeros([1, 7]); // NUM_SCALARS
+      const dummyScalars = _tf.zeros([1, 7]); // NUM_SCALARS
 
       this.model!.predict([dummyPlanes, dummyScalars]);
     });
