@@ -1,4 +1,13 @@
+import * as util from 'node:util';
 import type * as tfTypes from '@tensorflow/tfjs';
+
+// Polyfill util.isNullOrUndefined — removed in modern Node.js but
+// referenced by @tensorflow/tfjs-node@4.22.0's native kernel backend.
+if (typeof (util as Record<string, unknown>).isNullOrUndefined !== 'function') {
+  (util as Record<string, unknown>).isNullOrUndefined = (
+    val: unknown,
+  ): val is null | undefined => val === null || val === undefined;
+}
 
 export type TfModule = typeof tfTypes;
 
