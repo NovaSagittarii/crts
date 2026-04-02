@@ -73,6 +73,10 @@ export interface TrainingConfig {
   gridWidth: number;
   gridHeight: number;
   maxTicks: number;
+
+  // Display
+  /** Disable TUI dashboard, use plain log output. */
+  noTui: boolean;
 }
 
 export const DEFAULT_NETWORK_CONFIG: NetworkConfig = {
@@ -111,6 +115,7 @@ export const DEFAULT_TRAINING_CONFIG: TrainingConfig = {
   gridWidth: DEFAULT_GRID_WIDTH,
   gridHeight: DEFAULT_GRID_HEIGHT,
   maxTicks: DEFAULT_MAX_TICKS,
+  noTui: false,
 };
 
 /**
@@ -163,6 +168,7 @@ export function parseTrainingArgs(
       'grid-width': { type: 'string' },
       'grid-height': { type: 'string' },
       'max-ticks': { type: 'string' },
+      'no-tui': { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
     strict: true,
@@ -220,6 +226,9 @@ export function parseTrainingArgs(
   if (values['grid-height'] !== undefined) config.gridHeight = parseInt(values['grid-height'], 10);
   if (values['max-ticks'] !== undefined) config.maxTicks = parseInt(values['max-ticks'], 10);
 
+  // Display
+  if (values['no-tui'] !== undefined) config.noTui = values['no-tui'];
+
   return config;
 }
 
@@ -262,6 +271,9 @@ Environment:
   --grid-width <n>        Grid width (default: ${String(DEFAULT_GRID_WIDTH)})
   --grid-height <n>       Grid height (default: ${String(DEFAULT_GRID_HEIGHT)})
   --max-ticks <n>         Max ticks per episode (default: ${String(DEFAULT_MAX_TICKS)})
+
+Display:
+  --no-tui                Disable TUI dashboard, use plain log output
 
   --help, -h              Show this help message`);
 }

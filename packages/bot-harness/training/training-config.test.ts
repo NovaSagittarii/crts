@@ -222,6 +222,21 @@ describe('parseTrainingArgs', () => {
     const config = parseTrainingArgs(['--output-dir', '/tmp/training']);
     expect(config.outputDir).toBe('/tmp/training');
   });
+
+  it('default config has noTui set to false', () => {
+    const config = parseTrainingArgs([]);
+    expect(config.noTui).toBe(false);
+  });
+
+  it('parses --no-tui flag to set noTui to true', () => {
+    const config = parseTrainingArgs(['--no-tui']);
+    expect(config.noTui).toBe(true);
+  });
+
+  it('keeps noTui false when --no-tui is not provided', () => {
+    const config = parseTrainingArgs(['--episodes', '100']);
+    expect(config.noTui).toBe(false);
+  });
 });
 
 describe('generateTrainingRunId', () => {
