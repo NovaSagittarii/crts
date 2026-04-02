@@ -35,7 +35,7 @@ Requirements for RL Bot Harness & Balance Analysis milestone.
 
 ### Performance
 
-- [ ] **PERF-01**: Centralized TF.js backend loader dynamically imports @tensorflow/tfjs-node with automatic fallback to @tensorflow/tfjs pure JS
+- [x] **PERF-01**: Centralized TF.js backend loader dynamically imports @tensorflow/tfjs-node with automatic fallback to @tensorflow/tfjs pure JS
 - [ ] **PERF-02**: All training code (PPOTrainer, TrainingCoordinator, workers) uses the shared backend loader with no hardcoded @tensorflow/tfjs imports
 - [ ] **PERF-03**: All inference code (LiveBotStrategy, model-loader) uses the shared backend loader with no hardcoded @tensorflow/tfjs imports
 

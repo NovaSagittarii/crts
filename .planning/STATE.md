@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
-status: verifying
-stopped_at: Phase 25 context gathered
-last_updated: "2026-04-02T06:47:19.216Z"
-last_activity: 2026-04-01
+status: executing
+stopped_at: Completed 24-01-PLAN.md
+last_updated: "2026-04-02T07:37:18.400Z"
+last_activity: 2026-04-02
 progress:
   total_phases: 8
   completed_phases: 6
-  total_plans: 21
-  completed_plans: 21
+  total_plans: 23
+  completed_plans: 22
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-30)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 23 — playable-in-game-bot
+**Current focus:** Phase 24 — tf-js-native-backend-with-dynamic-fallback
 
 ## Current Position
 
-Phase: 23
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-04-01
+Phase: 24 (tf-js-native-backend-with-dynamic-fallback) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-04-02
 
 Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
@@ -105,6 +105,9 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 23]: LiveBotStrategy transposes [C,H,W] to [H,W,C] per Phase 20 PPO network input convention
 - [Phase 23]: Simplified action mask checks resources >= 5 (min template cost) rather than full per-action validation; server validates all builds
 - [Phase 23]: teamId tracked as number|null with explicit null guard in state handler per socket contract nullability
+- [Phase 24]: Promise-based caching (_promise variable) for getTf() to prevent duplicate imports during concurrent calls
+- [Phase 24]: 15s test timeout for first getTf() invocation to accommodate @tensorflow/tfjs-node failure latency on Alpine musl
+- [Phase 24]: @tensorflow/tfjs-node@4.22.0 pinned as optionalDependency; @tensorflow/tfjs remains at ^4.23.0-rc.0 in dependencies
 
 ### Pending Todos
 
@@ -121,6 +124,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-02T06:47:18.890Z
-**Stopped At:** Phase 25 context gathered
-**Resume File:** .planning/phases/25-training-tui-dashboard/25-CONTEXT.md
+**Last session:** 2026-04-02T07:37:18.288Z
+**Stopped At:** Completed 24-01-PLAN.md
+**Resume File:** None
