@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
-status: executing
-stopped_at: Completed 25-02-PLAN.md
-last_updated: "2026-04-02T09:51:52.517Z"
+status: verifying
+stopped_at: Completed 25-03-PLAN.md
+last_updated: "2026-04-02T10:26:29.349Z"
 last_activity: 2026-04-02
 progress:
   total_phases: 8
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 26
-  completed_plans: 25
+  completed_plans: 26
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-30)
 
 Phase: 25 (training-tui-dashboard) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-02
 
 Progress: [░░░░░░░░░░] 0% (v0.0.4)
@@ -116,6 +116,8 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 25]: useStdout().stdout.columns for terminal width detection with prop override for testing
 - [Phase 25]: Ref-based batched rendering: callback writes to ref, setInterval flushes to React state at controlled rate
 - [Phase 25]: Policy/value loss trend arrows derived from recentEpisodes in MetricsPanel
+- [Phase 25]: onReady prop added to Dashboard to bridge coordinator.onProgress to internal React handler ref without coupling
+- [Phase 25]: Dynamic import for ink/react in TUI mode to keep plain mode lightweight and avoid loading React when not needed
 
 ### Pending Todos
 
@@ -132,6 +134,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-02T09:51:52.409Z
-**Stopped At:** Completed 25-02-PLAN.md
+**Last session:** 2026-04-02T10:26:29.244Z
+**Stopped At:** Completed 25-03-PLAN.md
 **Resume File:** None
