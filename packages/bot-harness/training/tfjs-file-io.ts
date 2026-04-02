@@ -7,9 +7,18 @@
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import * as tf from '@tensorflow/tfjs';
+import { getTf } from '../tf-backend.js';
+import type { TfModule } from '../tf-backend.js';
+import type * as tf from '@tensorflow/tfjs';
 
 import type { WeightData } from './ppo-network.js';
+
+let _tf: TfModule;
+
+/** Initialize the TF.js backend for this module. Must be called before save/load operations. */
+export async function initTfBackend(): Promise<void> {
+  _tf = await getTf();
+}
 
 /**
  * Save a TF.js LayersModel to a directory on disk.
@@ -118,7 +127,8 @@ export async function loadModelFromDir(
     weightData: concatenated,
   };
 
-  const model = await tf.loadLayersModel(tf.io.fromMemory(artifacts));
+  if (!_tf) _tf = await getTf();
+  const model = await _tf.loadLayersModel(_tf.io.fromMemory(artifacts));
   return model;
 }
 

@@ -11,11 +11,20 @@
  * All tensor operations wrapped in tf.tidy() to prevent memory leaks.
  */
 
-import * as tf from '@tensorflow/tfjs';
+import { getTf } from '../tf-backend.js';
+import type { TfModule } from '../tf-backend.js';
+import type * as tf from '@tensorflow/tfjs';
 
 import type { TrajectoryBatch } from './trajectory-buffer.js';
 import type { TrajectoryBuffer } from './trajectory-buffer.js';
 import type { TrainingConfig } from './training-config.js';
+
+let _tf: TfModule;
+
+/** Initialize the TF.js backend for this module. Must be called before creating PPOTrainer. */
+export async function initTfBackend(): Promise<void> {
+  _tf = await getTf();
+}
 
 /**
  * Result from a single PPO gradient update step.
@@ -58,7 +67,7 @@ export class PPOTrainer {
 
   constructor(model: tf.LayersModel, config: TrainingConfig) {
     this.model = model;
-    this.optimizer = tf.train.adam(config.learningRate);
+    this.optimizer = _tf.train.adam(config.learningRate);
     this.clipEpsilon = config.clipEpsilon;
     this.entropyCoeff = config.entropyCoeff;
     this.valueLossCoeff = config.valueLossCoeff;
@@ -83,14 +92,14 @@ export class PPOTrainer {
 
     // Build input tensors outside the gradient tape but inside tidy
     const planesTensor = this.buildPlanesTensor(batch.planes, batchSize);
-    const scalarsTensor = tf.tensor2d(
+    const scalarsTensor = _tf.tensor2d(
       this.flattenScalars(batch.scalars, batchSize),
       [batchSize, batch.scalars[0].length],
     );
-    const actionsTensor = tf.tensor1d(Array.from(batch.actions), 'int32');
-    const oldLogProbsTensor = tf.tensor1d(Array.from(batch.oldLogProbs));
-    const advantagesTensor = tf.tensor1d(Array.from(batch.advantages));
-    const returnsTensor = tf.tensor1d(Array.from(batch.returns));
+    const actionsTensor = _tf.tensor1d(Array.from(batch.actions), 'int32');
+    const oldLogProbsTensor = _tf.tensor1d(Array.from(batch.oldLogProbs));
+    const advantagesTensor = _tf.tensor1d(Array.from(batch.advantages));
+    const returnsTensor = _tf.tensor1d(Array.from(batch.returns));
     const maskTensor = this.buildMaskTensor(batch.actionMasks, batchSize);
 
     let policyLoss = 0;
@@ -102,7 +111,7 @@ export class PPOTrainer {
     // Run gradient update
     const grads = this.optimizer.minimize(
       () => {
-        return tf.tidy(() => {
+        return _tf.tidy(() => {
           // Forward pass
           const outputs = this.model.predict([
             planesTensor,
@@ -114,21 +123,21 @@ export class PPOTrainer {
           // Apply action mask: add -1e9 to invalid action logits
           const maskFloat = maskTensor.toFloat();
           const maskedLogits = logits.add(
-            tf.sub(tf.scalar(1), maskFloat).mul(tf.scalar(-1e9)),
+            _tf.sub(_tf.scalar(1), maskFloat).mul(_tf.scalar(-1e9)),
           );
 
           // Log softmax for numerical stability
-          const logProbs = tf.logSoftmax(maskedLogits);
+          const logProbs = _tf.logSoftmax(maskedLogits);
 
           // Gather new log probs for taken actions using one-hot
-          const actionOneHot = tf.oneHot(actionsTensor, logits.shape[1]!);
+          const actionOneHot = _tf.oneHot(actionsTensor, logits.shape[1]!);
           const newLogProbs = logProbs.mul(actionOneHot).sum(1); // [batch]
 
           // Ratio = exp(newLogProb - oldLogProb)
-          const ratio = tf.exp(newLogProbs.sub(oldLogProbsTensor));
+          const ratio = _tf.exp(newLogProbs.sub(oldLogProbsTensor));
 
           // Clipped ratio
-          const clippedRatio = tf.clipByValue(
+          const clippedRatio = _tf.clipByValue(
             ratio,
             1 - this.clipEpsilon,
             1 + this.clipEpsilon,
@@ -137,20 +146,20 @@ export class PPOTrainer {
           // Policy loss = -mean(min(ratio * adv, clippedRatio * adv))
           const surr1 = ratio.mul(advantagesTensor);
           const surr2 = clippedRatio.mul(advantagesTensor);
-          const pLoss = tf.neg(tf.mean(tf.minimum(surr1, surr2)));
+          const pLoss = _tf.neg(_tf.mean(_tf.minimum(surr1, surr2)));
 
           // Value loss = mean((values - returns)^2)
-          const vLoss = tf.mean(values.sub(returnsTensor).square());
+          const vLoss = _tf.mean(values.sub(returnsTensor).square());
 
           // Entropy = -mean(sum(probs * logProbs, axis=-1))
-          const probs = tf.softmax(maskedLogits);
-          const ent = tf.neg(
-            tf.mean(probs.mul(logProbs).sum(1)),
+          const probs = _tf.softmax(maskedLogits);
+          const ent = _tf.neg(
+            _tf.mean(probs.mul(logProbs).sum(1)),
           );
 
           // Approximate KL divergence: mean((ratio - 1) - log(ratio))
-          const kl = tf.mean(
-            ratio.sub(tf.scalar(1)).sub(tf.log(ratio.add(tf.scalar(1e-10)))),
+          const kl = _tf.mean(
+            ratio.sub(_tf.scalar(1)).sub(_tf.log(ratio.add(_tf.scalar(1e-10)))),
           );
 
           // Extract scalar values for reporting
@@ -161,8 +170,8 @@ export class PPOTrainer {
 
           // Total loss = policyLoss + valueLossCoeff * valueLoss - entropyCoeff * entropy
           const total = pLoss
-            .add(vLoss.mul(tf.scalar(this.valueLossCoeff)))
-            .sub(ent.mul(tf.scalar(this.entropyCoeff)));
+            .add(vLoss.mul(_tf.scalar(this.valueLossCoeff)))
+            .sub(ent.mul(_tf.scalar(this.entropyCoeff)));
 
           totalLoss = total.dataSync()[0];
 
@@ -246,19 +255,19 @@ export class PPOTrainer {
     logits: tf.Tensor1D,
     actionMask: Uint8Array,
   ): { action: number; logProb: number } {
-    const result = tf.tidy(() => {
+    const result = _tf.tidy(() => {
       // Apply mask: add -1e9 to invalid action logits
-      const mask = tf.tensor1d(Array.from(actionMask), 'float32');
+      const mask = _tf.tensor1d(Array.from(actionMask), 'float32');
       const maskedLogits = logits.add(
-        tf.sub(tf.scalar(1), mask).mul(tf.scalar(-1e9)),
+        _tf.sub(_tf.scalar(1), mask).mul(_tf.scalar(-1e9)),
       );
 
       // Sample from categorical distribution
-      const sampled = tf.multinomial(maskedLogits.expandDims(0) as tf.Tensor2D, 1);
+      const sampled = _tf.multinomial(maskedLogits.expandDims(0) as tf.Tensor2D, 1);
       const action = sampled.dataSync()[0];
 
       // Compute log probability
-      const logProbs = tf.logSoftmax(maskedLogits);
+      const logProbs = _tf.logSoftmax(maskedLogits);
       const logProb = logProbs.dataSync()[action];
 
       return { action, logProb };
@@ -271,15 +280,15 @@ export class PPOTrainer {
    * Compute the value function estimate for a single observation.
    */
   public computeValue(planes: Float32Array, scalars: Float32Array): number {
-    const result = tf.tidy(() => {
+    const result = _tf.tidy(() => {
       // Reshape planes from flat [C*H*W] channel-first to [1, H, W, C] channel-last
-      const chw = tf.tensor3d(
+      const chw = _tf.tensor3d(
         Array.from(planes),
         [this.channels, this.height, this.width],
       );
       const hwc = chw.transpose([1, 2, 0]); // [H, W, C]
       const planesTensor = hwc.expandDims(0); // [1, H, W, C]
-      const scalarsTensor = tf.tensor2d(
+      const scalarsTensor = _tf.tensor2d(
         Array.from(scalars),
         [1, scalars.length],
       );
@@ -326,7 +335,7 @@ export class PPOTrainer {
     }
 
     // Reshape [batch, C, H, W] then transpose to [batch, H, W, C]
-    const bchw = tf.tensor4d(
+    const bchw = _tf.tensor4d(
       flatBuffer,
       [batchSize, this.channels, this.height, this.width],
     );
@@ -364,6 +373,6 @@ export class PPOTrainer {
         buffer[i * actionCount + j] = masks[i][j];
       }
     }
-    return tf.tensor2d(buffer, [batchSize, actionCount]);
+    return _tf.tensor2d(buffer, [batchSize, actionCount]);
   }
 }

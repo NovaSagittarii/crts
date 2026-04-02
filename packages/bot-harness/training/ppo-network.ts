@@ -1,7 +1,16 @@
-import * as tf from '@tensorflow/tfjs';
+import { getTf } from '../tf-backend.js';
+import type { TfModule } from '../tf-backend.js';
+import type * as tf from '@tensorflow/tfjs';
 
 import type { ActionSpaceInfo } from '../action-decoder.js';
 import type { NetworkConfig } from './training-config.js';
+
+let _tf: TfModule;
+
+/** Initialize the TF.js backend for this module. Must be called before any model operations. */
+export async function initTfBackend(): Promise<void> {
+  _tf = await getTf();
+}
 
 /**
  * Serialized weight data for cross-thread transfer (D-17).
@@ -52,13 +61,13 @@ export function buildPPOModel(config: PPOModelConfig): tf.LayersModel {
   const [channels, height, width] = config.planeShape;
 
   // Input: spatial feature planes [batch, H, W, C] (channels-last)
-  const planeInput = tf.input({
+  const planeInput = _tf.input({
     shape: [height, width, channels],
     name: 'planes',
   });
 
   // Input: scalar features [batch, scalarCount]
-  const scalarInput = tf.input({
+  const scalarInput = _tf.input({
     shape: [config.scalarCount],
     name: 'scalars',
   });
@@ -66,7 +75,7 @@ export function buildPPOModel(config: PPOModelConfig): tf.LayersModel {
   // CNN trunk: iterate convFilters
   let conv: tf.SymbolicTensor = planeInput;
   for (let i = 0; i < config.convFilters.length; i++) {
-    conv = tf.layers
+    conv = _tf.layers
       .conv2d({
         filters: config.convFilters[i],
         kernelSize: config.convKernelSize,
@@ -78,19 +87,19 @@ export function buildPPOModel(config: PPOModelConfig): tf.LayersModel {
   }
 
   // Flatten conv output
-  const flat = tf.layers
+  const flat = _tf.layers
     .flatten({ name: 'flatten' })
     .apply(conv) as tf.SymbolicTensor;
 
   // Concatenate flattened conv output with scalar features
-  const merged = tf.layers
+  const merged = _tf.layers
     .concatenate({ name: 'merge' })
     .apply([flat, scalarInput]) as tf.SymbolicTensor;
 
   // Shared MLP trunk
   let trunk: tf.SymbolicTensor = merged;
   for (let i = 0; i < config.mlpUnits.length; i++) {
-    trunk = tf.layers
+    trunk = _tf.layers
       .dense({
         units: config.mlpUnits[i],
         activation: config.activation as 'relu',
@@ -100,7 +109,7 @@ export function buildPPOModel(config: PPOModelConfig): tf.LayersModel {
   }
 
   // Policy head: raw logits, NO activation
-  const policyLogits = tf.layers
+  const policyLogits = _tf.layers
     .dense({
       units: config.actionCount,
       name: 'policy_logits',
@@ -108,14 +117,14 @@ export function buildPPOModel(config: PPOModelConfig): tf.LayersModel {
     .apply(trunk) as tf.SymbolicTensor;
 
   // Value head: raw scalar, NO activation
-  const value = tf.layers
+  const value = _tf.layers
     .dense({
       units: 1,
       name: 'value',
     })
     .apply(trunk) as tf.SymbolicTensor;
 
-  return tf.model({
+  return _tf.model({
     inputs: [planeInput, scalarInput],
     outputs: [policyLogits, value],
     name: 'ppo_model',
@@ -158,7 +167,7 @@ export function applyWeights(
   const tensors: tf.Tensor[] = [];
   for (const wd of weightData) {
     const values = new Float32Array(wd.buffer);
-    tensors.push(tf.tensor(values, wd.shape));
+    tensors.push(_tf.tensor(values, wd.shape));
   }
 
   model.setWeights(tensors);

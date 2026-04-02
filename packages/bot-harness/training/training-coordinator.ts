@@ -12,15 +12,25 @@ import { readdir } from 'node:fs/promises';
 import { Worker } from 'node:worker_threads';
 import { writeFile, readFile } from 'node:fs/promises';
 import { mkdir } from 'node:fs/promises';
-import * as tf from '@tensorflow/tfjs';
+import { getTf } from '../tf-backend.js';
+import type { TfModule } from '../tf-backend.js';
+import type * as tf from '@tensorflow/tfjs';
 
 import { BotEnvironment } from '../bot-environment.js';
 
 import { OpponentPool } from './opponent-pool.js';
 import type { WeightData, PPOModelConfig } from './ppo-network.js';
-import { buildPPOModel, extractWeights, buildModelConfigFromEnv } from './ppo-network.js';
+import { buildPPOModel, extractWeights, buildModelConfigFromEnv, initTfBackend as initPpoNetworkTf } from './ppo-network.js';
 import { PPOTrainer } from './ppo-trainer.js';
 import type { PPOUpdateResult } from './ppo-trainer.js';
+import { initTfBackend as initPpoTrainerTf } from './ppo-trainer.js';
+
+let _tf: TfModule;
+
+/** Initialize the TF.js backend for this module. Must be called before any TF.js operations. */
+export async function initTfBackend(): Promise<void> {
+  _tf = await getTf();
+}
 import { TrajectoryBuffer } from './trajectory-buffer.js';
 import type { TrajectoryStep } from './trajectory-buffer.js';
 import type { TrainingConfig } from './training-config.js';
@@ -96,6 +106,11 @@ export class TrainingCoordinator {
    * Initialize the coordinator: build model, create trainer, spawn workers.
    */
   public async init(): Promise<void> {
+    // Initialize TF.js backend for all modules
+    _tf = await getTf();
+    await initPpoNetworkTf();
+    await initPpoTrainerTf();
+
     // Create BotEnvironment for metadata only (observationSpace, actionSpace)
     const env = new BotEnvironment({
       gridWidth: this.config.gridWidth,
@@ -561,7 +576,7 @@ export class TrainingCoordinator {
     // Restore optimizer weights as {name, tensor} pairs
     const namedTensors = parsed.optimizerWeights.map((w) => ({
       name: w.name,
-      tensor: tf.tensor(w.data, w.shape),
+      tensor: _tf.tensor(w.data, w.shape),
     }));
 
     await this.trainer.setOptimizerWeights(namedTensors);
