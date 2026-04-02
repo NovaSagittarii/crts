@@ -170,3 +170,18 @@ Note: Phase 21 can begin alongside Phase 20 using early match data.
 
 Plans:
 - [ ] TBD (run /gsd:plan-phase 24 to break down)
+
+### Phase 25: Training TUI Dashboard
+
+**Goal**: Live terminal UI during PPO training showing generation progress, loss/reward curves, time per generation, ETA, opponent pool status, and key metrics at a glance
+**Depends on**: Phase 20 (training pipeline), Phase 24 (native backend)
+**Requirements**: TBD
+**Success Criteria** (what must be TRUE):
+  1. TUI renders live-updating dashboard with generation number, episode count, win rate, policy/value loss, entropy, and ETA
+  2. Time-per-generation and throughput (episodes/sec) are displayed and updated each generation
+  3. Dashboard degrades gracefully to plain log lines when stdout is not a TTY (e.g. CI, piped output)
+  4. Training CLI `bin/train.ts` activates TUI by default with `--no-tui` flag to disable
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 25 to break down)
