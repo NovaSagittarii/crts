@@ -33,6 +33,12 @@ Requirements for RL Bot Harness & Balance Analysis milestone.
 
 - [x] **DEPLOY-01**: Socket.IO bot adapter connects a trained model to a live game server as a virtual player
 
+### Performance
+
+- [ ] **PERF-01**: Centralized TF.js backend loader dynamically imports @tensorflow/tfjs-node with automatic fallback to @tensorflow/tfjs pure JS
+- [ ] **PERF-02**: All training code (PPOTrainer, TrainingCoordinator, workers) uses the shared backend loader with no hardcoded @tensorflow/tfjs imports
+- [ ] **PERF-03**: All inference code (LiveBotStrategy, model-loader) uses the shared backend loader with no hardcoded @tensorflow/tfjs imports
+
 ## Future Requirements
 
 Deferred to future milestones.
@@ -74,12 +80,15 @@ Deferred to future milestones.
 | BAL-04 | Phase 22 | Complete |
 | BAL-05 | Phase 22 | Complete |
 | DEPLOY-01 | Phase 23 | Complete |
+| PERF-01 | Phase 24 | Planned |
+| PERF-02 | Phase 24 | Planned |
+| PERF-03 | Phase 24 | Planned |
 
 **Coverage:**
-- v0.0.4 requirements: 14 total
-- Mapped to phases: 14
+- v0.0.4 requirements: 17 total
+- Mapped to phases: 17
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-30*
-*Last updated: 2026-03-30 after roadmap creation*
+*Last updated: 2026-04-01 after Phase 24 planning*

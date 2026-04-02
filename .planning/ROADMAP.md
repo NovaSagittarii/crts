@@ -161,15 +161,16 @@ Note: Phase 21 can begin alongside Phase 20 using early match data.
 
 **Goal**: Training and inference use @tensorflow/tfjs-node by default via dynamic import(), with automatic fallback to @tensorflow/tfjs pure JS when the native addon fails (e.g. Alpine/musl)
 **Depends on**: Phase 20 (training code), Phase 23 (live bot inference)
-**Requirements**: TBD
+**Requirements**: PERF-01, PERF-02, PERF-03
 **Success Criteria** (what must be TRUE):
   1. Dynamic import tries `@tensorflow/tfjs-node` first; if it fails (install error, musl libc, etc.), falls back to `@tensorflow/tfjs` pure JS transparently
   2. All training code (PPOTrainer, TrainingCoordinator, workers) and inference code (LiveBotStrategy) use the shared backend loader — no hardcoded `@tensorflow/tfjs` imports
   3. When native backend loads successfully, training throughput is measurably faster than pure JS baseline
-**Plans:** 0 plans
+**Plans:** 2 plans
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 24 to break down)
+- [ ] 24-01-PLAN.md — Backend loader module (tf-backend.ts), unit tests, optionalDependency, barrel export
+- [ ] 24-02-PLAN.md — Migrate all training and inference files from direct imports to getTf()
 
 ### Phase 25: Training TUI Dashboard
 
