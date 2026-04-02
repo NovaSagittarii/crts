@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 
-import type { TrainingLogEntry } from '../../training-logger.js';
+import type { TrainingLogEntry } from '../training-logger.js';
 import type { TrainingProgressData } from './types.js';
 
 /**
@@ -31,8 +31,8 @@ function trendArrow(
   if (history.length < 2) {
     return <Text dimColor> -</Text>;
   }
-  const prev = history[history.length - 2]!;
-  const curr = history[history.length - 1]!;
+  const prev = history[history.length - 2];
+  const curr = history[history.length - 1];
   const diff = curr - prev;
 
   if (Math.abs(diff) < 1e-9) {
@@ -57,7 +57,7 @@ function recentTrend(
 ): number[] {
   if (episodes.length < 2) return [];
   // recentEpisodes are ordered newest-first, so [0] is current, [1] is previous
-  return [extractor(episodes[1]!), extractor(episodes[0]!)];
+  return [extractor(episodes[1]), extractor(episodes[0])];
 }
 
 /**

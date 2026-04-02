@@ -2,7 +2,7 @@ import React from 'react';
 import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 
-import type { TrainingLogEntry } from '../../training-logger.js';
+import type { TrainingLogEntry } from '../training-logger.js';
 import type { TrainingProgressData } from './types.js';
 import { MetricsPanel } from './metrics-panel.js';
 
