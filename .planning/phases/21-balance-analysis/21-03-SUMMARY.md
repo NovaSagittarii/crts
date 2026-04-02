@@ -2,26 +2,39 @@
 phase: 21-balance-analysis
 plan: 03
 subsystem: analysis
-tags: [k-means, clustering, strategy-classification, sequence-mining, prefixspan, feature-extraction]
+tags:
+  [
+    k-means,
+    clustering,
+    strategy-classification,
+    sequence-mining,
+    prefixspan,
+    feature-extraction,
+  ]
 
 # Dependency graph
 requires:
   - phase: 21-01
-    provides: "types.ts (StrategyFeatureVector, ClusterResult, SequencePattern), stats.ts (shannonEntropy, mean, stddev)"
+    provides: 'types.ts (StrategyFeatureVector, ClusterResult, SequencePattern), stats.ts (shannonEntropy, mean, stddev)'
 provides:
-  - "extractFeatures: StrategyFeatureVector from ParsedMatch tick records"
-  - "classifyStrategy: rule-based Conway-appropriate labels (early-builder, diverse-placer, template-heavy, economy-saver, balanced)"
-  - "classifyAll: batch classification producing StrategyAssignment[]"
-  - "kMeans: k-means++ initialization with multi-run and seeded PRNG"
-  - "normalizeFeatures: z-score normalization per feature dimension"
-  - "mineSequencePatterns: PrefixSpan-style build-order subsequence mining"
-  - "extractBuildSequence: ordered templateId sequence from match ticks"
+  - 'extractFeatures: StrategyFeatureVector from ParsedMatch tick records'
+  - 'classifyStrategy: rule-based Conway-appropriate labels (early-builder, diverse-placer, template-heavy, economy-saver, balanced)'
+  - 'classifyAll: batch classification producing StrategyAssignment[]'
+  - 'kMeans: k-means++ initialization with multi-run and seeded PRNG'
+  - 'normalizeFeatures: z-score normalization per feature dimension'
+  - 'mineSequencePatterns: PrefixSpan-style build-order subsequence mining'
+  - 'extractBuildSequence: ordered templateId sequence from match ticks'
 affects: [21-04, balance-report-pipeline]
 
 # Tech tracking
 tech-stack:
   added: []
-  patterns: [PrefixSpan projected-database pattern mining, k-means++ initialization with LCG PRNG, z-score feature normalization]
+  patterns:
+    [
+      PrefixSpan projected-database pattern mining,
+      k-means++ initialization with LCG PRNG,
+      z-score feature normalization,
+    ]
 
 key-files:
   created:
@@ -34,15 +47,15 @@ key-files:
   modified: []
 
 key-decisions:
-  - "classifyStrategy accepts buildCounts Record and totalTicks separately rather than embedding in feature vector, keeping StrategyFeatureVector purely numeric"
-  - "Conway-appropriate labels (early-builder, diverse-placer, template-heavy, economy-saver, balanced) instead of traditional RTS terminology per D-08"
-  - "PrefixSpan projected-database approach for sequence mining -- bounded by 5-template vocabulary"
-  - "Multi-run k-means (default 10 runs) with lowest-WCSS selection for stability"
+  - 'classifyStrategy accepts buildCounts Record and totalTicks separately rather than embedding in feature vector, keeping StrategyFeatureVector purely numeric'
+  - 'Conway-appropriate labels (early-builder, diverse-placer, template-heavy, economy-saver, balanced) instead of traditional RTS terminology per D-08'
+  - 'PrefixSpan projected-database approach for sequence mining -- bounded by 5-template vocabulary'
+  - 'Multi-run k-means (default 10 runs) with lowest-WCSS selection for stability'
 
 patterns-established:
-  - "Feature extraction from ParsedMatch: walk ticks, filter by teamId, compute aggregates"
-  - "Seeded LCG PRNG for deterministic k-means initialization (same seed used across stats.ts and clustering.ts)"
-  - "PrefixSpan with per-sequence deduplication for correct support counting"
+  - 'Feature extraction from ParsedMatch: walk ticks, filter by teamId, compute aggregates'
+  - 'Seeded LCG PRNG for deterministic k-means initialization (same seed used across stats.ts and clustering.ts)'
+  - 'PrefixSpan with per-sequence deduplication for correct support counting'
 
 requirements-completed: [BAL-03]
 
@@ -64,6 +77,7 @@ completed: 2026-04-01
 - **Files created:** 6
 
 ## Accomplishments
+
 - Feature extraction produces 11-dimensional StrategyFeatureVector from match tick records covering timing, density, economy, territory, and spatial features
 - Rule-based classifier assigns Conway-appropriate labels avoiding traditional RTS terminology (no rush/turtle/macro)
 - K-means clustering with k-means++ initialization and multi-run support discovers emergent strategy archetypes
@@ -83,6 +97,7 @@ Each task was committed atomically:
 3. **Lint fixes** - `8e7bd2a` (fix: remove unused imports and functions)
 
 ## Files Created/Modified
+
 - `packages/bot-harness/analysis/strategy-classifier.ts` - Feature extraction (extractFeatures) and rule-based classification (classifyStrategy, classifyAll)
 - `packages/bot-harness/analysis/strategy-classifier.test.ts` - 14 tests covering feature extraction and classification rules
 - `packages/bot-harness/analysis/clustering.ts` - K-means clustering (kMeans), z-score normalization (normalizeFeatures), vector conversion (featureVectorToArray)
@@ -91,6 +106,7 @@ Each task was committed atomically:
 - `packages/bot-harness/analysis/sequence-miner.test.ts` - 8 tests covering subsequence discovery, length limits, support filtering, Conway vocabulary
 
 ## Decisions Made
+
 - classifyStrategy takes buildCounts as a separate Record<string, number> parameter alongside the numeric feature vector, keeping StrategyFeatureVector purely numeric for clustering compatibility
 - Conway-appropriate labels per D-08: early-builder, diverse-placer, {templateId}-heavy, mono-{templateId}, economy-saver, balanced
 - PrefixSpan approach chosen for sequence mining -- projected database with per-sequence deduplication ensures correct support counting
@@ -101,6 +117,7 @@ Each task was committed atomically:
 ### Auto-fixed Issues
 
 **1. [Rule 1 - Bug] Fixed lint errors for unused imports/functions**
+
 - **Found during:** Post-task verification
 - **Issue:** Unused `TickActionRecord` import in strategy-classifier.ts and unused `euclideanDistance` function in clustering.ts
 - **Fix:** Removed unused import and function
@@ -114,12 +131,15 @@ Each task was committed atomically:
 **Impact on plan:** Minor lint cleanup, no scope change.
 
 ## Issues Encountered
+
 None
 
 ## User Setup Required
+
 None - no external service configuration required.
 
 ## Next Phase Readiness
+
 - Strategy classification, clustering, and sequence mining modules are ready for Plan 04 (balance report pipeline)
 - classifyAll produces StrategyAssignment[] with clusterId=-1 placeholders ready for kMeans to fill
 - normalizeFeatures converts StrategyFeatureVector[] to number[][] suitable for kMeans input
@@ -134,5 +154,6 @@ None - no external service configuration required.
 - Lint clean
 
 ---
-*Phase: 21-balance-analysis*
-*Completed: 2026-04-01*
+
+_Phase: 21-balance-analysis_
+_Completed: 2026-04-01_

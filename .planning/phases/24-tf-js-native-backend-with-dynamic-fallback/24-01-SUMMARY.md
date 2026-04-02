@@ -16,8 +16,11 @@ affects: [24-02, training, live-bot-strategy, model-loader]
 
 # Tech tracking
 tech-stack:
-  added: ["@tensorflow/tfjs-node@4.22.0 (optionalDependency)"]
-  patterns: ["Dynamic import fallback with promise-based caching for singleton async module loading"]
+  added: ['@tensorflow/tfjs-node@4.22.0 (optionalDependency)']
+  patterns:
+    [
+      'Dynamic import fallback with promise-based caching for singleton async module loading',
+    ]
 
 key-files:
   created:
@@ -29,13 +32,13 @@ key-files:
     - packages/bot-harness/index.ts
 
 key-decisions:
-  - "Promise-based caching (_promise variable) rather than result-based caching to prevent duplicate imports during concurrent getTf() calls"
-  - "15s test timeout for first getTf() invocation to accommodate native addon failure latency on Alpine musl"
-  - "@tensorflow/tfjs-node pinned to 4.22.0 (latest stable) as optionalDependency; @tensorflow/tfjs remains at ^4.23.0-rc.0 in dependencies"
+  - 'Promise-based caching (_promise variable) rather than result-based caching to prevent duplicate imports during concurrent getTf() calls'
+  - '15s test timeout for first getTf() invocation to accommodate native addon failure latency on Alpine musl'
+  - '@tensorflow/tfjs-node pinned to 4.22.0 (latest stable) as optionalDependency; @tensorflow/tfjs remains at ^4.23.0-rc.0 in dependencies'
 
 patterns-established:
-  - "Dynamic import fallback: try native -> catch -> fallback to pure JS, with promise-based singleton caching"
-  - "TfModule type alias as canonical type for the TF.js module across all consumers"
+  - 'Dynamic import fallback: try native -> catch -> fallback to pure JS, with promise-based singleton caching'
+  - 'TfModule type alias as canonical type for the TF.js module across all consumers'
 
 requirements-completed: [PERF-01]
 
@@ -91,6 +94,7 @@ Each task was committed atomically:
 ### Auto-fixed Issues
 
 **1. [Rule 1 - Bug] Fixed tf.train type assertion in test**
+
 - **Found during:** Task 1 (unit test creation)
 - **Issue:** Plan specified `typeof tf.train === 'object'` but TF.js exports `train` as a function (callable namespace)
 - **Fix:** Changed assertion to `typeof tf.train === 'function'`
@@ -99,6 +103,7 @@ Each task was committed atomically:
 - **Committed in:** 5d46f3e (Task 1 commit)
 
 **2. [Rule 1 - Bug] Increased test timeout for native addon failure latency**
+
 - **Found during:** Verification after Task 2
 - **Issue:** Installing @tensorflow/tfjs-node as optionalDependency caused first getTf() to attempt native load, taking ~8s to fail on Alpine musl -- exceeding default 5s vitest timeout
 - **Fix:** Added 15_000ms timeout to the first test case
@@ -134,5 +139,6 @@ None - no external service configuration required.
 All files created exist on disk. All commit hashes found in git log.
 
 ---
-*Phase: 24-tf-js-native-backend-with-dynamic-fallback*
-*Completed: 2026-04-02*
+
+_Phase: 24-tf-js-native-backend-with-dynamic-fallback_
+_Completed: 2026-04-02_

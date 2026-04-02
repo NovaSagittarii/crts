@@ -53,10 +53,7 @@ describe('LiveBotStrategy', () => {
 /**
  * Creates a minimal RoomStatePayload for testing without a real server.
  */
-function createMinimalPayload(
-  width: number,
-  height: number,
-): RoomStatePayload {
+function createMinimalPayload(width: number, height: number): RoomStatePayload {
   // Create an empty grid buffer (all zeros = all dead cells)
   const gridBytes = Math.ceil((width * height) / 8);
   const gridBuffer = new ArrayBuffer(gridBytes);
@@ -75,7 +72,12 @@ function createMinimalPayload(
         name: 'Team 1',
         resources: 100,
         income: 5,
-        incomeBreakdown: { base: 5, structures: 0, total: 5, activeStructureCount: 0 },
+        incomeBreakdown: {
+          base: 5,
+          structures: 0,
+          total: 5,
+          activeStructureCount: 0,
+        },
         pendingBuilds: [],
         pendingDestroys: [],
         structures: [
@@ -92,7 +94,10 @@ function createMinimalPayload(
             buildRadius: 8,
             isCore: true,
             requiresDestroyConfirm: false,
-            transform: { operations: [], matrix: { xx: 1, xy: 0, yx: 0, yy: 1 } },
+            transform: {
+              operations: [],
+              matrix: { xx: 1, xy: 0, yx: 0, yy: 1 },
+            },
             footprint: [{ x: 5, y: 5 }],
           },
         ],
@@ -106,7 +111,12 @@ function createMinimalPayload(
         name: 'Team 2',
         resources: 100,
         income: 5,
-        incomeBreakdown: { base: 5, structures: 0, total: 5, activeStructureCount: 0 },
+        incomeBreakdown: {
+          base: 5,
+          structures: 0,
+          total: 5,
+          activeStructureCount: 0,
+        },
         pendingBuilds: [],
         pendingDestroys: [],
         structures: [
@@ -123,7 +133,10 @@ function createMinimalPayload(
             buildRadius: 8,
             isCore: true,
             requiresDestroyConfirm: false,
-            transform: { operations: [], matrix: { xx: 1, xy: 0, yx: 0, yy: 1 } },
+            transform: {
+              operations: [],
+              matrix: { xx: 1, xy: 0, yx: 0, yy: 1 },
+            },
             footprint: [{ x: 40, y: 40 }],
           },
         ],

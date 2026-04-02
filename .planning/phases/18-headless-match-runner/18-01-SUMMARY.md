@@ -62,6 +62,7 @@ completed: 2026-04-01
 - **Files modified:** 10
 
 ## Accomplishments
+
 - Scaffolded packages/bot-harness with BotStrategy interface as the extension point for all future bot work
 - Implemented NoOpBot (always returns empty) and RandomBot (build-zone-constrained random placement) strategies
 - Registered #bot-harness import alias across package.json, tsconfig.base.json, and vitest.config.ts
@@ -75,6 +76,7 @@ Each task was committed atomically:
 2. **Task 2: Implement NoOpBot and RandomBot strategies** - `ee6c166` (test)
 
 ## Files Created/Modified
+
 - `packages/bot-harness/bot-strategy.ts` - BotStrategy interface, BotView, BotAction, TeamStateView types
 - `packages/bot-harness/types.ts` - MatchConfig, MatchResult, TickRecord, NDJSON line types, defaults
 - `packages/bot-harness/seed.ts` - seedToRoomId and generateSeeds utilities
@@ -87,6 +89,7 @@ Each task was committed atomically:
 - `vitest.config.ts` - Added #bot-harness alias for test resolution
 
 ## Decisions Made
+
 - BotView exposes full Grid + own-team-only TeamStateView (per D-02 fog-of-war constraint) -- other team state is not visible to bots
 - RandomBot uses Math.floor(buildRadius) to ensure integer coordinates when scanning candidate positions, since buildRadius can be a float (e.g., 14.9)
 
@@ -95,6 +98,7 @@ Each task was committed atomically:
 ### Auto-fixed Issues
 
 **1. [Rule 1 - Bug] Fixed non-integer coordinate generation in RandomBot**
+
 - **Found during:** Task 2 (RandomBot integration test)
 - **Issue:** buildRadius is a float (14.9 for core), causing RandomBot to generate non-integer x,y coordinates which are rejected by previewBuildPlacement
 - **Fix:** Applied Math.floor(buildRadius) before using it as loop bounds for candidate position scanning
@@ -108,16 +112,20 @@ Each task was committed atomically:
 **Impact on plan:** Bug fix was necessary for RandomBot to produce valid placements. No scope creep.
 
 ## Issues Encountered
+
 None
 
 ## User Setup Required
+
 None - no external service configuration required.
 
 ## Next Phase Readiness
+
 - BotStrategy interface and both bot implementations are ready for the match runner (Plan 02)
 - #bot-harness alias resolves correctly in TypeScript, vitest, and Node.js
 - RandomBot produces placements that pass RtsRoom.previewBuildPlacement validation
 
 ---
-*Phase: 18-headless-match-runner*
-*Completed: 2026-04-01*
+
+_Phase: 18-headless-match-runner_
+_Completed: 2026-04-01_

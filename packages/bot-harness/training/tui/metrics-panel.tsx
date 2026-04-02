@@ -1,5 +1,5 @@
-import React from 'react';
 import { Box, Text } from 'ink';
+import React from 'react';
 
 import type { TrainingLogEntry } from '../training-logger.js';
 import type { TrainingProgressData } from './types.js';
@@ -40,9 +40,11 @@ function trendArrow(
   }
 
   const improving = lowerIsBetter ? diff < 0 : diff > 0;
-  return improving
-    ? <Text color="green"> {'\u2191'}</Text>
-    : <Text color="red"> {'\u2193'}</Text>;
+  return improving ? (
+    <Text color='green'> {'\u2191'}</Text>
+  ) : (
+    <Text color='red'> {'\u2193'}</Text>
+  );
 }
 
 /**
@@ -112,7 +114,7 @@ export function MetricsPanel({
 }: MetricsPanelProps): React.ReactElement {
   if (data == null) {
     return (
-      <Box flexDirection="column" paddingLeft={1}>
+      <Box flexDirection='column' paddingLeft={1}>
         <Text dimColor>Waiting for training data...</Text>
       </Box>
     );
@@ -142,35 +144,35 @@ export function MetricsPanel({
   const valueLossTrend = recentTrend(recentEpisodes, (e) => e.valueLoss);
 
   return (
-    <Box flexDirection="column" paddingLeft={1}>
+    <Box flexDirection='column' paddingLeft={1}>
       <Text bold>Metrics</Text>
 
       {/* Metrics table */}
-      <Box flexDirection="column">
+      <Box flexDirection='column'>
         <Text>
-          Win Rate:     <Text color={winRateColor}>{fmt(winRate * 100, 1)}%</Text>
+          Win Rate: <Text color={winRateColor}>{fmt(winRate * 100, 1)}%</Text>
           {trendArrow(winRateHistory)}
         </Text>
         <Text>
-          Policy Loss:  <Text>{fmt(policyLoss)}</Text>
+          Policy Loss: <Text>{fmt(policyLoss)}</Text>
           {trendArrow(policyLossTrend, true)}
         </Text>
         <Text>
-          Value Loss:   <Text>{fmt(valueLoss)}</Text>
+          Value Loss: <Text>{fmt(valueLoss)}</Text>
           {trendArrow(valueLossTrend, true)}
         </Text>
         <Text>
-          Entropy:      <Text>{fmt(entropy)}</Text>
+          Entropy: <Text>{fmt(entropy)}</Text>
           {trendArrow(entropyHistory)}
         </Text>
         <Text>
-          Approx KL:    <Text>{fmt(approxKl)}</Text>
+          Approx KL: <Text>{fmt(approxKl)}</Text>
         </Text>
         <Text>
-          ETA:          <Text color="cyan">{eta}</Text>
+          ETA: <Text color='cyan'>{eta}</Text>
         </Text>
         <Text>
-          Time/Gen:     <Text>{formatDuration(genTime)}</Text>
+          Time/Gen: <Text>{formatDuration(genTime)}</Text>
         </Text>
         <Text>
           Episodes/sec: <Text>{fmt(episodesPerSec, 2)}</Text>
@@ -178,30 +180,33 @@ export function MetricsPanel({
       </Box>
 
       {/* Opponent Pool Status (D-03) */}
-      <Box marginTop={1} flexDirection="column">
+      <Box marginTop={1} flexDirection='column'>
         <Text bold>Opponent Pool</Text>
-        <Text>Pool Size:    {String(poolSize)} checkpoints</Text>
+        <Text>Pool Size: {String(poolSize)} checkpoints</Text>
         <Text>
-          Sampling:     latest {String(Math.round(selfPlayConfig.latestRatio * 100))}%
-          {' | '}historical {String(Math.round(selfPlayConfig.historicalRatio * 100))}%
+          Sampling: latest{' '}
+          {String(Math.round(selfPlayConfig.latestRatio * 100))}%{' | '}
+          historical {String(Math.round(selfPlayConfig.historicalRatio * 100))}%
           {' | '}random {String(Math.round(selfPlayConfig.randomRatio * 100))}%
         </Text>
         <Text>
-          Latest Ckpt:  {latestCheckpointEpisode != null
+          Latest Ckpt:{' '}
+          {latestCheckpointEpisode != null
             ? `episode ${String(latestCheckpointEpisode)}`
             : '(none)'}
         </Text>
       </Box>
 
       {/* Recent Episode Log */}
-      <Box marginTop={1} flexDirection="column">
+      <Box marginTop={1} flexDirection='column'>
         <Text bold>Recent Episodes</Text>
         {recentEpisodes.length === 0 ? (
           <Text dimColor>No episodes yet</Text>
         ) : (
           recentEpisodes.slice(0, 5).map((ep) => (
             <Text key={ep.episode}>
-              ep#{String(ep.episode)} reward={fmt(ep.reward, 2)} vs {ep.opponent}{' '}
+              ep#{String(ep.episode)} reward={fmt(ep.reward, 2)} vs{' '}
+              {ep.opponent}{' '}
               <Text color={ep.reward > 0 ? 'green' : 'yellow'}>
                 {ep.reward > 0 ? 'W' : 'L'}
               </Text>

@@ -2,7 +2,8 @@
 phase: 19-observation-action-and-reward-interface
 plan: 03
 subsystem: bot-harness
-tags: [gymnasium, rl-environment, reset-step-api, observation-action-reward, ppo]
+tags:
+  [gymnasium, rl-environment, reset-step-api, observation-action-reward, ppo]
 
 # Dependency graph
 requires:
@@ -30,13 +31,13 @@ key-files:
     - packages/bot-harness/index.ts
 
 key-decisions:
-  - "Static actionSpace computed from grid dimensions (5 templates * W * H + 1 no-op) rather than lazily after reset"
-  - "Test timeouts increased to 15s-300s due to computeActionMask cost iterating all territory positions * templates"
-  - "NoOpBot used as default test opponent to reduce action mask computation overhead in tests"
+  - 'Static actionSpace computed from grid dimensions (5 templates * W * H + 1 no-op) rather than lazily after reset'
+  - 'Test timeouts increased to 15s-300s due to computeActionMask cost iterating all territory positions * templates'
+  - 'NoOpBot used as default test opponent to reduce action mask computation overhead in tests'
 
 patterns-established:
-  - "BotEnvironment wraps RtsRoom as single-agent Gymnasium env: reset(seed, opponent) -> step(action) -> 5-tuple"
-  - "Episode lifecycle: terminated (match outcome) vs truncated (tick limit) following Gymnasium convention"
+  - 'BotEnvironment wraps RtsRoom as single-agent Gymnasium env: reset(seed, opponent) -> step(action) -> 5-tuple'
+  - 'Episode lifecycle: terminated (match outcome) vs truncated (tick limit) following Gymnasium convention'
 
 requirements-completed: [HARN-02, HARN-03, HARN-04]
 
@@ -58,6 +59,7 @@ completed: 2026-04-01
 - **Files modified:** 3
 
 ## Accomplishments
+
 - BotEnvironment class with reset(seed, opponent)/step(action) Gymnasium-style API
 - Integrates ObservationEncoder, ActionDecoder, and computeReward into a single entry point
 - Opponent BotStrategy executes each tick during step(), defaulting to RandomBot
@@ -72,13 +74,15 @@ Each task was committed atomically:
 2. **Task 2: Update index.ts re-exports and run full test suite** - `7dbf18b` (chore)
 
 ## Files Created/Modified
+
 - `packages/bot-harness/bot-environment.ts` - BotEnvironment class with reset()/step(), StepResult/ResetResult/StepInfo/BotEnvironmentConfig interfaces
 - `packages/bot-harness/bot-environment.test.ts` - 9 unit tests covering full Gymnasium lifecycle
 - `packages/bot-harness/index.ts` - Added bot-environment.js re-export (11 total barrel exports)
 
 ## Decisions Made
-- Static actionSpace computed eagerly in constructor from grid dimensions (5 * W * H + 1) rather than lazily after reset -- Phase 20 PPO network builders need shape info before first episode
-- Test timeouts increased to 15-300 seconds because computeActionMask is inherently expensive (iterates territory positions * templates per call); this is acceptable for correctness tests
+
+- Static actionSpace computed eagerly in constructor from grid dimensions (5 _ W _ H + 1) rather than lazily after reset -- Phase 20 PPO network builders need shape info before first episode
+- Test timeouts increased to 15-300 seconds because computeActionMask is inherently expensive (iterates territory positions \* templates per call); this is acceptable for correctness tests
 - NoOpBot used as default test opponent to minimize action mask computation overhead compared to RandomBot which creates more structures
 
 ## Deviations from Plan
@@ -86,6 +90,7 @@ Each task was committed atomically:
 ### Auto-fixed Issues
 
 **1. [Rule 1 - Bug] Fixed lint errors in test file**
+
 - **Found during:** Task 2
 - **Issue:** Unnecessary type assertions in truncation test and unbound-method error in mock opponent test
 - **Fix:** Initialized `lastResult` with first step call to avoid non-null assertions; extracted `decideSpy` variable for mock verification
@@ -99,23 +104,29 @@ Each task was committed atomically:
 **Impact on plan:** Lint fix necessary for CI compliance. No scope creep.
 
 ## Issues Encountered
+
 - computeActionMask performance causes tests to run ~5s per step() call on 20x20 grid -- addressed with increased test timeouts rather than reducing coverage
 
 ## Known Stubs
+
 None -- all interfaces are fully wired to live RtsRoom data.
 
 ## User Setup Required
+
 None - no external service configuration required.
 
 ## Next Phase Readiness
+
 - Phase 19 complete: ObservationEncoder, ActionDecoder, RewardSignal, and BotEnvironment all wired and tested
 - BotEnvironment is the single entry point for Phase 20's PPO training pipeline
 - observationSpace and actionSpace descriptors available for network architecture initialization
 
 ---
-*Phase: 19-observation-action-and-reward-interface*
-*Completed: 2026-04-01*
+
+_Phase: 19-observation-action-and-reward-interface_
+_Completed: 2026-04-01_
 
 ## Self-Check: PASSED
+
 - All 3 created/modified files exist on disk
 - All 3 task commits (2521aeb, 44427a5, 7dbf18b) found in git log

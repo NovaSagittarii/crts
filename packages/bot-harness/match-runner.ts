@@ -7,7 +7,12 @@ import type {
 } from '#rts-engine';
 import { RtsRoom } from '#rts-engine';
 
-import type { BotAction, BotStrategy, BotView, TeamStateView } from './bot-strategy.js';
+import type {
+  BotAction,
+  BotStrategy,
+  BotView,
+  TeamStateView,
+} from './bot-strategy.js';
 import { seedToRoomId } from './seed.js';
 import type {
   MatchCallbacks,
@@ -77,7 +82,10 @@ function mapBuildOutcomeToActionRecord(
   const record: TickActionRecord = {
     teamId: outcome.teamId,
     actionType: 'build',
-    result: outcome.outcome === 'applied' ? 'applied' : (outcome.reason ?? 'rejected'),
+    result:
+      outcome.outcome === 'applied'
+        ? 'applied'
+        : (outcome.reason ?? 'rejected'),
   };
   if (buildPayload) {
     record.templateId = buildPayload.templateId;
@@ -90,13 +98,18 @@ function mapBuildOutcomeToActionRecord(
   return record;
 }
 
-function mapDestroyOutcomeToActionRecord(outcome: DestroyOutcome): TickActionRecord {
+function mapDestroyOutcomeToActionRecord(
+  outcome: DestroyOutcome,
+): TickActionRecord {
   return {
     teamId: outcome.teamId,
     actionType: 'destroy',
     structureKey: outcome.structureKey,
     templateId: outcome.templateId,
-    result: outcome.outcome === 'destroyed' ? 'applied' : (outcome.reason ?? 'rejected'),
+    result:
+      outcome.outcome === 'destroyed'
+        ? 'applied'
+        : (outcome.reason ?? 'rejected'),
   };
 }
 
@@ -127,9 +140,10 @@ export function createTickRecord(
     (outcome) => {
       const teamPayloads = buildPayloadsByTeam.get(outcome.teamId);
       const idx = consumedIndexByTeam.get(outcome.teamId) ?? 0;
-      const payload = teamPayloads && idx < teamPayloads.length
-        ? teamPayloads[idx]
-        : undefined;
+      const payload =
+        teamPayloads && idx < teamPayloads.length
+          ? teamPayloads[idx]
+          : undefined;
       consumedIndexByTeam.set(outcome.teamId, idx + 1);
       return mapBuildOutcomeToActionRecord(outcome, payload);
     },

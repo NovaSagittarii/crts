@@ -1,17 +1,17 @@
 #!/usr/bin/env tsx
-import { parseArgs } from 'node:util';
 import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { parseArgs } from 'node:util';
 
 import {
-  discoverMatchFiles,
-  readMatchFile,
+  DEFAULT_ANALYSIS_CONFIG,
   assembleBalanceReport,
   assembleRatingsReport,
+  discoverMatchFiles,
   formatConsoleSummary,
   formatMarkdownReport,
-  DEFAULT_ANALYSIS_CONFIG,
+  readMatchFile,
 } from '#bot-harness';
 import type { AnalysisConfig, ParsedMatch, RatingsReport } from '#bot-harness';
 import type { RatingComputeOptions } from '#bot-harness';
@@ -26,11 +26,23 @@ const { values, positionals } = parseArgs({
     'run-dir': { type: 'string' },
     output: { type: 'string', short: 'o' },
     format: { type: 'string', short: 'f', default: 'console' },
-    confidence: { type: 'string', default: String(DEFAULT_ANALYSIS_CONFIG.confidence) },
-    'min-matches': { type: 'string', default: String(DEFAULT_ANALYSIS_CONFIG.minMatches) },
-    'max-pattern-length': { type: 'string', default: String(DEFAULT_ANALYSIS_CONFIG.maxPatternLength) },
+    confidence: {
+      type: 'string',
+      default: String(DEFAULT_ANALYSIS_CONFIG.confidence),
+    },
+    'min-matches': {
+      type: 'string',
+      default: String(DEFAULT_ANALYSIS_CONFIG.minMatches),
+    },
+    'max-pattern-length': {
+      type: 'string',
+      default: String(DEFAULT_ANALYSIS_CONFIG.maxPatternLength),
+    },
     k: { type: 'string', default: String(DEFAULT_ANALYSIS_CONFIG.k) },
-    'first-n-builds': { type: 'string', default: String(DEFAULT_ANALYSIS_CONFIG.firstNBuilds) },
+    'first-n-builds': {
+      type: 'string',
+      default: String(DEFAULT_ANALYSIS_CONFIG.firstNBuilds),
+    },
     // Phase 22: Rating-specific options
     'early-end': { type: 'string', default: '200' },
     'mid-end': { type: 'string', default: '600' },
@@ -100,7 +112,9 @@ if (!existsSync(matchDir)) {
   process.exit(1);
 }
 
-const format = (subcommand === 'all' ? 'all' : (values.format ?? 'console')) as string;
+const format = (
+  subcommand === 'all' ? 'all' : (values.format ?? 'console')
+) as string;
 const validFormats = ['json', 'console', 'markdown', 'all'];
 if (!validFormats.includes(format)) {
   console.error(
@@ -121,7 +135,10 @@ const config: AnalysisConfig = {
   firstNBuilds: parseInt(values['first-n-builds'] as string, 10),
 };
 
-const ratingOptions: RatingComputeOptions & { workers?: number; parallel?: boolean } = {
+const ratingOptions: RatingComputeOptions & {
+  workers?: number;
+  parallel?: boolean;
+} = {
   tau: parseFloat(values.tau as string),
   perPhaseCombos: values['per-phase-combos'] as boolean,
   sdThreshold: parseFloat(values['sd-threshold'] as string),
@@ -143,7 +160,9 @@ const ratingOptions: RatingComputeOptions & { workers?: number; parallel?: boole
     process.exit(1);
   }
 
-  console.error(`Found ${String(filePaths.length)} match file(s) in ${matchDir}`);
+  console.error(
+    `Found ${String(filePaths.length)} match file(s) in ${matchDir}`,
+  );
 
   // 2. Read matches one at a time to avoid memory issues
   const matches: ParsedMatch[] = [];
@@ -157,7 +176,10 @@ const ratingOptions: RatingComputeOptions & { workers?: number; parallel?: boole
   if (subcommand === 'ratings') {
     // Ratings-only mode: compute Glicko-2 ratings
     console.error('Computing Glicko-2 ratings...');
-    const ratingsReport: RatingsReport = await assembleRatingsReport(matches, ratingOptions);
+    const ratingsReport: RatingsReport = await assembleRatingsReport(
+      matches,
+      ratingOptions,
+    );
 
     if (format === 'json' || format === 'all') {
       const json = JSON.stringify(ratingsReport, null, 2);
@@ -205,7 +227,8 @@ const ratingOptions: RatingComputeOptions & { workers?: number; parallel?: boole
 
     if (format === 'json' || format === 'all') {
       const json = JSON.stringify(report, null, 2);
-      const jsonPath = format === 'all' ? (outputPath ?? 'balance-report.json') : outputPath;
+      const jsonPath =
+        format === 'all' ? (outputPath ?? 'balance-report.json') : outputPath;
       if (jsonPath) {
         await writeFile(jsonPath, json, 'utf-8');
         console.error(`JSON report written to: ${jsonPath}`);
@@ -248,7 +271,8 @@ const ratingOptions: RatingComputeOptions & { workers?: number; parallel?: boole
 
     if (format === 'json' || format === 'all') {
       const json = JSON.stringify(report, null, 2);
-      const jsonPath = format === 'all' ? (outputPath ?? 'balance-report.json') : outputPath;
+      const jsonPath =
+        format === 'all' ? (outputPath ?? 'balance-report.json') : outputPath;
       if (jsonPath) {
         await writeFile(jsonPath, json, 'utf-8');
         console.error(`JSON report written to: ${jsonPath}`);
@@ -311,7 +335,9 @@ function formatRatingsConsole(report: RatingsReport): string {
       const rating = entity.rating.rating.toFixed(0).padStart(5);
       const rd = entity.rating.rd.toFixed(0);
       const prov = entity.provisional ? ', provisional' : '';
-      lines.push(`    ${name}  ${rating} +/- ${rd}  (n=${String(entity.matchCount)}${prov})`);
+      lines.push(
+        `    ${name}  ${rating} +/- ${rd}  (n=${String(entity.matchCount)}${prov})`,
+      );
     }
     lines.push('');
   }
@@ -331,7 +357,9 @@ function formatRatingsConsole(report: RatingsReport): string {
     for (const entity of report.outliers.overall) {
       if (entity.outlierFlags.length > 0) {
         const flags = entity.outlierFlags.join(', ');
-        lines.push(`    [${flags}] ${entity.name} (${entity.phase}): ${entity.rating.rating.toFixed(0)}`);
+        lines.push(
+          `    [${flags}] ${entity.name} (${entity.phase}): ${entity.rating.rating.toFixed(0)}`,
+        );
       }
     }
     lines.push('');

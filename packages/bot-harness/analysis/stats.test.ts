@@ -50,7 +50,7 @@ describe('wilsonScoreInterval', () => {
   });
 
   it('uses correct z-scores for 0.90 confidence', () => {
-    const result = wilsonScoreInterval(50, 100, 0.90);
+    const result = wilsonScoreInterval(50, 100, 0.9);
     // Narrower CI than 0.95
     const result95 = wilsonScoreInterval(50, 100, 0.95);
     expect(result.upper - result.lower).toBeLessThan(
@@ -96,10 +96,10 @@ describe('bootstrapPercentileCI', () => {
     const result = bootstrapPercentileCI(30, 100, 0.95, 10000, 42);
     // Width should be non-trivial for n=100
     expect(result.upper - result.lower).toBeGreaterThan(0.05);
-    expect(result.upper - result.lower).toBeLessThan(0.30);
+    expect(result.upper - result.lower).toBeLessThan(0.3);
     // CI should contain the true proportion
-    expect(result.lower).toBeLessThanOrEqual(0.30);
-    expect(result.upper).toBeGreaterThanOrEqual(0.30);
+    expect(result.lower).toBeLessThanOrEqual(0.3);
+    expect(result.upper).toBeGreaterThanOrEqual(0.3);
   });
 });
 

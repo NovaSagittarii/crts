@@ -4,7 +4,7 @@ milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
 status: verifying
 stopped_at: Completed 25-03-PLAN.md
-last_updated: "2026-04-02T10:26:29.349Z"
+last_updated: '2026-04-02T10:26:29.349Z'
 last_activity: 2026-04-02
 progress:
   total_phases: 8
@@ -58,7 +58,7 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 18]: Hash checkpoint fires at tick 0 to establish baseline determinism anchor
 - [Phase 18]: Used node:util parseArgs for zero-dependency CLI argument parsing
 - [Phase 18]: Added bin/ to tsconfig.json include and eslint node globals for full type-checking coverage of CLI files
-- [Phase 19]: Full grid (width * height) as action space position upper bound -- mask narrows valid set, action space size fixed per episode
+- [Phase 19]: Full grid (width \* height) as action space position upper bound -- mask narrows valid set, action space size fixed per episode
 - [Phase 19]: Templates sorted alphabetically by id for deterministic action-to-template index mapping
 - [Phase 19]: ObservationEncoder uses createStatePayload() for both own and enemy data; territoryRadius read directly from RoomState.teams
 - [Phase 19]: computeReward is a pure function with no internal state; episodeNumber for annealing passed in externally
@@ -105,10 +105,10 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 23]: LiveBotStrategy transposes [C,H,W] to [H,W,C] per Phase 20 PPO network input convention
 - [Phase 23]: Simplified action mask checks resources >= 5 (min template cost) rather than full per-action validation; server validates all builds
 - [Phase 23]: teamId tracked as number|null with explicit null guard in state handler per socket contract nullability
-- [Phase 24]: Promise-based caching (_promise variable) for getTf() to prevent duplicate imports during concurrent calls
+- [Phase 24]: Promise-based caching (\_promise variable) for getTf() to prevent duplicate imports during concurrent calls
 - [Phase 24]: 15s test timeout for first getTf() invocation to accommodate @tensorflow/tfjs-node failure latency on Alpine musl
 - [Phase 24]: @tensorflow/tfjs-node@4.22.0 pinned as optionalDependency; @tensorflow/tfjs remains at ^4.23.0-rc.0 in dependencies
-- [Phase 24]: Module-level _tf with initTfBackend() export pattern for lazy TF.js initialization across all bot-harness modules
+- [Phase 24]: Module-level \_tf with initTfBackend() export pattern for lazy TF.js initialization across all bot-harness modules
 - [Phase 24]: Barrel re-exports use aliased names (initPpoNetworkTf, initPpoTrainerTf) to avoid initTfBackend collisions
 - [Phase 25]: Ink 6 + React 19 for TUI rendering framework
 - [Phase 25]: onProgress callback pattern (not EventEmitter) for coordinator-to-TUI data flow

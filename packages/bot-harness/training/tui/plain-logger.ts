@@ -16,7 +16,11 @@ export function attachPlainLogger(
     const logger = coordinator.getLogger();
     if (logger == null) return;
 
-    const line = logger.formatLiveMetrics(data.entry, totalEpisodes, data.startTime);
+    const line = logger.formatLiveMetrics(
+      data.entry,
+      totalEpisodes,
+      data.startTime,
+    );
     console.log(line);
   };
 }

@@ -35,12 +35,12 @@ key-files:
     - packages/bot-harness/index.ts
 
 key-decisions:
-  - "PayloadObservationEncoder computes territoryRadius as DEFAULT_TEAM_TERRITORY_RADIUS + sum of non-core buildRadius, matching RtsRoom formula without RtsRoom dependency"
-  - "TickBudgetTracker uses performance.now() with manual startTick/endTick bracketing rather than wrapping inference calls"
+  - 'PayloadObservationEncoder computes territoryRadius as DEFAULT_TEAM_TERRITORY_RADIUS + sum of non-core buildRadius, matching RtsRoom formula without RtsRoom dependency'
+  - 'TickBudgetTracker uses performance.now() with manual startTick/endTick bracketing rather than wrapping inference calls'
 
 patterns-established:
-  - "Wire-data encoder pattern: duplicate encoding logic from domain encoder to work on payload types, cross-validated via tests"
-  - "Tick budget pattern: track/signal/log cycle with pluggable fallback strategies"
+  - 'Wire-data encoder pattern: duplicate encoding logic from domain encoder to work on payload types, cross-validated via tests'
+  - 'Tick budget pattern: track/signal/log cycle with pluggable fallback strategies'
 
 requirements-completed: [DEPLOY-01]
 
@@ -62,6 +62,7 @@ completed: 2026-04-01
 - **Files modified:** 7
 
 ## Accomplishments
+
 - Model loader auto-detects most recent trained model from runs/ directory or loads from explicit path
 - Tick budget tracker measures inference timing against configurable budget with noop/cached/deadline fallback strategies and cumulative stats
 - PayloadObservationEncoder produces identical 5-channel planes + 7 scalars as ObservationEncoder but from RoomStatePayload wire data
@@ -81,6 +82,7 @@ Each task was committed atomically (TDD: test -> feat):
    - `e6a66d4` (fix): add timeout to cross-validation test for parallel agent contention
 
 ## Files Created/Modified
+
 - `packages/bot-harness/model-loader.ts` - findLatestModelDir auto-detect + loadBotModel with explicit/auto path
 - `packages/bot-harness/model-loader.test.ts` - 7 unit tests for model loading and auto-detect
 - `packages/bot-harness/tick-budget.ts` - TickBudgetTracker with fallback strategies, stats, and metrics logging
@@ -90,6 +92,7 @@ Each task was committed atomically (TDD: test -> feat):
 - `packages/bot-harness/index.ts` - Added re-exports for model-loader, tick-budget, payload-observation-encoder
 
 ## Decisions Made
+
 - PayloadObservationEncoder computes territoryRadius as DEFAULT_TEAM_TERRITORY_RADIUS + sum of non-core buildRadius, matching the RtsRoom computation formula without requiring an RtsRoom instance
 - TickBudgetTracker uses manual startTick/endTick bracketing rather than wrapping inference calls, giving the caller full control over what is timed
 - Cross-validation test given 30s timeout to handle resource contention from parallel agent execution
@@ -99,6 +102,7 @@ Each task was committed atomically (TDD: test -> feat):
 ### Auto-fixed Issues
 
 **1. [Rule 1 - Bug] Added timeout to cross-validation test**
+
 - **Found during:** Task 2 (Payload-based observation encoder)
 - **Issue:** Cross-validation test creating RtsRoom + running ObservationEncoder + PayloadObservationEncoder timed out at default 5s under parallel agent CPU load
 - **Fix:** Added `{ timeout: 30_000 }` to the test
@@ -112,12 +116,15 @@ Each task was committed atomically (TDD: test -> feat):
 **Impact on plan:** Minimal - test infrastructure fix only, no production code changes.
 
 ## Issues Encountered
+
 None
 
 ## User Setup Required
+
 None - no external service configuration required.
 
 ## Next Phase Readiness
+
 - All three domain modules ready for consumption by Plan 02 (BotSocketAdapter) and Plan 03 (bot CLI)
 - PayloadObservationEncoder is the key bridge between socket wire data and model inference
 - TickBudgetTracker provides the timing infrastructure for real-time inference management
@@ -130,5 +137,6 @@ None - no external service configuration required.
 - 26 unit tests pass across 3 test files
 
 ---
-*Phase: 23-playable-in-game-bot*
-*Completed: 2026-04-01*
+
+_Phase: 23-playable-in-game-bot_
+_Completed: 2026-04-01_

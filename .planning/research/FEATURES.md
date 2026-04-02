@@ -10,21 +10,21 @@
 
 Features that developers running balance analysis and training bots expect. Missing any = the milestone deliverable is non-functional.
 
-| Feature | Why Expected | Complexity | RtsEngine API Dependency | Notes |
-|---------|--------------|------------|--------------------------|-------|
-| Headless match runner | Cannot train bots without rendering-free game execution at max speed | Low | `RtsRoom.create()`, `RtsRoom.tick()`, `addPlayer()`, `RoomTickResult.outcome` | RtsRoom already supports headless deterministic ticks. Wrap in a match-runner loop that handles lobby-to-active-to-finished lifecycle without Socket.IO. No tick timer during training (run as fast as CPU allows). |
-| Observation encoder | RL agent needs structured numeric input representing game state; must be deterministic (same RoomState + teamId = same output) | Medium | `RoomState.grid` (Uint8Array via `Grid.toUnpacked()`), `TeamState.resources/income/structures/defeated`, `pendingBuildEvents`, `pendingDestroyEvents`, `TeamState.baseTopLeft`, `TeamState.territoryRadius` | Encode as multi-plane tensor `(H, W, C)` following AlphaGo/Gym-MicroRTS conventions. See detailed design below. |
-| Action decoder | ML model outputs must map to game actions (`BuildQueuePayload` / `DestroyQueuePayload`) | Medium | `RtsRoom.queueBuildEvent()`, `RtsRoom.queueDestroyEvent()`, `RoomState.templateMap` (5 templates: block, generator, glider, eater-1, gosper), `PlacementTransformState` | MultiDiscrete: (action_type, template_id, grid_x, grid_y, transform_index) for builds + (structure_index) for destroys + no-op. Must mask invalid actions per decision step. |
-| Reward signal (terminal: win/loss) | Terminal reward is the minimum viable signal for competitive training | Low | `RoomTickResult.outcome`, `MatchOutcome.winner`, `RankedTeamOutcome` | +1.0 win, -1.0 loss. Sparse but essential baseline. |
-| Reward shaping (economy/territory/damage) | Sparse win/loss alone makes PPO training prohibitively slow for RTS games due to delayed credit assignment | Medium | `TeamState.resources`, `TeamState.income`, `TeamIncomeBreakdown`, `TeamOutcomeSnapshot.territoryCellCount`, core `Structure.hp` | Economy delta, territory delta, opponent core damage per tick. Anneal shaping coefficient from 1.0 to 0.0 over training to prevent reward hacking. See detailed design below. |
-| Gym-like environment wrapper | Standard `reset()`/`step()` interface that the training pipeline consumes | Low | Thin orchestration over HeadlessMatchRunner + ObservationEncoder + ActionDecoder + RewardSignal | Follows Gymnasium pattern. `reset()` creates new match, `step(action)` advances N ticks. Returns `(obs, reward, terminated, truncated, info)`. |
-| Self-play match loop | Standard method for competitive RL without requiring external opponents | Medium | Headless match runner + environment wrapper | Pit current policy vs. frozen snapshot from opponent pool. Minimum: play current vs. latest frozen. Use SIMPLE framework pattern. |
-| PPO training loop (Python) | PPO is the standard algorithm; Python ecosystem (SB3/CleanRL/gymnasium) is vastly more mature than any JS alternative | High | None directly; consumes observation/reward from Gym environment via IPC | Train in Python with Stable-Baselines3 (`PPO("MlpPolicy", env)`). TypeScript headless env communicates via stdin/stdout JSON lines or subprocess pipe. |
-| ONNX model export | Bridge between Python training and TypeScript inference | Low | None | `torch.onnx.export()` from SB3's `OnnxableSB3Policy` wrapper. Produces `.onnx` file. Well-documented in SB3 export guide (opset 17). |
-| ONNX inference in Node.js | Bot must run in the existing Node.js server ecosystem | Low-Medium | `onnxruntime-node` npm package (native C++ bindings, Node.js v16+) | Load `.onnx` model, feed observation Float32Array, get action logits. Apply action mask, argmax or sample. |
-| Playable in-game bot (Socket.IO adapter) | Bots must be indistinguishable from human players on the wire | Medium | Full `ClientToServerEvents`/`ServerToClientEvents` socket contract: `room:join`, `room:claim-slot`, `room:set-ready`, `build:queue`, `destroy:queue`, `room:joined`, `state`, `build:queued` | Bot connects as a `socket.io-client`, receives game events, runs inference each decision interval, emits actions. Wraps inference runtime with socket lifecycle. |
-| Match result logging | Cannot analyze balance without persistent match outcome data | Low | `MatchOutcome`, `RankedTeamOutcome`, `TeamOutcomeSnapshot`, `TimelineEvent` via `RtsRoom.getTimelineEvents()` | Store per-match: teams, templates used, build sequences, tick count, winner, core HP at end. NDJSON file or SQLite. |
-| Win rate computation | Most fundamental balance metric | Low | Match result logs (no direct engine dependency) | Aggregate win rates by template usage, opening strategy, map size. Filter by minimum sample size for significance. |
+| Feature                                   | Why Expected                                                                                                                   | Complexity | RtsEngine API Dependency                                                                                                                                                                                    | Notes                                                                                                                                                                                                               |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Headless match runner                     | Cannot train bots without rendering-free game execution at max speed                                                           | Low        | `RtsRoom.create()`, `RtsRoom.tick()`, `addPlayer()`, `RoomTickResult.outcome`                                                                                                                               | RtsRoom already supports headless deterministic ticks. Wrap in a match-runner loop that handles lobby-to-active-to-finished lifecycle without Socket.IO. No tick timer during training (run as fast as CPU allows). |
+| Observation encoder                       | RL agent needs structured numeric input representing game state; must be deterministic (same RoomState + teamId = same output) | Medium     | `RoomState.grid` (Uint8Array via `Grid.toUnpacked()`), `TeamState.resources/income/structures/defeated`, `pendingBuildEvents`, `pendingDestroyEvents`, `TeamState.baseTopLeft`, `TeamState.territoryRadius` | Encode as multi-plane tensor `(H, W, C)` following AlphaGo/Gym-MicroRTS conventions. See detailed design below.                                                                                                     |
+| Action decoder                            | ML model outputs must map to game actions (`BuildQueuePayload` / `DestroyQueuePayload`)                                        | Medium     | `RtsRoom.queueBuildEvent()`, `RtsRoom.queueDestroyEvent()`, `RoomState.templateMap` (5 templates: block, generator, glider, eater-1, gosper), `PlacementTransformState`                                     | MultiDiscrete: (action_type, template_id, grid_x, grid_y, transform_index) for builds + (structure_index) for destroys + no-op. Must mask invalid actions per decision step.                                        |
+| Reward signal (terminal: win/loss)        | Terminal reward is the minimum viable signal for competitive training                                                          | Low        | `RoomTickResult.outcome`, `MatchOutcome.winner`, `RankedTeamOutcome`                                                                                                                                        | +1.0 win, -1.0 loss. Sparse but essential baseline.                                                                                                                                                                 |
+| Reward shaping (economy/territory/damage) | Sparse win/loss alone makes PPO training prohibitively slow for RTS games due to delayed credit assignment                     | Medium     | `TeamState.resources`, `TeamState.income`, `TeamIncomeBreakdown`, `TeamOutcomeSnapshot.territoryCellCount`, core `Structure.hp`                                                                             | Economy delta, territory delta, opponent core damage per tick. Anneal shaping coefficient from 1.0 to 0.0 over training to prevent reward hacking. See detailed design below.                                       |
+| Gym-like environment wrapper              | Standard `reset()`/`step()` interface that the training pipeline consumes                                                      | Low        | Thin orchestration over HeadlessMatchRunner + ObservationEncoder + ActionDecoder + RewardSignal                                                                                                             | Follows Gymnasium pattern. `reset()` creates new match, `step(action)` advances N ticks. Returns `(obs, reward, terminated, truncated, info)`.                                                                      |
+| Self-play match loop                      | Standard method for competitive RL without requiring external opponents                                                        | Medium     | Headless match runner + environment wrapper                                                                                                                                                                 | Pit current policy vs. frozen snapshot from opponent pool. Minimum: play current vs. latest frozen. Use SIMPLE framework pattern.                                                                                   |
+| PPO training loop (Python)                | PPO is the standard algorithm; Python ecosystem (SB3/CleanRL/gymnasium) is vastly more mature than any JS alternative          | High       | None directly; consumes observation/reward from Gym environment via IPC                                                                                                                                     | Train in Python with Stable-Baselines3 (`PPO("MlpPolicy", env)`). TypeScript headless env communicates via stdin/stdout JSON lines or subprocess pipe.                                                              |
+| ONNX model export                         | Bridge between Python training and TypeScript inference                                                                        | Low        | None                                                                                                                                                                                                        | `torch.onnx.export()` from SB3's `OnnxableSB3Policy` wrapper. Produces `.onnx` file. Well-documented in SB3 export guide (opset 17).                                                                                |
+| ONNX inference in Node.js                 | Bot must run in the existing Node.js server ecosystem                                                                          | Low-Medium | `onnxruntime-node` npm package (native C++ bindings, Node.js v16+)                                                                                                                                          | Load `.onnx` model, feed observation Float32Array, get action logits. Apply action mask, argmax or sample.                                                                                                          |
+| Playable in-game bot (Socket.IO adapter)  | Bots must be indistinguishable from human players on the wire                                                                  | Medium     | Full `ClientToServerEvents`/`ServerToClientEvents` socket contract: `room:join`, `room:claim-slot`, `room:set-ready`, `build:queue`, `destroy:queue`, `room:joined`, `state`, `build:queued`                | Bot connects as a `socket.io-client`, receives game events, runs inference each decision interval, emits actions. Wraps inference runtime with socket lifecycle.                                                    |
+| Match result logging                      | Cannot analyze balance without persistent match outcome data                                                                   | Low        | `MatchOutcome`, `RankedTeamOutcome`, `TeamOutcomeSnapshot`, `TimelineEvent` via `RtsRoom.getTimelineEvents()`                                                                                               | Store per-match: teams, templates used, build sequences, tick count, winner, core HP at end. NDJSON file or SQLite.                                                                                                 |
+| Win rate computation                      | Most fundamental balance metric                                                                                                | Low        | Match result logs (no direct engine dependency)                                                                                                                                                             | Aggregate win rates by template usage, opening strategy, map size. Filter by minimum sample size for significance.                                                                                                  |
 
 ---
 
@@ -32,22 +32,22 @@ Features that developers running balance analysis and training bots expect. Miss
 
 Features that elevate this from "basic bot" to "balance analysis platform." Not strictly required for a working bot, but deliver high analytical value.
 
-| Feature | Value Proposition | Complexity | RtsEngine API Dependency | Notes |
-|---------|-------------------|------------|--------------------------|-------|
-| Action masking in policy network | Prevents agent from wasting samples on illegal actions (out-of-zone placements, unaffordable templates), dramatically improving sample efficiency | Medium | `RtsRoom.previewBuildPlacement()` (`accepted` + `reason`), `TeamState.resources` for affordability check, `collectBuildZoneContributors()` + `isBuildZoneCoveredByContributor()` for zone coverage | Without masking, raw build action space is ~2.6M on a 256x256 map (5 templates * 256 * 256 * 8 transforms). Masking reduces to hundreds of valid options per step. |
-| Glicko-2 structure template ratings | Rate individual structure templates (block, generator, glider, eater-1, gosper) by competitive strength using a principled probabilistic system, not just raw win rate | Medium | `TeamState.structures` (template IDs per team), match outcomes | Use `glicko2.ts` npm package (TypeScript-native). Each template becomes a Glicko-2 entity. Rating Deviation reveals how well-tested each template is. Volatility reveals context-dependence. |
-| Glicko-2 combo ratings | Rate specific template combinations as composite entities, revealing emergent synergies and dominated strategies | High | Same as above but requires defining combo identifiers from build sequences | Map each team's build history to a canonical combo signature (order-independent multiset, e.g., `block:3,generator:2`). Only rate combos appearing >= 5 times. |
-| Strategy distribution analysis | Identify whether the metagame is diverse or collapsed to a single dominant strategy | Medium | Match logs + template/combo frequencies | Compute pick rate, usage-weighted win rate, Shannon entropy over combo frequencies. High entropy = healthy diverse meta. Low entropy = degenerate. |
-| Self-play opponent pool with prioritized sampling | Training against mixed opponent strengths prevents catastrophic forgetting and promotes robust play | Medium | Self-play loop | Maintain pool of frozen policy snapshots with Glicko-2 ratings. Sample proportional to rating (stronger = more likely). Standard practice from AlphaZero/SIMPLE. 50% latest + 30% historical + 20% random is a good starting split. |
-| Intransitivity detection | Discover rock-paper-scissors dynamics among templates/combos (desirable for strategic depth) | High | Pairwise win rate matrix from match logs | Build pairwise win rate matrix. Detect directed cycles. Some intransitivity is good (creates metagame cycling); extreme intransitivity is opaque. |
-| Snowball curve analysis | Measure whether early economic advantages are insurmountable | Medium | `TeamState.resources` time series, `TimelineEvent` timestamps, match outcomes | Pearson correlation between "resource lead at tick N" and final outcome. High correlation at low N = steep snowball. Current economy: `DEFAULT_STARTING_RESOURCES=40`, generator income 1/tick. |
-| Per-map balance metrics | Ensure balance holds across different grid sizes since spawn distance varies | Low | `CreateRoomOptions.width/height`, `SPAWN_MIN_WRAPPED_DISTANCE = 25` | Run tournaments at multiple map sizes (64x64, 128x128, 256x256). Report win rates and distributions per map. |
-| Configurable reward weights | Iterate on reward design without code changes. Different reward configs produce different play styles. | Low | Reward config is a plain object passed to RewardSignal class | Enables rapid experimentation. |
-| Curriculum training schedule | Progressively increase opponent difficulty and fade out reward shaping | Medium | Training pipeline configuration | Phase 1: random opponents + full shaping. Phase 2: weak snapshots + declining shaping. Phase 3: recent snapshots + pure win/loss. |
-| Determinism hash verification for bot matches | Ensure bot-driven headless matches maintain identical determinism guarantees as human lockstep matches | Low | `RtsRoom.createDeterminismCheckpoint()`, `RoomDeterminismCheckpoint` | Reuses existing FNV1a-32 hashing infrastructure. Critical for reproducible balance analysis. |
-| Replay/trajectory storage | Save full action sequences for offline analysis and debugging of surprising bot behavior | Low-Medium | `InputLogEntry` from `input-event-log.ts`, `TimelineEvent` | Store complete input log per match. Enables deterministic replay and counterfactual analysis. |
-| Bot difficulty levels | Multiple ONNX models from different training checkpoints (early = easy, late = hard) | Low | Just load different `.onnx` files | No code changes needed. Natural byproduct of checkpoint-based training. |
-| Strategy profile extraction | Classify each match's play style (e.g., "generator rush", "defensive block", "gosper push") for richer Glicko-2 analysis | Medium | Build order, timing, template distribution from match logs | Heuristic classification. Enriches balance reports beyond raw template counts. |
+| Feature                                           | Value Proposition                                                                                                                                                      | Complexity | RtsEngine API Dependency                                                                                                                                                                           | Notes                                                                                                                                                                                                                               |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Action masking in policy network                  | Prevents agent from wasting samples on illegal actions (out-of-zone placements, unaffordable templates), dramatically improving sample efficiency                      | Medium     | `RtsRoom.previewBuildPlacement()` (`accepted` + `reason`), `TeamState.resources` for affordability check, `collectBuildZoneContributors()` + `isBuildZoneCoveredByContributor()` for zone coverage | Without masking, raw build action space is ~2.6M on a 256x256 map (5 templates _ 256 _ 256 \* 8 transforms). Masking reduces to hundreds of valid options per step.                                                                 |
+| Glicko-2 structure template ratings               | Rate individual structure templates (block, generator, glider, eater-1, gosper) by competitive strength using a principled probabilistic system, not just raw win rate | Medium     | `TeamState.structures` (template IDs per team), match outcomes                                                                                                                                     | Use `glicko2.ts` npm package (TypeScript-native). Each template becomes a Glicko-2 entity. Rating Deviation reveals how well-tested each template is. Volatility reveals context-dependence.                                        |
+| Glicko-2 combo ratings                            | Rate specific template combinations as composite entities, revealing emergent synergies and dominated strategies                                                       | High       | Same as above but requires defining combo identifiers from build sequences                                                                                                                         | Map each team's build history to a canonical combo signature (order-independent multiset, e.g., `block:3,generator:2`). Only rate combos appearing >= 5 times.                                                                      |
+| Strategy distribution analysis                    | Identify whether the metagame is diverse or collapsed to a single dominant strategy                                                                                    | Medium     | Match logs + template/combo frequencies                                                                                                                                                            | Compute pick rate, usage-weighted win rate, Shannon entropy over combo frequencies. High entropy = healthy diverse meta. Low entropy = degenerate.                                                                                  |
+| Self-play opponent pool with prioritized sampling | Training against mixed opponent strengths prevents catastrophic forgetting and promotes robust play                                                                    | Medium     | Self-play loop                                                                                                                                                                                     | Maintain pool of frozen policy snapshots with Glicko-2 ratings. Sample proportional to rating (stronger = more likely). Standard practice from AlphaZero/SIMPLE. 50% latest + 30% historical + 20% random is a good starting split. |
+| Intransitivity detection                          | Discover rock-paper-scissors dynamics among templates/combos (desirable for strategic depth)                                                                           | High       | Pairwise win rate matrix from match logs                                                                                                                                                           | Build pairwise win rate matrix. Detect directed cycles. Some intransitivity is good (creates metagame cycling); extreme intransitivity is opaque.                                                                                   |
+| Snowball curve analysis                           | Measure whether early economic advantages are insurmountable                                                                                                           | Medium     | `TeamState.resources` time series, `TimelineEvent` timestamps, match outcomes                                                                                                                      | Pearson correlation between "resource lead at tick N" and final outcome. High correlation at low N = steep snowball. Current economy: `DEFAULT_STARTING_RESOURCES=40`, generator income 1/tick.                                     |
+| Per-map balance metrics                           | Ensure balance holds across different grid sizes since spawn distance varies                                                                                           | Low        | `CreateRoomOptions.width/height`, `SPAWN_MIN_WRAPPED_DISTANCE = 25`                                                                                                                                | Run tournaments at multiple map sizes (64x64, 128x128, 256x256). Report win rates and distributions per map.                                                                                                                        |
+| Configurable reward weights                       | Iterate on reward design without code changes. Different reward configs produce different play styles.                                                                 | Low        | Reward config is a plain object passed to RewardSignal class                                                                                                                                       | Enables rapid experimentation.                                                                                                                                                                                                      |
+| Curriculum training schedule                      | Progressively increase opponent difficulty and fade out reward shaping                                                                                                 | Medium     | Training pipeline configuration                                                                                                                                                                    | Phase 1: random opponents + full shaping. Phase 2: weak snapshots + declining shaping. Phase 3: recent snapshots + pure win/loss.                                                                                                   |
+| Determinism hash verification for bot matches     | Ensure bot-driven headless matches maintain identical determinism guarantees as human lockstep matches                                                                 | Low        | `RtsRoom.createDeterminismCheckpoint()`, `RoomDeterminismCheckpoint`                                                                                                                               | Reuses existing FNV1a-32 hashing infrastructure. Critical for reproducible balance analysis.                                                                                                                                        |
+| Replay/trajectory storage                         | Save full action sequences for offline analysis and debugging of surprising bot behavior                                                                               | Low-Medium | `InputLogEntry` from `input-event-log.ts`, `TimelineEvent`                                                                                                                                         | Store complete input log per match. Enables deterministic replay and counterfactual analysis.                                                                                                                                       |
+| Bot difficulty levels                             | Multiple ONNX models from different training checkpoints (early = easy, late = hard)                                                                                   | Low        | Just load different `.onnx` files                                                                                                                                                                  | No code changes needed. Natural byproduct of checkpoint-based training.                                                                                                                                                             |
+| Strategy profile extraction                       | Classify each match's play style (e.g., "generator rush", "defensive block", "gosper push") for richer Glicko-2 analysis                                               | Medium     | Build order, timing, template distribution from match logs                                                                                                                                         | Heuristic classification. Enriches balance reports beyond raw template counts.                                                                                                                                                      |
 
 ---
 
@@ -55,18 +55,18 @@ Features that elevate this from "basic bot" to "balance analysis platform." Not 
 
 Features to explicitly NOT build in v0.0.4.
 
-| Anti-Feature | Why Avoid | What to Do Instead |
-|--------------|-----------|-------------------|
-| All-TypeScript PPO training | No viable TypeScript PPO library exists. TensorFlow.js supports basic RL but the Python ecosystem (SB3, CleanRL, gymnasium, PyTorch) is vastly more mature, better documented, and orders of magnitude faster. Would require months of ML framework development. | Train in Python (SB3 + PPO), export to ONNX, infer in Node.js via `onnxruntime-node`. |
-| Full client-side bot (browser inference) | `onnxruntime-web` is 11-17x slower than native per GitHub issue #11181. Adds WASM/WebGPU complexity, increases bundle size, provides no balance-analysis value. | Bot runs server-side in Node.js only. Browser bots are a future milestone if needed for single-player. |
-| Real-time training during live matches | Training requires thousands of episodes and gradient updates. Running updates during live matches would lag the server catastrophically. | Train offline in batch, deploy frozen ONNX model for live play. |
-| Visual replay viewer | High UI effort, low balance-analysis ROI. | Store replay data (input logs + timeline events). Viewer deferred to spectator mode milestone (already identified as `UX2-01` future candidate). |
-| Multi-agent training (>2 players per match) | The game is effectively 1v1 (one player per team). Multi-agent adds massive non-stationarity and credit assignment complexity. | Keep 1v1 self-play. HeadlessMatchRunner takes exactly 2 agents. |
-| Fog-of-war for bots | The game does not have fog-of-war yet (future candidate `UX2-01`). Simulating partial observability is premature. | Bots see full state, same as human players. Add fog support when the feature ships. |
-| GPU training support in Node.js | `@tensorflow/tfjs-node-gpu` has documented inconsistencies. Not worth the debugging effort. | Train in Python where CUDA support is reliable. Conway RTS is computationally cheap; CPU PPO is sufficient. |
-| Automated balance patching | Automatically adjusting game parameters (template costs, HP, income rates) based on balance metrics. | Produce analysis reports and recommendations. Human decides what to change. Automated patching risks unintended cascading effects. |
-| Neural architecture search / hyperparameter optimization | Premature optimization before basic PPO self-play is validated. | Use SB3 defaults: 2 hidden layers, 64 neurons each, tanh activation. Tune manually only if training clearly fails. |
-| Persistent player ELO leaderboard | No auth system exists. No persistent player identities to track. | Glicko-2 ratings are for structures/strategies, not players. Player ratings are out of scope per PROJECT.md. |
+| Anti-Feature                                             | Why Avoid                                                                                                                                                                                                                                                        | What to Do Instead                                                                                                                               |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| All-TypeScript PPO training                              | No viable TypeScript PPO library exists. TensorFlow.js supports basic RL but the Python ecosystem (SB3, CleanRL, gymnasium, PyTorch) is vastly more mature, better documented, and orders of magnitude faster. Would require months of ML framework development. | Train in Python (SB3 + PPO), export to ONNX, infer in Node.js via `onnxruntime-node`.                                                            |
+| Full client-side bot (browser inference)                 | `onnxruntime-web` is 11-17x slower than native per GitHub issue #11181. Adds WASM/WebGPU complexity, increases bundle size, provides no balance-analysis value.                                                                                                  | Bot runs server-side in Node.js only. Browser bots are a future milestone if needed for single-player.                                           |
+| Real-time training during live matches                   | Training requires thousands of episodes and gradient updates. Running updates during live matches would lag the server catastrophically.                                                                                                                         | Train offline in batch, deploy frozen ONNX model for live play.                                                                                  |
+| Visual replay viewer                                     | High UI effort, low balance-analysis ROI.                                                                                                                                                                                                                        | Store replay data (input logs + timeline events). Viewer deferred to spectator mode milestone (already identified as `UX2-01` future candidate). |
+| Multi-agent training (>2 players per match)              | The game is effectively 1v1 (one player per team). Multi-agent adds massive non-stationarity and credit assignment complexity.                                                                                                                                   | Keep 1v1 self-play. HeadlessMatchRunner takes exactly 2 agents.                                                                                  |
+| Fog-of-war for bots                                      | The game does not have fog-of-war yet (future candidate `UX2-01`). Simulating partial observability is premature.                                                                                                                                                | Bots see full state, same as human players. Add fog support when the feature ships.                                                              |
+| GPU training support in Node.js                          | `@tensorflow/tfjs-node-gpu` has documented inconsistencies. Not worth the debugging effort.                                                                                                                                                                      | Train in Python where CUDA support is reliable. Conway RTS is computationally cheap; CPU PPO is sufficient.                                      |
+| Automated balance patching                               | Automatically adjusting game parameters (template costs, HP, income rates) based on balance metrics.                                                                                                                                                             | Produce analysis reports and recommendations. Human decides what to change. Automated patching risks unintended cascading effects.               |
+| Neural architecture search / hyperparameter optimization | Premature optimization before basic PPO self-play is validated.                                                                                                                                                                                                  | Use SB3 defaults: 2 hidden layers, 64 neurons each, tanh activation. Tune manually only if training clearly fails.                               |
+| Persistent player ELO leaderboard                        | No auth system exists. No persistent player identities to track.                                                                                                                                                                                                 | Glicko-2 ratings are for structures/strategies, not players. Player ratings are out of scope per PROJECT.md.                                     |
 
 ---
 
@@ -139,32 +139,32 @@ The observation space should be a 3D tensor of shape `(H, W, C)` where H and W a
 
 **Recommended feature planes for Conway RTS:**
 
-| Channel | Type | Description | Engine Source |
-|---------|------|-------------|---------------|
-| 0 | Binary | Grid cell alive/dead | `RoomState.grid` via `Grid.toUnpacked()` |
-| 1 | Binary | Own team territory mask | Derived from `TeamState.baseTopLeft` + `TeamState.territoryRadius` |
-| 2 | Binary | Opponent team territory mask | Same derivation for opponent |
-| 3 | Binary | Own structure footprint (all cells occupied by own structures) | `TeamState.structures` -> each `Structure.projectPlacement(width, height)` |
-| 4 | Binary | Opponent structure footprint | Same for opponent structures |
-| 5 | Float [0,1] | Own structure HP normalized (per cell, by template startingHp) | `Structure.hp / Structure.template.startingHp` projected onto footprint |
-| 6 | Float [0,1] | Opponent structure HP normalized | Same for opponent |
-| 7 | Binary | Own build zone coverage | `collectBuildZoneContributors()` + `isBuildZoneCoveredByContributor()` |
-| 8 | Binary | Own core footprint | Core structure cells (from `CORE_STRUCTURE_TEMPLATE`, 11x11 with padding) |
-| 9 | Binary | Opponent core footprint | Same for opponent |
-| 10 | Binary | Pending own build locations | `TeamState.pendingBuildEvents` projected via template footprints |
-| 11 | Binary | Pending opponent build locations | Same for opponent |
+| Channel | Type        | Description                                                    | Engine Source                                                              |
+| ------- | ----------- | -------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| 0       | Binary      | Grid cell alive/dead                                           | `RoomState.grid` via `Grid.toUnpacked()`                                   |
+| 1       | Binary      | Own team territory mask                                        | Derived from `TeamState.baseTopLeft` + `TeamState.territoryRadius`         |
+| 2       | Binary      | Opponent team territory mask                                   | Same derivation for opponent                                               |
+| 3       | Binary      | Own structure footprint (all cells occupied by own structures) | `TeamState.structures` -> each `Structure.projectPlacement(width, height)` |
+| 4       | Binary      | Opponent structure footprint                                   | Same for opponent structures                                               |
+| 5       | Float [0,1] | Own structure HP normalized (per cell, by template startingHp) | `Structure.hp / Structure.template.startingHp` projected onto footprint    |
+| 6       | Float [0,1] | Opponent structure HP normalized                               | Same for opponent                                                          |
+| 7       | Binary      | Own build zone coverage                                        | `collectBuildZoneContributors()` + `isBuildZoneCoveredByContributor()`     |
+| 8       | Binary      | Own core footprint                                             | Core structure cells (from `CORE_STRUCTURE_TEMPLATE`, 11x11 with padding)  |
+| 9       | Binary      | Opponent core footprint                                        | Same for opponent                                                          |
+| 10      | Binary      | Pending own build locations                                    | `TeamState.pendingBuildEvents` projected via template footprints           |
+| 11      | Binary      | Pending opponent build locations                               | Same for opponent                                                          |
 
 **Scalar features (appended as uniform-value planes or as a separate flat vector):**
 
-| Feature | Normalization | Engine Source |
-|---------|---------------|---------------|
-| Own resources | `resources / 200` (reasonable cap) | `TeamState.resources` |
-| Opponent resources | Same | Opponent `TeamState.resources` |
-| Own income per tick | `incomeBreakdown.total / 10` | `TeamIncomeBreakdown.total` |
-| Opponent income per tick | Same | Opponent `TeamIncomeBreakdown.total` |
-| Current tick | `tick / MAX_TICKS` | `RoomState.tick` |
-| Own core HP | `coreHp / 500` | Core `Structure.hp` (startingHp=500) |
-| Opponent core HP | Same | Opponent core `Structure.hp` |
+| Feature                  | Normalization                      | Engine Source                        |
+| ------------------------ | ---------------------------------- | ------------------------------------ |
+| Own resources            | `resources / 200` (reasonable cap) | `TeamState.resources`                |
+| Opponent resources       | Same                               | Opponent `TeamState.resources`       |
+| Own income per tick      | `incomeBreakdown.total / 10`       | `TeamIncomeBreakdown.total`          |
+| Opponent income per tick | Same                               | Opponent `TeamIncomeBreakdown.total` |
+| Current tick             | `tick / MAX_TICKS`                 | `RoomState.tick`                     |
+| Own core HP              | `coreHp / 500`                     | Core `Structure.hp` (startingHp=500) |
+| Opponent core HP         | Same                               | Opponent core `Structure.hp`         |
 
 **Total: 12 spatial planes + 7 scalar features.**
 
@@ -180,16 +180,16 @@ MultiDiscrete action space, evaluated once per N ticks (decision frequency is a 
 
 **Action dimensions:**
 
-| Dimension | Range | Description |
-|-----------|-------|-------------|
-| action_type | Discrete(3) | 0=no-op, 1=build, 2=destroy |
-| template_id | Discrete(5) | block(0), generator(1), glider(2), eater-1(3), gosper(4) |
-| grid_x | Discrete(W) | X coordinate for placement |
-| grid_y | Discrete(H) | Y coordinate for placement |
-| transform_index | Discrete(8) | Identity + 3 rotations + 4 reflections |
-| structure_index | Discrete(S) | Index into own non-core structures (only for destroy) |
+| Dimension       | Range       | Description                                              |
+| --------------- | ----------- | -------------------------------------------------------- |
+| action_type     | Discrete(3) | 0=no-op, 1=build, 2=destroy                              |
+| template_id     | Discrete(5) | block(0), generator(1), glider(2), eater-1(3), gosper(4) |
+| grid_x          | Discrete(W) | X coordinate for placement                               |
+| grid_y          | Discrete(H) | Y coordinate for placement                               |
+| transform_index | Discrete(8) | Identity + 3 rotations + 4 reflections                   |
+| structure_index | Discrete(S) | Index into own non-core structures (only for destroy)    |
 
-**Action masking is critical.** Without masking, raw build action space is 5 * W * H * 8 = 2,621,440 on a 256x256 map. With masking, this reduces to a few hundred valid options per step.
+**Action masking is critical.** Without masking, raw build action space is 5 _ W _ H \* 8 = 2,621,440 on a 256x256 map. With masking, this reduces to a few hundred valid options per step.
 
 **Mask computation per decision step:**
 
@@ -211,29 +211,29 @@ Based on research on reward shaping for RTS games, particularly the "Action Guid
 
 **Terminal rewards (always active):**
 
-| Signal | Value | Trigger | Engine Source |
-|--------|-------|---------|---------------|
-| Win | +1.0 | `MatchOutcome.winner.teamId === ownTeamId` | `RoomTickResult.outcome` |
-| Loss | -1.0 | Match finished, not winner | `RoomTickResult.outcome` |
-| Draw/timeout | 0.0 | Match exceeds max ticks without outcome | Custom timeout in runner |
+| Signal       | Value | Trigger                                    | Engine Source            |
+| ------------ | ----- | ------------------------------------------ | ------------------------ |
+| Win          | +1.0  | `MatchOutcome.winner.teamId === ownTeamId` | `RoomTickResult.outcome` |
+| Loss         | -1.0  | Match finished, not winner                 | `RoomTickResult.outcome` |
+| Draw/timeout | 0.0   | Match exceeds max ticks without outcome    | Custom timeout in runner |
 
 **Shaped rewards (annealed during training via configurable coefficient):**
 
-| Signal | Value | Per | Engine Source | Risk |
-|--------|-------|-----|---------------|------|
-| Economy delta | `+0.01 * (income_t - income_{t-1})` | Tick | `TeamIncomeBreakdown.total` | Agent farms generators, never attacks |
-| Territory delta | `+0.005 * (territory_t - territory_{t-1})` | Tick | Territory cell count delta | Agent spreads without defending core |
-| Structure HP preservation | `-0.01 * own_hp_damage` | Tick | HP deltas on own structures | Overly defensive play |
-| Opponent core damage | `+0.02 * opponent_core_hp_damage` | Tick | Opponent core HP delta | Well-aligned incentive |
-| Invalid action penalty | `-0.001` | Decision step | Build rejected / masked action | Teaches valid action selection fast |
+| Signal                    | Value                                      | Per           | Engine Source                  | Risk                                  |
+| ------------------------- | ------------------------------------------ | ------------- | ------------------------------ | ------------------------------------- |
+| Economy delta             | `+0.01 * (income_t - income_{t-1})`        | Tick          | `TeamIncomeBreakdown.total`    | Agent farms generators, never attacks |
+| Territory delta           | `+0.005 * (territory_t - territory_{t-1})` | Tick          | Territory cell count delta     | Agent spreads without defending core  |
+| Structure HP preservation | `-0.01 * own_hp_damage`                    | Tick          | HP deltas on own structures    | Overly defensive play                 |
+| Opponent core damage      | `+0.02 * opponent_core_hp_damage`          | Tick          | Opponent core HP delta         | Well-aligned incentive                |
+| Invalid action penalty    | `-0.001`                                   | Decision step | Build rejected / masked action | Teaches valid action selection fast   |
 
 **Curriculum annealing schedule:**
 
-| Training Phase | Range | Shaping Coefficient | Opponent Source |
-|----------------|-------|---------------------|-----------------|
-| Phase 1: Exploration | 0-30% | 1.0 (full shaping) | Random actions / weakest snapshots |
-| Phase 2: Transition | 30-70% | Linear decay 1.0 -> 0.0 | Mix of weak + recent snapshots |
-| Phase 3: Competition | 70-100% | 0.0 (pure win/loss) | Recent strong snapshots only |
+| Training Phase       | Range   | Shaping Coefficient     | Opponent Source                    |
+| -------------------- | ------- | ----------------------- | ---------------------------------- |
+| Phase 1: Exploration | 0-30%   | 1.0 (full shaping)      | Random actions / weakest snapshots |
+| Phase 2: Transition  | 30-70%  | Linear decay 1.0 -> 0.0 | Mix of weak + recent snapshots     |
+| Phase 3: Competition | 70-100% | 0.0 (pure win/loss)     | Recent strong snapshots only       |
 
 **Confidence:** MEDIUM. Reward shaping for RTS is well-studied. Action Guidance validates the anneal-to-sparse approach. Exact coefficients need empirical tuning. The configurable-weights pattern enables rapid iteration.
 
@@ -262,12 +262,12 @@ Each of the 5 structure templates becomes a Glicko-2 entity. After each self-pla
 
 **Interpretation matrix:**
 
-| Rating | RD | Volatility | Meaning |
-|--------|-----|-----------|---------|
-| High | Low | Low | Reliably strong template |
-| High | High | Any | Possibly strong but under-tested |
-| Low | Low | Low | Reliably weak (candidate for cost reduction / buff) |
-| Any | Any | High | Context-dependent — strong in some matchups, weak in others. This is actually desirable for game health (rock-paper-scissors dynamics). |
+| Rating | RD   | Volatility | Meaning                                                                                                                                 |
+| ------ | ---- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| High   | Low  | Low        | Reliably strong template                                                                                                                |
+| High   | High | Any        | Possibly strong but under-tested                                                                                                        |
+| Low    | Low  | Low        | Reliably weak (candidate for cost reduction / buff)                                                                                     |
+| Any    | Any  | High       | Context-dependent — strong in some matchups, weak in others. This is actually desirable for game health (rock-paper-scissors dynamics). |
 
 ### Application to Template Combos
 
@@ -288,32 +288,32 @@ Define a combo as the canonical multiset of templates built during a match (e.g.
 
 ### Tier 1: Essential (Must Have for Milestone)
 
-| Metric | Computation | Healthy Range |
-|--------|-------------|---------------|
-| First-mover win rate | `wins_team1 / total_matches` | 45-55% |
-| Per-template usage rate | `matches_using_template / total` | No single template > 80% |
-| Per-template win rate | `wins_using_template / uses` | 40-60% per template |
-| Average match length | `mean(match_ticks)` | 50-500 ticks (too short = rushes dominate, too long = stalemates) |
-| Glicko-2 template ratings | Algorithm output per template | Rating spread < 300 between best and worst |
+| Metric                    | Computation                      | Healthy Range                                                     |
+| ------------------------- | -------------------------------- | ----------------------------------------------------------------- |
+| First-mover win rate      | `wins_team1 / total_matches`     | 45-55%                                                            |
+| Per-template usage rate   | `matches_using_template / total` | No single template > 80%                                          |
+| Per-template win rate     | `wins_using_template / uses`     | 40-60% per template                                               |
+| Average match length      | `mean(match_ticks)`              | 50-500 ticks (too short = rushes dominate, too long = stalemates) |
+| Glicko-2 template ratings | Algorithm output per template    | Rating spread < 300 between best and worst                        |
 
 ### Tier 2: Diagnostic (Should Have)
 
-| Metric | What It Reveals |
-|--------|-----------------|
-| Strategy entropy (`-sum(p_i * log(p_i))`) | Meta diversity; low = collapsed to dominant strategy |
-| Snowball coefficient (Pearson r at tick N) | How deterministic early advantages are |
-| Pairwise counter-rate matrix | Hard counters and dominated strategies |
-| Glicko-2 rating distribution histogram | Tight = balanced; wide spread = imbalanced |
-| Economy divergence tick | When winner/loser resource curves separate decisively |
+| Metric                                     | What It Reveals                                       |
+| ------------------------------------------ | ----------------------------------------------------- |
+| Strategy entropy (`-sum(p_i * log(p_i))`)  | Meta diversity; low = collapsed to dominant strategy  |
+| Snowball coefficient (Pearson r at tick N) | How deterministic early advantages are                |
+| Pairwise counter-rate matrix               | Hard counters and dominated strategies                |
+| Glicko-2 rating distribution histogram     | Tight = balanced; wide spread = imbalanced            |
+| Economy divergence tick                    | When winner/loser resource curves separate decisively |
 
 ### Tier 3: Advanced (Nice to Have, Likely Deferred)
 
-| Metric | Complexity | What It Reveals |
-|--------|------------|-----------------|
-| Nash equilibrium approximation | High (linear programming) | Theoretically optimal strategy mix |
-| Effective strategy count (`exp(entropy)`) | Low | Practical number of viable strategies |
-| Build order timing analysis | Medium | Rush vs economy vs defensive strategy prevalence |
-| Core HP trajectory percentiles | Medium | How quickly cores are typically threatened |
+| Metric                                    | Complexity                | What It Reveals                                  |
+| ----------------------------------------- | ------------------------- | ------------------------------------------------ |
+| Nash equilibrium approximation            | High (linear programming) | Theoretically optimal strategy mix               |
+| Effective strategy count (`exp(entropy)`) | Low                       | Practical number of viable strategies            |
+| Build order timing analysis               | Medium                    | Rush vs economy vs defensive strategy prevalence |
+| Core HP trajectory percentiles            | Medium                    | How quickly cores are typically threatened       |
 
 **Confidence:** HIGH for Tier 1 (standard RTS metrics). MEDIUM for Tier 2 (sound methodology, needs adaptation). LOW for Tier 3 (research-level, may exceed milestone scope).
 

@@ -21,7 +21,12 @@ affects: [20-03, 20-04, 20-05]
 # Tech tracking
 tech-stack:
   added: []
-  patterns: ["GAE backward pass on plain Float32Arrays (no tf.Tensor)", "PPO clipped surrogate loss with tf.tidy memory management", "Advantage normalization before mini-batching"]
+  patterns:
+    [
+      'GAE backward pass on plain Float32Arrays (no tf.Tensor)',
+      'PPO clipped surrogate loss with tf.tidy memory management',
+      'Advantage normalization before mini-batching',
+    ]
 
 key-files:
   created:
@@ -32,13 +37,13 @@ key-files:
   modified: []
 
 key-decisions:
-  - "Float32 precision tolerance: GAE tests use toBeCloseTo(x, 3) instead of 4 decimal places due to Float32Array accumulated rounding in backward pass"
-  - "Advantages normalized (mean=0, std=1) across full buffer before splitting into mini-batches, not per-batch"
+  - 'Float32 precision tolerance: GAE tests use toBeCloseTo(x, 3) instead of 4 decimal places due to Float32Array accumulated rounding in backward pass'
+  - 'Advantages normalized (mean=0, std=1) across full buffer before splitting into mini-batches, not per-batch'
 
 patterns-established:
-  - "Trajectory storage pattern: plain JS typed arrays (Float32Array, Uint8Array), never tf.Tensor -- prevents GPU memory leaks"
-  - "PPO gradient update pattern: all tensor ops inside tf.tidy() with manual dispose of input tensors created outside tidy"
-  - "Action masking pattern: add (1 - mask) * -1e9 to logits before softmax to suppress invalid actions"
+  - 'Trajectory storage pattern: plain JS typed arrays (Float32Array, Uint8Array), never tf.Tensor -- prevents GPU memory leaks'
+  - 'PPO gradient update pattern: all tensor ops inside tf.tidy() with manual dispose of input tensors created outside tidy'
+  - 'Action masking pattern: add (1 - mask) * -1e9 to logits before softmax to suppress invalid actions'
 
 requirements-completed: [TRAIN-01]
 
@@ -60,6 +65,7 @@ completed: 2026-04-01
 - **Files modified:** 4
 
 ## Accomplishments
+
 - Implemented GAE computation as a pure function with hand-computed test values verified (3-step trajectory and terminal episode)
 - Built PPO trainer with clipped surrogate policy loss, MSE value loss, entropy bonus, and KL-based early stopping
 - All trajectory data stored as plain JS typed arrays (no tf.Tensor objects) to prevent memory leaks
@@ -79,12 +85,14 @@ Each task was committed atomically:
    - `3f7541f` (feat: implement PPO trainer with clipped surrogate loss)
 
 ## Files Created/Modified
+
 - `packages/bot-harness/training/trajectory-buffer.ts` - TrajectoryStep, TrajectoryBatch, computeGAE, TrajectoryBuffer with add/finalize/getBatches/clear
 - `packages/bot-harness/training/trajectory-buffer.test.ts` - 10 tests: GAE correctness, terminal zeroing, Float32Array types, buffer operations, normalization
 - `packages/bot-harness/training/ppo-trainer.ts` - PPOTrainer with trainOnBatch, update, sampleAction, computeValue, optimizer weight get/set
 - `packages/bot-harness/training/ppo-trainer.test.ts` - 11 tests: loss reduction, field verification, KL early stopping, masking, tensor leaks
 
 ## Decisions Made
+
 - **Float32 precision tolerance:** Hand-computed GAE expected values use Float64 precision, but computeGAE stores results in Float32Array which has ~7 significant digits. Accumulated rounding in the backward pass means test tolerance should be 3 decimal places (0.0005) not 4.
 - **Buffer-wide advantage normalization:** Advantages are normalized (mean=0, std=1) across the entire finalized buffer before splitting into mini-batches, ensuring consistent normalization regardless of batch composition.
 
@@ -93,6 +101,7 @@ Each task was committed atomically:
 ### Auto-fixed Issues
 
 **1. [Rule 1 - Bug] Float32 precision tolerance in GAE tests**
+
 - **Found during:** Task 1 (GREEN phase)
 - **Issue:** Hand-computed GAE values at Float64 precision (e.g. 1.9310525) differ from Float32Array stored values (e.g. 1.9307975) by ~0.00025, exceeding 4-decimal tolerance
 - **Fix:** Changed test assertions from `toBeCloseTo(x, 4)` to `toBeCloseTo(x, 3)` for Float32-appropriate tolerance
@@ -105,12 +114,15 @@ Each task was committed atomically:
 **Impact on plan:** Float32 precision is an inherent property of the chosen storage format. The tolerance adjustment is appropriate and the GAE values are mathematically correct within Float32 precision. No scope creep.
 
 ## Issues Encountered
+
 None beyond the expected Float32 precision tolerance adjustment.
 
 ## User Setup Required
+
 None - no external service configuration required.
 
 ## Next Phase Readiness
+
 - TrajectoryBuffer ready for episode collection workers (Plan 04)
 - PPOTrainer ready for training loop integration (Plan 03/04)
 - sampleAction and computeValue provide inference API for collection workers

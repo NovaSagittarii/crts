@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { kMeans, normalizeFeatures, featureVectorToArray } from './clustering.js';
+import {
+  featureVectorToArray,
+  kMeans,
+  normalizeFeatures,
+} from './clustering.js';
 import type { StrategyFeatureVector } from './types.js';
 
 // ── helpers ────────────────────────────────────────────────────────────
@@ -101,10 +105,7 @@ describe('kMeans', () => {
   });
 
   it('produces deterministic results with same seed', () => {
-    const data = [
-      ...clusterPoints(0, 0, 5),
-      ...clusterPoints(10, 10, 5),
-    ];
+    const data = [...clusterPoints(0, 0, 5), ...clusterPoints(10, 10, 5)];
 
     const a = kMeans(data, 2, { seed: 123 });
     const b = kMeans(data, 2, { seed: 123 });

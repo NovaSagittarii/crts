@@ -1,12 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
+import type { MatchHeader, MatchOutcomeRecord, TickRecord } from '../types.js';
 import {
-  extractTemplateEncounters,
-  extractCombinationEncounters,
   GAME_PHASE_DEFAULTS,
+  extractCombinationEncounters,
+  extractTemplateEncounters,
 } from './encounter-extractor.js';
 import type { ParsedMatch } from './types.js';
-import type { TickRecord, MatchOutcomeRecord, MatchHeader } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Test fixture helpers
@@ -51,7 +51,10 @@ function makeBuildAction(
   };
 }
 
-function makeTick(tick: number, actions: ReturnType<typeof makeBuildAction>[]): TickRecord {
+function makeTick(
+  tick: number,
+  actions: ReturnType<typeof makeBuildAction>[],
+): TickRecord {
   return {
     type: 'tick',
     tick,
@@ -74,8 +77,28 @@ function makeOutcome(
       winner: null,
       isDraw: true,
       ranked: [
-        { rank: 1, teamId: 0, outcome: 'defeated', finalCoreHp: 50, coreState: 'intact', territoryCellCount: 100, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 },
-        { rank: 1, teamId: 1, outcome: 'defeated', finalCoreHp: 50, coreState: 'intact', territoryCellCount: 100, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 },
+        {
+          rank: 1,
+          teamId: 0,
+          outcome: 'defeated',
+          finalCoreHp: 50,
+          coreState: 'intact',
+          territoryCellCount: 100,
+          queuedBuildCount: 0,
+          appliedBuildCount: 0,
+          rejectedBuildCount: 0,
+        },
+        {
+          rank: 1,
+          teamId: 1,
+          outcome: 'defeated',
+          finalCoreHp: 50,
+          coreState: 'intact',
+          territoryCellCount: 100,
+          queuedBuildCount: 0,
+          appliedBuildCount: 0,
+          rejectedBuildCount: 0,
+        },
       ],
     };
   }
@@ -84,11 +107,41 @@ function makeOutcome(
   return {
     type: 'outcome',
     totalTicks,
-    winner: { rank: 1, teamId: winnerId, outcome: 'winner', finalCoreHp: 100, coreState: 'intact', territoryCellCount: 200, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 },
+    winner: {
+      rank: 1,
+      teamId: winnerId,
+      outcome: 'winner',
+      finalCoreHp: 100,
+      coreState: 'intact',
+      territoryCellCount: 200,
+      queuedBuildCount: 0,
+      appliedBuildCount: 0,
+      rejectedBuildCount: 0,
+    },
     isDraw: false,
     ranked: [
-      { rank: 1, teamId: winnerId, outcome: 'winner', finalCoreHp: 100, coreState: 'intact', territoryCellCount: 200, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 },
-      { rank: 2, teamId: loserId, outcome: 'defeated', finalCoreHp: 0, coreState: 'destroyed', territoryCellCount: 50, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 },
+      {
+        rank: 1,
+        teamId: winnerId,
+        outcome: 'winner',
+        finalCoreHp: 100,
+        coreState: 'intact',
+        territoryCellCount: 200,
+        queuedBuildCount: 0,
+        appliedBuildCount: 0,
+        rejectedBuildCount: 0,
+      },
+      {
+        rank: 2,
+        teamId: loserId,
+        outcome: 'defeated',
+        finalCoreHp: 0,
+        coreState: 'destroyed',
+        territoryCellCount: 50,
+        queuedBuildCount: 0,
+        appliedBuildCount: 0,
+        rejectedBuildCount: 0,
+      },
     ],
   };
 }
@@ -206,12 +259,17 @@ describe('encounter-extractor', () => {
 
       const match = makeMatch(ticks, makeOutcome(0));
       // Only ticks 0-199
-      const encounters = extractTemplateEncounters(match, { start: 0, end: 200 });
+      const encounters = extractTemplateEncounters(match, {
+        start: 0,
+        end: 200,
+      });
 
       // Only block vs generator (builds at tick 10), 2 directions
       expect(encounters).toHaveLength(2);
 
-      const templates = encounters.map((e) => `${e.entityA}-${e.entityB}`).sort();
+      const templates = encounters
+        .map((e) => `${e.entityA}-${e.entityB}`)
+        .sort();
       expect(templates).toEqual(['block-generator', 'generator-block']);
     });
 
@@ -259,7 +317,10 @@ describe('encounter-extractor', () => {
       ];
 
       const match = makeMatch(ticks, makeOutcome(0));
-      const encounters = extractTemplateEncounters(match, { start: 0, end: 200 });
+      const encounters = extractTemplateEncounters(match, {
+        start: 0,
+        end: 200,
+      });
 
       expect(encounters).toHaveLength(0);
     });
@@ -270,8 +331,20 @@ describe('encounter-extractor', () => {
           type: 'tick',
           tick: 10,
           actions: [
-            { teamId: 0, actionType: 'destroy', result: 'applied', structureKey: 'key1' },
-            { teamId: 0, actionType: 'build', templateId: 'block', result: 'rejected', x: 0, y: 0 },
+            {
+              teamId: 0,
+              actionType: 'destroy',
+              result: 'applied',
+              structureKey: 'key1',
+            },
+            {
+              teamId: 0,
+              actionType: 'build',
+              templateId: 'block',
+              result: 'rejected',
+              x: 0,
+              y: 0,
+            },
             makeBuildAction(0, 'glider', 10),
             makeBuildAction(1, 'generator', 10),
           ],
@@ -349,11 +422,10 @@ describe('encounter-extractor', () => {
       combinations.set(1, new Set(['eater-1+generator']));
 
       // Only ticks 0-199
-      const encounters = extractCombinationEncounters(
-        match,
-        combinations,
-        { start: 0, end: 200 },
-      );
+      const encounters = extractCombinationEncounters(match, combinations, {
+        start: 0,
+        end: 200,
+      });
 
       // block+glider: block=1 (at tick 10 only), glider=1 => min=1 => weight=log(2)
       const enc = encounters.find((e) => e.entityA === 'block+glider');

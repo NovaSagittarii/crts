@@ -2,7 +2,7 @@ import type { ConfidenceInterval } from './types.js';
 
 /** Z-score lookup for common confidence levels */
 const Z_SCORES: Record<number, number> = {
-  0.90: 1.645,
+  0.9: 1.645,
   0.95: 1.96,
   0.99: 2.576,
 };

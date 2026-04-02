@@ -15,13 +15,13 @@ created: 2026-04-01
 
 ## Test Infrastructure
 
-| Property | Value |
-|----------|-------|
-| **Framework** | vitest |
-| **Config file** | `vitest.config.ts` (root) |
-| **Quick run command** | `npx vitest run packages/bot-harness/live-bot/` |
-| **Full suite command** | `npm run test:unit` |
-| **Estimated runtime** | ~5 seconds |
+| Property               | Value                                           |
+| ---------------------- | ----------------------------------------------- |
+| **Framework**          | vitest                                          |
+| **Config file**        | `vitest.config.ts` (root)                       |
+| **Quick run command**  | `npx vitest run packages/bot-harness/live-bot/` |
+| **Full suite command** | `npm run test:unit`                             |
+| **Estimated runtime**  | ~5 seconds                                      |
 
 ---
 
@@ -48,9 +48,9 @@ All plans use inline TDD — no separate Wave 0 needed.
 
 ## Manual-Only Verifications
 
-| Behavior | Requirement | Why Manual | Test Instructions |
-|----------|-------------|------------|-------------------|
-| Bot joins live server and plays full match | DEPLOY-01 | Requires running server + bot processes | Start server, start bot, observe match completion |
+| Behavior                                   | Requirement | Why Manual                              | Test Instructions                                 |
+| ------------------------------------------ | ----------- | --------------------------------------- | ------------------------------------------------- |
+| Bot joins live server and plays full match | DEPLOY-01   | Requires running server + bot processes | Start server, start bot, observe match completion |
 
 ---
 

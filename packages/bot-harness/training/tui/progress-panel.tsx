@@ -1,9 +1,9 @@
-import React from 'react';
-import { Box, Text } from 'ink';
 import asciichart from 'asciichart';
+import { Box, Text } from 'ink';
+import React from 'react';
 
-import type { TrainingProgressData } from './types.js';
 import { AsciiChart, MultiSeriesChart } from './chart.js';
+import type { TrainingProgressData } from './types.js';
 
 /**
  * Props for the ProgressPanel component (left column, D-01).
@@ -25,7 +25,11 @@ export interface ProgressPanelProps {
  * Uses Unicode block characters for a filled/empty bar.
  * Example: `[████████░░░░] 67%`
  */
-function progressBar(completed: number, total: number, width: number = 30): string {
+function progressBar(
+  completed: number,
+  total: number,
+  width: number = 30,
+): string {
   const ratio = total > 0 ? Math.min(completed / total, 1) : 0;
   const filled = Math.round(ratio * width);
   const empty = width - filled;
@@ -62,7 +66,7 @@ export function ProgressPanel({
 }: ProgressPanelProps): React.ReactElement {
   if (data == null) {
     return (
-      <Box flexDirection="column" paddingRight={1}>
+      <Box flexDirection='column' paddingRight={1}>
         <Text dimColor>Waiting for training data...</Text>
       </Box>
     );
@@ -80,25 +84,29 @@ export function ProgressPanel({
   const bar = progressBar(completedEpisodes, totalEpisodes);
 
   return (
-    <Box flexDirection="column" paddingRight={1}>
+    <Box flexDirection='column' paddingRight={1}>
       <Text bold>Progress</Text>
       <Text>
-        <Text color="green">{bar}</Text>
-        <Text>  {String(completedEpisodes)}/{String(totalEpisodes)} episodes</Text>
+        <Text color='green'>{bar}</Text>
+        <Text>
+          {' '}
+          {String(completedEpisodes)}/{String(totalEpisodes)} episodes
+        </Text>
       </Text>
 
       <Text>
-        Gen {String(generation)}  |  {String(generationEpisodeCount)}/batch  |  {formatDuration(genElapsed)}/gen
+        Gen {String(generation)} | {String(generationEpisodeCount)}/batch |{' '}
+        {formatDuration(genElapsed)}/gen
       </Text>
 
-      <Box marginTop={1} flexDirection="column">
-        <AsciiChart data={rewardHistory} label="Reward Trend" height={8} />
+      <Box marginTop={1} flexDirection='column'>
+        <AsciiChart data={rewardHistory} label='Reward Trend' height={8} />
       </Box>
 
-      <Box marginTop={1} flexDirection="column">
+      <Box marginTop={1} flexDirection='column'>
         <MultiSeriesChart
           series={[policyLossHistory, valueLossHistory]}
-          label="Loss (blue=policy, red=value)"
+          label='Loss (blue=policy, red=value)'
           height={6}
           colors={[asciichart.blue, asciichart.red]}
         />

@@ -1,5 +1,5 @@
-import type { TrainingLogEntry } from '../training-logger.js';
 import type { SelfPlayConfig } from '../training-config.js';
+import type { TrainingLogEntry } from '../training-logger.js';
 
 /**
  * Progress data emitted by TrainingCoordinator after each episode.

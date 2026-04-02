@@ -68,6 +68,7 @@ completed: 2026-04-02
 - **Files modified:** 9
 
 ## Accomplishments
+
 - Installed Ink 6, React 19, and asciichart as production dependencies with full TypeScript type support
 - Configured JSX compilation (react-jsx) in both tsconfig.json and tsconfig.server.json, plus .test.tsx discovery in vitest
 - Added TrainingProgressData, TrainingProgressCallback, and DashboardState type contracts for TUI rendering
@@ -83,6 +84,7 @@ Each task was committed atomically:
 3. **Task 3: Add --no-tui flag to parseTrainingArgs** - `8f5eb66` (feat)
 
 ## Files Created/Modified
+
 - `packages/bot-harness/training/tui/types.ts` - TrainingProgressData, TrainingProgressCallback, DashboardState interfaces
 - `packages/bot-harness/training/training-coordinator.ts` - onProgress callback, togglePause/isPaused/requestStop, generation tracking, pause loop
 - `packages/bot-harness/training/training-coordinator.test.ts` - 3 new tests for onProgress, togglePause, requestStop
@@ -91,10 +93,11 @@ Each task was committed atomically:
 - `package.json` - ink, react, asciichart, @types/react, @types/asciichart, ink-testing-library deps
 - `package-lock.json` - lockfile update for new deps
 - `tsconfig.json` - jsx: react-jsx compiler option
-- `tsconfig.server.json` - jsx: react-jsx compiler option, packages/**/*.tsx include
+- `tsconfig.server.json` - jsx: react-jsx compiler option, packages/\*_/_.tsx include
 - `vitest.config.ts` - .test.tsx file pattern in test.include
 
 ## Decisions Made
+
 - Used Ink 6 + React 19 as TUI rendering framework (Ink 6 requires React 19 as peer)
 - Used callback pattern (onProgress) instead of EventEmitter for simple, type-safe coordinator-to-TUI data flow
 - Pause implemented via 100ms polling loop to avoid blocking the event loop while keeping responsiveness
@@ -105,12 +108,15 @@ Each task was committed atomically:
 None - plan executed exactly as written.
 
 ## Issues Encountered
+
 None.
 
 ## User Setup Required
+
 None - no external service configuration required.
 
 ## Next Phase Readiness
+
 - All dependencies installed and importable for Plan 02 TUI component development
 - TSX compilation works in both tsconfig files, ready for .tsx component files
 - Vitest discovers .test.tsx files, ready for component test files
@@ -123,5 +129,6 @@ None - no external service configuration required.
 All 9 files verified present. All 3 commit hashes verified in git log.
 
 ---
-*Phase: 25-training-tui-dashboard*
-*Completed: 2026-04-02*
+
+_Phase: 25-training-tui-dashboard_
+_Completed: 2026-04-02_

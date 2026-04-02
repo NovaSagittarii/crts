@@ -56,60 +56,64 @@ Requirements for RL Bot Harness & Balance Analysis milestone.
 Deferred to future milestones.
 
 ### Advanced Training
+
 - **TRAIN-05**: Curriculum learning with progressive difficulty stages
 - **TRAIN-06**: Multi-agent tournament brackets for ELO convergence
 - **TRAIN-07**: Hyperparameter search automation
 
 ### Advanced Analysis
+
 - **BAL-06**: Per-map balance heatmaps showing territorial advantage
 - **BAL-07**: Counter-strategy detection (rock-paper-scissors dynamics)
 
 ## Out of Scope
 
-| Feature | Reason |
-|---------|--------|
-| Client-predicted bot moves | Bots use server-authoritative path only |
-| GPU training acceleration | Pure JS CPU sufficient for game's small observation space; revisit if training too slow |
-| Visual replay of bot matches | Headless analysis only; human spectating deferred |
-| Custom neural network architectures | Use standard MLP/small CNN; architecture search is research-level |
-| Real-time balance dashboard | CLI reports sufficient for v0.0.4 |
+| Feature                             | Reason                                                                                  |
+| ----------------------------------- | --------------------------------------------------------------------------------------- |
+| Client-predicted bot moves          | Bots use server-authoritative path only                                                 |
+| GPU training acceleration           | Pure JS CPU sufficient for game's small observation space; revisit if training too slow |
+| Visual replay of bot matches        | Headless analysis only; human spectating deferred                                       |
+| Custom neural network architectures | Use standard MLP/small CNN; architecture search is research-level                       |
+| Real-time balance dashboard         | CLI reports sufficient for v0.0.4                                                       |
 
 ## Traceability
 
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| HARN-01 | Phase 18 | Complete |
-| HARN-02 | Phase 19 | Complete |
-| HARN-03 | Phase 19 | Complete |
-| HARN-04 | Phase 19 | Complete |
-| TRAIN-01 | Phase 20 | Complete |
-| TRAIN-02 | Phase 20 | Complete |
-| TRAIN-03 | Phase 20 | Complete |
-| TRAIN-04 | Phase 20 | Complete |
-| BAL-01 | Phase 18 | Complete |
-| BAL-02 | Phase 21 | Complete |
-| BAL-03 | Phase 21 | Complete |
-| BAL-04 | Phase 22 | Complete |
-| BAL-05 | Phase 22 | Complete |
-| DEPLOY-01 | Phase 23 | Complete |
-| PERF-01 | Phase 24 | Complete |
-| PERF-02 | Phase 24 | Complete |
-| PERF-03 | Phase 24 | Complete |
-| TUI-01 | Phase 25 | Planned |
-| TUI-02 | Phase 25 | Planned |
-| TUI-03 | Phase 25 | Planned |
-| TUI-04 | Phase 25 | Planned |
-| TUI-05 | Phase 25 | Planned |
-| TUI-06 | Phase 25 | Planned |
-| TUI-07 | Phase 25 | Planned |
-| TUI-08 | Phase 25 | Planned |
-| TUI-09 | Phase 25 | Planned |
+| Requirement | Phase    | Status   |
+| ----------- | -------- | -------- |
+| HARN-01     | Phase 18 | Complete |
+| HARN-02     | Phase 19 | Complete |
+| HARN-03     | Phase 19 | Complete |
+| HARN-04     | Phase 19 | Complete |
+| TRAIN-01    | Phase 20 | Complete |
+| TRAIN-02    | Phase 20 | Complete |
+| TRAIN-03    | Phase 20 | Complete |
+| TRAIN-04    | Phase 20 | Complete |
+| BAL-01      | Phase 18 | Complete |
+| BAL-02      | Phase 21 | Complete |
+| BAL-03      | Phase 21 | Complete |
+| BAL-04      | Phase 22 | Complete |
+| BAL-05      | Phase 22 | Complete |
+| DEPLOY-01   | Phase 23 | Complete |
+| PERF-01     | Phase 24 | Complete |
+| PERF-02     | Phase 24 | Complete |
+| PERF-03     | Phase 24 | Complete |
+| TUI-01      | Phase 25 | Planned  |
+| TUI-02      | Phase 25 | Planned  |
+| TUI-03      | Phase 25 | Planned  |
+| TUI-04      | Phase 25 | Planned  |
+| TUI-05      | Phase 25 | Planned  |
+| TUI-06      | Phase 25 | Planned  |
+| TUI-07      | Phase 25 | Planned  |
+| TUI-08      | Phase 25 | Planned  |
+| TUI-09      | Phase 25 | Planned  |
 
 **Coverage:**
+
 - v0.0.4 requirements: 26 total
 - Mapped to phases: 26
 - Unmapped: 0
 
 ---
-*Requirements defined: 2026-03-30*
-*Last updated: 2026-04-01 after Phase 25 planning*
+
+_Requirements defined: 2026-03-30_
+_Last updated: 2026-04-01 after Phase 25 planning_

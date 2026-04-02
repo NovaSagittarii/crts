@@ -5,44 +5,44 @@ status: gaps_found
 score: 4/5 success criteria verified
 re_verification: false
 gaps:
-  - truth: "A policy trained for N episodes achieves a measurably higher win rate against random play than an untrained policy (SC#5)"
+  - truth: 'A policy trained for N episodes achieves a measurably higher win rate against random play than an untrained policy (SC#5)'
     status: partial
-    reason: "Convergence test validates gradient flow (weights change, losses finite, entropy positive) but does NOT assert a win-rate improvement or 55% threshold. The plan explicitly deferred the absolute win-rate check to manual CLI runs. Per the accepted deviation, this is documented and expected -- but the automated gate for SC#5 is weaker than the ROADMAP success criterion."
+    reason: 'Convergence test validates gradient flow (weights change, losses finite, entropy positive) but does NOT assert a win-rate improvement or 55% threshold. The plan explicitly deferred the absolute win-rate check to manual CLI runs. Per the accepted deviation, this is documented and expected -- but the automated gate for SC#5 is weaker than the ROADMAP success criterion.'
     artifacts:
-      - path: "packages/bot-harness/training/convergence.test.ts"
-        issue: "Assertions check weights change and losses are finite, not that trained win rate > untrained baseline. The 55% threshold assertion from the PLAN was removed during implementation due to pure JS TF.js speed constraints."
+      - path: 'packages/bot-harness/training/convergence.test.ts'
+        issue: 'Assertions check weights change and losses are finite, not that trained win rate > untrained baseline. The 55% threshold assertion from the PLAN was removed during implementation due to pure JS TF.js speed constraints.'
     missing:
-      - "No programmatic assertion that trained policy beats untrained baseline or meets 55% threshold"
-  - truth: "Match simulations parallelize across worker threads, utilizing multiple CPU cores (SC#4, TRAIN-04)"
+      - 'No programmatic assertion that trained policy beats untrained baseline or meets 55% threshold'
+  - truth: 'Match simulations parallelize across worker threads, utilizing multiple CPU cores (SC#4, TRAIN-04)'
     status: partial
-    reason: "Infrastructure supports multiple workers (confirmed in coordinator code), but all integration tests run with workers=1. No test verifies that 2+ workers actually run in parallel and produce combined results faster than sequential. TRAIN-04 requires parallelism to be demonstrated."
+    reason: 'Infrastructure supports multiple workers (confirmed in coordinator code), but all integration tests run with workers=1. No test verifies that 2+ workers actually run in parallel and produce combined results faster than sequential. TRAIN-04 requires parallelism to be demonstrated.'
     artifacts:
-      - path: "packages/bot-harness/training/training-coordinator.test.ts"
-        issue: "makeTestConfig sets workers:1 for all tests. No test exercises workers:2 or workers:4 to verify parallel episode collection works end-to-end."
+      - path: 'packages/bot-harness/training/training-coordinator.test.ts'
+        issue: 'makeTestConfig sets workers:1 for all tests. No test exercises workers:2 or workers:4 to verify parallel episode collection works end-to-end.'
     missing:
-      - "At least one coordinator test should use workers >= 2 and verify that episodes are distributed across workers"
-  - truth: "Lint passes with no TypeScript errors"
+      - 'At least one coordinator test should use workers >= 2 and verify that episodes are distributed across workers'
+  - truth: 'Lint passes with no TypeScript errors'
     status: failed
-    reason: "npm run lint reports 9 TypeScript errors across ppo-network.ts, ppo-trainer.ts, and training-worker.ts"
+    reason: 'npm run lint reports 9 TypeScript errors across ppo-network.ts, ppo-trainer.ts, and training-worker.ts'
     artifacts:
-      - path: "packages/bot-harness/training/ppo-network.ts"
+      - path: 'packages/bot-harness/training/ppo-network.ts'
         issue: "TS2322: Type 'ArrayBuffer | SharedArrayBuffer' not assignable to 'ArrayBuffer' (line 141)"
-      - path: "packages/bot-harness/training/ppo-trainer.ts"
+      - path: 'packages/bot-harness/training/ppo-trainer.ts'
         issue: "TS2445: Property 'val' is protected (line 173); TS2345: Tensor<Rank> not assignable to Tensor1D (line 257); TS2724: 'NamedTensor' not exported, did you mean 'NamedTensorMap' (lines 300, 307)"
-      - path: "packages/bot-harness/training/training-worker.ts"
-        issue: "TS2345: Tensor<Rank> not assignable to parameter type (line 346); TS2345: ArrayBuffer | SharedArrayBuffer not assignable to ArrayBuffer (lines 434, 435, 439)"
+      - path: 'packages/bot-harness/training/training-worker.ts'
+        issue: 'TS2345: Tensor<Rank> not assignable to parameter type (line 346); TS2345: ArrayBuffer | SharedArrayBuffer not assignable to ArrayBuffer (lines 434, 435, 439)'
     missing:
-      - "Fix SharedArrayBuffer -> ArrayBuffer type assertions or use Buffer.from() conversion"
-      - "Fix NamedTensor -> NamedTensorMap references in ppo-trainer.ts"
-      - "Fix Tensor<Rank> -> Tensor1D narrowing in ppo-trainer.ts and training-worker.ts"
+      - 'Fix SharedArrayBuffer -> ArrayBuffer type assertions or use Buffer.from() conversion'
+      - 'Fix NamedTensor -> NamedTensorMap references in ppo-trainer.ts'
+      - 'Fix Tensor<Rank> -> Tensor1D narrowing in ppo-trainer.ts and training-worker.ts'
       - "Fix protected property 'val' access in ppo-trainer.ts"
 human_verification:
-  - test: "Verify training actually utilizes multiple CPU cores simultaneously"
-    expected: "When running bin/train.ts with --workers 4, system CPU usage should spike to >100% (multiple cores active) during episode collection phases"
-    why_human: "Cannot measure wall-clock parallelism or CPU utilization programmatically in tests; requires observing process behavior during execution"
-  - test: "Run full training session and verify trained policy beats random play"
-    expected: "NODE_OPTIONS=--conditions=development npx tsx bin/train.ts --episodes 200 --workers 2 --grid-width 15 --grid-height 15 --max-ticks 100 --conv-filters 4,8 --mlp-units 16 --checkpoint-interval 20 --output-dir /tmp/phase20-verify produces a final-model that achieves >55% win rate against RandomBot over 50 evaluation episodes"
-    why_human: "Pure JS TF.js is too slow (2-3 min per episode) to validate the 55% threshold in automated CI. The convergence test only checks gradient flow, not learning outcome."
+  - test: 'Verify training actually utilizes multiple CPU cores simultaneously'
+    expected: 'When running bin/train.ts with --workers 4, system CPU usage should spike to >100% (multiple cores active) during episode collection phases'
+    why_human: 'Cannot measure wall-clock parallelism or CPU utilization programmatically in tests; requires observing process behavior during execution'
+  - test: 'Run full training session and verify trained policy beats random play'
+    expected: 'NODE_OPTIONS=--conditions=development npx tsx bin/train.ts --episodes 200 --workers 2 --grid-width 15 --grid-height 15 --max-ticks 100 --conv-filters 4,8 --mlp-units 16 --checkpoint-interval 20 --output-dir /tmp/phase20-verify produces a final-model that achieves >55% win rate against RandomBot over 50 evaluation episodes'
+    why_human: 'Pure JS TF.js is too slow (2-3 min per episode) to validate the 55% threshold in automated CI. The convergence test only checks gradient flow, not learning outcome.'
 ---
 
 # Phase 20: PPO Training with Self-Play Verification Report
@@ -56,49 +56,49 @@ human_verification:
 
 ### Observable Truths (from ROADMAP Success Criteria)
 
-| #  | Truth                                                                                                              | Status      | Evidence                                                                                                          |
-|----|-------------------------------------------------------------------------------------------------------------------|-------------|-------------------------------------------------------------------------------------------------------------------|
-| 1  | PPO training loop runs gradient updates using TF.js and produces loadable checkpoint files                        | VERIFIED    | ppo-trainer.ts uses optimizer.minimize with clipByValue; opponent-pool.ts saves model.json + weights.bin via tfjs-file-io; all 11 PPO trainer tests pass |
-| 2  | Self-play opponent pool maintains historical checkpoints and samples opponents with configurable ratios            | VERIFIED    | opponent-pool.ts seeds with RandomBot/NoOpBot, FIFO eviction at maxPoolSize, three-way ratio sampling; all 11 opponent pool tests pass |
-| 3  | Training CLI launches configurable runs from command line (episodes, LR, opponent pool size, worker count)        | VERIFIED    | bin/train.ts parses all flags via parseTrainingArgs(); `--help` prints full flag list and exits 0; all flags exercised in tests |
-| 4  | Match simulations parallelize across worker threads using multiple CPU cores                                      | PARTIAL     | training-coordinator.ts spawns N workers via worker_threads and distributes episodes via workerPromises.map(); however all tests use workers=1, no test verifies multi-worker parallel operation end-to-end |
-| 5  | A policy trained for N episodes achieves measurably higher win rate vs untrained policy                           | PARTIAL     | convergence.test.ts verifies: episodes complete, losses finite, weights change, entropy positive -- but no assertion that trained win rate > untrained baseline or meets 55% threshold (accepted deviation per context) |
+| #   | Truth                                                                                                      | Status   | Evidence                                                                                                                                                                                                                |
+| --- | ---------------------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | PPO training loop runs gradient updates using TF.js and produces loadable checkpoint files                 | VERIFIED | ppo-trainer.ts uses optimizer.minimize with clipByValue; opponent-pool.ts saves model.json + weights.bin via tfjs-file-io; all 11 PPO trainer tests pass                                                                |
+| 2   | Self-play opponent pool maintains historical checkpoints and samples opponents with configurable ratios    | VERIFIED | opponent-pool.ts seeds with RandomBot/NoOpBot, FIFO eviction at maxPoolSize, three-way ratio sampling; all 11 opponent pool tests pass                                                                                  |
+| 3   | Training CLI launches configurable runs from command line (episodes, LR, opponent pool size, worker count) | VERIFIED | bin/train.ts parses all flags via parseTrainingArgs(); `--help` prints full flag list and exits 0; all flags exercised in tests                                                                                         |
+| 4   | Match simulations parallelize across worker threads using multiple CPU cores                               | PARTIAL  | training-coordinator.ts spawns N workers via worker_threads and distributes episodes via workerPromises.map(); however all tests use workers=1, no test verifies multi-worker parallel operation end-to-end             |
+| 5   | A policy trained for N episodes achieves measurably higher win rate vs untrained policy                    | PARTIAL  | convergence.test.ts verifies: episodes complete, losses finite, weights change, entropy positive -- but no assertion that trained win rate > untrained baseline or meets 55% threshold (accepted deviation per context) |
 
 **Score:** 3/5 fully verified, 2/5 partial
 
 ### Required Artifacts
 
-| Artifact                                                           | Status      | Evidence                                                                            |
-|--------------------------------------------------------------------|-------------|------------------------------------------------------------------------------------|
-| `packages/bot-harness/training/training-config.ts`                | VERIFIED    | 267 lines; exports TrainingConfig, NetworkConfig, SelfPlayConfig, DEFAULT_*, parseTrainingArgs, generateTrainingRunId |
-| `packages/bot-harness/training/ppo-network.ts`                    | VERIFIED    | 202 lines; exports buildPPOModel, extractWeights, applyWeights, PPOModelConfig, buildModelConfigFromEnv; links to bot-environment.ts |
-| `packages/bot-harness/training/trajectory-buffer.ts`              | VERIFIED    | 239 lines; exports TrajectoryStep, TrajectoryBatch, computeGAE, TrajectoryBuffer; stores plain Float32Arrays |
-| `packages/bot-harness/training/ppo-trainer.ts`                    | VERIFIED    | 369 lines; exports PPOTrainer, TrainStepResult, PPOUpdateResult; uses optimizer.minimize, clipByValue, tf.tidy |
-| `packages/bot-harness/training/opponent-pool.ts`                  | VERIFIED    | 229 lines; exports OpponentPool, OpponentEntry, OpponentType; seeds RandomBot/NoOpBot, FIFO eviction |
-| `packages/bot-harness/training/training-logger.ts`                | VERIFIED    | 154 lines; exports TrainingLogger, TrainingLogEntry; appendFile for NDJSON, formatLiveMetrics with ETA |
-| `packages/bot-harness/training/training-worker.ts`                | VERIFIED    | 556 lines; imports @tensorflow/tfjs (NOT tfjs-node); uses parentPort, BotEnvironment, tf.tidy |
-| `packages/bot-harness/training/training-coordinator.ts`           | VERIFIED    | 647 lines; exports TrainingCoordinator; spawns Worker, PPOTrainer, OpponentPool integration; resume support |
-| `packages/bot-harness/training/training-coordinator.test.ts`      | VERIFIED    | 214 lines; integration tests: full cycle, clean termination, opponent variety, resume |
-| `packages/bot-harness/training/convergence.test.ts`               | VERIFIED    | 284 lines; validates gradient flow: weights change, losses finite, entropy positive |
-| `packages/bot-harness/training/index.ts`                          | VERIFIED    | 7 lines; barrel export for all training modules |
-| `packages/bot-harness/index.ts`                                    | VERIFIED    | re-exports `./training/index.js` on line 12 |
-| `bin/train.ts`                                                     | VERIFIED    | 90 lines; shebang, parseTrainingArgs, coordinator lifecycle, SIGINT/SIGTERM graceful shutdown |
+| Artifact                                                     | Status   | Evidence                                                                                                                             |
+| ------------------------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `packages/bot-harness/training/training-config.ts`           | VERIFIED | 267 lines; exports TrainingConfig, NetworkConfig, SelfPlayConfig, DEFAULT\_\*, parseTrainingArgs, generateTrainingRunId              |
+| `packages/bot-harness/training/ppo-network.ts`               | VERIFIED | 202 lines; exports buildPPOModel, extractWeights, applyWeights, PPOModelConfig, buildModelConfigFromEnv; links to bot-environment.ts |
+| `packages/bot-harness/training/trajectory-buffer.ts`         | VERIFIED | 239 lines; exports TrajectoryStep, TrajectoryBatch, computeGAE, TrajectoryBuffer; stores plain Float32Arrays                         |
+| `packages/bot-harness/training/ppo-trainer.ts`               | VERIFIED | 369 lines; exports PPOTrainer, TrainStepResult, PPOUpdateResult; uses optimizer.minimize, clipByValue, tf.tidy                       |
+| `packages/bot-harness/training/opponent-pool.ts`             | VERIFIED | 229 lines; exports OpponentPool, OpponentEntry, OpponentType; seeds RandomBot/NoOpBot, FIFO eviction                                 |
+| `packages/bot-harness/training/training-logger.ts`           | VERIFIED | 154 lines; exports TrainingLogger, TrainingLogEntry; appendFile for NDJSON, formatLiveMetrics with ETA                               |
+| `packages/bot-harness/training/training-worker.ts`           | VERIFIED | 556 lines; imports @tensorflow/tfjs (NOT tfjs-node); uses parentPort, BotEnvironment, tf.tidy                                        |
+| `packages/bot-harness/training/training-coordinator.ts`      | VERIFIED | 647 lines; exports TrainingCoordinator; spawns Worker, PPOTrainer, OpponentPool integration; resume support                          |
+| `packages/bot-harness/training/training-coordinator.test.ts` | VERIFIED | 214 lines; integration tests: full cycle, clean termination, opponent variety, resume                                                |
+| `packages/bot-harness/training/convergence.test.ts`          | VERIFIED | 284 lines; validates gradient flow: weights change, losses finite, entropy positive                                                  |
+| `packages/bot-harness/training/index.ts`                     | VERIFIED | 7 lines; barrel export for all training modules                                                                                      |
+| `packages/bot-harness/index.ts`                              | VERIFIED | re-exports `./training/index.js` on line 12                                                                                          |
+| `bin/train.ts`                                               | VERIFIED | 90 lines; shebang, parseTrainingArgs, coordinator lifecycle, SIGINT/SIGTERM graceful shutdown                                        |
 
 ### Key Link Verification
 
-| From                         | To                                    | Via                                              | Status      | Details                                                          |
-|------------------------------|---------------------------------------|--------------------------------------------------|-------------|------------------------------------------------------------------|
-| ppo-network.ts               | bot-environment.ts                    | buildModelConfigFromEnv reads observationSpace/actionSpace | WIRED  | Lines 176-196 confirmed; observationSpace.planes.shape, actionSpace.n |
-| ppo-trainer.ts               | ppo-network.ts                        | model.predict for forward pass, optimizer.minimize for updates | WIRED | Lines 103, 107 confirmed; clipByValue for ratio clipping |
-| ppo-trainer.ts               | trajectory-buffer.ts                  | Reads TrajectoryBuffer in update()               | WIRED       | Import line 17; update() takes TrajectoryBuffer parameter |
-| opponent-pool.ts             | random-bot.ts / noop-bot.ts           | Seeds pool with RandomBot and NoOpBot            | WIRED       | Lines 4-5 imports; lines 56, 63 construct instances |
-| training-worker.ts           | @tensorflow/tfjs (pure JS)            | tf import for local inference                    | WIRED       | Line 13: `import * as tf from '@tensorflow/tfjs'`; grep confirms 0 occurrences of tfjs-node |
-| training-worker.ts           | BotEnvironment                        | reset()/step() for episode collection            | WIRED       | Line 15 import; line 374 construction; message protocol at lines 504-542 |
-| training-coordinator.ts      | training-worker.ts                    | Spawns workers, sends weights, receives trajectories | WIRED   | new Worker with shim (line 283); postMessage 'set-weights'/'collect-episode' (lines 325-405) |
-| training-coordinator.ts      | ppo-trainer.ts                        | Runs PPO updates on collected trajectories       | WIRED       | Line 22 import; line 113 construction; update() called in run loop |
-| training-coordinator.ts      | opponent-pool.ts                      | Samples opponents for episodes                   | WIRED       | Line 19 import; line 71 field; sampleOpponent() called at line 372 |
-| bin/train.ts                 | training-coordinator.ts               | Creates coordinator, calls init()/run()/cleanup() | WIRED      | Lines 43, 64, 68, 83 confirmed |
-| bin/train.ts                 | training-config.ts                    | Parses CLI args via parseTrainingArgs()          | WIRED       | Lines 3, 12 confirmed |
+| From                    | To                          | Via                                                            | Status | Details                                                                                      |
+| ----------------------- | --------------------------- | -------------------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------- |
+| ppo-network.ts          | bot-environment.ts          | buildModelConfigFromEnv reads observationSpace/actionSpace     | WIRED  | Lines 176-196 confirmed; observationSpace.planes.shape, actionSpace.n                        |
+| ppo-trainer.ts          | ppo-network.ts              | model.predict for forward pass, optimizer.minimize for updates | WIRED  | Lines 103, 107 confirmed; clipByValue for ratio clipping                                     |
+| ppo-trainer.ts          | trajectory-buffer.ts        | Reads TrajectoryBuffer in update()                             | WIRED  | Import line 17; update() takes TrajectoryBuffer parameter                                    |
+| opponent-pool.ts        | random-bot.ts / noop-bot.ts | Seeds pool with RandomBot and NoOpBot                          | WIRED  | Lines 4-5 imports; lines 56, 63 construct instances                                          |
+| training-worker.ts      | @tensorflow/tfjs (pure JS)  | tf import for local inference                                  | WIRED  | Line 13: `import * as tf from '@tensorflow/tfjs'`; grep confirms 0 occurrences of tfjs-node  |
+| training-worker.ts      | BotEnvironment              | reset()/step() for episode collection                          | WIRED  | Line 15 import; line 374 construction; message protocol at lines 504-542                     |
+| training-coordinator.ts | training-worker.ts          | Spawns workers, sends weights, receives trajectories           | WIRED  | new Worker with shim (line 283); postMessage 'set-weights'/'collect-episode' (lines 325-405) |
+| training-coordinator.ts | ppo-trainer.ts              | Runs PPO updates on collected trajectories                     | WIRED  | Line 22 import; line 113 construction; update() called in run loop                           |
+| training-coordinator.ts | opponent-pool.ts            | Samples opponents for episodes                                 | WIRED  | Line 19 import; line 71 field; sampleOpponent() called at line 372                           |
+| bin/train.ts            | training-coordinator.ts     | Creates coordinator, calls init()/run()/cleanup()              | WIRED  | Lines 43, 64, 68, 83 confirmed                                                               |
+| bin/train.ts            | training-config.ts          | Parses CLI args via parseTrainingArgs()                        | WIRED  | Lines 3, 12 confirmed                                                                        |
 
 ### Data-Flow Trace (Level 4)
 
@@ -106,33 +106,33 @@ Not applicable -- this is a training pipeline, not a rendering/display system. T
 
 ### Behavioral Spot-Checks
 
-| Behavior                             | Command                                                                      | Result                                                                 | Status  |
-|--------------------------------------|------------------------------------------------------------------------------|------------------------------------------------------------------------|---------|
-| CLI --help prints usage and exits    | `NODE_OPTIONS=--conditions=development npx tsx bin/train.ts --help`          | Printed full flag list, exited 0                                       | PASS    |
-| All unit tests pass                  | `npx vitest run packages/bot-harness/training/{config,network,trajectory,trainer,pool,logger}.test.ts` | 73/73 tests passed | PASS    |
-| Convergence test passes              | `npx vitest run packages/bot-harness/training/convergence.test.ts`           | 1/1 passed (164s); weights changed, losses finite, entropy positive     | PASS    |
-| Coordinator integration tests pass   | `npx vitest run packages/bot-harness/training/training-coordinator.test.ts` | 5/5 passed (148s); full cycle, resume, termination verified            | PASS    |
-| Lint clean                           | `npm run lint`                                                               | 9 TypeScript errors in ppo-network.ts, ppo-trainer.ts, training-worker.ts | FAIL  |
+| Behavior                           | Command                                                                                                | Result                                                                    | Status |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- | ------ |
+| CLI --help prints usage and exits  | `NODE_OPTIONS=--conditions=development npx tsx bin/train.ts --help`                                    | Printed full flag list, exited 0                                          | PASS   |
+| All unit tests pass                | `npx vitest run packages/bot-harness/training/{config,network,trajectory,trainer,pool,logger}.test.ts` | 73/73 tests passed                                                        | PASS   |
+| Convergence test passes            | `npx vitest run packages/bot-harness/training/convergence.test.ts`                                     | 1/1 passed (164s); weights changed, losses finite, entropy positive       | PASS   |
+| Coordinator integration tests pass | `npx vitest run packages/bot-harness/training/training-coordinator.test.ts`                            | 5/5 passed (148s); full cycle, resume, termination verified               | PASS   |
+| Lint clean                         | `npm run lint`                                                                                         | 9 TypeScript errors in ppo-network.ts, ppo-trainer.ts, training-worker.ts | FAIL   |
 
 ### Requirements Coverage
 
-| Requirement | Plans Claiming It      | Description                                                                       | Status       | Evidence                                                                 |
-|-------------|------------------------|-----------------------------------------------------------------------------------|--------------|--------------------------------------------------------------------------|
-| TRAIN-01    | 20-01, 20-02, 20-05    | PPO training loop runs policy gradient updates using TF.js, produces checkpoints  | SATISFIED    | optimizer.minimize with clipped surrogate loss; checkpoints saved as model.json + weights.bin; convergence test verifies gradient flow |
-| TRAIN-02    | 20-03, 20-04           | Self-play opponent pool maintains historical checkpoints, configurable ratios      | SATISFIED    | OpponentPool with RandomBot/NoOpBot seeding, three-way ratio sampling, FIFO eviction; opponent-pool tests verify all behaviors; coordinator dispatches sampled opponents to workers |
-| TRAIN-03    | 20-01, 20-05           | Training CLI launches configurable runs from command line                          | SATISFIED    | bin/train.ts parses all flags (episodes, lr, workers, pool size, etc.); --help works; coordinator lifecycle wired |
-| TRAIN-04    | 20-04, 20-05           | Training step parallelizes across worker threads for multiple CPU cores            | PARTIAL      | Worker spawning and parallel collectBatch infrastructure exists and works; but tests only use workers=1, no test verifies multi-worker parallel execution |
+| Requirement | Plans Claiming It   | Description                                                                      | Status    | Evidence                                                                                                                                                                            |
+| ----------- | ------------------- | -------------------------------------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TRAIN-01    | 20-01, 20-02, 20-05 | PPO training loop runs policy gradient updates using TF.js, produces checkpoints | SATISFIED | optimizer.minimize with clipped surrogate loss; checkpoints saved as model.json + weights.bin; convergence test verifies gradient flow                                              |
+| TRAIN-02    | 20-03, 20-04        | Self-play opponent pool maintains historical checkpoints, configurable ratios    | SATISFIED | OpponentPool with RandomBot/NoOpBot seeding, three-way ratio sampling, FIFO eviction; opponent-pool tests verify all behaviors; coordinator dispatches sampled opponents to workers |
+| TRAIN-03    | 20-01, 20-05        | Training CLI launches configurable runs from command line                        | SATISFIED | bin/train.ts parses all flags (episodes, lr, workers, pool size, etc.); --help works; coordinator lifecycle wired                                                                   |
+| TRAIN-04    | 20-04, 20-05        | Training step parallelizes across worker threads for multiple CPU cores          | PARTIAL   | Worker spawning and parallel collectBatch infrastructure exists and works; but tests only use workers=1, no test verifies multi-worker parallel execution                           |
 
 ### Anti-Patterns Found
 
-| File                                                  | Line(s)      | Pattern                                              | Severity  | Impact                                                              |
-|-------------------------------------------------------|--------------|------------------------------------------------------|-----------|---------------------------------------------------------------------|
-| packages/bot-harness/training/ppo-network.ts          | 141          | `ArrayBuffer \| SharedArrayBuffer` not assignable to `ArrayBuffer` | Warning | TypeScript error; does not affect runtime since ArrayBuffer.slice returns the correct type in practice |
-| packages/bot-harness/training/ppo-trainer.ts          | 173          | Access to protected property `val` on LayerVariable  | Warning   | TypeScript error; may break with TF.js version upgrades            |
-| packages/bot-harness/training/ppo-trainer.ts          | 257          | Tensor<Rank> not assignable to Tensor1D              | Warning   | TypeScript error; rank narrowing missing                           |
-| packages/bot-harness/training/ppo-trainer.ts          | 300, 307     | `NamedTensor` not exported from @tensorflow/tfjs     | Warning   | TypeScript error; optimizer weight get/set methods use wrong type name -- actual resume support may fail at runtime if these methods are called |
-| packages/bot-harness/training/training-worker.ts      | 346          | Tensor<Rank> not assignable to Tensor1D/Tensor2D     | Warning   | TypeScript error; rank narrowing missing                           |
-| packages/bot-harness/training/training-worker.ts      | 434, 435, 439 | `ArrayBuffer \| SharedArrayBuffer` not assignable to `ArrayBuffer` | Warning | TypeScript errors; affect weight serialization in worker -- may cause runtime errors in strict environments |
+| File                                             | Line(s)       | Pattern                                                            | Severity | Impact                                                                                                                                          |
+| ------------------------------------------------ | ------------- | ------------------------------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| packages/bot-harness/training/ppo-network.ts     | 141           | `ArrayBuffer \| SharedArrayBuffer` not assignable to `ArrayBuffer` | Warning  | TypeScript error; does not affect runtime since ArrayBuffer.slice returns the correct type in practice                                          |
+| packages/bot-harness/training/ppo-trainer.ts     | 173           | Access to protected property `val` on LayerVariable                | Warning  | TypeScript error; may break with TF.js version upgrades                                                                                         |
+| packages/bot-harness/training/ppo-trainer.ts     | 257           | Tensor<Rank> not assignable to Tensor1D                            | Warning  | TypeScript error; rank narrowing missing                                                                                                        |
+| packages/bot-harness/training/ppo-trainer.ts     | 300, 307      | `NamedTensor` not exported from @tensorflow/tfjs                   | Warning  | TypeScript error; optimizer weight get/set methods use wrong type name -- actual resume support may fail at runtime if these methods are called |
+| packages/bot-harness/training/training-worker.ts | 346           | Tensor<Rank> not assignable to Tensor1D/Tensor2D                   | Warning  | TypeScript error; rank narrowing missing                                                                                                        |
+| packages/bot-harness/training/training-worker.ts | 434, 435, 439 | `ArrayBuffer \| SharedArrayBuffer` not assignable to `ArrayBuffer` | Warning  | TypeScript errors; affect weight serialization in worker -- may cause runtime errors in strict environments                                     |
 
 **Note on NamedTensor (ppo-trainer.ts lines 300, 307):** The `getOptimizerWeights` and `setOptimizerWeights` methods reference `tf.NamedTensor` which does not exist in the pure JS TF.js export. These methods are used by the coordinator for checkpoint resume support. If the TypeScript errors indicate an actual API mismatch, the optimizer state save/load may fail silently or at runtime.
 

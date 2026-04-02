@@ -10,28 +10,30 @@
  * - Sequential: all pools processed in the main thread (testing/fallback)
  * - Parallel: pools dispatched to worker threads via _worker-shim.mjs
  */
-
 import { cpus } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 
-import { GLICKO2_DEFAULTS } from './glicko2-engine.js';
 import {
-  extractTemplateEncounters,
-  extractCombinationEncounters,
+  mineFrequentSets,
+  minePairwiseCombinations,
+} from './combination-miner.js';
+import {
   GAME_PHASE_DEFAULTS,
+  extractCombinationEncounters,
+  extractTemplateEncounters,
 } from './encounter-extractor.js';
-import { createRatingPools, RatingPool } from './rating-pool.js';
-import { minePairwiseCombinations, mineFrequentSets } from './combination-miner.js';
+import { GLICKO2_DEFAULTS } from './glicko2-engine.js';
 import { detectOutliers } from './outlier-detector.js';
+import { RatingPool, createRatingPools } from './rating-pool.js';
+import type { PoolResultMessage } from './rating-worker.js';
 import type {
   ParsedMatch,
   RatedEntity,
   RatingsReport,
   TemplateEncounter,
 } from './types.js';
-import type { PoolResultMessage } from './rating-worker.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -71,7 +73,9 @@ function buildPoolEncounters(
   }
 
   // Build encounters for individual pools
-  const individualPools = pools.filter((p) => p.config.entityType === 'individual');
+  const individualPools = pools.filter(
+    (p) => p.config.entityType === 'individual',
+  );
   for (const pool of individualPools) {
     const tickRange = pool.config.tickRange ?? undefined;
     const allEncounters: TemplateEncounter[] = [];
@@ -79,9 +83,7 @@ function buildPoolEncounters(
     for (const match of matches) {
       const encounters = extractTemplateEncounters(
         match,
-        tickRange
-          ? { start: tickRange.start, end: tickRange.end }
-          : undefined,
+        tickRange ? { start: tickRange.start, end: tickRange.end } : undefined,
       );
       allEncounters.push(...encounters);
     }
@@ -123,13 +125,17 @@ function buildPoolEncounters(
   }
 
   // Build encounters for frequent-set pools
-  const frequentSetPools = pools.filter((p) => p.config.entityType === 'frequent-set');
+  const frequentSetPools = pools.filter(
+    (p) => p.config.entityType === 'frequent-set',
+  );
   for (const pool of frequentSetPools) {
     const tickRange = pool.config.tickRange ?? undefined;
     const frequentSets = mineFrequentSets(matches, {
       minSupport: options.minSupport ?? 5,
       maxSetSize: options.maxSetSize ?? 4,
-      tickRange: tickRange ? { start: tickRange.start, end: tickRange.end } : undefined,
+      tickRange: tickRange
+        ? { start: tickRange.start, end: tickRange.end }
+        : undefined,
     });
 
     if (frequentSets.length === 0) {
@@ -147,7 +153,10 @@ function buildPoolEncounters(
         const teamCombos = new Set<string>();
         // Check which frequent sets are present for this team
         for (const tick of match.ticks) {
-          if (tickRange && (tick.tick < tickRange.start || tick.tick >= tickRange.end)) {
+          if (
+            tickRange &&
+            (tick.tick < tickRange.start || tick.tick >= tickRange.end)
+          ) {
             continue;
           }
           for (const action of tick.actions) {
@@ -165,7 +174,10 @@ function buildPoolEncounters(
         // Collect distinct templates for this team
         const teamTemplates = new Set<string>();
         for (const tick of match.ticks) {
-          if (tickRange && (tick.tick < tickRange.start || tick.tick >= tickRange.end)) {
+          if (
+            tickRange &&
+            (tick.tick < tickRange.start || tick.tick >= tickRange.end)
+          ) {
             continue;
           }
           for (const action of tick.actions) {
@@ -196,7 +208,9 @@ function buildPoolEncounters(
         const encounters = extractCombinationEncounters(
           match,
           combinations,
-          tickRange ? { start: tickRange.start, end: tickRange.end } : undefined,
+          tickRange
+            ? { start: tickRange.start, end: tickRange.end }
+            : undefined,
         );
         allEncounters.push(...encounters);
       }
@@ -257,7 +271,9 @@ function assembleReport(
   const earlyFlagged = earlyWithFlags.filter((e) => e.outlierFlags.length > 0);
   const midFlagged = midWithFlags.filter((e) => e.outlierFlags.length > 0);
   const lateFlagged = lateWithFlags.filter((e) => e.outlierFlags.length > 0);
-  const overallFlagged = overallOutliers.filter((e) => e.outlierFlags.length > 0);
+  const overallFlagged = overallOutliers.filter(
+    (e) => e.outlierFlags.length > 0,
+  );
 
   return {
     hyperparameters: {
@@ -360,7 +376,8 @@ export async function computeRatingsParallel(
 
   // Determine worker count
   const poolCount = pools.length;
-  const maxWorkers = options.workers ?? Math.min(poolCount, Math.max(1, cpus().length - 1), 4);
+  const maxWorkers =
+    options.workers ?? Math.min(poolCount, Math.max(1, cpus().length - 1), 4);
 
   // Fall back to sequential if not worth parallelizing
   if (maxWorkers <= 1 || poolCount <= 2) {
@@ -368,9 +385,10 @@ export async function computeRatingsParallel(
   }
 
   // Resolve worker paths
-  const baseDir = typeof import.meta.dirname === 'string'
-    ? import.meta.dirname
-    : fileURLToPath(new URL('.', import.meta.url));
+  const baseDir =
+    typeof import.meta.dirname === 'string'
+      ? import.meta.dirname
+      : fileURLToPath(new URL('.', import.meta.url));
   const shimPath = resolve(baseDir, '_worker-shim.mjs');
   const workerTsPath = resolve(baseDir, 'rating-worker.ts');
 
@@ -379,7 +397,9 @@ export async function computeRatingsParallel(
   const poolQueue = [...pools];
   const activeWorkers: Worker[] = [];
 
-  const processPool = (pool: RatingPool): Promise<{ name: string; entities: RatedEntity[] }> => {
+  const processPool = (
+    pool: RatingPool,
+  ): Promise<{ name: string; entities: RatedEntity[] }> => {
     return new Promise((resolvePool, reject) => {
       const worker = new Worker(shimPath, {
         workerData: {

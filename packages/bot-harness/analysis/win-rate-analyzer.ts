@@ -1,6 +1,7 @@
 import { createDefaultStructureTemplates } from '#rts-engine';
 
 import type { TickActionRecord } from '../types.js';
+import { wilsonScoreInterval } from './stats.js';
 import type {
   AnalysisConfig,
   ParsedMatch,
@@ -9,7 +10,6 @@ import type {
   TemplateWinRate,
   WinRateWithCI,
 } from './types.js';
-import { wilsonScoreInterval } from './stats.js';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -208,9 +208,21 @@ export function computeTemplateWinRates(
     results.push({
       templateId: tid,
       templateName: templateNames.get(tid) ?? tid,
-      presence: buildWinRate(acc.presenceWins, acc.presenceTotal, config.confidence),
-      usageWeighted: buildWinRate(acc.usageWins, acc.usageTotal, config.confidence),
-      firstBuild: buildWinRate(acc.firstBuildWins, acc.firstBuildTotal, config.confidence),
+      presence: buildWinRate(
+        acc.presenceWins,
+        acc.presenceTotal,
+        config.confidence,
+      ),
+      usageWeighted: buildWinRate(
+        acc.usageWins,
+        acc.usageTotal,
+        config.confidence,
+      ),
+      firstBuild: buildWinRate(
+        acc.firstBuildWins,
+        acc.firstBuildTotal,
+        config.confidence,
+      ),
     });
   }
 
@@ -326,9 +338,21 @@ export function computeStrategyWinRates(
     results.push({
       strategyId: label,
       strategyLabel: label,
-      presence: buildWinRate(acc.presenceWins, acc.presenceTotal, config.confidence),
-      usageWeighted: buildWinRate(acc.usageWins, acc.usageTotal, config.confidence),
-      firstBuild: buildWinRate(acc.firstBuildWins, acc.firstBuildTotal, config.confidence),
+      presence: buildWinRate(
+        acc.presenceWins,
+        acc.presenceTotal,
+        config.confidence,
+      ),
+      usageWeighted: buildWinRate(
+        acc.usageWins,
+        acc.usageTotal,
+        config.confidence,
+      ),
+      firstBuild: buildWinRate(
+        acc.firstBuildWins,
+        acc.firstBuildTotal,
+        config.confidence,
+      ),
     });
   }
 

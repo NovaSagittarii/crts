@@ -5,13 +5,14 @@
  * RoomStatePayload, encodes observations, runs the model, and returns
  * an action index. Tensor lifecycle is managed with tf.tidy().
  */
-import { getTf } from './tf-backend.js';
-import type { TfModule } from './tf-backend.js';
 import type * as tf from '@tensorflow/tfjs';
+
 import type { BuildQueuePayload, RoomStatePayload } from '#rts-engine';
 
 import { ActionDecoder } from './action-decoder.js';
 import { PayloadObservationEncoder } from './payload-observation-encoder.js';
+import { getTf } from './tf-backend.js';
+import type { TfModule } from './tf-backend.js';
 
 let _tf: TfModule;
 
@@ -93,10 +94,7 @@ export class LiveBotStrategy {
 
       // Sample action from softmax of logits
       const probs = _tf.softmax(logits);
-      const sampled = _tf.multinomial(
-        probs as tf.Tensor2D,
-        1,
-      );
+      const sampled = _tf.multinomial(probs as tf.Tensor2D, 1);
       return sampled.dataSync()[0];
     });
 

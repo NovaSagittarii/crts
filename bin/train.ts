@@ -1,8 +1,8 @@
 #!/usr/bin/env tsx
 import {
-  parseTrainingArgs,
   TrainingCoordinator,
   attachPlainLogger,
+  parseTrainingArgs,
 } from '#bot-harness';
 
 // ---------------------------------------------------------------------------
@@ -18,7 +18,10 @@ const config = parseTrainingArgs();
 const coordinator = new TrainingCoordinator(config);
 
 let shuttingDown = false;
-let inkInstance: { unmount: () => void; waitUntilExit: () => Promise<unknown> } | null = null;
+let inkInstance: {
+  unmount: () => void;
+  waitUntilExit: () => Promise<unknown>;
+} | null = null;
 
 function handleShutdown(signal: string): void {
   if (shuttingDown) return;
@@ -91,9 +94,13 @@ process.on('SIGTERM', () => handleShutdown('SIGTERM'));
     console.log('');
     console.log(`  Run ID:         ${coordinator.getRunId()}`);
     console.log(`  Episodes:       ${String(config.totalEpisodes)}`);
-    console.log(`  Workers:        ${config.workers === 0 ? 'auto' : String(config.workers)}`);
+    console.log(
+      `  Workers:        ${config.workers === 0 ? 'auto' : String(config.workers)}`,
+    );
     console.log(`  Learning Rate:  ${String(config.learningRate)}`);
-    console.log(`  Grid:           ${String(config.gridWidth)}x${String(config.gridHeight)}`);
+    console.log(
+      `  Grid:           ${String(config.gridWidth)}x${String(config.gridHeight)}`,
+    );
     console.log(`  Max Ticks:      ${String(config.maxTicks)}`);
     console.log(`  Output Dir:     ${config.outputDir}`);
     if (config.resumeRunId !== null) {

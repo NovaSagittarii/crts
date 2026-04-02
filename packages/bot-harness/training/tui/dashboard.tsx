@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Box, Text, useInput, useApp, useStdin, useStdout } from 'ink';
+import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { HelpOverlay } from './help-overlay.js';
+import { MetricsPanel } from './metrics-panel.js';
+import { ProgressPanel } from './progress-panel.js';
 import type {
   DashboardState,
   TrainingProgressCallback,
   TrainingProgressData,
 } from './types.js';
-import { ProgressPanel } from './progress-panel.js';
-import { MetricsPanel } from './metrics-panel.js';
-import { HelpOverlay } from './help-overlay.js';
 
 /**
  * Number of detail views available for Tab cycling.
@@ -141,7 +141,11 @@ export function Dashboard({
       pendingDataRef.current = data;
     };
     // Also store the direct handler for interval flushing
-    (handlerRef as React.MutableRefObject<TrainingProgressCallback & { _direct?: TrainingProgressCallback }>).current._direct = directHandler;
+    (
+      handlerRef as React.MutableRefObject<
+        TrainingProgressCallback & { _direct?: TrainingProgressCallback }
+      >
+    ).current._direct = directHandler;
   }
 
   // Notify the caller that the progress handler is ready (for wiring to coordinator)
@@ -157,7 +161,11 @@ export function Dashboard({
       const pending = pendingDataRef.current;
       if (pending != null) {
         pendingDataRef.current = null;
-        const directHandler = (handlerRef.current as unknown as { _direct?: TrainingProgressCallback })?._direct;
+        const directHandler = (
+          handlerRef.current as unknown as {
+            _direct?: TrainingProgressCallback;
+          }
+        )?._direct;
         if (directHandler != null) {
           directHandler(pending);
         }
@@ -200,8 +208,8 @@ export function Dashboard({
   const pauseColor = paused ? 'yellow' : 'green';
 
   const content = isTwoColumn ? (
-    <Box flexDirection="row">
-      <Box flexDirection="column" width="50%">
+    <Box flexDirection='row'>
+      <Box flexDirection='column' width='50%'>
         <ProgressPanel
           data={state.currentData}
           rewardHistory={state.rewardHistory}
@@ -209,7 +217,7 @@ export function Dashboard({
           valueLossHistory={state.valueLossHistory}
         />
       </Box>
-      <Box flexDirection="column" width="50%">
+      <Box flexDirection='column' width='50%'>
         <MetricsPanel
           data={state.currentData}
           winRateHistory={state.winRateHistory}
@@ -219,7 +227,7 @@ export function Dashboard({
       </Box>
     </Box>
   ) : (
-    <Box flexDirection="column">
+    <Box flexDirection='column'>
       <ProgressPanel
         data={state.currentData}
         rewardHistory={state.rewardHistory}
@@ -236,10 +244,10 @@ export function Dashboard({
   );
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection='column'>
       {/* Header */}
       <Text bold>
-        PPO Training Dashboard  |  Run: {runId}  |{' '}
+        PPO Training Dashboard | Run: {runId} |{' '}
         <Text color={pauseColor}>{pauseLabel}</Text>
       </Text>
 
@@ -247,9 +255,7 @@ export function Dashboard({
       {state.showHelp ? <HelpOverlay /> : content}
 
       {/* Footer */}
-      <Text dimColor>
-        [Space] Pause  [q] Quit  [Tab] Views  [h] Help
-      </Text>
+      <Text dimColor>[Space] Pause [q] Quit [Tab] Views [h] Help</Text>
     </Box>
   );
 }

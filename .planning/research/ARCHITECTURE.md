@@ -115,20 +115,20 @@ LIVE GAME (Node.js + Socket.IO)
 
 ### Component Boundaries
 
-| Component | Layer | Responsibility | Communicates With |
-|-----------|-------|----------------|-------------------|
-| `HeadlessMatchRunner` | `packages/bot-harness` | Creates `RtsRoom`, adds virtual players, runs tick loop, collects outcomes | `RtsRoom` (rts-engine), `BotAgent` interface |
-| `BotEnvironment` | `packages/bot-harness` | Gymnasium-style wrapper: `reset()`, `step(action)`, observation/action spaces | `HeadlessMatchRunner`, `ObservationEncoder`, `ActionDecoder`, `RewardSignal` |
-| `ObservationEncoder` | `packages/bot-harness` | Extracts fixed-size `Float32Array` feature vector from `RoomState` for one team's perspective | `RoomState` (read-only) |
-| `ActionDecoder` | `packages/bot-harness` | Converts model output (template selection + grid coordinates) into `queueBuildEvent()` / `queueDestroyEvent()` calls | `RtsRoom` via `HeadlessMatchRunner` |
-| `RewardSignal` | `packages/bot-harness` | Computes per-tick reward from `RoomTickResult` and state deltas (resource gain, territory change, core HP damage, build success) | `RoomTickResult`, `RoomState` snapshots |
-| PPO Training Loop | `training/` (Python) | Stable Baselines3 PPO with custom Gymnasium env wrapping the Node.js `BotEnvironment` via IPC | `BotEnvironment` via stdio/subprocess |
-| Self-Play Manager | `training/` (Python) | Manages opponent pool, selects opponents from historical checkpoints, tracks training progress | PPO Training Loop, saved model checkpoints |
-| ONNX Export | `training/` (Python) | Exports trained PyTorch policy to `.onnx` format | Trained PPO model |
-| `GlickoRatingEngine` | `packages/balance-analysis` | Computes Glicko-2 ratings for individual structure templates and template combinations based on match outcomes | `MatchDatabase` |
-| `MatchDatabase` | `packages/balance-analysis` | Stores match results, strategy selections, per-tick snapshots for analysis | `HeadlessMatchRunner` output |
-| `BalanceReport` | `packages/balance-analysis` | Generates win rate tables, strategy distribution analysis, per-map metrics | `MatchDatabase`, `GlickoRatingEngine` |
-| `BotSocketAdapter` | `apps/server` | Virtual Socket.IO client that loads ONNX model and plays in live matches | `onnxruntime-node`, socket-contract types, `ObservationEncoder`, `ActionDecoder` |
+| Component             | Layer                       | Responsibility                                                                                                                   | Communicates With                                                                |
+| --------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `HeadlessMatchRunner` | `packages/bot-harness`      | Creates `RtsRoom`, adds virtual players, runs tick loop, collects outcomes                                                       | `RtsRoom` (rts-engine), `BotAgent` interface                                     |
+| `BotEnvironment`      | `packages/bot-harness`      | Gymnasium-style wrapper: `reset()`, `step(action)`, observation/action spaces                                                    | `HeadlessMatchRunner`, `ObservationEncoder`, `ActionDecoder`, `RewardSignal`     |
+| `ObservationEncoder`  | `packages/bot-harness`      | Extracts fixed-size `Float32Array` feature vector from `RoomState` for one team's perspective                                    | `RoomState` (read-only)                                                          |
+| `ActionDecoder`       | `packages/bot-harness`      | Converts model output (template selection + grid coordinates) into `queueBuildEvent()` / `queueDestroyEvent()` calls             | `RtsRoom` via `HeadlessMatchRunner`                                              |
+| `RewardSignal`        | `packages/bot-harness`      | Computes per-tick reward from `RoomTickResult` and state deltas (resource gain, territory change, core HP damage, build success) | `RoomTickResult`, `RoomState` snapshots                                          |
+| PPO Training Loop     | `training/` (Python)        | Stable Baselines3 PPO with custom Gymnasium env wrapping the Node.js `BotEnvironment` via IPC                                    | `BotEnvironment` via stdio/subprocess                                            |
+| Self-Play Manager     | `training/` (Python)        | Manages opponent pool, selects opponents from historical checkpoints, tracks training progress                                   | PPO Training Loop, saved model checkpoints                                       |
+| ONNX Export           | `training/` (Python)        | Exports trained PyTorch policy to `.onnx` format                                                                                 | Trained PPO model                                                                |
+| `GlickoRatingEngine`  | `packages/balance-analysis` | Computes Glicko-2 ratings for individual structure templates and template combinations based on match outcomes                   | `MatchDatabase`                                                                  |
+| `MatchDatabase`       | `packages/balance-analysis` | Stores match results, strategy selections, per-tick snapshots for analysis                                                       | `HeadlessMatchRunner` output                                                     |
+| `BalanceReport`       | `packages/balance-analysis` | Generates win rate tables, strategy distribution analysis, per-map metrics                                                       | `MatchDatabase`, `GlickoRatingEngine`                                            |
+| `BotSocketAdapter`    | `apps/server`               | Virtual Socket.IO client that loads ONNX model and plays in live matches                                                         | `onnxruntime-node`, socket-contract types, `ObservationEncoder`, `ActionDecoder` |
 
 ---
 
@@ -137,12 +137,14 @@ LIVE GAME (Node.js + Socket.IO)
 **Decision: New package `packages/bot-harness`**
 
 **Rationale:**
+
 1. **Layer boundary enforcement.** The existing rule is strict: `packages/*` contains deterministic, runtime-agnostic logic; `apps/*` contains runtime-specific code. A headless match runner is deterministic and runtime-agnostic — it uses only `RtsRoom` from `packages/rts-engine`. It belongs in `packages/`.
-2. **Separation from rts-engine.** Putting it inside `rts-engine` would bloat that package with ML-specific concerns (observation encoding, reward computation, Gym interface) that have nothing to do with game rules. The bot harness is a *consumer* of rts-engine, not part of it.
+2. **Separation from rts-engine.** Putting it inside `rts-engine` would bloat that package with ML-specific concerns (observation encoding, reward computation, Gym interface) that have nothing to do with game rules. The bot harness is a _consumer_ of rts-engine, not part of it.
 3. **Testability.** A separate package can be tested independently. Its unit tests verify observation encoding, action decoding, and reward computation without touching Socket.IO or browser APIs.
 4. **Reuse.** The same `BotEnvironment` interface serves both the Python training pipeline (via IPC) and the Node.js live bot adapter (via direct import). A package alias (`#bot-harness`) makes it importable from both `training/` scripts and `apps/server/`.
 
 **Import direction:**
+
 ```
 packages/bot-harness  ->  packages/rts-engine  (consumer imports engine)
 packages/bot-harness  ->  packages/conway-core  (for Grid utilities)
@@ -158,12 +160,14 @@ packages/rts-engine   -X- packages/bot-harness  (engine must NOT import harness)
 **Decision: Train PPO in Python (Stable Baselines3), export to ONNX, run inference in Node.js (onnxruntime-node)**
 
 **Rationale:**
+
 1. **Python RL ecosystem is 10x more mature.** Stable Baselines3 provides a production-grade PPO implementation with hundreds of tested hyperparameter configurations, curriculum learning, and self-play wrappers. The TypeScript RL ecosystem (ppo-tfjs, rl-ts) consists of minimally maintained hobby projects with 1-10 weekly npm downloads.
 2. **TensorFlow.js PPO is not viable for training.** TensorFlow.js has a known tensor creation bottleneck (4x slower than Python for RL observation loops). The `@tensorflow/tfjs-node-gpu` backend has documented performance inconsistencies. No mature PPO implementation exists in the ecosystem.
 3. **ONNX bridge is well-established.** Stable Baselines3 has official ONNX export documentation. `onnxruntime-node` is maintained by Microsoft, supports Node.js 20+, and provides TypeScript type definitions. The pattern "train in Python, deploy via ONNX" is standard practice for game AI.
 4. **Clean separation of concerns.** Training is a batch process that runs offline; inference is a real-time process that runs in the game server. ONNX is the serialization boundary. The Node.js codebase never needs to import PyTorch or TensorFlow.
 
 **The alternative considered (all-TypeScript with ppo-tfjs) was rejected because:**
+
 - `ppo-tfjs` has 1 weekly download and 1 maintainer, last updated over a year ago
 - Tensor creation overhead makes RL training loops 4x slower than Python
 - No community, no debugging support, no proven hyperparameter configurations
@@ -181,9 +185,9 @@ packages/rts-engine   -X- packages/bot-harness  (engine must NOT import harness)
 interface HeadlessMatchConfig {
   width: number;
   height: number;
-  maxTicks: number;           // safety limit to prevent infinite matches
-  ticksPerDecision: number;   // how often bots can act (e.g., every 10 ticks)
-  templates?: StructureTemplateInput[];  // override default templates
+  maxTicks: number; // safety limit to prevent infinite matches
+  ticksPerDecision: number; // how often bots can act (e.g., every 10 ticks)
+  templates?: StructureTemplateInput[]; // override default templates
 }
 
 interface BotAgent {
@@ -195,8 +199,8 @@ interface BotAgent {
 interface HeadlessMatchResult {
   outcome: MatchOutcome;
   totalTicks: number;
-  strategyLog: StrategyLogEntry[];  // what each agent built and when
-  tickSnapshots: TickSnapshot[];     // periodic state captures for analysis
+  strategyLog: StrategyLogEntry[]; // what each agent built and when
+  tickSnapshots: TickSnapshot[]; // periodic state captures for analysis
 }
 
 class HeadlessMatchRunner {
@@ -208,6 +212,7 @@ class HeadlessMatchRunner {
 ```
 
 **How it works:**
+
 1. `RtsRoom.create()` with the given dimensions
 2. `room.addPlayer()` for each agent (assigns teams, spawns bases)
 3. Loop: for each tick until `maxTicks` or match finishes:
@@ -225,30 +230,30 @@ class HeadlessMatchRunner {
 // packages/bot-harness/observation-encoder.ts
 
 interface BotObservation {
-  features: Float32Array;       // fixed-size feature vector for ML model
-  validActions: BotActionMask;  // which actions are legal right now
+  features: Float32Array; // fixed-size feature vector for ML model
+  validActions: BotActionMask; // which actions are legal right now
 }
 
 interface BotActionMask {
-  canBuild: boolean[];          // per-template: has resources and valid placement
-  canDestroy: boolean[];        // per-owned-structure: can be destroyed
+  canBuild: boolean[]; // per-template: has resources and valid placement
+  canDestroy: boolean[]; // per-owned-structure: can be destroyed
 }
 ```
 
 **Observation space design (extracted from RoomState):**
 
-| Feature Group | Source | Size | Description |
-|---------------|--------|------|-------------|
-| Global | `room.state.tick`, `room.state.width`, `room.state.height` | 3 | Normalized tick progress, map dimensions |
-| Own team economy | `team.resources`, `team.income`, `team.incomeBreakdown` | 4 | Current resources, income rate, structure/base income |
-| Own team structures | `team.structures` | ~20 | Count per template type, total HP, core HP, active count |
-| Own team pending | `team.pendingBuildEvents`, `team.pendingDestroyEvents` | 4 | Pending build count, pending destroy count, reserved cost |
-| Enemy team economy | `enemyTeam.resources`, `enemyTeam.income` | 4 | Mirror of own team features |
-| Enemy team structures | `enemyTeam.structures` | ~20 | Mirror of own team features |
-| Enemy team pending | `enemyTeam.pendingBuildEvents` | 4 | Mirror |
-| Grid spatial | `room.state.grid` | Variable | Downsampled grid density map (e.g., 8x8 or 16x16 average density bins) |
-| Territory | Derived from grid + base positions | ~16 | Cells near own base vs enemy base, frontier density |
-| Build zone | Derived from structure positions + radii | ~16 | Available build area coverage |
+| Feature Group         | Source                                                     | Size     | Description                                                            |
+| --------------------- | ---------------------------------------------------------- | -------- | ---------------------------------------------------------------------- |
+| Global                | `room.state.tick`, `room.state.width`, `room.state.height` | 3        | Normalized tick progress, map dimensions                               |
+| Own team economy      | `team.resources`, `team.income`, `team.incomeBreakdown`    | 4        | Current resources, income rate, structure/base income                  |
+| Own team structures   | `team.structures`                                          | ~20      | Count per template type, total HP, core HP, active count               |
+| Own team pending      | `team.pendingBuildEvents`, `team.pendingDestroyEvents`     | 4        | Pending build count, pending destroy count, reserved cost              |
+| Enemy team economy    | `enemyTeam.resources`, `enemyTeam.income`                  | 4        | Mirror of own team features                                            |
+| Enemy team structures | `enemyTeam.structures`                                     | ~20      | Mirror of own team features                                            |
+| Enemy team pending    | `enemyTeam.pendingBuildEvents`                             | 4        | Mirror                                                                 |
+| Grid spatial          | `room.state.grid`                                          | Variable | Downsampled grid density map (e.g., 8x8 or 16x16 average density bins) |
+| Territory             | Derived from grid + base positions                         | ~16      | Cells near own base vs enemy base, frontier density                    |
+| Build zone            | Derived from structure positions + radii                   | ~16      | Available build area coverage                                          |
 
 **Total observation vector size:** ~100-200 floats (configurable). The grid spatial features use a fixed-size downsampled representation regardless of actual grid dimensions.
 
@@ -261,21 +266,22 @@ interface BotActionMask {
 
 interface BotAction {
   type: 'build' | 'destroy' | 'wait';
-  templateId?: string;    // for build
-  x?: number;             // for build (grid coordinates)
-  y?: number;             // for build
-  structureKey?: string;  // for destroy
+  templateId?: string; // for build
+  x?: number; // for build (grid coordinates)
+  y?: number; // for build
+  structureKey?: string; // for destroy
 }
 ```
 
 **Action space design:**
 
 The action space is a discrete multi-dimensional space:
+
 1. **Action type:** `build` | `destroy` | `wait` (3 choices)
 2. **Template selection (if build):** index into template catalogue (5 templates + core excluded = 5 choices)
 3. **Placement (if build):** (x, y) on the grid. To keep the action space manageable, quantize to a coarser grid (e.g., every 4 cells = ~25x25 = 625 positions for a 100x100 map)
 
-**Total discrete action space:** 3 + (5 * 625) + (structure_count) = ~3130 actions. For PPO with discrete actions, this is manageable.
+**Total discrete action space:** 3 + (5 \* 625) + (structure_count) = ~3130 actions. For PPO with discrete actions, this is manageable.
 
 **Action masking is critical:** The `BotActionMask` prevents the model from choosing invalid actions (building when broke, placing outside build zone, destroying enemy structures). Invalid actions waste training time. The mask is computed by calling `RtsRoom.previewBuildPlacement()` for each template at candidate positions.
 
@@ -287,19 +293,20 @@ The action space is a discrete multi-dimensional space:
 // packages/bot-harness/reward-signal.ts
 
 interface RewardConfig {
-  winReward: number;              // e.g., +10.0
-  loseReward: number;             // e.g., -10.0
-  coreDamageDealtReward: number;  // e.g., +0.5 per HP dealt
+  winReward: number; // e.g., +10.0
+  loseReward: number; // e.g., -10.0
+  coreDamageDealtReward: number; // e.g., +0.5 per HP dealt
   coreDamageTakenPenalty: number; // e.g., -0.5 per HP lost
-  resourceGainReward: number;     // e.g., +0.01 per resource earned
-  territoryGainReward: number;    // e.g., +0.02 per cell gained
-  buildSuccessReward: number;     // e.g., +0.1 per successful build
-  buildFailPenalty: number;       // e.g., -0.05 per rejected build
-  idleTickPenalty: number;        // e.g., -0.001 per tick with no action
+  resourceGainReward: number; // e.g., +0.01 per resource earned
+  territoryGainReward: number; // e.g., +0.02 per cell gained
+  buildSuccessReward: number; // e.g., +0.1 per successful build
+  buildFailPenalty: number; // e.g., -0.05 per rejected build
+  idleTickPenalty: number; // e.g., -0.001 per tick with no action
 }
 ```
 
 **Reward design principles:**
+
 1. **Sparse terminal reward dominates:** Win/loss is the primary signal. All shaping rewards are 10-100x smaller.
 2. **Shaping rewards accelerate early learning:** Without them, random agents rarely win, so the gradient signal is near zero for thousands of episodes.
 3. **Core HP delta is the strongest shaping signal:** It directly correlates with the win condition.
@@ -316,14 +323,14 @@ interface RewardConfig {
 interface EnvironmentConfig extends HeadlessMatchConfig {
   reward: RewardConfig;
   observationSize: number;
-  actionGridResolution: number;  // e.g., 4 = quantize to every 4 cells
+  actionGridResolution: number; // e.g., 4 = quantize to every 4 cells
 }
 
 interface StepResult {
   observation: Float32Array;
   reward: number;
   done: boolean;
-  truncated: boolean;  // hit maxTicks without outcome
+  truncated: boolean; // hit maxTicks without outcome
   info: {
     outcome?: MatchOutcome;
     tick: number;
@@ -334,7 +341,7 @@ interface StepResult {
 class BotEnvironment {
   constructor(config: EnvironmentConfig);
   reset(): Float32Array;
-  step(action: number): StepResult;  // single int encoding the discrete action
+  step(action: number): StepResult; // single int encoding the discrete action
   get observationSpace(): { shape: number[] };
   get actionSpace(): { n: number };
 }
@@ -351,6 +358,7 @@ Python (SB3)  <--stdin/stdout-->  Node.js (BotEnvironment)
 ```
 
 **Protocol:**
+
 ```json
 // Python -> Node.js (action)
 {"type": "step", "action": 42}
@@ -362,12 +370,14 @@ Python (SB3)  <--stdin/stdout-->  Node.js (BotEnvironment)
 ```
 
 **Why NDJSON over stdio:**
+
 1. **Zero dependencies.** No ZeroMQ, no gRPC, no shared memory libraries.
 2. **Cross-platform.** Works identically on Linux, macOS, Windows.
 3. **Debuggable.** You can literally `cat` the pipe to see what's happening.
 4. **Fast enough.** A single match step takes ~1ms (tick loop). JSON serialization of a 200-float observation is ~50us. The bottleneck is the PPO update, not the bridge.
 
 **Alternative considered (shared memory / gRPC) was rejected because:**
+
 - Adds dependency complexity
 - PPO training is I/O bound on gradient updates, not on environment stepping
 - NDJSON is the standard for lightweight Gym bridges (used by Gymnasium's subprocess vec env)
@@ -393,6 +403,7 @@ training/
 4. When the current model's win rate against all pool members exceeds 60%, add it to the pool as the new "best"
 
 **Match configuration for self-play:**
+
 - Map size: use the default (or a small set of fixed sizes for variety)
 - `maxTicks`: 500-1000 (most matches should resolve before this)
 - `ticksPerDecision`: 10 (one decision per build delay cycle)
@@ -416,11 +427,11 @@ A "structure strategy" is defined as the set of structure templates a bot priori
 
 **Rating entities:**
 
-| Entity Type | Key | What It Represents |
-|-------------|-----|--------------------|
-| Individual template | `"block"`, `"generator"`, etc. | How strong is this template when it's the primary build |
-| Template pair | `"block+generator"`, `"block+gosper"` | How strong is this 2-template combination |
-| Opening strategy | `"early-generator"`, `"early-gosper"` | How strong is this opening (first 3 builds) |
+| Entity Type         | Key                                   | What It Represents                                      |
+| ------------------- | ------------------------------------- | ------------------------------------------------------- |
+| Individual template | `"block"`, `"generator"`, etc.        | How strong is this template when it's the primary build |
+| Template pair       | `"block+generator"`, `"block+gosper"` | How strong is this 2-template combination               |
+| Opening strategy    | `"early-generator"`, `"early-gosper"` | How strong is this opening (first 3 builds)             |
 
 **Database schema (NDJSON files for simplicity):**
 
@@ -433,6 +444,7 @@ data/
 ```
 
 **Why NDJSON files instead of SQLite:**
+
 - Zero native dependencies (SQLite requires node-gyp)
 - Append-only writes are safe for concurrent processes
 - Human-readable and git-trackable for small datasets
@@ -444,7 +456,7 @@ data/
 // apps/server/src/bot-socket-adapter.ts
 
 interface BotSocketAdapterConfig {
-  modelPath: string;          // path to .onnx model file
+  modelPath: string; // path to .onnx model file
   botName: string;
   ticksPerDecision: number;
   observationSize: number;
@@ -473,6 +485,7 @@ class BotSocketAdapter {
    d. Emits `build:queue` or `destroy:queue` via its socket connection
 
 **Why an internal Socket.IO client (not direct RtsRoom access):**
+
 1. **Validates the full protocol.** The bot exercises the same validation path as human players
 2. **No special server modifications.** The bot is just another client
 3. **Testable.** Integration tests can verify bot behavior end-to-end
@@ -546,7 +559,7 @@ function encodeObservation(state: RoomState, teamId: number): Float32Array {
   let offset = 0;
 
   // Global features
-  features[offset++] = state.tick / MAX_TICKS;  // normalized
+  features[offset++] = state.tick / MAX_TICKS; // normalized
   features[offset++] = state.width;
   features[offset++] = state.height;
 
@@ -688,13 +701,13 @@ tests/integration/server/
 
 ## Scalability Considerations
 
-| Concern | At 100 matches | At 10K matches | At 100K matches |
-|---------|---------------|----------------|-----------------|
-| Match storage | <1MB NDJSON | ~100MB NDJSON, still fast | Consider SQLite migration or NDJSON rotation |
-| Training time | Minutes (SB3 on CPU) | Hours (SB3 on CPU, GPU recommended) | Days (multi-GPU, parallel environments recommended) |
-| Glicko-2 computation | Instant | <1 second per rating period | Consider batch processing, rating period pruning |
-| ONNX inference latency | <1ms | N/A (inference is per-request, not batch) | N/A |
-| NDJSON parse for analysis | Instant | ~1 second full scan | Stream-parse, or migrate to SQLite for indexed queries |
+| Concern                   | At 100 matches       | At 10K matches                            | At 100K matches                                        |
+| ------------------------- | -------------------- | ----------------------------------------- | ------------------------------------------------------ |
+| Match storage             | <1MB NDJSON          | ~100MB NDJSON, still fast                 | Consider SQLite migration or NDJSON rotation           |
+| Training time             | Minutes (SB3 on CPU) | Hours (SB3 on CPU, GPU recommended)       | Days (multi-GPU, parallel environments recommended)    |
+| Glicko-2 computation      | Instant              | <1 second per rating period               | Consider batch processing, rating period pruning       |
+| ONNX inference latency    | <1ms                 | N/A (inference is per-request, not batch) | N/A                                                    |
+| NDJSON parse for analysis | Instant              | ~1 second full scan                       | Stream-parse, or migrate to SQLite for indexed queries |
 
 ---
 
@@ -718,6 +731,7 @@ The new packages require additions to `package.json`:
 ```
 
 New TypeScript path mappings in `tsconfig.json`:
+
 ```json
 {
   "include": ["apps/server/src/**/*", "packages/**/*", "tests/**/*.ts"]

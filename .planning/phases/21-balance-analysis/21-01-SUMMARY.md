@@ -18,7 +18,12 @@ affects: [21-02, 21-03, 21-04, balance-analysis]
 # Tech tracking
 tech-stack:
   added: []
-  patterns: [positional-correlation-for-build-outcomes, seeded-lcg-prng-for-deterministic-bootstrap, ndjson-readline-streaming]
+  patterns:
+    [
+      positional-correlation-for-build-outcomes,
+      seeded-lcg-prng-for-deterministic-bootstrap,
+      ndjson-readline-streaming,
+    ]
 
 key-files:
   created:
@@ -32,13 +37,13 @@ key-files:
     - packages/bot-harness/match-runner.test.ts
 
 key-decisions:
-  - "Positional matching for build outcome correlation: build outcomes from RtsRoom arrive in same order as queued bot actions per team"
-  - "Seeded LCG PRNG (multiplier 1664525, increment 1013904223) for deterministic bootstrap CI tests"
-  - "NDJSON readline streaming for match log parsing to handle large files efficiently"
+  - 'Positional matching for build outcome correlation: build outcomes from RtsRoom arrive in same order as queued bot actions per team'
+  - 'Seeded LCG PRNG (multiplier 1664525, increment 1013904223) for deterministic bootstrap CI tests'
+  - 'NDJSON readline streaming for match log parsing to handle large files efficiently'
 
 patterns-established:
-  - "Per-team positional correlation: group by teamId, zip positionally, fallback to undefined when counts mismatch"
-  - "Analysis module structure: types.ts for contracts, stats.ts for utilities, domain-specific readers as separate modules"
+  - 'Per-team positional correlation: group by teamId, zip positionally, fallback to undefined when counts mismatch'
+  - 'Analysis module structure: types.ts for contracts, stats.ts for utilities, domain-specific readers as separate modules'
 
 requirements-completed: [BAL-02]
 
@@ -60,6 +65,7 @@ completed: 2026-04-01
 - **Files modified:** 7
 
 ## Accomplishments
+
 - Fixed the upstream data gap: createTickRecord now populates templateId, x, y, transform from bot actions via positional correlation by teamId
 - Created analysis/types.ts with 13 interfaces defining contracts for all downstream analysis modules (ParsedMatch, BalanceReport, StrategyFeatureVector, ConfidenceInterval, etc.)
 - Implemented Wilson score interval and bootstrap percentile CI with seeded PRNG for deterministic testing
@@ -74,6 +80,7 @@ Each task was committed atomically:
 2. **Task 2: Create analysis types, stats utilities, and match log reader** - `0f3a7bc` (feat)
 
 ## Files Created/Modified
+
 - `packages/bot-harness/match-runner.ts` - Fixed createTickRecord to correlate build outcomes with bot actions by teamId
 - `packages/bot-harness/match-runner.test.ts` - Added 5 new tests for templateId population and team correlation
 - `packages/bot-harness/analysis/types.ts` - 13 interfaces: ParsedMatch, ConfidenceInterval, WinRateWithCI, TemplateWinRate, StrategyWinRate, StrategyFeatureVector, StrategyAssignment, ClusterResult, SequencePattern, GenerationData, BalanceReport, AnalysisConfig
@@ -83,6 +90,7 @@ Each task was committed atomically:
 - `packages/bot-harness/analysis/match-log-reader.test.ts` - 7 tests for parsing and discovery
 
 ## Decisions Made
+
 - Positional matching strategy: build outcomes from RtsRoom arrive in same order as queued bot actions per team, so we zip them positionally
 - Seeded LCG PRNG for bootstrap CI ensures deterministic test results
 - NDJSON readline streaming for match log parsing handles large files without loading all into memory
@@ -92,6 +100,7 @@ Each task was committed atomically:
 None - plan executed exactly as written.
 
 ## Issues Encountered
+
 - Bootstrap percentile CI "different seeds produce different results" test required adjustment: with discretized proportions (count/total), percentile boundaries converge to same values regardless of seed for small totals. Replaced with "interval width is reasonable" test which validates the statistical properties more meaningfully.
 
 ## User Setup Required
@@ -103,6 +112,7 @@ None - no external service configuration required.
 None - all implementations are complete with no placeholder data.
 
 ## Next Phase Readiness
+
 - analysis/types.ts provides all type contracts for plans 21-02 (template/strategy win rates), 21-03 (clustering), and 21-04 (report generation)
 - analysis/stats.ts provides Wilson score and bootstrap CI needed by 21-02 for win rate calculations
 - analysis/match-log-reader.ts provides NDJSON parsing needed by all downstream analysis plans
@@ -113,5 +123,6 @@ None - all implementations are complete with no placeholder data.
 All 7 files verified present. Both task commit hashes (f53ccd6, 0f3a7bc) found in git log.
 
 ---
-*Phase: 21-balance-analysis*
-*Completed: 2026-04-01*
+
+_Phase: 21-balance-analysis_
+_Completed: 2026-04-01_

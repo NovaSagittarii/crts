@@ -1,8 +1,8 @@
-import { getTf } from '../tf-backend.js';
-import type { TfModule } from '../tf-backend.js';
 import type * as tf from '@tensorflow/tfjs';
 
 import type { ActionSpaceInfo } from '../action-decoder.js';
+import { getTf } from '../tf-backend.js';
+import type { TfModule } from '../tf-backend.js';
 import type { NetworkConfig } from './training-config.js';
 
 let _tf: TfModule;

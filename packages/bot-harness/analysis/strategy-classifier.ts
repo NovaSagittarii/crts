@@ -1,10 +1,10 @@
+import type { TickEconomyRecord } from '../types.js';
+import { mean, shannonEntropy, stddev } from './stats.js';
 import type {
   ParsedMatch,
   StrategyAssignment,
   StrategyFeatureVector,
 } from './types.js';
-import type { TickEconomyRecord } from '../types.js';
-import { mean, shannonEntropy, stddev } from './stats.js';
 
 /**
  * Extract a StrategyFeatureVector from a match's tick records for a given team.
@@ -66,7 +66,11 @@ export function extractFeatures(
         }
       } else {
         // Opponent build positions for distance calc
-        if (action.result === 'applied' && action.x !== undefined && action.y !== undefined) {
+        if (
+          action.result === 'applied' &&
+          action.x !== undefined &&
+          action.y !== undefined
+        ) {
           opponentPositions.push({ x: action.x, y: action.y });
         }
       }
@@ -104,7 +108,8 @@ export function extractFeatures(
   let territoryGrowthRate = 0;
   if (teamEconomyEntries.length >= 2 && totalTicks > 0) {
     const initialIncome = teamEconomyEntries[0].income;
-    const finalIncome = teamEconomyEntries[teamEconomyEntries.length - 1].income;
+    const finalIncome =
+      teamEconomyEntries[teamEconomyEntries.length - 1].income;
     territoryGrowthRate = ((finalIncome - initialIncome) / totalTicks) * 100;
   }
 
@@ -182,10 +187,7 @@ export function classifyStrategy(
   buildCounts: Record<string, number>,
   totalTicks: number,
 ): string {
-  const totalBuilds = Object.values(buildCounts).reduce(
-    (sum, c) => sum + c,
-    0,
-  );
+  const totalBuilds = Object.values(buildCounts).reduce((sum, c) => sum + c, 0);
 
   if (totalBuilds > 0) {
     // Find dominant template

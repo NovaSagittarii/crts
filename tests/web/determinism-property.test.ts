@@ -1,6 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 // The above disables are required because this test imports from apps/web/src/
 // which is outside tsconfig.json's include boundary.
 import fc from 'fast-check';

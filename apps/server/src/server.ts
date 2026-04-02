@@ -2667,9 +2667,7 @@ export function createServer(options: ServerOptions = {}): GameServer {
         return;
       }
 
-      const slotDef = room.lobby
-        .slotIds()
-        .find((id) => id === slotId);
+      const slotDef = room.lobby.slotIds().find((id) => id === slotId);
       if (!slotDef) {
         roomError(
           socket,

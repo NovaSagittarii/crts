@@ -13,6 +13,7 @@ Two players can quickly get into a match and use Conway-based strategy to defend
 **Goal:** Build a headless bot harness against the RtsEngine API with PPO-based RL training, use self-play for balance analysis, and rate individual structures/combos via a Glicko-like strength system.
 
 **Target features:**
+
 - Bot harness: observation space, action space, reward signal, headless match runner
 - PPO training loop with self-play
 - Balance analysis with win rates, strategy distributions, per-map metrics

@@ -131,7 +131,12 @@ export class ObservationEncoder {
     // Structures from payload are already sorted by key
     for (const structure of structures) {
       for (const cell of structure.footprint) {
-        if (cell.x >= 0 && cell.x < this.width && cell.y >= 0 && cell.y < this.height) {
+        if (
+          cell.x >= 0 &&
+          cell.x < this.width &&
+          cell.y >= 0 &&
+          cell.y < this.height
+        ) {
           planes[offset + cell.y * this.width + cell.x] = 1.0;
         }
       }
@@ -158,7 +163,8 @@ export class ObservationEncoder {
       }
     }
 
-    const contributors: BuildZoneContributor[] = collectBuildZoneContributors(inputs);
+    const contributors: BuildZoneContributor[] =
+      collectBuildZoneContributors(inputs);
     if (contributors.length === 0) {
       return;
     }
@@ -183,7 +189,12 @@ export class ObservationEncoder {
     for (const structure of ownStructures) {
       if (structure.isCore) {
         for (const cell of structure.footprint) {
-          if (cell.x >= 0 && cell.x < this.width && cell.y >= 0 && cell.y < this.height) {
+          if (
+            cell.x >= 0 &&
+            cell.x < this.width &&
+            cell.y >= 0 &&
+            cell.y < this.height
+          ) {
             planes[offset + cell.y * this.width + cell.x] = 1.0;
           }
         }

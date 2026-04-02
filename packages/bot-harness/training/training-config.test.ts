@@ -5,7 +5,6 @@ import {
   DEFAULT_GRID_WIDTH,
   DEFAULT_MAX_TICKS,
 } from '../types.js';
-
 import {
   DEFAULT_NETWORK_CONFIG,
   DEFAULT_SELF_PLAY_CONFIG,
@@ -157,9 +156,12 @@ describe('parseTrainingArgs', () => {
 
   it('parses self-play ratios', () => {
     const config = parseTrainingArgs([
-      '--latest-ratio', '0.7',
-      '--historical-ratio', '0.2',
-      '--random-ratio', '0.1',
+      '--latest-ratio',
+      '0.7',
+      '--historical-ratio',
+      '0.2',
+      '--random-ratio',
+      '0.1',
     ]);
     expect(config.selfPlay.latestRatio).toBeCloseTo(0.7);
     expect(config.selfPlay.historicalRatio).toBeCloseTo(0.2);
@@ -168,15 +170,24 @@ describe('parseTrainingArgs', () => {
 
   it('parses all PPO hyperparameter flags', () => {
     const config = parseTrainingArgs([
-      '--clip-epsilon', '0.1',
-      '--gamma', '0.95',
-      '--gae-lambda', '0.9',
-      '--ppo-epochs', '8',
-      '--mini-batch-size', '128',
-      '--entropy-coeff', '0.02',
-      '--value-loss-coeff', '1.0',
-      '--max-grad-norm', '1.0',
-      '--target-kl', '0.02',
+      '--clip-epsilon',
+      '0.1',
+      '--gamma',
+      '0.95',
+      '--gae-lambda',
+      '0.9',
+      '--ppo-epochs',
+      '8',
+      '--mini-batch-size',
+      '128',
+      '--entropy-coeff',
+      '0.02',
+      '--value-loss-coeff',
+      '1.0',
+      '--max-grad-norm',
+      '1.0',
+      '--target-kl',
+      '0.02',
     ]);
     expect(config.clipEpsilon).toBeCloseTo(0.1);
     expect(config.gamma).toBeCloseTo(0.95);
@@ -191,9 +202,12 @@ describe('parseTrainingArgs', () => {
 
   it('parses grid and environment flags', () => {
     const config = parseTrainingArgs([
-      '--grid-width', '20',
-      '--grid-height', '30',
-      '--max-ticks', '500',
+      '--grid-width',
+      '20',
+      '--grid-height',
+      '30',
+      '--max-ticks',
+      '500',
     ]);
     expect(config.gridWidth).toBe(20);
     expect(config.gridHeight).toBe(30);
@@ -202,8 +216,10 @@ describe('parseTrainingArgs', () => {
 
   it('parses parallelism flags', () => {
     const config = parseTrainingArgs([
-      '--workers', '4',
-      '--batch-episodes', '16',
+      '--workers',
+      '4',
+      '--batch-episodes',
+      '16',
     ]);
     expect(config.workers).toBe(4);
     expect(config.batchEpisodes).toBe(16);
@@ -211,8 +227,10 @@ describe('parseTrainingArgs', () => {
 
   it('parses checkpoint-interval and max-pool-size', () => {
     const config = parseTrainingArgs([
-      '--checkpoint-interval', '25',
-      '--max-pool-size', '50',
+      '--checkpoint-interval',
+      '25',
+      '--max-pool-size',
+      '50',
     ]);
     expect(config.selfPlay.checkpointInterval).toBe(25);
     expect(config.selfPlay.maxPoolSize).toBe(50);

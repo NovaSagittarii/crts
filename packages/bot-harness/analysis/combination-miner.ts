@@ -8,7 +8,6 @@
  * Uses direct enumeration (brute-force) since with only 5 templates the
  * combinatorial space is trivial (2^5 - 1 = 31 possible subsets).
  */
-
 import type { ParsedMatch } from './types.js';
 
 // ---------------------------------------------------------------------------
@@ -171,7 +170,8 @@ export function mineFrequentSets(
 
   // Enumerate all k-subsets for k=2..maxSetSize
   const sortedTemplates = Array.from(allTemplates).sort();
-  const results: Array<{ setId: string; members: string[]; support: number }> = [];
+  const results: Array<{ setId: string; members: string[]; support: number }> =
+    [];
 
   for (let k = 2; k <= Math.min(maxSetSize, sortedTemplates.length); k++) {
     const subsets = kSubsets(sortedTemplates, k);

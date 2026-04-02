@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { ParsedMatch } from './types.js';
+
 import {
-  minePairwiseCombinations,
   mineFrequentSets,
+  minePairwiseCombinations,
 } from './combination-miner.js';
+import type { ParsedMatch } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -13,7 +14,10 @@ function makeParsedMatch(
   builds: Array<{ teamId: number; templateId: string; tick: number }>,
   winnerId: number | null,
 ): ParsedMatch {
-  const tickMap = new Map<number, Array<{ teamId: number; templateId: string }>>();
+  const tickMap = new Map<
+    number,
+    Array<{ teamId: number; templateId: string }>
+  >();
   for (const b of builds) {
     if (!tickMap.has(b.tick)) tickMap.set(b.tick, []);
     tickMap.get(b.tick)!.push({ teamId: b.teamId, templateId: b.templateId });
@@ -53,10 +57,43 @@ function makeParsedMatch(
     outcome: {
       type: 'outcome',
       totalTicks: 500,
-      winner: winnerId !== null ? { rank: 1, teamId: winnerId, outcome: 'winner', finalCoreHp: 100, coreState: 'intact', territoryCellCount: 0, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 } : null,
+      winner:
+        winnerId !== null
+          ? {
+              rank: 1,
+              teamId: winnerId,
+              outcome: 'winner',
+              finalCoreHp: 100,
+              coreState: 'intact',
+              territoryCellCount: 0,
+              queuedBuildCount: 0,
+              appliedBuildCount: 0,
+              rejectedBuildCount: 0,
+            }
+          : null,
       ranked: [
-        { rank: 1, teamId: 0, outcome: winnerId === 0 ? 'winner' : 'defeated', finalCoreHp: winnerId === 0 ? 100 : 0, coreState: winnerId === 0 ? 'intact' : 'destroyed', territoryCellCount: 0, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 },
-        { rank: 2, teamId: 1, outcome: winnerId === 1 ? 'winner' : 'defeated', finalCoreHp: winnerId === 1 ? 100 : 0, coreState: winnerId === 1 ? 'intact' : 'destroyed', territoryCellCount: 0, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 },
+        {
+          rank: 1,
+          teamId: 0,
+          outcome: winnerId === 0 ? 'winner' : 'defeated',
+          finalCoreHp: winnerId === 0 ? 100 : 0,
+          coreState: winnerId === 0 ? 'intact' : 'destroyed',
+          territoryCellCount: 0,
+          queuedBuildCount: 0,
+          appliedBuildCount: 0,
+          rejectedBuildCount: 0,
+        },
+        {
+          rank: 2,
+          teamId: 1,
+          outcome: winnerId === 1 ? 'winner' : 'defeated',
+          finalCoreHp: winnerId === 1 ? 100 : 0,
+          coreState: winnerId === 1 ? 'intact' : 'destroyed',
+          territoryCellCount: 0,
+          queuedBuildCount: 0,
+          appliedBuildCount: 0,
+          rejectedBuildCount: 0,
+        },
       ],
       isDraw: winnerId === null,
     },
@@ -158,9 +195,7 @@ describe('mineFrequentSets', () => {
     const result = mineFrequentSets(matches, { minSupport: 5 });
 
     // The set {block, glider, generator} appears in 8 (match, team) pairs → support = 8
-    const tripleSet = result.find(
-      (s) => s.setId === 'block+generator+glider',
-    );
+    const tripleSet = result.find((s) => s.setId === 'block+generator+glider');
     expect(tripleSet).toBeDefined();
     expect(tripleSet!.support).toBe(8);
     expect(tripleSet!.members).toEqual(['block', 'generator', 'glider']);

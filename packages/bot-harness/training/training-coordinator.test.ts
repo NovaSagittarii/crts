@@ -5,14 +5,17 @@
  * Uses small grid (10x10), small model (convFilters=[4,8], mlpUnits=[16]),
  * and 1 worker for fast execution.
  */
-
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it, expect, afterEach } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import type { TrainingConfig } from './training-config.js';
-import { DEFAULT_TRAINING_CONFIG, DEFAULT_NETWORK_CONFIG, DEFAULT_SELF_PLAY_CONFIG } from './training-config.js';
+import {
+  DEFAULT_NETWORK_CONFIG,
+  DEFAULT_SELF_PLAY_CONFIG,
+  DEFAULT_TRAINING_CONFIG,
+} from './training-config.js';
 import { TrainingCoordinator } from './training-coordinator.js';
 
 /** Build a small, fast test config. */

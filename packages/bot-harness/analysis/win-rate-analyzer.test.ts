@@ -1,21 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
 import type {
-  AnalysisConfig,
-  StrategyAssignment,
-  StrategyFeatureVector,
-} from './types.js';
-import type { ParsedMatch } from './types.js';
-import type {
   MatchHeader,
   MatchOutcomeRecord,
   TickActionRecord,
   TickRecord,
 } from '../types.js';
-
+import type {
+  AnalysisConfig,
+  StrategyAssignment,
+  StrategyFeatureVector,
+} from './types.js';
+import type { ParsedMatch } from './types.js';
 import {
-  computeTemplateWinRates,
   computeStrategyWinRates,
+  computeTemplateWinRates,
 } from './win-rate-analyzer.js';
 
 // ---------------------------------------------------------------------------
@@ -187,11 +186,7 @@ const match1 = makeMatch(
 );
 
 // Match 2: Team 2 wins, team 1 built [generator], team 2 built [block, glider, glider]
-const match2 = makeMatch(
-  ['generator'],
-  ['block', 'glider', 'glider'],
-  2,
-);
+const match2 = makeMatch(['generator'], ['block', 'glider', 'glider'], 2);
 
 // Match 3: Draw, team 1 built [block, block], team 2 built [generator]
 const match3 = makeMatch(['block', 'block'], ['generator'], null, true);

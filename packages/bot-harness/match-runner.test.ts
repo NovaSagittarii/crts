@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { RtsRoom } from '#rts-engine';
 
+import type { BotAction } from './bot-strategy.js';
 import {
   MatchLogger,
   createMatchHeader,
@@ -18,7 +19,6 @@ import {
 } from './match-runner.js';
 import { NoOpBot } from './noop-bot.js';
 import { RandomBot } from './random-bot.js';
-import type { BotAction } from './bot-strategy.js';
 import type { MatchCallbacks, MatchConfig, TickRecord } from './types.js';
 
 function createSmallConfig(overrides: Partial<MatchConfig> = {}): MatchConfig {
@@ -326,12 +326,20 @@ describe('createTickRecord templateId population', () => {
 
     // Check that each team's build actions have the correct templateId
     for (const action of tickRecord.actions) {
-      if (action.actionType === 'build' && action.teamId === teamAId && action.templateId) {
+      if (
+        action.actionType === 'build' &&
+        action.teamId === teamAId &&
+        action.templateId
+      ) {
         expect(action.templateId).toBe('block');
         expect(action.x).toBe(10);
         expect(action.y).toBe(10);
       }
-      if (action.actionType === 'build' && action.teamId === teamBId && action.templateId) {
+      if (
+        action.actionType === 'build' &&
+        action.teamId === teamBId &&
+        action.templateId
+      ) {
         expect(action.templateId).toBe('generator');
         expect(action.x).toBe(40);
         expect(action.y).toBe(40);

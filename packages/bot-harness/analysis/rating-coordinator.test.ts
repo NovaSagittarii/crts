@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
 
-import { computeRatingsSequential, computeRatingsParallel } from './rating-coordinator.js';
-import type { RatingComputeOptions } from './rating-coordinator.js';
-import type { ParsedMatch } from './types.js';
 import type {
   MatchHeader,
   MatchOutcomeRecord,
@@ -10,6 +7,12 @@ import type {
   TickEconomyRecord,
   TickRecord,
 } from '../types.js';
+import {
+  computeRatingsParallel,
+  computeRatingsSequential,
+} from './rating-coordinator.js';
+import type { RatingComputeOptions } from './rating-coordinator.js';
+import type { ParsedMatch } from './types.js';
 
 // ── helpers ────────────────────────────────────────────────────────────
 
@@ -125,10 +128,7 @@ function makeSyntheticMatches(count: number): ParsedMatch[] {
     matches.push({
       header: makeHeader(m + 1),
       ticks,
-      outcome: makeOutcome(100, [
-        makeRanked(0, 1, 500),
-        makeRanked(1, 2, 200),
-      ]),
+      outcome: makeOutcome(100, [makeRanked(0, 1, 500), makeRanked(1, 2, 200)]),
     });
   }
   return matches;
@@ -276,14 +276,21 @@ describe('computeRatingsParallel', () => {
     const options: RatingComputeOptions = {};
 
     const seqReport = await computeRatingsSequential(matches, options);
-    const parReport = await computeRatingsParallel(matches, { ...options, workers: 2 });
+    const parReport = await computeRatingsParallel(matches, {
+      ...options,
+      workers: 2,
+    });
 
     // Compare individual early ratings -- same entities, same order
-    expect(parReport.individual.early.length).toBe(seqReport.individual.early.length);
+    expect(parReport.individual.early.length).toBe(
+      seqReport.individual.early.length,
+    );
 
     for (let i = 0; i < seqReport.individual.early.length; i++) {
       const seqEntity = seqReport.individual.early[i];
-      const parEntity = parReport.individual.early.find((e) => e.id === seqEntity.id);
+      const parEntity = parReport.individual.early.find(
+        (e) => e.id === seqEntity.id,
+      );
       expect(parEntity).toBeDefined();
       if (parEntity) {
         expect(parEntity.rating.rating).toBeCloseTo(seqEntity.rating.rating, 2);

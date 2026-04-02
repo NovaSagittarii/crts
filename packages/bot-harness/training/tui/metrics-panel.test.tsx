@@ -1,15 +1,17 @@
-import React from 'react';
 import { render } from 'ink-testing-library';
+import React from 'react';
 import { describe, expect, it } from 'vitest';
 
 import type { TrainingLogEntry } from '../training-logger.js';
-import type { TrainingProgressData } from './types.js';
 import { MetricsPanel } from './metrics-panel.js';
+import type { TrainingProgressData } from './types.js';
 
 /**
  * Create a mock TrainingLogEntry for testing.
  */
-function mockEntry(overrides: Partial<TrainingLogEntry> = {}): TrainingLogEntry {
+function mockEntry(
+  overrides: Partial<TrainingLogEntry> = {},
+): TrainingLogEntry {
   return {
     episode: 42,
     timestamp: '2026-04-01T12:00:00Z',

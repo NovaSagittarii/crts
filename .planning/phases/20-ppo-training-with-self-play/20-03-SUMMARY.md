@@ -20,7 +20,12 @@ affects: [20-04, 20-05]
 # Tech tracking
 tech-stack:
   added: []
-  patterns: ["Custom file IO for TF.js pure JS backend (save model.json + weights.bin)", "NDJSON append-only logging with appendFile", "FIFO opponent pool eviction with configurable ratio sampling"]
+  patterns:
+    [
+      'Custom file IO for TF.js pure JS backend (save model.json + weights.bin)',
+      'NDJSON append-only logging with appendFile',
+      'FIFO opponent pool eviction with configurable ratio sampling',
+    ]
 
 key-files:
   created:
@@ -32,14 +37,14 @@ key-files:
   modified: []
 
 key-decisions:
-  - "Custom TF.js file IO instead of file:// handler -- pure JS @tensorflow/tfjs lacks file:// IOHandler (only in tfjs-node)"
-  - "loadWeightsFromDir reads raw weight data without creating a TF.js model -- avoids variable name collisions when another model with same topology exists"
-  - "Weight save uses Float32Array clone into standalone ArrayBuffer to avoid SharedArrayBuffer type mismatch"
+  - 'Custom TF.js file IO instead of file:// handler -- pure JS @tensorflow/tfjs lacks file:// IOHandler (only in tfjs-node)'
+  - 'loadWeightsFromDir reads raw weight data without creating a TF.js model -- avoids variable name collisions when another model with same topology exists'
+  - 'Weight save uses Float32Array clone into standalone ArrayBuffer to avoid SharedArrayBuffer type mismatch'
 
 patterns-established:
-  - "Checkpoint save/load pattern: saveModelToDir writes model.json + weights.bin, loadWeightsFromDir returns WeightData[] directly"
-  - "Opponent pool pattern: built-in bots (RandomBot/NoOpBot) are permanent entries, historical checkpoints have FIFO eviction"
-  - "Training logger pattern: NDJSON append for structured logs, formatLiveMetrics for stdout display with ETA"
+  - 'Checkpoint save/load pattern: saveModelToDir writes model.json + weights.bin, loadWeightsFromDir returns WeightData[] directly'
+  - 'Opponent pool pattern: built-in bots (RandomBot/NoOpBot) are permanent entries, historical checkpoints have FIFO eviction'
+  - 'Training logger pattern: NDJSON append for structured logs, formatLiveMetrics for stdout display with ETA'
 
 requirements-completed: [TRAIN-02, TRAIN-03]
 
@@ -61,6 +66,7 @@ completed: 2026-04-01
 - **Files modified:** 5
 
 ## Accomplishments
+
 - Built OpponentPool that seeds with RandomBot and NoOpBot, samples opponents via configurable latest/historical/random ratio, and evicts oldest checkpoints via FIFO when pool exceeds max size
 - Implemented custom TF.js file IO (saveModelToDir/loadWeightsFromDir) to work around pure JS backend lacking file:// handler
 - Created TrainingLogger that writes NDJSON episode logs, config.json, and formats live stdout metrics with ETA calculation
@@ -80,6 +86,7 @@ Each task was committed atomically:
    - `84cd3cc` (feat: implement structured training logger with NDJSON and live metrics)
 
 ## Files Created/Modified
+
 - `packages/bot-harness/training/opponent-pool.ts` - OpponentPool class with FIFO eviction, ratio-based sampling, checkpoint save/load
 - `packages/bot-harness/training/opponent-pool.test.ts` - 11 tests for seeding, sampling, eviction, checkpoint persistence
 - `packages/bot-harness/training/training-logger.ts` - TrainingLogger class with NDJSON output, config.json writer, live metrics formatter
@@ -87,6 +94,7 @@ Each task was committed atomically:
 - `packages/bot-harness/training/tfjs-file-io.ts` - Custom file IO for TF.js pure JS backend (saveModelToDir, loadModelFromDir, loadWeightsFromDir)
 
 ## Decisions Made
+
 - **Custom file IO for pure JS TF.js:** The `file://` IO handler is only available in `@tensorflow/tfjs-node`. Since we use the pure JS backend (Alpine Linux musl blocks native addon), implemented manual save/load writing `model.json` + `weights.bin` files directly.
 - **Direct weight loading (loadWeightsFromDir):** Loading a full model via `tf.loadLayersModel` causes TF.js variable name collisions when another model with the same topology already exists (suffixes names with `_1`). Instead, `loadWeightsFromDir` reads raw weight binary data and returns `WeightData[]` without creating a TF.js model.
 - **Float32Array clone for weights:** Used `new ArrayBuffer` + `Float32Array.set()` instead of `buffer.slice()` to avoid TypeScript `SharedArrayBuffer` type incompatibility in strict mode.
@@ -96,6 +104,7 @@ Each task was committed atomically:
 ### Auto-fixed Issues
 
 **1. [Rule 3 - Blocking] TF.js pure JS backend lacks file:// IO handler**
+
 - **Found during:** Task 1 (opponent pool implementation)
 - **Issue:** `model.save('file://...')` throws "Cannot find any save handlers for URL 'file://...'" in pure JS @tensorflow/tfjs (only available in tfjs-node)
 - **Fix:** Created `packages/bot-harness/training/tfjs-file-io.ts` with `saveModelToDir` that manually writes `model.json` + `weights.bin`, and `loadWeightsFromDir` that reads weight data directly
@@ -104,6 +113,7 @@ Each task was committed atomically:
 - **Committed in:** 238e21c, 9adfef3
 
 **2. [Rule 1 - Bug] Variable name collision when loading models**
+
 - **Found during:** Task 1 (loadOpponentWeights test)
 - **Issue:** `tf.loadLayersModel` creates new model with weight names suffixed `_1` when another model with same topology exists in TF.js scope, causing "no target variable" errors
 - **Fix:** Replaced model-based loading with direct `loadWeightsFromDir` that reads raw binary weight data as `WeightData[]` without creating a TF.js model
@@ -112,6 +122,7 @@ Each task was committed atomically:
 - **Committed in:** 238e21c
 
 **3. [Rule 1 - Bug] SharedArrayBuffer type incompatibility**
+
 - **Found during:** Task 1 (lint check)
 - **Issue:** `data.buffer.slice()` returns `ArrayBuffer | SharedArrayBuffer` but WeightData expects `ArrayBuffer`, failing TypeScript strict checks
 - **Fix:** Clone weight data using `new ArrayBuffer(byteLength)` + `new Float32Array(cloned).set(data)` instead of `buffer.slice()`
@@ -125,12 +136,15 @@ Each task was committed atomically:
 **Impact on plan:** All auto-fixes necessary for compatibility with pure JS TF.js backend. No scope creep. The custom file IO is a clean abstraction that will be reusable by downstream plans.
 
 ## Issues Encountered
+
 None beyond the auto-fixed deviations above.
 
 ## User Setup Required
+
 None - no external service configuration required.
 
 ## Next Phase Readiness
+
 - OpponentPool ready for Plan 04 (training loop) and Plan 05 (training CLI)
 - TrainingLogger ready for Plan 04 (episode logging) and Plan 05 (CLI output)
 - tfjs-file-io utilities available for any checkpoint save/load needs
@@ -141,5 +155,6 @@ None - no external service configuration required.
 All 5 created files verified present. All 5 task commits verified in git log.
 
 ---
-*Phase: 20-ppo-training-with-self-play*
-*Completed: 2026-04-01*
+
+_Phase: 20-ppo-training-with-self-play_
+_Completed: 2026-04-01_

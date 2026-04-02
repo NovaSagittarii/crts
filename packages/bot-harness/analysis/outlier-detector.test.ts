@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { RatedEntity } from './types.js';
+
 import { detectOutliers } from './outlier-detector.js';
+import type { RatedEntity } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -34,11 +35,19 @@ describe('detectOutliers', () => {
     const entities: RatedEntity[] = [];
     for (let i = 0; i < 9; i++) {
       entities.push(
-        makeEntity({ id: `E${i}`, rating: { rating: 1500, rd: 100, volatility: 0.06 }, pickRate: 0.1 }),
+        makeEntity({
+          id: `E${i}`,
+          rating: { rating: 1500, rd: 100, volatility: 0.06 },
+          pickRate: 0.1,
+        }),
       );
     }
     entities.push(
-      makeEntity({ id: 'D', rating: { rating: 2000, rd: 100, volatility: 0.06 }, pickRate: 0.1 }),
+      makeEntity({
+        id: 'D',
+        rating: { rating: 2000, rd: 100, volatility: 0.06 },
+        pickRate: 0.1,
+      }),
     );
 
     const result = detectOutliers(entities);
@@ -54,11 +63,19 @@ describe('detectOutliers', () => {
     const entities: RatedEntity[] = [];
     for (let i = 0; i < 9; i++) {
       entities.push(
-        makeEntity({ id: `E${i}`, rating: { rating: 1500, rd: 100, volatility: 0.06 }, pickRate: 0.1 }),
+        makeEntity({
+          id: `E${i}`,
+          rating: { rating: 1500, rd: 100, volatility: 0.06 },
+          pickRate: 0.1,
+        }),
       );
     }
     entities.push(
-      makeEntity({ id: 'D', rating: { rating: 1000, rd: 100, volatility: 0.06 }, pickRate: 0.1 }),
+      makeEntity({
+        id: 'D',
+        rating: { rating: 1000, rd: 100, volatility: 0.06 },
+        pickRate: 0.1,
+      }),
     );
 
     const result = detectOutliers(entities);
@@ -69,10 +86,26 @@ describe('detectOutliers', () => {
 
   it('Test 9: dominant — high rating AND high pick rate', () => {
     const entities: RatedEntity[] = [
-      makeEntity({ id: 'A', rating: { rating: 1800, rd: 100, volatility: 0.06 }, pickRate: 0.4 }),
-      makeEntity({ id: 'B', rating: { rating: 1200, rd: 100, volatility: 0.06 }, pickRate: 0.1 }),
-      makeEntity({ id: 'C', rating: { rating: 1100, rd: 100, volatility: 0.06 }, pickRate: 0.3 }),
-      makeEntity({ id: 'D', rating: { rating: 1400, rd: 100, volatility: 0.06 }, pickRate: 0.2 }),
+      makeEntity({
+        id: 'A',
+        rating: { rating: 1800, rd: 100, volatility: 0.06 },
+        pickRate: 0.4,
+      }),
+      makeEntity({
+        id: 'B',
+        rating: { rating: 1200, rd: 100, volatility: 0.06 },
+        pickRate: 0.1,
+      }),
+      makeEntity({
+        id: 'C',
+        rating: { rating: 1100, rd: 100, volatility: 0.06 },
+        pickRate: 0.3,
+      }),
+      makeEntity({
+        id: 'D',
+        rating: { rating: 1400, rd: 100, volatility: 0.06 },
+        pickRate: 0.2,
+      }),
     ];
 
     // Median rating: sort=[1100, 1200, 1400, 1800] → median = (1200+1400)/2 = 1300
@@ -87,10 +120,26 @@ describe('detectOutliers', () => {
 
   it('Test 10: niche-strong — high rating AND low pick rate', () => {
     const entities: RatedEntity[] = [
-      makeEntity({ id: 'A', rating: { rating: 1800, rd: 100, volatility: 0.06 }, pickRate: 0.05 }),
-      makeEntity({ id: 'B', rating: { rating: 1200, rd: 100, volatility: 0.06 }, pickRate: 0.4 }),
-      makeEntity({ id: 'C', rating: { rating: 1300, rd: 100, volatility: 0.06 }, pickRate: 0.3 }),
-      makeEntity({ id: 'D', rating: { rating: 1100, rd: 100, volatility: 0.06 }, pickRate: 0.25 }),
+      makeEntity({
+        id: 'A',
+        rating: { rating: 1800, rd: 100, volatility: 0.06 },
+        pickRate: 0.05,
+      }),
+      makeEntity({
+        id: 'B',
+        rating: { rating: 1200, rd: 100, volatility: 0.06 },
+        pickRate: 0.4,
+      }),
+      makeEntity({
+        id: 'C',
+        rating: { rating: 1300, rd: 100, volatility: 0.06 },
+        pickRate: 0.3,
+      }),
+      makeEntity({
+        id: 'D',
+        rating: { rating: 1100, rd: 100, volatility: 0.06 },
+        pickRate: 0.25,
+      }),
     ];
 
     // Median rating: sort=[1100, 1200, 1300, 1800] → median = (1200+1300)/2 = 1250
@@ -105,10 +154,26 @@ describe('detectOutliers', () => {
 
   it('Test 11: trap — low rating AND high pick rate', () => {
     const entities: RatedEntity[] = [
-      makeEntity({ id: 'A', rating: { rating: 1000, rd: 100, volatility: 0.06 }, pickRate: 0.5 }),
-      makeEntity({ id: 'B', rating: { rating: 1800, rd: 100, volatility: 0.06 }, pickRate: 0.1 }),
-      makeEntity({ id: 'C', rating: { rating: 1700, rd: 100, volatility: 0.06 }, pickRate: 0.2 }),
-      makeEntity({ id: 'D', rating: { rating: 1600, rd: 100, volatility: 0.06 }, pickRate: 0.2 }),
+      makeEntity({
+        id: 'A',
+        rating: { rating: 1000, rd: 100, volatility: 0.06 },
+        pickRate: 0.5,
+      }),
+      makeEntity({
+        id: 'B',
+        rating: { rating: 1800, rd: 100, volatility: 0.06 },
+        pickRate: 0.1,
+      }),
+      makeEntity({
+        id: 'C',
+        rating: { rating: 1700, rd: 100, volatility: 0.06 },
+        pickRate: 0.2,
+      }),
+      makeEntity({
+        id: 'D',
+        rating: { rating: 1600, rd: 100, volatility: 0.06 },
+        pickRate: 0.2,
+      }),
     ];
 
     // Median rating: sort=[1000, 1600, 1700, 1800] → median = (1600+1700)/2 = 1650
@@ -123,9 +188,21 @@ describe('detectOutliers', () => {
 
   it('Test 12: provisional entities excluded from statistical deviation calculation', () => {
     const entities: RatedEntity[] = [
-      makeEntity({ id: 'A', rating: { rating: 1500, rd: 100, volatility: 0.06 }, provisional: false }),
-      makeEntity({ id: 'B', rating: { rating: 1500, rd: 100, volatility: 0.06 }, provisional: false }),
-      makeEntity({ id: 'C', rating: { rating: 1500, rd: 100, volatility: 0.06 }, provisional: false }),
+      makeEntity({
+        id: 'A',
+        rating: { rating: 1500, rd: 100, volatility: 0.06 },
+        provisional: false,
+      }),
+      makeEntity({
+        id: 'B',
+        rating: { rating: 1500, rd: 100, volatility: 0.06 },
+        provisional: false,
+      }),
+      makeEntity({
+        id: 'C',
+        rating: { rating: 1500, rd: 100, volatility: 0.06 },
+        provisional: false,
+      }),
       // Provisional entity with extremely high rating should not be flagged by SD method
       makeEntity({
         id: 'P',
@@ -151,11 +228,19 @@ describe('detectOutliers', () => {
     const entities: RatedEntity[] = [];
     for (let i = 0; i < 9; i++) {
       entities.push(
-        makeEntity({ id: `E${i}`, rating: { rating: 1500, rd: 100, volatility: 0.06 }, pickRate: 0.05 }),
+        makeEntity({
+          id: `E${i}`,
+          rating: { rating: 1500, rd: 100, volatility: 0.06 },
+          pickRate: 0.05,
+        }),
       );
     }
     entities.push(
-      makeEntity({ id: 'A', rating: { rating: 2000, rd: 100, volatility: 0.06 }, pickRate: 0.5 }),
+      makeEntity({
+        id: 'A',
+        rating: { rating: 2000, rd: 100, volatility: 0.06 },
+        pickRate: 0.5,
+      }),
     );
 
     const result = detectOutliers(entities);

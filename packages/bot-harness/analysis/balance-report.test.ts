@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 
-import { assembleBalanceReport, assembleRatingsReport, DEFAULT_ANALYSIS_CONFIG } from './balance-report.js';
-import type { AnalysisConfig, ParsedMatch, RatingsReport } from './types.js';
 import type {
   MatchHeader,
   MatchOutcomeRecord,
@@ -9,6 +7,12 @@ import type {
   TickEconomyRecord,
   TickRecord,
 } from '../types.js';
+import {
+  DEFAULT_ANALYSIS_CONFIG,
+  assembleBalanceReport,
+  assembleRatingsReport,
+} from './balance-report.js';
+import type { AnalysisConfig, ParsedMatch, RatingsReport } from './types.js';
 
 // ── helpers ────────────────────────────────────────────────────────────
 
@@ -168,7 +172,10 @@ describe('assembleBalanceReport', () => {
       outcome: makeOutcome(50, [makeRanked(0, 1, 500), makeRanked(1, 2, 200)]),
     };
 
-    const report = await assembleBalanceReport([match], DEFAULT_ANALYSIS_CONFIG);
+    const report = await assembleBalanceReport(
+      [match],
+      DEFAULT_ANALYSIS_CONFIG,
+    );
 
     expect(report.metadata.matchCount).toBe(1);
     // Should not throw; report is valid even if degraded
@@ -180,9 +187,13 @@ describe('assembleBalanceReport', () => {
     const matches = makeSyntheticMatches(5);
     const before = new Date().toISOString();
 
-    const report = await assembleBalanceReport(matches, DEFAULT_ANALYSIS_CONFIG, {
-      matchDir: '/my/matches',
-    });
+    const report = await assembleBalanceReport(
+      matches,
+      DEFAULT_ANALYSIS_CONFIG,
+      {
+        matchDir: '/my/matches',
+      },
+    );
 
     expect(report.metadata.matchDir).toBe('/my/matches');
     expect(report.metadata.matchCount).toBe(5);
@@ -214,9 +225,13 @@ describe('assembleBalanceReport', () => {
 
   it('does not include ratings when ratingsOptions is not provided', async () => {
     const matches = makeSyntheticMatches(5);
-    const report = await assembleBalanceReport(matches, DEFAULT_ANALYSIS_CONFIG, {
-      matchDir: '/tmp/test-matches',
-    });
+    const report = await assembleBalanceReport(
+      matches,
+      DEFAULT_ANALYSIS_CONFIG,
+      {
+        matchDir: '/tmp/test-matches',
+      },
+    );
 
     expect(report.ratings).toBeUndefined();
   });

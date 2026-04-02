@@ -15,13 +15,13 @@ created: 2026-04-01
 
 ## Test Infrastructure
 
-| Property | Value |
-|----------|-------|
-| **Framework** | vitest |
-| **Config file** | `vitest.config.ts` (root) |
-| **Quick run command** | `npx vitest run packages/bot-harness/analysis/` |
-| **Full suite command** | `npm run test:unit` |
-| **Estimated runtime** | ~5 seconds |
+| Property               | Value                                           |
+| ---------------------- | ----------------------------------------------- |
+| **Framework**          | vitest                                          |
+| **Config file**        | `vitest.config.ts` (root)                       |
+| **Quick run command**  | `npx vitest run packages/bot-harness/analysis/` |
+| **Full suite command** | `npm run test:unit`                             |
+| **Estimated runtime**  | ~5 seconds                                      |
 
 ---
 
@@ -38,14 +38,14 @@ created: 2026-04-01
 
 All plans use inline TDD — tests created within the same task as implementation.
 
-| Task ID | Plan | Wave | Requirement | Test Type | Automated Command | Status |
-|---------|------|------|-------------|-----------|-------------------|--------|
-| 21-01-01 | 01 | 1 | BAL-02 | unit (TDD) | `npx vitest run packages/bot-harness/analysis/stats.test.ts` | ⬜ pending |
-| 21-01-02 | 01 | 1 | BAL-02 | unit (TDD) | `npx vitest run packages/bot-harness/analysis/match-log-reader.test.ts` | ⬜ pending |
-| 21-02-01 | 02 | 2 | BAL-02 | unit (TDD) | `npx vitest run packages/bot-harness/analysis/win-rate-analyzer.test.ts` | ⬜ pending |
-| 21-02-02 | 02 | 2 | BAL-03 | unit (TDD) | `npx vitest run packages/bot-harness/analysis/strategy-classifier.test.ts` | ⬜ pending |
-| 21-03-01 | 03 | 3 | BAL-02,03 | unit (TDD) | `npx vitest run packages/bot-harness/analysis/balance-report.test.ts` | ⬜ pending |
-| 21-03-02 | 03 | 3 | BAL-02,03 | smoke | `NODE_OPTIONS=--conditions=development npx tsx bin/analyze-balance.ts --help` | ⬜ pending |
+| Task ID  | Plan | Wave | Requirement | Test Type  | Automated Command                                                             | Status     |
+| -------- | ---- | ---- | ----------- | ---------- | ----------------------------------------------------------------------------- | ---------- |
+| 21-01-01 | 01   | 1    | BAL-02      | unit (TDD) | `npx vitest run packages/bot-harness/analysis/stats.test.ts`                  | ⬜ pending |
+| 21-01-02 | 01   | 1    | BAL-02      | unit (TDD) | `npx vitest run packages/bot-harness/analysis/match-log-reader.test.ts`       | ⬜ pending |
+| 21-02-01 | 02   | 2    | BAL-02      | unit (TDD) | `npx vitest run packages/bot-harness/analysis/win-rate-analyzer.test.ts`      | ⬜ pending |
+| 21-02-02 | 02   | 2    | BAL-03      | unit (TDD) | `npx vitest run packages/bot-harness/analysis/strategy-classifier.test.ts`    | ⬜ pending |
+| 21-03-01 | 03   | 3    | BAL-02,03   | unit (TDD) | `npx vitest run packages/bot-harness/analysis/balance-report.test.ts`         | ⬜ pending |
+| 21-03-02 | 03   | 3    | BAL-02,03   | smoke      | `NODE_OPTIONS=--conditions=development npx tsx bin/analyze-balance.ts --help` | ⬜ pending |
 
 ---
 
@@ -57,7 +57,7 @@ All plans use inline TDD — no separate Wave 0 needed.
 
 ## Manual-Only Verifications
 
-*All phase behaviors have automated verification.*
+_All phase behaviors have automated verification._
 
 ---
 

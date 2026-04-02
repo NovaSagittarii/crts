@@ -15,13 +15,13 @@ created: 2026-04-01
 
 ## Test Infrastructure
 
-| Property | Value |
-|----------|-------|
-| **Framework** | vitest |
-| **Config file** | `vitest.config.ts` (root) |
-| **Quick run command** | `npx vitest run --dir packages/bot-harness` |
-| **Full suite command** | `npm test` |
-| **Estimated runtime** | ~30 seconds (excluding convergence test) |
+| Property               | Value                                       |
+| ---------------------- | ------------------------------------------- |
+| **Framework**          | vitest                                      |
+| **Config file**        | `vitest.config.ts` (root)                   |
+| **Quick run command**  | `npx vitest run --dir packages/bot-harness` |
+| **Full suite command** | `npm test`                                  |
+| **Estimated runtime**  | ~30 seconds (excluding convergence test)    |
 
 ---
 
@@ -36,21 +36,21 @@ created: 2026-04-01
 
 ## Per-Task Verification Map
 
-| Task ID | Plan | Wave | Requirement | Test Type | Automated Command | Status |
-|---------|------|------|-------------|-----------|-------------------|--------|
-| 20-01-01 | 01 | 1 | TRAIN-01, TRAIN-03 | unit | `npx vitest run packages/bot-harness/training/training-config.test.ts` | ⬜ pending |
-| 20-01-02 | 01 | 1 | TRAIN-01 | unit (TDD) | `npx vitest run packages/bot-harness/training/ppo-network.test.ts` | ⬜ pending |
-| 20-02-01 | 02 | 2 | TRAIN-01 | unit (TDD) | `npx vitest run packages/bot-harness/training/trajectory-buffer.test.ts` | ⬜ pending |
-| 20-02-02 | 02 | 2 | TRAIN-01 | unit (TDD) | `npx vitest run packages/bot-harness/training/ppo-trainer.test.ts` | ⬜ pending |
-| 20-03-01 | 03 | 2 | TRAIN-02 | unit (TDD) | `npx vitest run packages/bot-harness/training/opponent-pool.test.ts` | ⬜ pending |
-| 20-03-02 | 03 | 2 | TRAIN-03 | unit (TDD) | `npx vitest run packages/bot-harness/training/training-logger.test.ts` | ⬜ pending |
-| 20-04-01 | 04 | 3 | TRAIN-01, TRAIN-04 | integration (via coordinator) | `npx vitest run packages/bot-harness/training/training-coordinator.test.ts --timeout 120000` | ⬜ pending |
-| 20-04-02 | 04 | 3 | TRAIN-01, TRAIN-02, TRAIN-04 | integration | `npx vitest run packages/bot-harness/training/training-coordinator.test.ts --timeout 120000` | ⬜ pending |
-| 20-05-01 | 05 | 4 | TRAIN-03 | smoke | `NODE_OPTIONS=--conditions=development npx tsx bin/train.ts --help \| head -5` | ⬜ pending |
-| 20-05-02 | 05 | 4 | TRAIN-01 | convergence | `npx vitest run packages/bot-harness/training/convergence.test.ts --timeout 300000` | ⬜ pending |
-| 20-05-03 | 05 | 4 | TRAIN-01, TRAIN-03 | checkpoint:human-verify | Manual: short training run produces outputs | ⬜ pending |
+| Task ID  | Plan | Wave | Requirement                  | Test Type                     | Automated Command                                                                            | Status     |
+| -------- | ---- | ---- | ---------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------- | ---------- |
+| 20-01-01 | 01   | 1    | TRAIN-01, TRAIN-03           | unit                          | `npx vitest run packages/bot-harness/training/training-config.test.ts`                       | ⬜ pending |
+| 20-01-02 | 01   | 1    | TRAIN-01                     | unit (TDD)                    | `npx vitest run packages/bot-harness/training/ppo-network.test.ts`                           | ⬜ pending |
+| 20-02-01 | 02   | 2    | TRAIN-01                     | unit (TDD)                    | `npx vitest run packages/bot-harness/training/trajectory-buffer.test.ts`                     | ⬜ pending |
+| 20-02-02 | 02   | 2    | TRAIN-01                     | unit (TDD)                    | `npx vitest run packages/bot-harness/training/ppo-trainer.test.ts`                           | ⬜ pending |
+| 20-03-01 | 03   | 2    | TRAIN-02                     | unit (TDD)                    | `npx vitest run packages/bot-harness/training/opponent-pool.test.ts`                         | ⬜ pending |
+| 20-03-02 | 03   | 2    | TRAIN-03                     | unit (TDD)                    | `npx vitest run packages/bot-harness/training/training-logger.test.ts`                       | ⬜ pending |
+| 20-04-01 | 04   | 3    | TRAIN-01, TRAIN-04           | integration (via coordinator) | `npx vitest run packages/bot-harness/training/training-coordinator.test.ts --timeout 120000` | ⬜ pending |
+| 20-04-02 | 04   | 3    | TRAIN-01, TRAIN-02, TRAIN-04 | integration                   | `npx vitest run packages/bot-harness/training/training-coordinator.test.ts --timeout 120000` | ⬜ pending |
+| 20-05-01 | 05   | 4    | TRAIN-03                     | smoke                         | `NODE_OPTIONS=--conditions=development npx tsx bin/train.ts --help \| head -5`               | ⬜ pending |
+| 20-05-02 | 05   | 4    | TRAIN-01                     | convergence                   | `npx vitest run packages/bot-harness/training/convergence.test.ts --timeout 300000`          | ⬜ pending |
+| 20-05-03 | 05   | 4    | TRAIN-01, TRAIN-03           | checkpoint:human-verify       | Manual: short training run produces outputs                                                  | ⬜ pending |
 
-*Status: ⬜ pending -- ✅ green -- ❌ red -- ⚠️ flaky*
+_Status: ⬜ pending -- ✅ green -- ❌ red -- ⚠️ flaky_
 
 ---
 
@@ -67,20 +67,20 @@ All plans use inline TDD (tests created within the same task as implementation).
 
 ## Manual-Only Verifications
 
-| Behavior | Requirement | Why Manual | Test Instructions |
-|----------|-------------|------------|-------------------|
-| TF.js native backend loads on Alpine Linux | TRAIN-01 | Platform-specific binary | Run `node -e "require('@tensorflow/tfjs-node')"` |
+| Behavior                                   | Requirement | Why Manual               | Test Instructions                                |
+| ------------------------------------------ | ----------- | ------------------------ | ------------------------------------------------ |
+| TF.js native backend loads on Alpine Linux | TRAIN-01    | Platform-specific binary | Run `node -e "require('@tensorflow/tfjs-node')"` |
 
 ---
 
 ## Requirement Coverage
 
-| Requirement | Plans | Tests |
-|-------------|-------|-------|
-| TRAIN-01 (PPO loop) | 01, 02, 04, 05 | ppo-network.test, trajectory-buffer.test, ppo-trainer.test, training-coordinator.test, convergence.test |
-| TRAIN-02 (Self-play pool) | 03, 04 | opponent-pool.test, training-coordinator.test (opponent variety) |
-| TRAIN-03 (Training CLI) | 01, 03, 05 | training-config.test, training-logger.test, `bin/train.ts --help` smoke |
-| TRAIN-04 (Worker parallelism) | 04, 05 | training-coordinator.test (spawns real workers) |
+| Requirement                   | Plans          | Tests                                                                                                   |
+| ----------------------------- | -------------- | ------------------------------------------------------------------------------------------------------- |
+| TRAIN-01 (PPO loop)           | 01, 02, 04, 05 | ppo-network.test, trajectory-buffer.test, ppo-trainer.test, training-coordinator.test, convergence.test |
+| TRAIN-02 (Self-play pool)     | 03, 04         | opponent-pool.test, training-coordinator.test (opponent variety)                                        |
+| TRAIN-03 (Training CLI)       | 01, 03, 05     | training-config.test, training-logger.test, `bin/train.ts --help` smoke                                 |
+| TRAIN-04 (Worker parallelism) | 04, 05         | training-coordinator.test (spawns real workers)                                                         |
 
 ---
 

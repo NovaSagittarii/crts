@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import type {
-  ParsedMatch,
-  StrategyFeatureVector,
-} from './types.js';
-import type {
   MatchHeader,
   MatchOutcomeRecord,
   TickActionRecord,
@@ -12,10 +8,11 @@ import type {
   TickRecord,
 } from '../types.js';
 import {
-  extractFeatures,
-  classifyStrategy,
   classifyAll,
+  classifyStrategy,
+  extractFeatures,
 } from './strategy-classifier.js';
+import type { ParsedMatch, StrategyFeatureVector } from './types.js';
 
 // ── helpers ────────────────────────────────────────────────────────────
 
@@ -239,8 +236,14 @@ describe('extractFeatures', () => {
       if (t === 20) actions.push(buildAction(0, 'block', 'applied', 10, 10));
       if (t === 25) actions.push(buildAction(0, 'glider', 'applied', 20, 5));
       // Team 1 builds at (40, 40) - for opponent reference
-      if (t === 15) actions.push(buildAction(1, 'generator', 'applied', 40, 40));
-      ticks.push(makeTick(t, actions, [economyEntry(0, 100, 10), economyEntry(1, 100, 10)]));
+      if (t === 15)
+        actions.push(buildAction(1, 'generator', 'applied', 40, 40));
+      ticks.push(
+        makeTick(t, actions, [
+          economyEntry(0, 100, 10),
+          economyEntry(1, 100, 10),
+        ]),
+      );
     }
     const match: ParsedMatch = {
       header: makeHeader(),
@@ -303,7 +306,11 @@ describe('classifyStrategy', () => {
       buildDensity: 3.0,
     });
     // No dominant template -> not template-heavy
-    const buildCounts: Record<string, number> = { generator: 3, block: 3, glider: 3 };
+    const buildCounts: Record<string, number> = {
+      generator: 3,
+      block: 3,
+      glider: 3,
+    };
     const label = classifyStrategy(features, buildCounts, 200);
     expect(label).toBe('early-builder');
   });
@@ -315,7 +322,13 @@ describe('classifyStrategy', () => {
       firstBuildTick: 50,
       buildDensity: 1.0,
     });
-    const buildCounts: Record<string, number> = { a: 2, b: 2, c: 2, d: 2, e: 2 };
+    const buildCounts: Record<string, number> = {
+      a: 2,
+      b: 2,
+      c: 2,
+      d: 2,
+      e: 2,
+    };
     const label = classifyStrategy(features, buildCounts, 200);
     expect(label).toBe('diverse-placer');
   });
@@ -326,7 +339,11 @@ describe('classifyStrategy', () => {
       buildDensity: 1.0,
     });
     // generator is 7/10 = 70% > 60%
-    const buildCounts: Record<string, number> = { generator: 7, block: 2, glider: 1 };
+    const buildCounts: Record<string, number> = {
+      generator: 7,
+      block: 2,
+      glider: 1,
+    };
     const label = classifyStrategy(features, buildCounts, 200);
     expect(label).toBe('generator-heavy');
   });

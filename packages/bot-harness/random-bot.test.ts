@@ -14,7 +14,12 @@ function createMinimalTeamState(
     id: 1,
     resources: 40,
     income: 1,
-    incomeBreakdown: { base: 1, structures: 0, total: 1, activeStructureCount: 0 },
+    incomeBreakdown: {
+      base: 1,
+      structures: 0,
+      total: 1,
+      activeStructureCount: 0,
+    },
     structures: [],
     pendingBuilds: [],
     pendingDestroys: [],
@@ -88,7 +93,10 @@ describe('NoOpBot', () => {
             buildRadius: 14,
             isCore: true,
             requiresDestroyConfirm: true,
-            transform: { operations: [], matrix: { xx: 1, xy: 0, yx: 0, yy: 1 } },
+            transform: {
+              operations: [],
+              matrix: { xx: 1, xy: 0, yx: 0, yy: 1 },
+            },
             footprint: [],
           },
         ],
@@ -149,7 +157,10 @@ describe('RandomBot', () => {
             buildRadius: 14,
             isCore: true,
             requiresDestroyConfirm: true,
-            transform: { operations: [], matrix: { xx: 1, xy: 0, yx: 0, yy: 1 } },
+            transform: {
+              operations: [],
+              matrix: { xx: 1, xy: 0, yx: 0, yy: 1 },
+            },
             footprint: [],
           },
         ],
@@ -183,7 +194,10 @@ describe('RandomBot', () => {
             buildRadius: 14,
             isCore: true,
             requiresDestroyConfirm: true,
-            transform: { operations: [], matrix: { xx: 1, xy: 0, yx: 0, yy: 1 } },
+            transform: {
+              operations: [],
+              matrix: { xx: 1, xy: 0, yx: 0, yy: 1 },
+            },
             footprint: [],
           },
         ],
@@ -231,7 +245,10 @@ describe('RandomBot', () => {
             buildRadius: 14,
             isCore: true,
             requiresDestroyConfirm: true,
-            transform: { operations: [], matrix: { xx: 1, xy: 0, yx: 0, yy: 1 } },
+            transform: {
+              operations: [],
+              matrix: { xx: 1, xy: 0, yx: 0, yy: 1 },
+            },
             footprint: [],
           },
         ],
@@ -305,7 +322,10 @@ describe('RandomBot', () => {
 
         const action = actions[0];
         if (action.type === 'build' && action.build) {
-          const preview = room.previewBuildPlacement('bot-player-1', action.build);
+          const preview = room.previewBuildPlacement(
+            'bot-player-1',
+            action.build,
+          );
           if (preview.accepted) {
             accepted = true;
             break;

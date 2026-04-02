@@ -46,15 +46,15 @@ key-files:
     - bin/analyze-balance.ts
 
 key-decisions:
-  - "computeRatingsSequential returns Promise.resolve() instead of async to avoid require-await lint"
-  - "Worker threads spawn per-pool with one worker per pool for simplicity (no intra-pool D-05b)"
-  - "_worker-shim.mjs copied to analysis/ dir matching training/ pattern for locality"
-  - "CLI subcommand routing uses strict:false with allowPositionals for backward compatibility"
-  - "Outlier detection runs in main thread after all workers complete (needs full result set for SD)"
+  - 'computeRatingsSequential returns Promise.resolve() instead of async to avoid require-await lint'
+  - 'Worker threads spawn per-pool with one worker per pool for simplicity (no intra-pool D-05b)'
+  - '_worker-shim.mjs copied to analysis/ dir matching training/ pattern for locality'
+  - 'CLI subcommand routing uses strict:false with allowPositionals for backward compatibility'
+  - 'Outlier detection runs in main thread after all workers complete (needs full result set for SD)'
 
 patterns-established:
-  - "Rating pipeline: matches -> encounters -> pools -> batch update -> outlier detection -> report"
-  - "CLI subcommand routing: positionals[0] determines mode, undefined = backward compatible default"
+  - 'Rating pipeline: matches -> encounters -> pools -> batch update -> outlier detection -> report'
+  - 'CLI subcommand routing: positionals[0] determines mode, undefined = backward compatible default'
 
 requirements-completed: [BAL-04, BAL-05]
 
@@ -76,6 +76,7 @@ completed: 2026-04-01
 - **Files modified:** 11
 
 ## Accomplishments
+
 - Complete Glicko-2 rating pipeline from match data through formatted reports
 - Worker thread parallelism for multi-pool computation (matching Phase 20 pattern)
 - CLI subcommands (ratings, report, all) with 8 new flags for rating configuration
@@ -90,6 +91,7 @@ Each task was committed atomically:
 2. **Task 2: Balance report assembly, CLI subcommands, and formatter extensions** - `33f1a36` (feat)
 
 ## Files Created/Modified
+
 - `packages/bot-harness/analysis/rating-worker.ts` - Worker thread entry point for parallel Glicko-2 pool computation
 - `packages/bot-harness/analysis/rating-coordinator.ts` - Coordinates sequential/parallel pool computation, builds encounters, runs outlier detection
 - `packages/bot-harness/analysis/rating-coordinator.test.ts` - Tests for sequential computation, rating accuracy, parallel equivalence, combination pools, outlier integration
@@ -102,6 +104,7 @@ Each task was committed atomically:
 - `bin/analyze-balance.ts` - Added ratings/report/all subcommands with --early-end, --mid-end, --tau, --min-support, --max-set-size, --per-phase-combos, --workers, --sd-threshold flags
 
 ## Decisions Made
+
 - Worker threads spawn one worker per pool rather than implementing intra-pool parallelism (D-05b). With only 5-9 pools the overhead of finer granularity is not justified.
 - `computeRatingsSequential` uses `Promise.resolve()` wrapper instead of `async` to satisfy `@typescript-eslint/require-await` lint rule while maintaining the Promise return type for API consistency.
 - Copied `_worker-shim.mjs` to analysis/ directory rather than importing from training/ to maintain locality (same as Phase 20 pattern where each subsystem has its own shim).
@@ -113,6 +116,7 @@ Each task was committed atomically:
 None - plan executed exactly as written.
 
 ## Issues Encountered
+
 - Pre-existing `MatchResult` barrel export collision (TS2308) in `packages/bot-harness/index.ts` -- both `./types.js` and `./analysis/types.js` export `MatchResult`. This existed since Phase 22-01 added `MatchResult` to analysis types. Out of scope for this plan; does not affect runtime behavior.
 - Pre-existing TF.js type errors in training/ modules (SharedArrayBuffer, NamedTensor) -- unrelated to Phase 22 changes.
 - Pre-existing bot-environment.test.ts timeout failures on CI -- slow test environment, not related to analysis changes.
@@ -122,6 +126,7 @@ None - plan executed exactly as written.
 None - no external service configuration required.
 
 ## Next Phase Readiness
+
 - Phase 22 is complete: all three plans (Glicko-2 engine, combination/outlier detection, rating pipeline integration) delivered
 - BAL-04 (Glicko-2 ratings) and BAL-05 (balance report CLI) requirements fulfilled
 - 127 analysis tests passing across 14 test files
@@ -132,5 +137,6 @@ None - no external service configuration required.
 All 10 created/modified files verified on disk. All 3 task commits verified in git history.
 
 ---
-*Phase: 22-structure-strength-ratings*
-*Completed: 2026-04-01*
+
+_Phase: 22-structure-strength-ratings_
+_Completed: 2026-04-01_

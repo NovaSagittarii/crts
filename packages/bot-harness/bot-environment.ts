@@ -11,7 +11,11 @@ import { RandomBot } from './random-bot.js';
 import type { RewardConfig, RewardStateSnapshot } from './reward-signal.js';
 import { DEFAULT_REWARD_CONFIG, computeReward } from './reward-signal.js';
 import { seedToRoomId } from './seed.js';
-import { DEFAULT_GRID_HEIGHT, DEFAULT_GRID_WIDTH, DEFAULT_MAX_TICKS } from './types.js';
+import {
+  DEFAULT_GRID_HEIGHT,
+  DEFAULT_GRID_WIDTH,
+  DEFAULT_MAX_TICKS,
+} from './types.js';
 
 /**
  * Per-step auxiliary info returned alongside the observation and reward.

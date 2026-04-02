@@ -21,9 +21,9 @@ affects: [23-03-socket-io-bot-adapter]
 tech-stack:
   added: []
   patterns:
-    - "Bot session IDs tracked in module-level Set for cross-concern isBot lookup"
-    - "setBotAddHandler delegation pattern mirrors existing setClaimHandler"
-    - "canAddBot computed from isHost + lobby status + open seats + no existing bot"
+    - 'Bot session IDs tracked in module-level Set for cross-concern isBot lookup'
+    - 'setBotAddHandler delegation pattern mirrors existing setClaimHandler'
+    - 'canAddBot computed from isHost + lobby status + open seats + no existing bot'
 
 key-files:
   created: []
@@ -41,13 +41,13 @@ key-files:
     - tests/web/lobby-membership-view-model.test.ts
 
 key-decisions:
-  - "Bot session IDs stored in module-level Set<string> in server.ts, passed to RoomBroadcastService for isBot population"
-  - "canAddBot is false when slot already has a bot, preventing duplicate bots per slot"
-  - "bot:add handler generates sessionId with bot- prefix and crypto.randomUUID for uniqueness"
+  - 'Bot session IDs stored in module-level Set<string> in server.ts, passed to RoomBroadcastService for isBot population'
+  - 'canAddBot is false when slot already has a bot, preventing duplicate bots per slot'
+  - 'bot:add handler generates sessionId with bot- prefix and crypto.randomUUID for uniqueness'
 
 patterns-established:
   - "Bot badge rendering follows existing Host/Ready badge pattern with createBadge('Bot', 'badge--bot')"
-  - "Click delegation for Add Bot buttons uses data-slot-add-bot attribute, same pattern as data-slot-claim"
+  - 'Click delegation for Add Bot buttons uses data-slot-add-bot attribute, same pattern as data-slot-claim'
 
 requirements-completed: [DEPLOY-01]
 
@@ -69,6 +69,7 @@ completed: 2026-04-01
 - **Files modified:** 11
 
 ## Accomplishments
+
 - Added bot:add and bot:added events to the socket contract with BotAddPayload, BotAddedPayload, and isBot on MembershipParticipant
 - Server bot:add handler validates host identity, lobby status, slot existence, and slot capacity before generating bot session ID
 - Lobby UI shows "Add Bot" button for host on empty slots and renders "Bot" badge for bot members
@@ -82,6 +83,7 @@ Each task was committed atomically:
 2. **Task 2: Web UI - Add Bot button and bot indicator badge** - `364d8eb` (feat)
 
 ## Files Created/Modified
+
 - `packages/rts-engine/socket-contract.ts` - Added isBot to MembershipParticipant, BotAddPayload, BotAddedPayload, bot:add/bot:added events
 - `apps/server/src/server.ts` - Added bot:add handler with validation, botSessionIds Set, crypto import
 - `apps/server/src/server-room-broadcast.ts` - Added isBot to membership payload and hash normalization
@@ -95,6 +97,7 @@ Each task was committed atomically:
 - `tests/web/lobby-membership-view-model.test.ts` - Added 3 bot-related test cases
 
 ## Decisions Made
+
 - Bot session IDs tracked in a module-level `Set<string>` rather than on the lobby aggregate, keeping the lobby domain model bot-agnostic and the bot-awareness at the server/transport layer
 - `canAddBot` is false when a slot already has a bot member, preventing host from adding duplicate bots to the same slot
 - Bot session IDs use `bot-` prefix with truncated UUID for human readability in logs and CLI usage
@@ -104,6 +107,7 @@ Each task was committed atomically:
 ### Auto-fixed Issues
 
 **1. [Rule 2 - Missing Critical] Added isBot to membership hash normalization**
+
 - **Found during:** Task 1
 - **Issue:** The membership hash in server-room-broadcast.ts would not include isBot, causing hash inconsistency between payload content and hash
 - **Fix:** Added isBot to the normalized participant object in buildMembershipHashFromPayload
@@ -112,6 +116,7 @@ Each task was committed atomically:
 - **Committed in:** 7d57d3b (Task 1 commit)
 
 **2. [Rule 3 - Blocking] Updated inline participant in controls test with isBot field**
+
 - **Found during:** Task 1
 - **Issue:** Inline participant object in lobby-controls-view-model.test.ts was missing the new required isBot field
 - **Fix:** Added `isBot: false` to the inline participant object
@@ -125,12 +130,15 @@ Each task was committed atomically:
 **Impact on plan:** Both fixes necessary for correctness and test compilation. No scope creep.
 
 ## Issues Encountered
+
 None
 
 ## User Setup Required
+
 None - no external service configuration required.
 
 ## Next Phase Readiness
+
 - Socket contract is ready for Plan 03 (Socket.IO bot adapter) to implement the bot process that connects using the botSessionId
 - The bot:added payload provides the botSessionId that the bot process needs as a CLI flag
 - The isBot flag flows through to the match UI for visual distinction during gameplay
@@ -140,5 +148,6 @@ None - no external service configuration required.
 All created/modified files verified present. Both task commits (7d57d3b, 364d8eb) confirmed in git history.
 
 ---
-*Phase: 23-playable-in-game-bot*
-*Completed: 2026-04-01*
+
+_Phase: 23-playable-in-game-bot_
+_Completed: 2026-04-01_

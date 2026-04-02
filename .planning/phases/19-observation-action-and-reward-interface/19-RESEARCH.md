@@ -13,9 +13,11 @@ The codebase already provides every data source needed. `RtsRoom.state` exposes 
 **Primary recommendation:** Use a single flat `Discrete` action space with index = `template_index * max_positions + position_index + 1` (0 = no-op). Enumerate positions within the build zone bounding box. Action mask is a `Uint8Array` computed by iterating all (template, position) pairs through `previewBuildPlacement`. Observations use channel-first layout `[C, H, W]` in a `Float32Array` with separate scalar feature vector.
 
 <user_constraints>
+
 ## User Constraints (from CONTEXT.md)
 
 ### Locked Decisions
+
 - **D-01:** Multi-channel 2D feature planes: alive cells, own structure footprint, enemy structure footprint, own territory mask, own core position. Stacked as channels (CNN-style input).
 - **D-02:** Scalar features: own resources, income, pending build count, structure count, core HP, tick number, territory radius. Normalized to [0,1].
 - **D-03:** Absolute grid coordinates -- no base-centering or rotation. Net learns position invariance during training.
@@ -34,6 +36,7 @@ The codebase already provides every data source needed. `RtsRoom.state` exposes 
 - **D-16:** `observation_space` and `action_space` static properties describe shapes, dtypes, bounds. Standard Gymnasium convention -- Phase 20's PPO uses these to configure the neural network.
 
 ### Claude's Discretion
+
 - Single discrete vs multi-discrete action space structure (D-05)
 - Exact number of feature planes and their order
 - Normalization ranges and clamping strategy for scalar features
@@ -43,17 +46,20 @@ The codebase already provides every data source needed. `RtsRoom.state` exposes 
 - Internal module structure within bot-harness for Phase 19 additions
 
 ### Deferred Ideas (OUT OF SCOPE)
+
 None -- discussion stayed within phase scope.
 </user_constraints>
 
 <phase_requirements>
+
 ## Phase Requirements
 
-| ID | Description | Research Support |
-|----|-------------|------------------|
-| HARN-02 | Observation encoder extracts grid feature planes and scalar features from RoomState into a tensor-compatible format | ObservationEncoder module: 5 binary feature planes (alive, own structures, enemy structures, territory mask, core position) + 7 scalar features as normalized Float32Array. Grid.isCellAlive() for plane 0, StructurePayload.footprint for planes 1-2, build zone geometry for plane 3, core footprint for plane 4. |
-| HARN-03 | Action decoder maps discrete action indices to valid build/destroy queue calls with action masking for invalid placements | ActionDecoder module: single Discrete(N+1) action space where N = num_templates * max_territory_positions. Mask computed via RtsRoom.previewBuildPlacement() for each (template, position) pair. Decode action index back to BuildQueuePayload for queueBuildEvent(). |
-| HARN-04 | Reward signal computes win/loss outcome reward plus shaped intermediate rewards (economy, territory, structure health) with configurable annealing | RewardSignal module: terminal (+1/-1/0) + economy_delta + core_damage shaped signals. Per-component weights with linear annealing coefficient. Pure function of (prev_state_snapshot, current_state_snapshot, teamId, config). |
+| ID      | Description                                                                                                                                        | Research Support                                                                                                                                                                                                                                                                                                    |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| HARN-02 | Observation encoder extracts grid feature planes and scalar features from RoomState into a tensor-compatible format                                | ObservationEncoder module: 5 binary feature planes (alive, own structures, enemy structures, territory mask, core position) + 7 scalar features as normalized Float32Array. Grid.isCellAlive() for plane 0, StructurePayload.footprint for planes 1-2, build zone geometry for plane 3, core footprint for plane 4. |
+| HARN-03 | Action decoder maps discrete action indices to valid build/destroy queue calls with action masking for invalid placements                          | ActionDecoder module: single Discrete(N+1) action space where N = num_templates \* max_territory_positions. Mask computed via RtsRoom.previewBuildPlacement() for each (template, position) pair. Decode action index back to BuildQueuePayload for queueBuildEvent().                                              |
+| HARN-04 | Reward signal computes win/loss outcome reward plus shaped intermediate rewards (economy, territory, structure health) with configurable annealing | RewardSignal module: terminal (+1/-1/0) + economy_delta + core_damage shaped signals. Per-component weights with linear annealing coefficient. Pure function of (prev_state_snapshot, current_state_snapshot, teamId, config).                                                                                      |
+
 </phase_requirements>
 
 ## Project Constraints (from CLAUDE.md)
@@ -70,29 +76,33 @@ None -- discussion stayed within phase scope.
 ## Standard Stack
 
 ### Core
-| Library | Version | Purpose | Why Standard |
-|---------|---------|---------|--------------|
-| TypeScript (strict) | 5.x (project-configured) | All implementation | Project requirement |
-| vitest | ^3.0.5 (project-configured) | Unit testing | Already in project devDependencies |
+
+| Library             | Version                     | Purpose            | Why Standard                       |
+| ------------------- | --------------------------- | ------------------ | ---------------------------------- |
+| TypeScript (strict) | 5.x (project-configured)    | All implementation | Project requirement                |
+| vitest              | ^3.0.5 (project-configured) | Unit testing       | Already in project devDependencies |
 
 ### Supporting
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| `#rts-engine` | local | RtsRoom, TeamState, structures, previewBuildPlacement, createTeamOutcomeSnapshots | All observation/action/reward data sources |
-| `#conway-core` | local | Grid class for cell-level observation extraction | Feature plane construction |
-| `#bot-harness` | local | BotStrategy, BotView, BotAction, match runner, RandomBot | Environment reset/step lifecycle |
+
+| Library        | Version | Purpose                                                                           | When to Use                                |
+| -------------- | ------- | --------------------------------------------------------------------------------- | ------------------------------------------ |
+| `#rts-engine`  | local   | RtsRoom, TeamState, structures, previewBuildPlacement, createTeamOutcomeSnapshots | All observation/action/reward data sources |
+| `#conway-core` | local   | Grid class for cell-level observation extraction                                  | Feature plane construction                 |
+| `#bot-harness` | local   | BotStrategy, BotView, BotAction, match runner, RandomBot                          | Environment reset/step lifecycle           |
 
 ### Alternatives Considered
-| Instead of | Could Use | Tradeoff |
-|------------|-----------|----------|
+
+| Instead of                   | Could Use                      | Tradeoff                                                                                                                                                                                            |
+| ---------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Single Discrete action space | MultiDiscrete (template, x, y) | MultiDiscrete requires 3 separate masks and correlated masking is harder. Single Discrete with flat index is simpler for PPO, easier to mask, and the total action count (~2500-5000) is manageable |
-| Pure function reward | Stateful reward tracker | Pure function is simpler, testable, deterministic. Annealing state lives in the environment, not the reward function |
+| Pure function reward         | Stateful reward tracker        | Pure function is simpler, testable, deterministic. Annealing state lives in the environment, not the reward function                                                                                |
 
 **Installation:** No new dependencies required. All modules use existing project packages.
 
 ## Architecture Patterns
 
 ### Recommended Module Structure
+
 ```
 packages/bot-harness/
   -- Existing Phase 18 files --
@@ -122,38 +132,39 @@ packages/bot-harness/
 
 **Feature Planes (5 channels, each H x W binary):**
 
-| Channel | Name | Source | Value |
-|---------|------|--------|-------|
-| 0 | alive_cells | `Grid.isCellAlive(x, y)` | 1.0 if alive, 0.0 if dead |
-| 1 | own_structure_footprint | Own team's `StructurePayload.footprint` cells | 1.0 if covered, 0.0 otherwise |
-| 2 | enemy_structure_footprint | Enemy team(s) structure footprint cells | 1.0 if covered, 0.0 otherwise |
-| 3 | own_territory_mask | Build zone coverage (euclidean distance from structure centers) | 1.0 if in territory, 0.0 otherwise |
-| 4 | own_core_position | Core structure's footprint cells | 1.0 if core cell, 0.0 otherwise |
+| Channel | Name                      | Source                                                          | Value                              |
+| ------- | ------------------------- | --------------------------------------------------------------- | ---------------------------------- |
+| 0       | alive_cells               | `Grid.isCellAlive(x, y)`                                        | 1.0 if alive, 0.0 if dead          |
+| 1       | own_structure_footprint   | Own team's `StructurePayload.footprint` cells                   | 1.0 if covered, 0.0 otherwise      |
+| 2       | enemy_structure_footprint | Enemy team(s) structure footprint cells                         | 1.0 if covered, 0.0 otherwise      |
+| 3       | own_territory_mask        | Build zone coverage (euclidean distance from structure centers) | 1.0 if in territory, 0.0 otherwise |
+| 4       | own_core_position         | Core structure's footprint cells                                | 1.0 if core cell, 0.0 otherwise    |
 
 **Scalar Features (7 values, normalized to [0, 1]):**
 
-| Index | Feature | Normalization | Source |
-|-------|---------|---------------|--------|
-| 0 | resources | clamp(value / MAX_RESOURCES, 0, 1) | `teamState.resources` |
-| 1 | income | clamp(value / MAX_INCOME, 0, 1) | `teamState.income` |
-| 2 | pending_build_count | clamp(value / MAX_PENDING, 0, 1) | `teamState.pendingBuilds.length` |
-| 3 | structure_count | clamp(value / MAX_STRUCTURES, 0, 1) | `teamState.structures.length` (non-core) |
-| 4 | core_hp | clamp(value / CORE_MAX_HP, 0, 1) | Core structure's `hp / 500` |
-| 5 | tick_number | clamp(value / maxTicks, 0, 1) | `tick / config.maxTicks` |
-| 6 | territory_radius | clamp(value / MAX_RADIUS, 0, 1) | `teamState.territoryRadius / MAX_RADIUS` |
+| Index | Feature             | Normalization                       | Source                                   |
+| ----- | ------------------- | ----------------------------------- | ---------------------------------------- |
+| 0     | resources           | clamp(value / MAX_RESOURCES, 0, 1)  | `teamState.resources`                    |
+| 1     | income              | clamp(value / MAX_INCOME, 0, 1)     | `teamState.income`                       |
+| 2     | pending_build_count | clamp(value / MAX_PENDING, 0, 1)    | `teamState.pendingBuilds.length`         |
+| 3     | structure_count     | clamp(value / MAX_STRUCTURES, 0, 1) | `teamState.structures.length` (non-core) |
+| 4     | core_hp             | clamp(value / CORE_MAX_HP, 0, 1)    | Core structure's `hp / 500`              |
+| 5     | tick_number         | clamp(value / maxTicks, 0, 1)       | `tick / config.maxTicks`                 |
+| 6     | territory_radius    | clamp(value / MAX_RADIUS, 0, 1)     | `teamState.territoryRadius / MAX_RADIUS` |
 
 **Normalization constants:** Use generous upper bounds (e.g., MAX_RESOURCES=500, MAX_INCOME=20, MAX_PENDING=10, MAX_STRUCTURES=50, CORE_MAX_HP=500, MAX_RADIUS=100). Clamping prevents values > 1.0 without crashing.
 
 **Output format:**
+
 ```typescript
 interface ObservationResult {
-  planes: Float32Array;     // C * H * W flat array (channel-first: [C, H, W])
-  scalars: Float32Array;    // 7 normalized scalar features
+  planes: Float32Array; // C * H * W flat array (channel-first: [C, H, W])
+  scalars: Float32Array; // 7 normalized scalar features
   shape: {
-    channels: number;       // 5
-    height: number;         // grid height (e.g., 52)
-    width: number;          // grid width (e.g., 52)
-    scalarCount: number;    // 7
+    channels: number; // 5
+    height: number; // grid height (e.g., 52)
+    width: number; // grid width (e.g., 52)
+    scalarCount: number; // 7
   };
 }
 ```
@@ -171,23 +182,27 @@ interface ObservationResult {
 **Recommendation: Single Discrete action space (D-05 discretion)**
 
 Rationale for single Discrete over MultiDiscrete:
+
 1. With ~5 buildable templates and ~500-2000 territory positions, total action space is ~2500-10000 + 1 (no-op). This is well within PPO's capability for discrete spaces.
 2. Single Discrete simplifies masking -- one boolean per action index. MultiDiscrete requires correlated masking across dimensions (a position valid for template A may be invalid for template B due to different sizes).
 3. Standard PPO implementations (including CleanRL, SB3) handle single Discrete with masking cleanly.
 4. The action space resizes each tick as territory changes, but the mask handles this naturally.
 
 **Action index encoding:**
+
 ```
 action = 0                                          => no-op
 action = template_idx * num_positions + pos_idx + 1 => build template at position
 ```
 
 Where:
+
 - `template_idx` is 0-indexed into the sorted template list (excluding `__core__`)
 - `pos_idx` is 0-indexed into the enumerated territory positions
 - Territory positions are enumerated in row-major order within the territory bounding box
 
 **Territory position enumeration:**
+
 ```typescript
 // For each structure with buildRadius > 0, collect the bounding box
 // Iterate positions in the bounding box that fall within euclidean distance
@@ -196,6 +211,7 @@ Where:
 ```
 
 **Action mask computation:**
+
 ```typescript
 // mask[0] = 1 (no-op is always valid)
 // For each (template_idx, pos_idx):
@@ -213,6 +229,7 @@ Where:
 **What:** Pure function computing reward from state transitions with configurable shaping.
 
 **Terminal reward:**
+
 ```typescript
 // On match outcome:
 //   win  => +1.0 * weights.terminal
@@ -221,6 +238,7 @@ Where:
 ```
 
 **Shaped intermediate rewards (per tick):**
+
 ```typescript
 // economy_delta: (current_resources + current_income) - (prev_resources + prev_income)
 //   Normalized by dividing by a scaling constant (e.g., 100)
@@ -229,6 +247,7 @@ Where:
 ```
 
 **Annealing:**
+
 ```typescript
 // shaped_weight = max(0, 1.0 - episode_number / anneal_episodes)
 // total_reward = terminal_reward + shaped_weight * (
@@ -238,18 +257,20 @@ Where:
 ```
 
 **Default config:**
+
 ```typescript
 interface RewardConfig {
   weights: {
-    terminal: number;       // default: 1.0
-    economy_delta: number;  // default: 0.1
-    core_damage: number;    // default: 0.5
+    terminal: number; // default: 1.0
+    economy_delta: number; // default: 0.1
+    core_damage: number; // default: 0.5
   };
-  annealEpisodes: number;   // default: 10000
+  annealEpisodes: number; // default: 10000
 }
 ```
 
 **State snapshot for reward computation:**
+
 ```typescript
 interface RewardStateSnapshot {
   resources: number;
@@ -266,12 +287,13 @@ The `RewardSignal.compute()` function takes `(prevSnapshot, currentSnapshot, ter
 **What:** Wraps RtsRoom in a Gymnasium-style step/reset interface.
 
 **Interface:**
+
 ```typescript
 interface StepResult {
   observation: ObservationResult;
   reward: number;
-  terminated: boolean;  // match ended naturally (core destroyed)
-  truncated: boolean;   // tick limit reached
+  terminated: boolean; // match ended naturally (core destroyed)
+  truncated: boolean; // tick limit reached
   info: StepInfo;
 }
 
@@ -285,9 +307,9 @@ interface StepInfo {
 }
 
 interface BotEnvironmentConfig {
-  gridWidth: number;      // default: 52
-  gridHeight: number;     // default: 52
-  maxTicks: number;       // default: 2000
+  gridWidth: number; // default: 52
+  gridHeight: number; // default: 52
+  maxTicks: number; // default: 2000
   rewardConfig: RewardConfig;
 }
 
@@ -299,7 +321,7 @@ class BotEnvironment {
   };
   readonly actionSpace: {
     type: 'Discrete';
-    n: number;  // max action space size (upper bound)
+    n: number; // max action space size (upper bound)
   };
 
   constructor(config: BotEnvironmentConfig);
@@ -310,12 +332,14 @@ class BotEnvironment {
 ```
 
 **Reset flow:**
+
 1. Create fresh `RtsRoom.create()` with grid dimensions from config
 2. Add two players: `'rl-agent'` (the team being trained) and `'opponent'`
 3. Create opponent bot view and get opponent's first action (no-op for tick 0)
 4. Return initial observation + action mask + info
 
 **Step flow:**
+
 1. Decode `action` via ActionDecoder -> `BuildQueuePayload` or no-op
 2. If build action, call `room.queueBuildEvent('rl-agent', payload)`
 3. Get opponent's view via `createBotView()`, call `opponent.decideTick()`, apply opponent actions
@@ -337,49 +361,55 @@ class BotEnvironment {
 
 ## Don't Hand-Roll
 
-| Problem | Don't Build | Use Instead | Why |
-|---------|-------------|-------------|-----|
-| Build validity checking | Custom collision/territory logic | `RtsRoom.previewBuildPlacement()` | Already handles all edge cases: out-of-bounds, occupied, outside territory, insufficient resources, team defeated, template comparison. Guaranteed consistent with `queueBuildEvent()` |
-| Territory cell enumeration | Manual bounding box + distance | `collectBuildZoneContributors()` + `isBuildZoneCoveredByContributor()` from `build-zone.ts` | Handles euclidean distance shape, multi-contributor zones, build radius aggregation |
-| Match outcome ranking | Custom win/loss logic | `RtsRoom.createCanonicalMatchOutcome()` | Consistent with engine's ranking comparator |
-| Bot view creation | Manual state extraction | `createBotView()` from `match-runner.ts` | Already filters own team only, extracts templates, handles payloads |
-| Structure templates list | Hardcoded template names | `createDefaultStructureTemplates()` or `room.state.templates` | Authoritative template vocabulary |
+| Problem                    | Don't Build                      | Use Instead                                                                                 | Why                                                                                                                                                                                    |
+| -------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Build validity checking    | Custom collision/territory logic | `RtsRoom.previewBuildPlacement()`                                                           | Already handles all edge cases: out-of-bounds, occupied, outside territory, insufficient resources, team defeated, template comparison. Guaranteed consistent with `queueBuildEvent()` |
+| Territory cell enumeration | Manual bounding box + distance   | `collectBuildZoneContributors()` + `isBuildZoneCoveredByContributor()` from `build-zone.ts` | Handles euclidean distance shape, multi-contributor zones, build radius aggregation                                                                                                    |
+| Match outcome ranking      | Custom win/loss logic            | `RtsRoom.createCanonicalMatchOutcome()`                                                     | Consistent with engine's ranking comparator                                                                                                                                            |
+| Bot view creation          | Manual state extraction          | `createBotView()` from `match-runner.ts`                                                    | Already filters own team only, extracts templates, handles payloads                                                                                                                    |
+| Structure templates list   | Hardcoded template names         | `createDefaultStructureTemplates()` or `room.state.templates`                               | Authoritative template vocabulary                                                                                                                                                      |
 
 **Key insight:** The RTS engine already provides every validation and data extraction function needed. The Gymnasium wrapper is pure orchestration -- it should delegate all domain logic to existing `RtsRoom` and `RtsEngine` methods.
 
 ## Common Pitfalls
 
 ### Pitfall 1: Action Space / Mask Size Mismatch
+
 **What goes wrong:** Territory expands as structures are built (block template has buildRadius=20). If the action space size is fixed at reset time but territory grows, new valid positions appear that have no corresponding action index.
 **Why it happens:** Territory radius changes dynamically: starts at 12, grows by `structure.buildRadius` for each active structure with buildRadius > 0.
 **How to avoid:** Compute the maximum possible action space size at reset() time using a generous upper bound (e.g., full grid positions). The mask disables most actions; only territory-valid ones are enabled. This means the Discrete(N) size is fixed for the episode, but the mask narrows the valid set.
 **Warning signs:** Assertion failures where a valid build position has no action index.
 
 ### Pitfall 2: Non-Deterministic Observation Encoding
+
 **What goes wrong:** Two identical RoomState inputs produce different Float32Array outputs.
 **Why it happens:** Iterating Maps/Sets without deterministic ordering, or using floating-point operations that produce platform-dependent results.
 **How to avoid:** Always sort structures by key before iterating. Use only integer arithmetic and exact float constants (0.0, 1.0). All normalization uses simple division with clamping.
 **Warning signs:** Determinism tests comparing byte-identical Float32Arrays fail intermittently.
 
 ### Pitfall 3: previewBuildPlacement Requires playerId Not teamId
+
 **What goes wrong:** Calling `room.previewBuildPlacement(teamId, payload)` fails because it expects a playerId string, not a team number.
 **Why it happens:** The API resolves team from player internally: `room.players.get(playerId) -> player.teamId -> room.teams.get(teamId)`.
 **How to avoid:** BotEnvironment stores the playerId string (e.g., `'rl-agent'`) used in `addPlayer()` and passes it to all RtsRoom methods.
 **Warning signs:** All preview results return `accepted: false` with "Player is not in this room" error.
 
 ### Pitfall 4: Gosper Gun Template Too Large for Territory
+
 **What goes wrong:** Gosper glider gun is 36x9 -- it may not fit in the territory bounding box, especially at small territory radii.
 **Why it happens:** Template width (36) exceeds the initial territory diameter (~24 cells). Even if territory grows, the template must fit entirely within the grid AND within territory.
 **How to avoid:** The action mask naturally handles this -- `previewBuildPlacement()` will reject placements that extend outside the map or outside territory. But the action space enumeration should still include these templates; the mask just keeps them disabled until territory is large enough.
 **Warning signs:** Gosper template never appears as a valid action. This is expected behavior, not a bug -- confirm in tests.
 
 ### Pitfall 5: Reward Signal Magnitude Imbalance
+
 **What goes wrong:** Shaped rewards dominate terminal rewards during early training, then shaped rewards vanish too quickly, leaving the agent with sparse signal.
 **Why it happens:** Economy delta can be large (resources accumulate at ~1/tick for base income), while core damage is rare (only happens when Conway patterns breach the core).
 **How to avoid:** Normalize shaped signals to similar scales (economy delta / 100, core damage / 500). Use configurable weights so experiments can tune the balance. Default annealing over 10000 episodes gives sufficient time for both signals.
 **Warning signs:** Training loss is unstable, or agent learns pure economy hoarding without attacking.
 
 ### Pitfall 6: Enemy Observation Data Access in Fog-of-War
+
 **What goes wrong:** Trying to access enemy team state for feature planes when BotView only exposes own team.
 **Why it happens:** Phase 18's BotView filters to own team only (D-02 fog-of-war). But feature plane 2 (enemy structure footprint) requires enemy data.
 **How to avoid:** The ObservationEncoder must access `RtsRoom` state directly (not through BotView) for the enemy team's structures. The encoder operates at the environment level, not the bot strategy level. BotEnvironment has access to the full `RtsRoom` and can read both teams' state payloads.
@@ -388,6 +418,7 @@ class BotEnvironment {
 ## Code Examples
 
 ### ObservationEncoder Core Logic
+
 ```typescript
 // Source: derived from Grid API (packages/conway-core/grid.ts) and
 // RtsRoom.createStatePayload() (packages/rts-engine/rts.ts)
@@ -403,14 +434,19 @@ export class ObservationEncoder {
     this.height = height;
   }
 
-  public encode(room: RtsRoom, teamId: number, tick: number, maxTicks: number): ObservationResult {
+  public encode(
+    room: RtsRoom,
+    teamId: number,
+    tick: number,
+    maxTicks: number,
+  ): ObservationResult {
     const planeSize = this.height * this.width;
     const planes = new Float32Array(this.channels * planeSize);
     const scalars = new Float32Array(this.scalarCount);
 
     const payload = room.createStatePayload();
-    const ownTeam = payload.teams.find(t => t.id === teamId);
-    const enemyTeam = payload.teams.find(t => t.id !== teamId);
+    const ownTeam = payload.teams.find((t) => t.id === teamId);
+    const enemyTeam = payload.teams.find((t) => t.id !== teamId);
 
     // Channel 0: alive cells
     const grid = room.state.grid;
@@ -453,12 +489,22 @@ export class ObservationEncoder {
       // ... core HP, tick, territory radius
     }
 
-    return { planes, scalars, shape: { channels: this.channels, height: this.height, width: this.width, scalarCount: this.scalarCount } };
+    return {
+      planes,
+      scalars,
+      shape: {
+        channels: this.channels,
+        height: this.height,
+        width: this.width,
+        scalarCount: this.scalarCount,
+      },
+    };
   }
 }
 ```
 
 ### ActionDecoder Action Mask Computation
+
 ```typescript
 // Source: derived from RtsRoom.previewBuildPlacement()
 // (packages/rts-engine/rts.ts line ~2594)
@@ -488,6 +534,7 @@ public computeActionMask(room: RtsRoom, playerId: string, teamId: number): Uint8
 ```
 
 ### RewardSignal Computation
+
 ```typescript
 // Source: derived from match-lifecycle.ts TeamOutcomeSnapshot
 // and gameplay-rules.ts INTEGRITY_HP_COST_PER_CELL
@@ -512,13 +559,14 @@ export function computeReward(
   // Shaped rewards with annealing
   const shapedWeight = Math.max(0, 1.0 - episodeNumber / config.annealEpisodes);
   if (shapedWeight > 0) {
-    const economyDelta = ((curr.resources + curr.income) - (prev.resources + prev.income)) / 100;
+    const economyDelta =
+      (curr.resources + curr.income - (prev.resources + prev.income)) / 100;
     const coreDamage = (prev.enemyCoreHp - curr.enemyCoreHp) / 500;
 
-    reward += shapedWeight * (
-      config.weights.economy_delta * economyDelta +
-      config.weights.core_damage * coreDamage
-    );
+    reward +=
+      shapedWeight *
+      (config.weights.economy_delta * economyDelta +
+        config.weights.core_damage * coreDamage);
   }
 
   return reward;
@@ -526,6 +574,7 @@ export function computeReward(
 ```
 
 ### BotEnvironment Step Flow
+
 ```typescript
 // Source: derived from match-runner.ts runMatch() pattern
 // (packages/bot-harness/match-runner.ts lines 127-189)
@@ -575,13 +624,14 @@ public step(action: number): StepResult {
 
 ## State of the Art
 
-| Old Approach | Current Approach | When Changed | Impact |
-|--------------|------------------|--------------|--------|
+| Old Approach             | Current Approach                       | When Changed           | Impact                                                                                            |
+| ------------------------ | -------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------- |
 | `done` flag (OpenAI Gym) | `terminated` + `truncated` (Gymnasium) | Gymnasium v0.26 (2022) | Critical for correct bootstrapping in PPO -- must distinguish natural termination from truncation |
-| Fixed action space | Dynamic action masking | 2020-present | Standard practice for constrained environments. MaskablePPO in SB3 is the reference |
-| Constant reward shaping | Annealed shaping | 2023-present | Prevents shaped reward from dominating terminal signal. Linear decay is the simplest baseline |
+| Fixed action space       | Dynamic action masking                 | 2020-present           | Standard practice for constrained environments. MaskablePPO in SB3 is the reference               |
+| Constant reward shaping  | Annealed shaping                       | 2023-present           | Prevents shaped reward from dominating terminal signal. Linear decay is the simplest baseline     |
 
 **Deprecated/outdated:**
+
 - OpenAI Gym: Replaced by Gymnasium (Farama Foundation). The 5-tuple return in step() is the new standard.
 - Single `done` flag: Must use `terminated`/`truncated` distinction for correct value bootstrapping.
 
@@ -590,7 +640,7 @@ public step(action: number): StepResult {
 1. **Action Space Upper Bound Sizing**
    - What we know: Territory starts at radius 12 (~452 cells) and grows with structure buildRadius bonuses. Block template has buildRadius=20.
    - What's unclear: What is a reasonable upper bound for `max_positions` that covers the entire possible territory expansion without being wastefully large?
-   - Recommendation: Use the full grid area (width * height = 2704 for 52x52) as the position enumeration upper bound. This means the action space is `5 * 2704 + 1 = 13521` at most. The mask disables most actions. This is still manageable for PPO (AlphaGo had 362 actions, Dota had thousands). Alternatively, use territory bounding box computed from max possible buildRadius.
+   - Recommendation: Use the full grid area (width _ height = 2704 for 52x52) as the position enumeration upper bound. This means the action space is `5 _ 2704 + 1 = 13521` at most. The mask disables most actions. This is still manageable for PPO (AlphaGo had 362 actions, Dota had thousands). Alternatively, use territory bounding box computed from max possible buildRadius.
 
 2. **Enemy Core HP Visibility for Reward**
    - What we know: BotView (fog-of-war) hides enemy team internals. But the reward function needs enemy core HP for the `core_damage` shaped signal.
@@ -605,41 +655,45 @@ public step(action: number): StepResult {
 ## Validation Architecture
 
 ### Test Framework
-| Property | Value |
-|----------|-------|
-| Framework | vitest ^3.0.5 |
-| Config file | `vitest.config.ts` (root) |
-| Quick run command | `npx vitest run packages/bot-harness/observation-encoder.test.ts packages/bot-harness/action-decoder.test.ts packages/bot-harness/reward-signal.test.ts packages/bot-harness/bot-environment.test.ts` |
-| Full suite command | `npm run test:unit` |
+
+| Property           | Value                                                                                                                                                                                                 |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Framework          | vitest ^3.0.5                                                                                                                                                                                         |
+| Config file        | `vitest.config.ts` (root)                                                                                                                                                                             |
+| Quick run command  | `npx vitest run packages/bot-harness/observation-encoder.test.ts packages/bot-harness/action-decoder.test.ts packages/bot-harness/reward-signal.test.ts packages/bot-harness/bot-environment.test.ts` |
+| Full suite command | `npm run test:unit`                                                                                                                                                                                   |
 
 ### Phase Requirements -> Test Map
-| Req ID | Behavior | Test Type | Automated Command | File Exists? |
-|--------|----------|-----------|-------------------|-------------|
-| HARN-02-a | Identical RoomState + teamId -> identical Float32Array | unit | `npx vitest run packages/bot-harness/observation-encoder.test.ts -t "deterministic"` | Wave 0 |
-| HARN-02-b | Feature planes have correct dimensions (channels * H * W) | unit | `npx vitest run packages/bot-harness/observation-encoder.test.ts -t "shape"` | Wave 0 |
-| HARN-02-c | Alive cells plane matches Grid.isCellAlive() | unit | `npx vitest run packages/bot-harness/observation-encoder.test.ts -t "alive"` | Wave 0 |
-| HARN-02-d | Structure footprint planes match structure payloads | unit | `npx vitest run packages/bot-harness/observation-encoder.test.ts -t "footprint"` | Wave 0 |
-| HARN-02-e | Scalar features normalized to [0, 1] | unit | `npx vitest run packages/bot-harness/observation-encoder.test.ts -t "scalar"` | Wave 0 |
-| HARN-03-a | No-op action (index 0) produces no build | unit | `npx vitest run packages/bot-harness/action-decoder.test.ts -t "noop"` | Wave 0 |
-| HARN-03-b | Every masked-valid action succeeds via queueBuildEvent | unit | `npx vitest run packages/bot-harness/action-decoder.test.ts -t "mask valid"` | Wave 0 |
-| HARN-03-c | Every masked-invalid action is genuinely invalid | unit | `npx vitest run packages/bot-harness/action-decoder.test.ts -t "mask invalid"` | Wave 0 |
-| HARN-03-d | Action decode roundtrip: encode -> decode -> matches template + position | unit | `npx vitest run packages/bot-harness/action-decoder.test.ts -t "roundtrip"` | Wave 0 |
-| HARN-04-a | Win produces +1, loss produces -1, draw produces 0 | unit | `npx vitest run packages/bot-harness/reward-signal.test.ts -t "terminal"` | Wave 0 |
-| HARN-04-b | Economy delta shaped reward is non-zero when resources change | unit | `npx vitest run packages/bot-harness/reward-signal.test.ts -t "economy"` | Wave 0 |
-| HARN-04-c | Core damage shaped reward is non-zero when enemy HP decreases | unit | `npx vitest run packages/bot-harness/reward-signal.test.ts -t "core damage"` | Wave 0 |
-| HARN-04-d | Annealing decays shaped weight to 0 over N episodes | unit | `npx vitest run packages/bot-harness/reward-signal.test.ts -t "anneal"` | Wave 0 |
-| HARN-04-e | Custom weight config changes reward magnitudes | unit | `npx vitest run packages/bot-harness/reward-signal.test.ts -t "weights"` | Wave 0 |
-| ENV-01 | reset() returns valid observation and action mask | unit | `npx vitest run packages/bot-harness/bot-environment.test.ts -t "reset"` | Wave 0 |
-| ENV-02 | step() with no-op advances tick and returns valid 5-tuple | unit | `npx vitest run packages/bot-harness/bot-environment.test.ts -t "step noop"` | Wave 0 |
-| ENV-03 | step() with valid build action queues build successfully | unit | `npx vitest run packages/bot-harness/bot-environment.test.ts -t "step build"` | Wave 0 |
-| ENV-04 | Full episode terminates or truncates correctly | unit | `npx vitest run packages/bot-harness/bot-environment.test.ts -t "episode"` | Wave 0 |
+
+| Req ID    | Behavior                                                                 | Test Type | Automated Command                                                                    | File Exists? |
+| --------- | ------------------------------------------------------------------------ | --------- | ------------------------------------------------------------------------------------ | ------------ |
+| HARN-02-a | Identical RoomState + teamId -> identical Float32Array                   | unit      | `npx vitest run packages/bot-harness/observation-encoder.test.ts -t "deterministic"` | Wave 0       |
+| HARN-02-b | Feature planes have correct dimensions (channels _ H _ W)                | unit      | `npx vitest run packages/bot-harness/observation-encoder.test.ts -t "shape"`         | Wave 0       |
+| HARN-02-c | Alive cells plane matches Grid.isCellAlive()                             | unit      | `npx vitest run packages/bot-harness/observation-encoder.test.ts -t "alive"`         | Wave 0       |
+| HARN-02-d | Structure footprint planes match structure payloads                      | unit      | `npx vitest run packages/bot-harness/observation-encoder.test.ts -t "footprint"`     | Wave 0       |
+| HARN-02-e | Scalar features normalized to [0, 1]                                     | unit      | `npx vitest run packages/bot-harness/observation-encoder.test.ts -t "scalar"`        | Wave 0       |
+| HARN-03-a | No-op action (index 0) produces no build                                 | unit      | `npx vitest run packages/bot-harness/action-decoder.test.ts -t "noop"`               | Wave 0       |
+| HARN-03-b | Every masked-valid action succeeds via queueBuildEvent                   | unit      | `npx vitest run packages/bot-harness/action-decoder.test.ts -t "mask valid"`         | Wave 0       |
+| HARN-03-c | Every masked-invalid action is genuinely invalid                         | unit      | `npx vitest run packages/bot-harness/action-decoder.test.ts -t "mask invalid"`       | Wave 0       |
+| HARN-03-d | Action decode roundtrip: encode -> decode -> matches template + position | unit      | `npx vitest run packages/bot-harness/action-decoder.test.ts -t "roundtrip"`          | Wave 0       |
+| HARN-04-a | Win produces +1, loss produces -1, draw produces 0                       | unit      | `npx vitest run packages/bot-harness/reward-signal.test.ts -t "terminal"`            | Wave 0       |
+| HARN-04-b | Economy delta shaped reward is non-zero when resources change            | unit      | `npx vitest run packages/bot-harness/reward-signal.test.ts -t "economy"`             | Wave 0       |
+| HARN-04-c | Core damage shaped reward is non-zero when enemy HP decreases            | unit      | `npx vitest run packages/bot-harness/reward-signal.test.ts -t "core damage"`         | Wave 0       |
+| HARN-04-d | Annealing decays shaped weight to 0 over N episodes                      | unit      | `npx vitest run packages/bot-harness/reward-signal.test.ts -t "anneal"`              | Wave 0       |
+| HARN-04-e | Custom weight config changes reward magnitudes                           | unit      | `npx vitest run packages/bot-harness/reward-signal.test.ts -t "weights"`             | Wave 0       |
+| ENV-01    | reset() returns valid observation and action mask                        | unit      | `npx vitest run packages/bot-harness/bot-environment.test.ts -t "reset"`             | Wave 0       |
+| ENV-02    | step() with no-op advances tick and returns valid 5-tuple                | unit      | `npx vitest run packages/bot-harness/bot-environment.test.ts -t "step noop"`         | Wave 0       |
+| ENV-03    | step() with valid build action queues build successfully                 | unit      | `npx vitest run packages/bot-harness/bot-environment.test.ts -t "step build"`        | Wave 0       |
+| ENV-04    | Full episode terminates or truncates correctly                           | unit      | `npx vitest run packages/bot-harness/bot-environment.test.ts -t "episode"`           | Wave 0       |
 
 ### Sampling Rate
+
 - **Per task commit:** `npx vitest run packages/bot-harness/{changed-file}.test.ts`
 - **Per wave merge:** `npm run test:unit`
 - **Phase gate:** `npm run test:fast` (unit + web) green before `/gsd:verify-work`
 
 ### Wave 0 Gaps
+
 - [ ] `packages/bot-harness/observation-encoder.test.ts` -- covers HARN-02
 - [ ] `packages/bot-harness/action-decoder.test.ts` -- covers HARN-03
 - [ ] `packages/bot-harness/reward-signal.test.ts` -- covers HARN-04
@@ -648,6 +702,7 @@ public step(action: number): StepResult {
 ## Sources
 
 ### Primary (HIGH confidence)
+
 - `packages/rts-engine/rts.ts` -- RtsRoom, RoomState, TeamState, BuildQueuePayload, previewBuildPlacement, createTeamOutcomeSnapshots, createStatePayload
 - `packages/rts-engine/structure.ts` -- StructureTemplate, createDefaultStructureTemplates (5 templates: block, generator, glider, eater-1, gosper)
 - `packages/rts-engine/build-zone.ts` -- collectBuildZoneContributors, isBuildZoneCoveredByContributor, euclidean distance
@@ -659,15 +714,18 @@ public step(action: number): StepResult {
 - Gymnasium API docs -- https://gymnasium.farama.org/api/env/
 
 ### Secondary (MEDIUM confidence)
+
 - PPO action masking best practices -- https://www.sciencedirect.com/science/article/pii/S2405959520300746 (verified against SB3 documentation)
 - Reward shaping annealing -- https://arxiv.org/html/2408.10215v1 (verified pattern: linear decay from 1.0 to 0.0)
 
 ### Tertiary (LOW confidence)
+
 - None -- all findings verified against codebase and official docs.
 
 ## Metadata
 
 **Confidence breakdown:**
+
 - Standard stack: HIGH -- all code uses existing project packages, no new dependencies
 - Architecture: HIGH -- patterns derived directly from codebase analysis of RtsRoom, Grid, and existing bot-harness code
 - Pitfalls: HIGH -- identified from actual API signatures and data flow in the codebase (e.g., playerId vs teamId, territory dynamics, Gosper sizing)

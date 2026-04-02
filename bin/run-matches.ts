@@ -5,13 +5,13 @@ import {
   DEFAULT_GRID_WIDTH,
   DEFAULT_HASH_CHECKPOINT_INTERVAL,
   DEFAULT_MAX_TICKS,
+  MatchLogger,
+  RandomBot,
+  createMatchHeader,
+  createMatchOutcomeRecord,
   generateRunId,
   generateSeeds,
   runMatch,
-  RandomBot,
-  MatchLogger,
-  createMatchHeader,
-  createMatchOutcomeRecord,
 } from '#bot-harness';
 import type { MatchConfig, TickRecord } from '#bot-harness';
 
@@ -42,12 +42,12 @@ Options:
   process.exit(0);
 }
 
-const count = parseInt(values.count!, 10);
-const baseSeed = parseInt(values.seed!, 10);
-const maxTicks = parseInt(values['max-ticks']!, 10);
-const outputDir = values['output-dir']!;
-const gridSize = parseInt(values['grid-size']!, 10);
-const dryRun = values['dry-run']!;
+const count = parseInt(values.count, 10);
+const baseSeed = parseInt(values.seed, 10);
+const maxTicks = parseInt(values['max-ticks'], 10);
+const outputDir = values['output-dir'];
+const gridSize = parseInt(values['grid-size'], 10);
+const dryRun = values['dry-run'];
 
 (async () => {
   const startTime = Date.now();

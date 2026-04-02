@@ -1,5 +1,5 @@
-import React from 'react';
 import { render } from 'ink-testing-library';
+import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { Dashboard } from './dashboard.js';
@@ -7,7 +7,9 @@ import { Dashboard } from './dashboard.js';
 /**
  * Helper to create default dashboard props with mock callbacks.
  */
-function defaultProps(overrides: Partial<React.ComponentProps<typeof Dashboard>> = {}): React.ComponentProps<typeof Dashboard> {
+function defaultProps(
+  overrides: Partial<React.ComponentProps<typeof Dashboard>> = {},
+): React.ComponentProps<typeof Dashboard> {
   return {
     onPause: vi.fn(),
     onStop: vi.fn(),
@@ -77,9 +79,7 @@ describe('Dashboard', () => {
 
   it('keyboard: q calls onStop', async () => {
     const onStop = vi.fn();
-    const { stdin } = render(
-      <Dashboard {...defaultProps({ onStop })} />,
-    );
+    const { stdin } = render(<Dashboard {...defaultProps({ onStop })} />);
 
     stdin.write('q');
     await new Promise((r) => setTimeout(r, 50));
@@ -88,9 +88,7 @@ describe('Dashboard', () => {
   });
 
   it('help overlay appears after pressing h', async () => {
-    const { stdin, lastFrame } = render(
-      <Dashboard {...defaultProps()} />,
-    );
+    const { stdin, lastFrame } = render(<Dashboard {...defaultProps()} />);
 
     stdin.write('h');
     await new Promise((r) => setTimeout(r, 50));
@@ -103,9 +101,7 @@ describe('Dashboard', () => {
   });
 
   it('help overlay toggles off on second h press', async () => {
-    const { stdin, lastFrame } = render(
-      <Dashboard {...defaultProps()} />,
-    );
+    const { stdin, lastFrame } = render(<Dashboard {...defaultProps()} />);
 
     stdin.write('h');
     await new Promise((r) => setTimeout(r, 50));
@@ -120,9 +116,7 @@ describe('Dashboard', () => {
   });
 
   it('shows RUNNING state by default', () => {
-    const { lastFrame } = render(
-      <Dashboard {...defaultProps()} />,
-    );
+    const { lastFrame } = render(<Dashboard {...defaultProps()} />);
     const frame = lastFrame();
     expect(frame).toBeDefined();
     expect(frame).toContain('RUNNING');

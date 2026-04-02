@@ -7,7 +7,6 @@
  * Follows Phase 20's training-worker.ts message protocol pattern.
  * Uses _worker-shim.mjs for tsx TypeScript loading in worker threads.
  */
-
 import { parentPort } from 'node:worker_threads';
 
 import { RatingPool } from './rating-pool.js';
@@ -48,9 +47,7 @@ export interface TerminateWorkerMessage {
 }
 
 /** Union of all messages the worker can receive. */
-export type RatingWorkerMessage =
-  | ComputePoolMessage
-  | TerminateWorkerMessage;
+export type RatingWorkerMessage = ComputePoolMessage | TerminateWorkerMessage;
 
 // ---------------------------------------------------------------------------
 // Message handler

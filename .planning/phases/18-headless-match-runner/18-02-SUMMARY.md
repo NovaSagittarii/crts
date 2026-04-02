@@ -32,14 +32,14 @@ key-files:
     - packages/bot-harness/index.ts
 
 key-decisions:
-  - "BuildOutcome from RtsRoom lacks templateId/x/y/transform fields; TickActionRecord maps from outcome.teamId + outcome.outcome only for builds"
-  - "DestroyOutcome includes structureKey and templateId, mapped directly to TickActionRecord"
-  - "Hash checkpoint at tick 0 (first tick) to establish baseline determinism anchor"
+  - 'BuildOutcome from RtsRoom lacks templateId/x/y/transform fields; TickActionRecord maps from outcome.teamId + outcome.outcome only for builds'
+  - 'DestroyOutcome includes structureKey and templateId, mapped directly to TickActionRecord'
+  - 'Hash checkpoint at tick 0 (first tick) to establish baseline determinism anchor'
 
 patterns-established:
-  - "Headless match pattern: RtsRoom.create -> addPlayer x2 -> tick loop with bot decisions -> outcome or draw"
-  - "NDJSON log format: header line + N tick lines + outcome line, one JSON object per line"
-  - "Fog-of-war BotView: own team data only from RoomStatePayload, no opponent structures/economy"
+  - 'Headless match pattern: RtsRoom.create -> addPlayer x2 -> tick loop with bot decisions -> outcome or draw'
+  - 'NDJSON log format: header line + N tick lines + outcome line, one JSON object per line'
+  - 'Fog-of-war BotView: own team data only from RoomStatePayload, no opponent structures/economy'
 
 requirements-completed: [HARN-01, BAL-01]
 
@@ -61,6 +61,7 @@ completed: 2026-04-01
 - **Files modified:** 5
 
 ## Accomplishments
+
 - `runMatch()` drives two bots through a complete match lifecycle using only RtsRoom API (no Socket.IO)
 - NoOpBot vs NoOpBot produces isDraw=true at configurable maxTicks, same seed yields identical results
 - NDJSON log files with header (seed/config/bots), per-tick (actions/economy/hash), and outcome lines
@@ -76,6 +77,7 @@ Each task was committed atomically:
 _TDD tasks have two commits each (test -> feat)_
 
 ## Files Created/Modified
+
 - `packages/bot-harness/match-runner.ts` - runMatch, createBotView, applyBotActions, createTickRecord
 - `packages/bot-harness/match-logger.ts` - MatchLogger class, createMatchHeader, createMatchOutcomeRecord, generateRunId
 - `packages/bot-harness/match-runner.test.ts` - 9 tests: lifecycle, determinism, draw, callbacks, leak safety
@@ -83,6 +85,7 @@ _TDD tasks have two commits each (test -> feat)_
 - `packages/bot-harness/index.ts` - Added match-runner and match-logger re-exports
 
 ## Decisions Made
+
 - BuildOutcome from RtsRoom does not carry templateId/x/y/transform fields; TickActionRecord for builds maps only teamId and outcome status. DestroyOutcome includes structureKey and templateId natively.
 - Hash checkpoint fires at tick % interval === 0, including tick 0, establishing a baseline anchor for determinism verification.
 - MatchResult contains only serializable data (no Grid or RoomState references) to prevent resource leaks across multiple matches.
@@ -92,6 +95,7 @@ _TDD tasks have two commits each (test -> feat)_
 ### Auto-fixed Issues
 
 **1. [Rule 1 - Bug] Adapted TickActionRecord mapping to actual BuildOutcome interface**
+
 - **Found during:** Task 1 (createTickRecord implementation)
 - **Issue:** Plan assumed BuildOutcome has templateId, x, y, transform, structureKey fields, but actual interface only has eventId, teamId, outcome, reason
 - **Fix:** Mapped build outcomes using available fields (teamId, outcome/reason); destroy outcomes have structureKey and templateId natively
@@ -105,15 +109,19 @@ _TDD tasks have two commits each (test -> feat)_
 **Impact on plan:** Necessary adaptation to actual RtsRoom API shape. No scope creep.
 
 ## Issues Encountered
+
 - Pre-existing type errors in tests/integration/ and tests/web/ directories (unrelated to bot-harness) -- logged but not fixed per scope boundary rules.
 
 ## User Setup Required
+
 None - no external service configuration required.
 
 ## Known Stubs
+
 None - all functions fully implemented with real data flows.
 
 ## Next Phase Readiness
+
 - Match runner and logger are ready for Plan 03 (batch runner / CLI integration)
 - runMatch is fully deterministic and can be called in loops for self-play training
 - NDJSON logs enable post-match analysis for balance metrics
@@ -123,5 +131,6 @@ None - all functions fully implemented with real data flows.
 All 5 created files verified present. All 4 commit hashes verified in git log.
 
 ---
-*Phase: 18-headless-match-runner*
-*Completed: 2026-04-01*
+
+_Phase: 18-headless-match-runner_
+_Completed: 2026-04-01_

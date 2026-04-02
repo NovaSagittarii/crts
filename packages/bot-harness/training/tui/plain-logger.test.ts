@@ -1,7 +1,11 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { attachPlainLogger } from './plain-logger.js';
-import type { TrainingProgressData, TrainingProgressCallback } from './types.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import type { TrainingLogEntry } from '../training-logger.js';
+import { attachPlainLogger } from './plain-logger.js';
+import type {
+  TrainingProgressCallback,
+  TrainingProgressData,
+} from './types.js';
 
 // ---------------------------------------------------------------------------
 // Minimal mock types matching the coordinator surface used by plain-logger
@@ -9,10 +13,18 @@ import type { TrainingLogEntry } from '../training-logger.js';
 
 interface MockCoordinator {
   onProgress: TrainingProgressCallback | null;
-  getLogger: () => { formatLiveMetrics: (entry: TrainingLogEntry, total: number, start: number) => string } | null;
+  getLogger: () => {
+    formatLiveMetrics: (
+      entry: TrainingLogEntry,
+      total: number,
+      start: number,
+    ) => string;
+  } | null;
 }
 
-function createMockEntry(overrides: Partial<TrainingLogEntry> = {}): TrainingLogEntry {
+function createMockEntry(
+  overrides: Partial<TrainingLogEntry> = {},
+): TrainingLogEntry {
   return {
     episode: 1,
     timestamp: '2026-04-01T00:00:00Z',
@@ -30,7 +42,9 @@ function createMockEntry(overrides: Partial<TrainingLogEntry> = {}): TrainingLog
   };
 }
 
-function createMockProgressData(overrides: Partial<TrainingProgressData> = {}): TrainingProgressData {
+function createMockProgressData(
+  overrides: Partial<TrainingProgressData> = {},
+): TrainingProgressData {
   return {
     entry: createMockEntry(),
     generation: 0,
@@ -80,7 +94,9 @@ describe('attachPlainLogger', () => {
   });
 
   it('calls formatLiveMetrics and writes to console.log when callback fires', () => {
-    const formatSpy = vi.fn().mockReturnValue('[Episode 1/100] reward=0.5 winRate=0.6');
+    const formatSpy = vi
+      .fn()
+      .mockReturnValue('[Episode 1/100] reward=0.5 winRate=0.6');
 
     const coordinator: MockCoordinator = {
       onProgress: null,
@@ -96,7 +112,9 @@ describe('attachPlainLogger', () => {
 
     expect(formatSpy).toHaveBeenCalledOnce();
     expect(formatSpy).toHaveBeenCalledWith(data.entry, 100, data.startTime);
-    expect(consoleSpy).toHaveBeenCalledWith('[Episode 1/100] reward=0.5 winRate=0.6');
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[Episode 1/100] reward=0.5 winRate=0.6',
+    );
   });
 
   it('does nothing if getLogger returns null', () => {

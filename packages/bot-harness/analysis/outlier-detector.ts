@@ -14,9 +14,8 @@
  *
  * Flags are additive per D-12: an entity can carry multiple flags.
  */
-
-import type { OutlierFlag, RatedEntity } from './types.js';
 import { mean, stddev } from './stats.js';
+import type { OutlierFlag, RatedEntity } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Internal helpers

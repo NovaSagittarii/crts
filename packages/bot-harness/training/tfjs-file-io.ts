@@ -7,10 +7,10 @@
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getTf } from '../tf-backend.js';
-import type { TfModule } from '../tf-backend.js';
 import type * as tf from '@tensorflow/tfjs';
 
+import { getTf } from '../tf-backend.js';
+import type { TfModule } from '../tf-backend.js';
 import type { WeightData } from './ppo-network.js';
 
 let _tf: TfModule;
@@ -81,9 +81,7 @@ export async function saveModelToDir(
  *
  * Reads `model.json` and associated weight files from the directory.
  */
-export async function loadModelFromDir(
-  dir: string,
-): Promise<tf.LayersModel> {
+export async function loadModelFromDir(dir: string): Promise<tf.LayersModel> {
   const modelJsonStr = await readFile(join(dir, 'model.json'), 'utf-8');
   const modelJson = JSON.parse(modelJsonStr) as {
     modelTopology: object;
@@ -139,9 +137,7 @@ export async function loadModelFromDir(
  * TF.js model, avoiding variable name collisions when another model
  * with the same topology already exists in the TF.js backend.
  */
-export async function loadWeightsFromDir(
-  dir: string,
-): Promise<WeightData[]> {
+export async function loadWeightsFromDir(dir: string): Promise<WeightData[]> {
   const modelJsonStr = await readFile(join(dir, 'model.json'), 'utf-8');
   const modelJson = JSON.parse(modelJsonStr) as {
     weightsManifest: tf.io.WeightsManifestConfig;
@@ -180,9 +176,13 @@ export async function loadWeightsFromDir(
   let byteOffset = 0;
   for (const spec of specs) {
     const numElements = spec.shape.reduce((a, b) => a * b, 1);
-    const bytesPerElement = spec.dtype === 'float32' ? 4 : spec.dtype === 'int32' ? 4 : 4;
+    const bytesPerElement =
+      spec.dtype === 'float32' ? 4 : spec.dtype === 'int32' ? 4 : 4;
     const byteLength = numElements * bytesPerElement;
-    const buffer = concatenated.buffer.slice(byteOffset, byteOffset + byteLength);
+    const buffer = concatenated.buffer.slice(
+      byteOffset,
+      byteOffset + byteLength,
+    );
     result.push({ shape: spec.shape, buffer });
     byteOffset += byteLength;
   }

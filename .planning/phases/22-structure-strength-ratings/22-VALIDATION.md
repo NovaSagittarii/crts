@@ -15,13 +15,13 @@ created: 2026-04-01
 
 ## Test Infrastructure
 
-| Property | Value |
-|----------|-------|
-| **Framework** | vitest |
-| **Config file** | `vitest.config.ts` (root) |
-| **Quick run command** | `npx vitest run packages/bot-harness/analysis/` |
-| **Full suite command** | `npm run test:unit` |
-| **Estimated runtime** | ~5 seconds |
+| Property               | Value                                           |
+| ---------------------- | ----------------------------------------------- |
+| **Framework**          | vitest                                          |
+| **Config file**        | `vitest.config.ts` (root)                       |
+| **Quick run command**  | `npx vitest run packages/bot-harness/analysis/` |
+| **Full suite command** | `npm run test:unit`                             |
+| **Estimated runtime**  | ~5 seconds                                      |
 
 ---
 
@@ -48,7 +48,7 @@ All plans use inline TDD — no separate Wave 0 needed.
 
 ## Manual-Only Verifications
 
-*All phase behaviors have automated verification.*
+_All phase behaviors have automated verification._
 
 ---
 

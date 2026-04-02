@@ -1,4 +1,9 @@
-import type { BalanceReport, GenerationData, RatedEntity, TemplateWinRate } from './types.js';
+import type {
+  BalanceReport,
+  GenerationData,
+  RatedEntity,
+  TemplateWinRate,
+} from './types.js';
 
 /**
  * Format a balance report as a Markdown document.
@@ -59,10 +64,7 @@ export function formatMarkdownReport(report: BalanceReport): string {
 
   const strategyCounts = new Map<string, number>();
   for (const a of report.strategyAssignments) {
-    strategyCounts.set(
-      a.ruleLabel,
-      (strategyCounts.get(a.ruleLabel) ?? 0) + 1,
-    );
+    strategyCounts.set(a.ruleLabel, (strategyCounts.get(a.ruleLabel) ?? 0) + 1);
   }
   const totalAssignments = report.strategyAssignments.length;
   const strategyEntries = [...strategyCounts.entries()].sort(
@@ -71,7 +73,9 @@ export function formatMarkdownReport(report: BalanceReport): string {
 
   for (const [label, count] of strategyEntries) {
     const pct =
-      totalAssignments > 0 ? ((count / totalAssignments) * 100).toFixed(1) : '0.0';
+      totalAssignments > 0
+        ? ((count / totalAssignments) * 100).toFixed(1)
+        : '0.0';
     lines.push(`| ${label} | ${String(count)} | ${pct}% |`);
   }
 
@@ -126,9 +130,7 @@ export function formatMarkdownReport(report: BalanceReport): string {
   lines.push('');
   lines.push(`- **Number of clusters:** ${String(report.clusters.k)}`);
   lines.push(`- **WCSS:** ${report.clusters.wcss.toFixed(2)}`);
-  lines.push(
-    `- **Iterations:** ${String(report.clusters.iterations)}`,
-  );
+  lines.push(`- **Iterations:** ${String(report.clusters.iterations)}`);
   lines.push('');
 
   if (report.clusters.centroids.length > 0) {

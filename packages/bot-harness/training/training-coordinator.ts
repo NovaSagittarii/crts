@@ -5,25 +5,38 @@
  * policy weights, collects trajectories, and triggers PPO updates on the
  * main thread.
  */
-
+import { readdir } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { cpus } from 'node:os';
 import { join, resolve } from 'node:path';
-import { readdir } from 'node:fs/promises';
 import { Worker } from 'node:worker_threads';
-import { writeFile, readFile } from 'node:fs/promises';
-import { mkdir } from 'node:fs/promises';
-import { getTf } from '../tf-backend.js';
-import type { TfModule } from '../tf-backend.js';
 import type * as tf from '@tensorflow/tfjs';
 
 import { BotEnvironment } from '../bot-environment.js';
-
+import { getTf } from '../tf-backend.js';
+import type { TfModule } from '../tf-backend.js';
 import { OpponentPool } from './opponent-pool.js';
-import type { WeightData, PPOModelConfig } from './ppo-network.js';
-import { buildPPOModel, extractWeights, buildModelConfigFromEnv, initTfBackend as initPpoNetworkTf } from './ppo-network.js';
+import type { PPOModelConfig, WeightData } from './ppo-network.js';
+import {
+  buildModelConfigFromEnv,
+  buildPPOModel,
+  extractWeights,
+  initTfBackend as initPpoNetworkTf,
+} from './ppo-network.js';
 import { PPOTrainer } from './ppo-trainer.js';
 import type { PPOUpdateResult } from './ppo-trainer.js';
 import { initTfBackend as initPpoTrainerTf } from './ppo-trainer.js';
+import type { TrainingConfig } from './training-config.js';
+import { generateTrainingRunId } from './training-config.js';
+import { TrainingLogger } from './training-logger.js';
+import type {
+  EpisodeResultMessage,
+  SerializedTrajectory,
+} from './training-worker.js';
+import { TrajectoryBuffer } from './trajectory-buffer.js';
+import type { TrajectoryStep } from './trajectory-buffer.js';
+import type { TrainingProgressCallback } from './tui/types.js';
 
 let _tf: TfModule;
 
@@ -31,13 +44,6 @@ let _tf: TfModule;
 export async function initTfBackend(): Promise<void> {
   _tf = await getTf();
 }
-import { TrajectoryBuffer } from './trajectory-buffer.js';
-import type { TrajectoryStep } from './trajectory-buffer.js';
-import type { TrainingConfig } from './training-config.js';
-import { generateTrainingRunId } from './training-config.js';
-import type { TrainingProgressData, TrainingProgressCallback } from './tui/types.js';
-import { TrainingLogger } from './training-logger.js';
-import type { SerializedTrajectory, EpisodeResultMessage } from './training-worker.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,14 +102,12 @@ export class TrainingCoordinator {
     this.config = config;
 
     // D-15: auto-detect worker count
-    this.workerCount = config.workers > 0
-      ? config.workers
-      : Math.max(1, cpus().length - 2);
+    this.workerCount =
+      config.workers > 0 ? config.workers : Math.max(1, cpus().length - 2);
 
     // D-16: configurable batch episodes
-    this.batchEpisodes = config.batchEpisodes > 0
-      ? config.batchEpisodes
-      : this.workerCount * 4;
+    this.batchEpisodes =
+      config.batchEpisodes > 0 ? config.batchEpisodes : this.workerCount * 4;
 
     // Generate or reuse run ID
     this.runId = config.resumeRunId ?? generateTrainingRunId();
@@ -168,7 +172,7 @@ export class TrainingCoordinator {
     while (this.episodeCounter < totalEpisodes) {
       // D-12: Pause check
       while (this.paused && !this.stopRequested) {
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
       if (this.stopRequested) break;
 
@@ -239,7 +243,7 @@ export class TrainingCoordinator {
             generation: this.generationCounter,
             totalEpisodes,
             completedEpisodes: this.episodeCounter,
-            poolSize: this.opponentPool!.getPoolSize(),
+            poolSize: this.opponentPool.getPoolSize(),
             latestCheckpointEpisode: this.getLatestCheckpointEpisode(),
             selfPlayConfig: this.config.selfPlay,
             startTime,
@@ -254,7 +258,10 @@ export class TrainingCoordinator {
       if (this.opponentPool.shouldCheckpoint(this.episodeCounter)) {
         await this.opponentPool.saveCheckpoint(this.model, this.episodeCounter);
         await this.saveOptimizerState(
-          join(this.logger.getCheckpointDir(), `checkpoint-${String(this.episodeCounter)}`),
+          join(
+            this.logger.getCheckpointDir(),
+            `checkpoint-${String(this.episodeCounter)}`,
+          ),
         );
       }
 
@@ -343,7 +350,8 @@ export class TrainingCoordinator {
    * on Node 24 (known tsx/Node 24 incompatibility).
    */
   private async spawnWorkers(count: number): Promise<Worker[]> {
-    const baseDir = import.meta.dirname ?? new URL('.', import.meta.url).pathname;
+    const baseDir =
+      import.meta.dirname ?? new URL('.', import.meta.url).pathname;
     const shimPath = resolve(baseDir, '_worker-shim.mjs');
     const workerTsPath = resolve(baseDir, 'training-worker.ts');
 
@@ -469,7 +477,12 @@ export class TrainingCoordinator {
 
     // Dispatch one episode to each worker to start
     const workerPromises = this.workers.map((worker) => {
-      return this.runWorkerQueue(worker, episodes, results, () => nextEpisodeIdx++);
+      return this.runWorkerQueue(
+        worker,
+        episodes,
+        results,
+        () => nextEpisodeIdx++,
+      );
     });
 
     await Promise.all(workerPromises);
@@ -507,9 +520,10 @@ export class TrainingCoordinator {
             worker.removeListener('error', onError);
 
             const trajectory = this.deserializeTrajectory(msg.trajectory);
-            const finalValue = msg.trajectory.values.length > msg.trajectory.actions.length
-              ? msg.trajectory.values[msg.trajectory.values.length - 1]
-              : 0;
+            const finalValue =
+              msg.trajectory.values.length > msg.trajectory.actions.length
+                ? msg.trajectory.values[msg.trajectory.values.length - 1]
+                : 0;
 
             resolveEp({
               reward: msg.reward,
@@ -582,11 +596,13 @@ export class TrainingCoordinator {
   public async saveOptimizerState(dir: string): Promise<void> {
     if (!this.trainer) return;
 
-    const optimizerWeights = await this.trainer.getOptimizerWeights() as Array<{
-      name: string;
-      tensor: tf.Tensor;
-    }>;
-    const serialized: Array<{ name: string; shape: number[]; data: number[] }> = [];
+    const optimizerWeights =
+      (await this.trainer.getOptimizerWeights()) as Array<{
+        name: string;
+        tensor: tf.Tensor;
+      }>;
+    const serialized: Array<{ name: string; shape: number[]; data: number[] }> =
+      [];
 
     for (const nw of optimizerWeights) {
       const data = nw.tensor.dataSync();
@@ -622,7 +638,11 @@ export class TrainingCoordinator {
       episodeCounter: number;
       wins: number;
       totalGames: number;
-      optimizerWeights: Array<{ name: string; shape: number[]; data: number[] }>;
+      optimizerWeights: Array<{
+        name: string;
+        shape: number[];
+        data: number[];
+      }>;
     };
 
     this.episodeCounter = parsed.episodeCounter;
@@ -677,10 +697,7 @@ export class TrainingCoordinator {
       // Add checkpoints to pool
       for (const cpDir of checkpointDirs) {
         const episode = parseInt(cpDir.replace('checkpoint-', ''), 10);
-        this.opponentPool?.addCheckpoint(
-          join(checkpointDir, cpDir),
-          episode,
-        );
+        this.opponentPool?.addCheckpoint(join(checkpointDir, cpDir), episode);
       }
     } catch {
       // No checkpoints to resume from -- start fresh

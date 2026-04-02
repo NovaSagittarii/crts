@@ -19,7 +19,9 @@ export function formatConsoleSummary(report: BalanceReport): string {
   lines.push('=== Balance Analysis Summary ===');
   lines.push('');
   lines.push(`  Matches analyzed:  ${String(report.metadata.matchCount)}`);
-  lines.push(`  Confidence level:  ${(report.metadata.confidence * 100).toFixed(0)}%`);
+  lines.push(
+    `  Confidence level:  ${(report.metadata.confidence * 100).toFixed(0)}%`,
+  );
   lines.push(`  Generated at:      ${report.metadata.generatedAt}`);
   lines.push('');
 
@@ -35,10 +37,7 @@ export function formatConsoleSummary(report: BalanceReport): string {
   if (sorted.length === 0) {
     lines.push('  (no template data)');
   } else {
-    const nameWidth = Math.max(
-      ...sorted.map((t) => t.templateName.length),
-      8,
-    );
+    const nameWidth = Math.max(...sorted.map((t) => t.templateName.length), 8);
 
     for (const t of sorted) {
       const name = t.templateName.padEnd(nameWidth);
@@ -60,10 +59,7 @@ export function formatConsoleSummary(report: BalanceReport): string {
 
   const strategyCounts = new Map<string, number>();
   for (const a of report.strategyAssignments) {
-    strategyCounts.set(
-      a.ruleLabel,
-      (strategyCounts.get(a.ruleLabel) ?? 0) + 1,
-    );
+    strategyCounts.set(a.ruleLabel, (strategyCounts.get(a.ruleLabel) ?? 0) + 1);
   }
 
   const totalAssignments = report.strategyAssignments.length;
@@ -164,9 +160,15 @@ export function formatConsoleSummary(report: BalanceReport): string {
     lines.push('');
 
     const phases = [
-      { label: 'Early Game Tier List', entities: report.ratings.individual.early },
+      {
+        label: 'Early Game Tier List',
+        entities: report.ratings.individual.early,
+      },
       { label: 'Mid Game Tier List', entities: report.ratings.individual.mid },
-      { label: 'Late Game Tier List', entities: report.ratings.individual.late },
+      {
+        label: 'Late Game Tier List',
+        entities: report.ratings.individual.late,
+      },
     ] as const;
 
     for (const { label, entities } of phases) {
@@ -236,11 +238,15 @@ export function formatConsoleSummary(report: BalanceReport): string {
       lines.push('');
 
       for (const entity of uniqueOutliers) {
-        const flags = entity.outlierFlags.map((f) => f.toUpperCase()).join(', ');
+        const flags = entity.outlierFlags
+          .map((f) => f.toUpperCase())
+          .join(', ');
         const name = entity.name.padEnd(14);
         const rating = entity.rating.rating.toFixed(0);
         const pickRate = (entity.pickRate * 100).toFixed(0);
-        lines.push(`  [${flags}] ${name}  rating: ${rating}, pick rate: ${pickRate}%`);
+        lines.push(
+          `  [${flags}] ${name}  rating: ${rating}, pick rate: ${pickRate}%`,
+        );
       }
       lines.push('');
     }

@@ -1,5 +1,5 @@
-import React from 'react';
 import { render } from 'ink-testing-library';
+import React from 'react';
 import { describe, expect, it } from 'vitest';
 
 import { AsciiChart, MultiSeriesChart } from './chart.js';
@@ -7,7 +7,9 @@ import { AsciiChart, MultiSeriesChart } from './chart.js';
 describe('AsciiChart', () => {
   it('renders chart output for sample data (TUI-05)', () => {
     const data = [1, 3, 2, 5, 4, 7, 6, 8, 9, 10];
-    const { lastFrame } = render(<AsciiChart data={data} label="Test Chart" height={4} />);
+    const { lastFrame } = render(
+      <AsciiChart data={data} label='Test Chart' height={4} />,
+    );
     const frame = lastFrame();
     expect(frame).toBeDefined();
     expect(frame).toContain('Test Chart');
@@ -16,7 +18,7 @@ describe('AsciiChart', () => {
   });
 
   it('handles empty data array with waiting message', () => {
-    const { lastFrame } = render(<AsciiChart data={[]} label="Empty Chart" />);
+    const { lastFrame } = render(<AsciiChart data={[]} label='Empty Chart' />);
     const frame = lastFrame();
     expect(frame).toBeDefined();
     expect(frame).toContain('Empty Chart');
@@ -53,7 +55,7 @@ describe('MultiSeriesChart', () => {
       [5, 4, 3, 2, 1],
     ];
     const { lastFrame } = render(
-      <MultiSeriesChart series={series} label="Multi Chart" height={4} />,
+      <MultiSeriesChart series={series} label='Multi Chart' height={4} />,
     );
     const frame = lastFrame();
     expect(frame).toBeDefined();
@@ -63,7 +65,7 @@ describe('MultiSeriesChart', () => {
 
   it('handles all empty series with waiting message', () => {
     const { lastFrame } = render(
-      <MultiSeriesChart series={[[], []]} label="No Data" />,
+      <MultiSeriesChart series={[[], []]} label='No Data' />,
     );
     const frame = lastFrame();
     expect(frame).toBeDefined();
@@ -73,7 +75,7 @@ describe('MultiSeriesChart', () => {
   it('renders when only one series has data', () => {
     const series = [[1, 2, 3], [] as number[]];
     const { lastFrame } = render(
-      <MultiSeriesChart series={series} label="Partial" height={3} />,
+      <MultiSeriesChart series={series} label='Partial' height={3} />,
     );
     const frame = lastFrame();
     expect(frame).toBeDefined();

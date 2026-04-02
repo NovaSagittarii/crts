@@ -22,6 +22,7 @@ The top three risks are (1) bypassing `RtsRoom` validation in the bot harness, w
 The base stack (TypeScript, Node.js 24, Socket.IO, Vite, Vitest) is unchanged. For v0.0.4 specifically, only one new production dependency is required; all other new capabilities are custom TypeScript code.
 
 **Core technologies:**
+
 - `@tensorflow/tfjs@4.22.0` (pure JS CPU backend): Neural network training and inference for PPO actor-critic — the only production-grade tensor library that works on Node.js 24 without native compilation. `@tensorflow/tfjs-node` is broken on Node 24 (GitHub issue #8609, no binary releases since October 2024).
 - Custom Glicko-2 (~150 LOC TypeScript): Structure template rating system — all available npm packages are either GPL-3.0 (`glicko2.ts`, hard license conflict that would force project to adopt copyleft), JavaScript-only, or unmaintained. The algorithm is compact and fully specified by Glickman's reference paper.
 - `RtsRoom.tick()` (existing, no changes): Headless match runner foundation — the engine is already runtime-agnostic and deterministic; the harness is a pure wrapper loop with no new dependencies.
@@ -29,12 +30,14 @@ The base stack (TypeScript, Node.js 24, Socket.IO, Vite, Vitest) is unchanged. F
 - NDJSON files: Match result and rating persistence — zero dependencies, human-readable, append-only, git-trackable, sufficient for <100K matches.
 
 **Optional upgrade paths (add only if benchmarks justify):**
+
 - `@tensorflow/tfjs-backend-wasm@4.22.0`: 2-5x CPU training speedup, drop-in backend swap, no native compilation.
 - `onnxruntime-node@1.24.3` (Microsoft, actively maintained, Node 24 compatible): Fast inference for ONNX models — relevant only if switching to Python/SB3 training path.
 
 ### Expected Features
 
 **Must have (table stakes):**
+
 - Headless match runner — the root dependency; `RtsRoom` already supports it with no engine changes
 - Observation encoder (12 spatial planes + 7 economy scalars, downsampled grid) — structured numeric input for ML model; raw grid is not viable
 - Action decoder with masking — maps model output to `queueBuildEvent`/`queueDestroyEvent`; masking via `previewBuildPlacement()` is non-negotiable for RTS action spaces
@@ -48,6 +51,7 @@ The base stack (TypeScript, Node.js 24, Socket.IO, Vite, Vitest) is unchanged. F
 - Playable in-game bot via Socket.IO virtual player adapter — milestone's user-facing deliverable
 
 **Should have (differentiators):**
+
 - Action masking in policy network using `previewBuildPlacement()` — dramatically improves sample efficiency; research confirms unmasked PPO in RTS "fails to achieve any win rates" while masked agents reach 82%+
 - Strategy distribution analysis (Shannon entropy over combo frequencies) — detects meta collapse before it becomes a reporting problem
 - Determinism hash verification in headless matches — reuses `createDeterminismCheckpoint()` at zero incremental cost
@@ -56,6 +60,7 @@ The base stack (TypeScript, Node.js 24, Socket.IO, Vite, Vitest) is unchanged. F
 - Curriculum training schedule — phases reward shaping out as the policy matures
 
 **Defer to later milestone:**
+
 - Glicko-2 combo ratings — requires >1000 matches and validated template ratings first
 - Intransitivity detection — depends on sufficient combo data volume
 - Snowball curve analysis — secondary to template balance
@@ -67,6 +72,7 @@ The base stack (TypeScript, Node.js 24, Socket.IO, Vite, Vitest) is unchanged. F
 The architecture introduces one new package (`packages/bot-harness`) that consumes `#rts-engine` and `#conway-core` while following the existing strict layer boundary rule: packages are deterministic and runtime-agnostic, apps are runtime-specific. The `BotSocketAdapter` (live in-game bot) lives in `apps/server` because it touches Socket.IO. Balance analysis can live in a second new package (`packages/balance-analysis`) or be co-located in `packages/rl-training` — the boundary is the import rule, not the directory count.
 
 **Major components:**
+
 1. `HeadlessMatchRunner` in `packages/bot-harness` — creates `RtsRoom`, manages lobby-to-active-to-finished lifecycle without Socket.IO, runs tick loop until `RoomTickResult.outcome` is non-null, runs in `worker_threads` for parallelism.
 2. `BotEnvironment` + `ObservationEncoder` + `ActionDecoder` + `RewardSignal` in `packages/bot-harness` — Gymnasium-style wrapper; the boundary between game engine and ML training.
 3. `ppo.ts` + `glicko2.ts` + `trainer.ts` + `balance-analysis.ts` in `packages/rl-training` — pure-TypeScript ML and rating logic with zero external dependencies except `@tensorflow/tfjs`.
@@ -75,7 +81,7 @@ The architecture introduces one new package (`packages/bot-harness`) that consum
 
 **Observation space:** 12 spatial feature planes on the grid (alive cells, territory masks, structure footprints, HP, build zones, pending builds) + 7 scalar economy features. Total ~200 floats after downsampling to 8x8 macro-cells. Raw 52x52 grid cells must NOT be used.
 
-**Action space:** MultiDiscrete (action\_type x template\_id x quantized\_x x quantized\_y x transform\_index) with invalid action masking via `previewBuildPlacement()`. Full unmasked space on a 256x256 map is ~2.6M actions; masking reduces to hundreds of valid options per decision step.
+**Action space:** MultiDiscrete (action_type x template_id x quantized_x x quantized_y x transform_index) with invalid action masking via `previewBuildPlacement()`. Full unmasked space on a 256x256 map is ~2.6M actions; masking reduces to hundreds of valid options per decision step.
 
 ### Critical Pitfalls
 
@@ -167,10 +173,12 @@ Phase 2 before Phase 3 is non-negotiable: observation/action/reward design error
 ### Research Flags
 
 Phases likely needing deeper research during planning:
+
 - **Phase 3:** PPO hyperparameter tuning for this specific domain (long episodes, large discrete action space, self-play non-stationarity, sparse rewards). The research identifies conservative starting values but empirical calibration is required. May benefit from a `/gsd:research-phase` pass specifically on hyperparameter configurations for discrete-action RTS RL.
 - **Phase 5:** Glicko-2 period configuration for batch simulation data lacks established precedent. The mapping from "training iteration" to "rating period" needs validation against actual data distributions; consider the Bradley-Terry model as a fallback for static entities.
 
 Phases with standard patterns (skip research-phase):
+
 - **Phase 1:** Wrapping a synchronous deterministic tick loop in `worker_threads` is a standard Node.js pattern.
 - **Phase 2:** Observation/action/reward design patterns are thoroughly documented in Gym-MicroRTS and GridNet literature and map directly to the existing `RtsRoom` API surface.
 - **Phase 4:** Win rate computation and strategy distribution metrics are standard RTS balance analysis with well-established statistical methods.
@@ -180,13 +188,13 @@ Phases with standard patterns (skip research-phase):
 
 ## Confidence Assessment
 
-| Area | Confidence | Notes |
-|------|------------|-------|
-| Stack | HIGH | npm registry versions verified against Node 24; `@tensorflow/tfjs-node` breakage confirmed via live GitHub issues; Glicko-2 license analysis verified against npm registry metadata |
-| Features | HIGH | Derived from PROJECT.md requirements and validated against `RtsRoom` API surface; observation/action design cross-referenced with Gym-MicroRTS and GridNet literature |
-| Architecture — integration | HIGH | Direct codebase analysis; layer boundary rules are explicit and consistent; `RtsRoom` API provides every method needed for headless simulation |
-| Architecture — training pipeline | MEDIUM | NDJSON stdio IPC pattern is well-established; TypeScript PPO implementation is unproven at scale for this domain |
-| Pitfalls | HIGH for engine-specific risks (pitfalls 1, 2, 6, 7); MEDIUM for RL-domain risks (3, 4, 5, 8, 10) | Engine pitfalls confirmed by direct code analysis; RL pitfalls sourced from multi-paper consensus with documented RTS-specific evidence |
+| Area                             | Confidence                                                                                        | Notes                                                                                                                                                                               |
+| -------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stack                            | HIGH                                                                                              | npm registry versions verified against Node 24; `@tensorflow/tfjs-node` breakage confirmed via live GitHub issues; Glicko-2 license analysis verified against npm registry metadata |
+| Features                         | HIGH                                                                                              | Derived from PROJECT.md requirements and validated against `RtsRoom` API surface; observation/action design cross-referenced with Gym-MicroRTS and GridNet literature               |
+| Architecture — integration       | HIGH                                                                                              | Direct codebase analysis; layer boundary rules are explicit and consistent; `RtsRoom` API provides every method needed for headless simulation                                      |
+| Architecture — training pipeline | MEDIUM                                                                                            | NDJSON stdio IPC pattern is well-established; TypeScript PPO implementation is unproven at scale for this domain                                                                    |
+| Pitfalls                         | HIGH for engine-specific risks (pitfalls 1, 2, 6, 7); MEDIUM for RL-domain risks (3, 4, 5, 8, 10) | Engine pitfalls confirmed by direct code analysis; RL pitfalls sourced from multi-paper consensus with documented RTS-specific evidence                                             |
 
 **Overall confidence:** MEDIUM-HIGH
 
@@ -231,5 +239,5 @@ Phases with standard patterns (skip research-phase):
 
 ---
 
-*Research completed: 2026-03-30*
-*Ready for roadmap: yes*
+_Research completed: 2026-03-30_
+_Ready for roadmap: yes_

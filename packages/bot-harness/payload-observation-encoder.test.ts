@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import { RtsRoom } from '#rts-engine';
-import type { RoomStatePayload } from '#rts-engine';
 
 import { ObservationEncoder } from './observation-encoder.js';
 import { PayloadObservationEncoder } from './payload-observation-encoder.js';
@@ -136,39 +135,43 @@ describe('PayloadObservationEncoder', () => {
     );
   });
 
-  it('produces identical output to ObservationEncoder for the same room state', { timeout: 30_000 }, () => {
-    const room = createTestRoom();
-    // Set some specific grid cells alive for a non-trivial comparison
-    room.state.grid.setCell(10, 10, true);
-    room.state.grid.setCell(20, 5, true);
+  it(
+    'produces identical output to ObservationEncoder for the same room state',
+    { timeout: 30_000 },
+    () => {
+      const room = createTestRoom();
+      // Set some specific grid cells alive for a non-trivial comparison
+      room.state.grid.setCell(10, 10, true);
+      room.state.grid.setCell(20, 5, true);
 
-    const payload = room.createStatePayload();
-    const tick = payload.tick;
+      const payload = room.createStatePayload();
+      const tick = payload.tick;
 
-    // Encode with the original ObservationEncoder (uses RtsRoom)
-    const origEncoder = new ObservationEncoder(W, H);
-    const origResult = origEncoder.encode(room, 1, tick, MAX_TICKS);
+      // Encode with the original ObservationEncoder (uses RtsRoom)
+      const origEncoder = new ObservationEncoder(W, H);
+      const origResult = origEncoder.encode(room, 1, tick, MAX_TICKS);
 
-    // Encode with PayloadObservationEncoder (uses RoomStatePayload only)
-    const payloadEncoder = new PayloadObservationEncoder(W, H);
-    const payloadResult = payloadEncoder.encode(payload, 1, MAX_TICKS);
+      // Encode with PayloadObservationEncoder (uses RoomStatePayload only)
+      const payloadEncoder = new PayloadObservationEncoder(W, H);
+      const payloadResult = payloadEncoder.encode(payload, 1, MAX_TICKS);
 
-    // Planes should be identical
-    expect(payloadResult.planes.length).toBe(origResult.planes.length);
-    for (let i = 0; i < origResult.planes.length; i++) {
-      expect(payloadResult.planes[i]).toBe(origResult.planes[i]);
-    }
+      // Planes should be identical
+      expect(payloadResult.planes.length).toBe(origResult.planes.length);
+      for (let i = 0; i < origResult.planes.length; i++) {
+        expect(payloadResult.planes[i]).toBe(origResult.planes[i]);
+      }
 
-    // Scalars should be identical (except scalar[6] which uses different sources)
-    // Scalars 0-5 should match exactly
-    for (let i = 0; i < 6; i++) {
-      expect(payloadResult.scalars[i]).toBeCloseTo(origResult.scalars[i], 5);
-    }
+      // Scalars should be identical (except scalar[6] which uses different sources)
+      // Scalars 0-5 should match exactly
+      for (let i = 0; i < 6; i++) {
+        expect(payloadResult.scalars[i]).toBeCloseTo(origResult.scalars[i], 5);
+      }
 
-    // Scalar 6 (territoryRadius): both should produce the same value
-    // since it's computed the same way
-    expect(payloadResult.scalars[6]).toBeCloseTo(origResult.scalars[6], 5);
-  });
+      // Scalar 6 (territoryRadius): both should produce the same value
+      // since it's computed the same way
+      expect(payloadResult.scalars[6]).toBeCloseTo(origResult.scalars[6], 5);
+    },
+  );
 
   it('scalar[6] (territoryRadius) computed from structure buildRadius', () => {
     const room = createTestRoom();
@@ -193,10 +196,14 @@ describe('PayloadObservationEncoder', () => {
     const result2 = encoder.encode(payload, 1, MAX_TICKS);
 
     expect(
-      Buffer.from(result1.planes.buffer).equals(Buffer.from(result2.planes.buffer)),
+      Buffer.from(result1.planes.buffer).equals(
+        Buffer.from(result2.planes.buffer),
+      ),
     ).toBe(true);
     expect(
-      Buffer.from(result1.scalars.buffer).equals(Buffer.from(result2.scalars.buffer)),
+      Buffer.from(result1.scalars.buffer).equals(
+        Buffer.from(result2.scalars.buffer),
+      ),
     ).toBe(true);
   });
 });

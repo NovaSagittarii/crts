@@ -15,13 +15,13 @@ created: 2026-04-02
 
 ## Test Infrastructure
 
-| Property | Value |
-|----------|-------|
-| **Framework** | vitest |
-| **Config file** | `vitest.config.ts` (root) |
-| **Quick run command** | `npx vitest run packages/bot-harness/tf-backend.test.ts` |
-| **Full suite command** | `npm run test:unit` |
-| **Estimated runtime** | ~5 seconds |
+| Property               | Value                                                    |
+| ---------------------- | -------------------------------------------------------- |
+| **Framework**          | vitest                                                   |
+| **Config file**        | `vitest.config.ts` (root)                                |
+| **Quick run command**  | `npx vitest run packages/bot-harness/tf-backend.test.ts` |
+| **Full suite command** | `npm run test:unit`                                      |
+| **Estimated runtime**  | ~5 seconds                                               |
 
 ---
 
@@ -42,9 +42,9 @@ All plans use inline TDD — no separate Wave 0 needed.
 
 ## Manual-Only Verifications
 
-| Behavior | Requirement | Why Manual | Test Instructions |
-|----------|-------------|------------|-------------------|
-| Native backend loads on glibc system | SC-3 | Requires non-Alpine platform | Run on Ubuntu/Debian and check log for "native" backend |
+| Behavior                             | Requirement | Why Manual                   | Test Instructions                                       |
+| ------------------------------------ | ----------- | ---------------------------- | ------------------------------------------------------- |
+| Native backend loads on glibc system | SC-3        | Requires non-Alpine platform | Run on Ubuntu/Debian and check log for "native" backend |
 
 ---
 

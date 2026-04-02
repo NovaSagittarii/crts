@@ -9,7 +9,6 @@
  * Supports game-phase tick-range filtering (D-02) so encounters can be
  * extracted for early/mid/late phases independently.
  */
-
 import type { TickRecord } from '../types.js';
 import type {
   GamePhaseRange,
@@ -76,10 +75,7 @@ function countBuildsByTeam(
  * Determine win credit for a team based on match outcome.
  * Winner gets 1.0, loser gets 0.0, draw gets 0.5.
  */
-function getTeamScore(
-  teamId: number,
-  winnerTeamId: number | null,
-): number {
+function getTeamScore(teamId: number, winnerTeamId: number | null): number {
   if (winnerTeamId === null) return 0.5; // Draw
   return teamId === winnerTeamId ? 1.0 : 0.0;
 }

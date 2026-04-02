@@ -15,13 +15,13 @@ created: 2026-04-01
 
 ## Test Infrastructure
 
-| Property | Value |
-|----------|-------|
-| **Framework** | vitest 4.0.18 |
-| **Config file** | `vitest.config.ts` (root) |
-| **Quick run command** | `npx vitest run --dir packages/bot-harness` |
-| **Full suite command** | `npm run test:unit` |
-| **Estimated runtime** | ~5 seconds |
+| Property               | Value                                       |
+| ---------------------- | ------------------------------------------- |
+| **Framework**          | vitest 4.0.18                               |
+| **Config file**        | `vitest.config.ts` (root)                   |
+| **Quick run command**  | `npx vitest run --dir packages/bot-harness` |
+| **Full suite command** | `npm run test:unit`                         |
+| **Estimated runtime**  | ~5 seconds                                  |
 
 ---
 
@@ -36,19 +36,19 @@ created: 2026-04-01
 
 ## Per-Task Verification Map
 
-| Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
-|---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 18-01-01 | 01 | 1 | HARN-01 | unit | `npx vitest run packages/bot-harness/match-runner.test.ts -x` | ❌ W0 | ⬜ pending |
-| 18-01-02 | 01 | 1 | HARN-01 | unit | `npx vitest run packages/bot-harness/match-runner.test.ts -x` | ❌ W0 | ⬜ pending |
-| 18-01-03 | 01 | 1 | HARN-01 | unit | `npx vitest run packages/bot-harness/match-runner.test.ts -x` | ❌ W0 | ⬜ pending |
-| 18-02-01 | 02 | 1 | BAL-01 | unit | `npx vitest run packages/bot-harness/match-logger.test.ts -x` | ❌ W0 | ⬜ pending |
-| 18-02-02 | 02 | 1 | BAL-01 | unit | `npx vitest run packages/bot-harness/match-logger.test.ts -x` | ❌ W0 | ⬜ pending |
-| 18-02-03 | 02 | 1 | BAL-01 | unit | `npx vitest run packages/bot-harness/match-runner.test.ts -x` | ❌ W0 | ⬜ pending |
-| 18-03-01 | 03 | 1 | HARN-01 | unit | `npx vitest run packages/bot-harness/match-runner.test.ts -x` | ❌ W0 | ⬜ pending |
-| 18-03-02 | 03 | 1 | HARN-01 | unit | `npx vitest run packages/bot-harness/match-runner.test.ts -x` | ❌ W0 | ⬜ pending |
-| 18-04-01 | 04 | 2 | HARN-01 | unit | `npx vitest run packages/bot-harness/random-bot.test.ts -x` | ❌ W0 | ⬜ pending |
+| Task ID  | Plan | Wave | Requirement | Test Type | Automated Command                                             | File Exists | Status     |
+| -------- | ---- | ---- | ----------- | --------- | ------------------------------------------------------------- | ----------- | ---------- |
+| 18-01-01 | 01   | 1    | HARN-01     | unit      | `npx vitest run packages/bot-harness/match-runner.test.ts -x` | ❌ W0       | ⬜ pending |
+| 18-01-02 | 01   | 1    | HARN-01     | unit      | `npx vitest run packages/bot-harness/match-runner.test.ts -x` | ❌ W0       | ⬜ pending |
+| 18-01-03 | 01   | 1    | HARN-01     | unit      | `npx vitest run packages/bot-harness/match-runner.test.ts -x` | ❌ W0       | ⬜ pending |
+| 18-02-01 | 02   | 1    | BAL-01      | unit      | `npx vitest run packages/bot-harness/match-logger.test.ts -x` | ❌ W0       | ⬜ pending |
+| 18-02-02 | 02   | 1    | BAL-01      | unit      | `npx vitest run packages/bot-harness/match-logger.test.ts -x` | ❌ W0       | ⬜ pending |
+| 18-02-03 | 02   | 1    | BAL-01      | unit      | `npx vitest run packages/bot-harness/match-runner.test.ts -x` | ❌ W0       | ⬜ pending |
+| 18-03-01 | 03   | 1    | HARN-01     | unit      | `npx vitest run packages/bot-harness/match-runner.test.ts -x` | ❌ W0       | ⬜ pending |
+| 18-03-02 | 03   | 1    | HARN-01     | unit      | `npx vitest run packages/bot-harness/match-runner.test.ts -x` | ❌ W0       | ⬜ pending |
+| 18-04-01 | 04   | 2    | HARN-01     | unit      | `npx vitest run packages/bot-harness/random-bot.test.ts -x`   | ❌ W0       | ⬜ pending |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+_Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky_
 
 ---
 
@@ -65,7 +65,7 @@ created: 2026-04-01
 
 ## Manual-Only Verifications
 
-*All phase behaviors have automated verification.*
+_All phase behaviors have automated verification._
 
 ---
 

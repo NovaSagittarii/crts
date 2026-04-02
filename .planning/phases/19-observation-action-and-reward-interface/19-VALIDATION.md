@@ -15,13 +15,13 @@ created: 2026-04-01
 
 ## Test Infrastructure
 
-| Property | Value |
-|----------|-------|
-| **Framework** | vitest |
-| **Config file** | `vitest.config.ts` (root) |
-| **Quick run command** | `npx vitest run packages/bot-harness/observation-encoder.test.ts packages/bot-harness/action-decoder.test.ts packages/bot-harness/reward-signal.test.ts packages/bot-harness/bot-environment.test.ts` |
-| **Full suite command** | `npm run test:unit` |
-| **Estimated runtime** | ~5 seconds |
+| Property               | Value                                                                                                                                                                                                 |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Framework**          | vitest                                                                                                                                                                                                |
+| **Config file**        | `vitest.config.ts` (root)                                                                                                                                                                             |
+| **Quick run command**  | `npx vitest run packages/bot-harness/observation-encoder.test.ts packages/bot-harness/action-decoder.test.ts packages/bot-harness/reward-signal.test.ts packages/bot-harness/bot-environment.test.ts` |
+| **Full suite command** | `npm run test:unit`                                                                                                                                                                                   |
+| **Estimated runtime**  | ~5 seconds                                                                                                                                                                                            |
 
 ---
 
@@ -36,14 +36,14 @@ created: 2026-04-01
 
 ## Per-Task Verification Map
 
-| Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
-|---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 19-01-01 | 01 | 1 | HARN-02 | unit | `npx vitest run packages/bot-harness/observation-encoder.test.ts` | ❌ W0 | ⬜ pending |
-| 19-01-02 | 01 | 1 | HARN-03 | unit | `npx vitest run packages/bot-harness/action-decoder.test.ts` | ❌ W0 | ⬜ pending |
-| 19-02-01 | 02 | 2 | HARN-04 | unit | `npx vitest run packages/bot-harness/reward-signal.test.ts` | ❌ W0 | ⬜ pending |
-| 19-02-02 | 02 | 2 | HARN-02,03,04 | unit | `npx vitest run packages/bot-harness/bot-environment.test.ts` | ❌ W0 | ⬜ pending |
+| Task ID  | Plan | Wave | Requirement   | Test Type | Automated Command                                                 | File Exists | Status     |
+| -------- | ---- | ---- | ------------- | --------- | ----------------------------------------------------------------- | ----------- | ---------- |
+| 19-01-01 | 01   | 1    | HARN-02       | unit      | `npx vitest run packages/bot-harness/observation-encoder.test.ts` | ❌ W0       | ⬜ pending |
+| 19-01-02 | 01   | 1    | HARN-03       | unit      | `npx vitest run packages/bot-harness/action-decoder.test.ts`      | ❌ W0       | ⬜ pending |
+| 19-02-01 | 02   | 2    | HARN-04       | unit      | `npx vitest run packages/bot-harness/reward-signal.test.ts`       | ❌ W0       | ⬜ pending |
+| 19-02-02 | 02   | 2    | HARN-02,03,04 | unit      | `npx vitest run packages/bot-harness/bot-environment.test.ts`     | ❌ W0       | ⬜ pending |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+_Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky_
 
 ---
 
@@ -58,7 +58,7 @@ created: 2026-04-01
 
 ## Manual-Only Verifications
 
-*All phase behaviors have automated verification.*
+_All phase behaviors have automated verification._
 
 ---
 

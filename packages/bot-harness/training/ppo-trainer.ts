@@ -10,14 +10,13 @@
  *
  * All tensor operations wrapped in tf.tidy() to prevent memory leaks.
  */
+import type * as tf from '@tensorflow/tfjs';
 
 import { getTf } from '../tf-backend.js';
 import type { TfModule } from '../tf-backend.js';
-import type * as tf from '@tensorflow/tfjs';
-
+import type { TrainingConfig } from './training-config.js';
 import type { TrajectoryBatch } from './trajectory-buffer.js';
 import type { TrajectoryBuffer } from './trajectory-buffer.js';
-import type { TrainingConfig } from './training-config.js';
 
 let _tf: TfModule;
 
@@ -153,9 +152,7 @@ export class PPOTrainer {
 
           // Entropy = -mean(sum(probs * logProbs, axis=-1))
           const probs = _tf.softmax(maskedLogits);
-          const ent = _tf.neg(
-            _tf.mean(probs.mul(logProbs).sum(1)),
-          );
+          const ent = _tf.neg(_tf.mean(probs.mul(logProbs).sum(1)));
 
           // Approximate KL divergence: mean((ratio - 1) - log(ratio))
           const kl = _tf.mean(
@@ -179,7 +176,9 @@ export class PPOTrainer {
         });
       },
       true, // return cost
-      this.model.trainableWeights.map((w) => (w as unknown as { val: tf.Variable }).val),
+      this.model.trainableWeights.map(
+        (w) => (w as unknown as { val: tf.Variable }).val,
+      ),
     );
 
     // Dispose intermediate tensors
@@ -263,8 +262,11 @@ export class PPOTrainer {
       );
 
       // Sample from categorical distribution
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-      const sampled = _tf.multinomial(maskedLogits.expandDims(0) as tf.Tensor2D, 1);
+
+      const sampled = _tf.multinomial(
+        maskedLogits.expandDims(0) as unknown as tf.Tensor2D,
+        1,
+      );
       const action = sampled.dataSync()[0];
 
       // Compute log probability
@@ -283,16 +285,17 @@ export class PPOTrainer {
   public computeValue(planes: Float32Array, scalars: Float32Array): number {
     const result = _tf.tidy(() => {
       // Reshape planes from flat [C*H*W] channel-first to [1, H, W, C] channel-last
-      const chw = _tf.tensor3d(
-        Array.from(planes),
-        [this.channels, this.height, this.width],
-      );
+      const chw = _tf.tensor3d(Array.from(planes), [
+        this.channels,
+        this.height,
+        this.width,
+      ]);
       const hwc = chw.transpose([1, 2, 0]); // [H, W, C]
       const planesTensor = hwc.expandDims(0); // [1, H, W, C]
-      const scalarsTensor = _tf.tensor2d(
-        Array.from(scalars),
-        [1, scalars.length],
-      );
+      const scalarsTensor = _tf.tensor2d(Array.from(scalars), [
+        1,
+        scalars.length,
+      ]);
 
       const outputs = this.model.predict([
         planesTensor,
@@ -307,15 +310,21 @@ export class PPOTrainer {
   /**
    * Get optimizer weights for checkpoint resume support (D-11).
    */
-  public async getOptimizerWeights(): Promise<{ name: string; tensor: tf.Tensor }[]> {
+  public async getOptimizerWeights(): Promise<
+    { name: string; tensor: tf.Tensor }[]
+  > {
     return this.optimizer.getWeights();
   }
 
   /**
    * Set optimizer weights for checkpoint resume support (D-11).
    */
-  public async setOptimizerWeights(weights: { name: string; tensor: tf.Tensor }[]): Promise<void> {
-    await this.optimizer.setWeights(weights as Parameters<typeof this.optimizer.setWeights>[0]);
+  public async setOptimizerWeights(
+    weights: { name: string; tensor: tf.Tensor }[],
+  ): Promise<void> {
+    await this.optimizer.setWeights(
+      weights as Parameters<typeof this.optimizer.setWeights>[0],
+    );
   }
 
   /**
@@ -336,10 +345,12 @@ export class PPOTrainer {
     }
 
     // Reshape [batch, C, H, W] then transpose to [batch, H, W, C]
-    const bchw = _tf.tensor4d(
-      flatBuffer,
-      [batchSize, this.channels, this.height, this.width],
-    );
+    const bchw = _tf.tensor4d(flatBuffer, [
+      batchSize,
+      this.channels,
+      this.height,
+      this.width,
+    ]);
     const bhwc: tf.Tensor4D = bchw.transpose([0, 2, 3, 1]);
     bchw.dispose();
     return bhwc;
@@ -363,10 +374,7 @@ export class PPOTrainer {
   /**
    * Build a 2D mask tensor from per-step action masks.
    */
-  private buildMaskTensor(
-    masks: Uint8Array[],
-    batchSize: number,
-  ): tf.Tensor2D {
+  private buildMaskTensor(masks: Uint8Array[], batchSize: number): tf.Tensor2D {
     const actionCount = masks[0].length;
     const buffer = new Float32Array(batchSize * actionCount);
     for (let i = 0; i < batchSize; i++) {

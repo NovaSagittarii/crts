@@ -1,6 +1,6 @@
-import React from 'react';
-import { Box, Text } from 'ink';
 import asciichart from 'asciichart';
+import { Box, Text } from 'ink';
+import React from 'react';
 
 /**
  * Props for the AsciiChart component.
@@ -30,7 +30,7 @@ export function AsciiChart({
 }: AsciiChartProps): React.ReactElement {
   if (data.length === 0) {
     return (
-      <Box flexDirection="column">
+      <Box flexDirection='column'>
         {label != null && <Text bold>{label}</Text>}
         <Text dimColor>Waiting for data...</Text>
       </Box>
@@ -41,7 +41,7 @@ export function AsciiChart({
   const chartString = asciichart.plot(sliced, { height });
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection='column'>
       {label != null && <Text bold>{label}</Text>}
       <Text>{chartString}</Text>
     </Box>
@@ -81,7 +81,7 @@ export function MultiSeriesChart({
 
   if (nonEmpty.length === 0) {
     return (
-      <Box flexDirection="column">
+      <Box flexDirection='column'>
         {label != null && <Text bold>{label}</Text>}
         <Text dimColor>Waiting for data...</Text>
       </Box>
@@ -96,7 +96,7 @@ export function MultiSeriesChart({
   const chartString = asciichart.plot(sliced, cfg);
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection='column'>
       {label != null && <Text bold>{label}</Text>}
       <Text>{chartString}</Text>
     </Box>

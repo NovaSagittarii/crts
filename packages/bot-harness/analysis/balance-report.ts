@@ -1,23 +1,29 @@
-import type {
-  AnalysisConfig,
-  BalanceReport,
-  ParsedMatch,
-  RatingsReport,
-} from './types.js';
-import { classifyAll } from './strategy-classifier.js';
-import { normalizeFeatures, kMeans } from './clustering.js';
-import { computeTemplateWinRates, computeStrategyWinRates } from './win-rate-analyzer.js';
-import { extractBuildSequence, mineSequencePatterns } from './sequence-miner.js';
+import { kMeans, normalizeFeatures } from './clustering.js';
 import {
+  computeGenerationData,
   discoverGenerations,
   splitMatchesByGeneration,
-  computeGenerationData,
 } from './generation-tracker.js';
 import {
   computeRatingsParallel,
   computeRatingsSequential,
 } from './rating-coordinator.js';
 import type { RatingComputeOptions } from './rating-coordinator.js';
+import {
+  extractBuildSequence,
+  mineSequencePatterns,
+} from './sequence-miner.js';
+import { classifyAll } from './strategy-classifier.js';
+import type {
+  AnalysisConfig,
+  BalanceReport,
+  ParsedMatch,
+  RatingsReport,
+} from './types.js';
+import {
+  computeStrategyWinRates,
+  computeTemplateWinRates,
+} from './win-rate-analyzer.js';
 
 /** Default analysis configuration */
 export const DEFAULT_ANALYSIS_CONFIG: AnalysisConfig = {
@@ -37,7 +43,10 @@ export interface AssembleOptions {
   /** Checkpoint interval in episodes (used for splitMatchesByGeneration) */
   checkpointInterval?: number;
   /** Glicko-2 rating options. If provided, ratings are computed and included. */
-  ratingsOptions?: RatingComputeOptions & { workers?: number; parallel?: boolean };
+  ratingsOptions?: RatingComputeOptions & {
+    workers?: number;
+    parallel?: boolean;
+  };
 }
 
 /**
@@ -85,7 +94,11 @@ export async function assembleBalanceReport(
   const templateWinRates = computeTemplateWinRates(matches, config);
 
   // 4. Compute strategy win rates
-  const strategyWinRates = computeStrategyWinRates(matches, assignments, config);
+  const strategyWinRates = computeStrategyWinRates(
+    matches,
+    assignments,
+    config,
+  );
 
   // 5. Extract build sequences and mine patterns
   const sequences: string[][] = [];

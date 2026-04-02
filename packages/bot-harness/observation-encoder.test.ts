@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import { RtsRoom } from '#rts-engine';
 
-import { ObservationEncoder, type ObservationResult } from './observation-encoder.js';
+import {
+  ObservationEncoder,
+  type ObservationResult,
+} from './observation-encoder.js';
 
 const W = 52;
 const H = 52;
@@ -196,10 +199,14 @@ describe('ObservationEncoder', () => {
     const result2 = encoder.encode(room, 1, 0, 2000);
 
     expect(
-      Buffer.from(result1.planes.buffer).equals(Buffer.from(result2.planes.buffer)),
+      Buffer.from(result1.planes.buffer).equals(
+        Buffer.from(result2.planes.buffer),
+      ),
     ).toBe(true);
     expect(
-      Buffer.from(result1.scalars.buffer).equals(Buffer.from(result2.scalars.buffer)),
+      Buffer.from(result1.scalars.buffer).equals(
+        Buffer.from(result2.scalars.buffer),
+      ),
     ).toBe(true);
   });
 

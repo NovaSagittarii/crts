@@ -2,7 +2,14 @@
 phase: 22-structure-strength-ratings
 plan: 02
 subsystem: analysis
-tags: [glicko-2, rating-pool, combination-mining, outlier-detection, balance-analysis]
+tags:
+  [
+    glicko-2,
+    rating-pool,
+    combination-mining,
+    outlier-detection,
+    balance-analysis,
+  ]
 
 # Dependency graph
 requires:
@@ -14,12 +21,18 @@ provides:
   - minePairwiseCombinations for 2-template pair discovery from match data
   - mineFrequentSets for k-template set discovery with min-support filtering
   - detectOutliers for statistical deviation and usage-matrix outlier classification
-affects: [22-structure-strength-ratings plan 03, balance-report, CLI integration]
+affects:
+  [22-structure-strength-ratings plan 03, balance-report, CLI integration]
 
 # Tech tracking
 tech-stack:
   added: []
-  patterns: [batch-update-with-snapshot, brute-force-enumeration-for-small-vocabulary, dual-method-outlier-detection]
+  patterns:
+    [
+      batch-update-with-snapshot,
+      brute-force-enumeration-for-small-vocabulary,
+      dual-method-outlier-detection,
+    ]
 
 key-files:
   created:
@@ -32,14 +45,14 @@ key-files:
   modified: []
 
 key-decisions:
-  - "Batch update snapshots all entity ratings before update loop to prevent cross-entity contamination"
-  - "Direct enumeration (brute-force) for frequent-set mining since vocabulary is only 5 templates (31 subsets max)"
-  - "Usage-matrix outlier detection uses median rather than mean for rating/pickRate thresholds"
+  - 'Batch update snapshots all entity ratings before update loop to prevent cross-entity contamination'
+  - 'Direct enumeration (brute-force) for frequent-set mining since vocabulary is only 5 templates (31 subsets max)'
+  - 'Usage-matrix outlier detection uses median rather than mean for rating/pickRate thresholds'
 
 patterns-established:
-  - "Rating pool pattern: pool encapsulates entity registration, encounter collection, batch update cycle"
+  - 'Rating pool pattern: pool encapsulates entity registration, encounter collection, batch update cycle'
   - "Canonical pair/set IDs: alphabetically sorted members joined with '+' (e.g. block+glider)"
-  - "Dual-method outlier detection with additive flags per entity"
+  - 'Dual-method outlier detection with additive flags per entity'
 
 requirements-completed: [BAL-04]
 
@@ -61,6 +74,7 @@ completed: 2026-04-01
 - **Files created:** 6
 
 ## Accomplishments
+
 - RatingPool class managing entity ratings with batch Glicko-2 updates using pre-update snapshots for opponent lookups (no cross-entity contamination)
 - Game-phase pool factory creating 5 pools (3 individual phases + 2 combo full) or 9 pools (with perPhaseCombos) per D-02/D-09
 - Pairwise combination mining discovering all 2-template pairs with canonical alphabetically-sorted IDs per D-06
@@ -76,6 +90,7 @@ Each task was committed atomically:
 2. **Task 2: Combination miner and outlier detector** - `f5bc565` (feat)
 
 ## Files Created/Modified
+
 - `packages/bot-harness/analysis/rating-pool.ts` - RatingPool class and createRatingPools factory
 - `packages/bot-harness/analysis/rating-pool.test.ts` - Pool construction, batch update, game-phase separation tests (8 tests)
 - `packages/bot-harness/analysis/combination-miner.ts` - minePairwiseCombinations and mineFrequentSets functions
@@ -84,6 +99,7 @@ Each task was committed atomically:
 - `packages/bot-harness/analysis/outlier-detector.test.ts` - Statistical outlier, usage-matrix, provisional exclusion, multi-flag tests (7 tests)
 
 ## Decisions Made
+
 - Batch update snapshots all entity ratings before the update loop to prevent cross-entity contamination within a rating period (per Glicko-2 batch semantics and research anti-pattern guidance)
 - Direct enumeration (brute-force) chosen for frequent-set mining since the vocabulary is only 5 templates, yielding at most 31 possible subsets
 - Usage-matrix outlier detection uses median of non-provisional entity ratings/pickRates as thresholds for dominant/niche-strong/trap categorization
@@ -93,6 +109,7 @@ Each task was committed atomically:
 None - plan executed exactly as written.
 
 ## Issues Encountered
+
 - Test data for statistical outlier tests (Tests 7, 8, 13) initially used too few entities (4), causing the outlier itself to inflate the mean and SD so much that it could not exceed 2 SD. Fixed by using 10 entities (9 at baseline + 1 outlier) so the outlier's influence on the population statistics was reduced.
 
 ## Known Stubs
@@ -104,6 +121,7 @@ None - all functions are fully implemented with real logic.
 None - no external service configuration required.
 
 ## Next Phase Readiness
+
 - Rating pool, combination mining, and outlier detection are complete and ready for Plan 03 integration
 - Plan 03 will wire these modules into the balance report assembler and CLI subcommands
 - All exported functions match the interfaces specified in the plan
@@ -116,5 +134,6 @@ None - no external service configuration required.
 - Lint clean on all plan files
 
 ---
-*Phase: 22-structure-strength-ratings*
-*Completed: 2026-04-01*
+
+_Phase: 22-structure-strength-ratings_
+_Completed: 2026-04-01_

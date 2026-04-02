@@ -57,7 +57,7 @@ Phase 1 (headless match runner) -- this is a foundational architectural decision
 ### Pitfall 2: Conway grid evolution dominates tick time, making training 100x slower than expected
 
 **What goes wrong:**
-Each `Grid.step()` on a 52x52 torus grid iterates all 2,704 cells with 8-neighbor lookups. This is O(width * height) per tick. A match that runs for 500 ticks calls `Grid.step()` 500 times per match. Training 10,000 matches requires 5,000,000 grid steps. At the current implementation speed (~0.1ms per step for 52x52 on Node.js), that is 500 seconds of pure grid computation -- not counting economy, build validation, or structure integrity checks. Developers expect training to take minutes but it takes hours.
+Each `Grid.step()` on a 52x52 torus grid iterates all 2,704 cells with 8-neighbor lookups. This is O(width \* height) per tick. A match that runs for 500 ticks calls `Grid.step()` 500 times per match. Training 10,000 matches requires 5,000,000 grid steps. At the current implementation speed (~0.1ms per step for 52x52 on Node.js), that is 500 seconds of pure grid computation -- not counting economy, build validation, or structure integrity checks. Developers expect training to take minutes but it takes hours.
 
 **Why it happens:**
 The `Grid.step()` implementation in `grid.ts` is correct but not optimized for bulk simulation. It uses a `Uint8Array` per cell (8 bits for 1 bit of information), creates a scratch buffer per step, and performs individual array lookups. For interactive play at 25 ticks/second, this is fine. For training throughput at maximum speed, it becomes the bottleneck.
@@ -66,6 +66,7 @@ The `Grid.step()` implementation in `grid.ts` is correct but not optimized for b
 Training feedback loops take hours instead of minutes. Hyperparameter tuning becomes impractical. Developers give up on self-play or reduce match length to the point where games are not strategically meaningful.
 
 **Prevention:**
+
 1. Profile `RtsRoom.tick()` before optimizing. Measure: what percentage of tick time is `Grid.step()` vs. economy vs. build validation vs. integrity checks?
 2. For training, use a smaller grid (e.g., 32x32 or even 20x20). The structure templates still fit; the game dynamics are similar but faster. Make grid size a configurable parameter in the headless match runner.
 3. Consider bit-packing the grid for the training runner: `Grid.toPacked()` already exists and stores 8 cells per byte. A step function operating on packed representation would process 8 cells at once via bitwise operations. This is a significant optimization but should only be pursued after profiling confirms grid step is the bottleneck.
@@ -93,6 +94,7 @@ Research shows this is a well-documented problem: "the training procedure for se
 The trained bot is a one-trick pony. Balance analysis based on self-play data is useless because it only reflects one meta-strategy. Structure ratings converge incorrectly (all structures used by the dominant strategy get high ratings; all others get low ratings regardless of actual strength).
 
 **Prevention:**
+
 1. Maintain a population of opponent policies, not just the latest checkpoint. Every N training iterations, snapshot the current policy and add it to an opponent pool. Sample training opponents from the pool with probability proportional to recency but with a minimum sampling floor for older policies.
 2. Track policy entropy as a training metric. If entropy drops below a threshold, increase the entropy coefficient in PPO.
 3. Add evaluation games against scripted baselines (random, greedy-economy, defensive-only) alongside self-play. If win rate against random drops, the policy is overfitting to self-play dynamics.
@@ -121,6 +123,7 @@ Training produces an agent that either does nothing (places no structures) or pl
 
 **Prevention:**
 Design a compact, engineered observation space that captures strategic information rather than raw cell state:
+
 - **Per-team summary features**: resources, income, core HP, number of active structures, territory cell count
 - **Spatial features at reduced resolution**: divide the 52x52 grid into 4x4 or 8x8 macro-cells and report alive-cell density per macro-cell (reduces 2,704 features to 169 or 42)
 - **Structure-relative features**: for each placed structure, report distance to enemy core, whether it is in enemy territory, HP, and template type
@@ -150,6 +153,7 @@ Training is sample-inefficient. The agent learns to avoid invalid actions but ne
 
 **Prevention:**
 Implement action masking in the bot harness:
+
 1. At each decision step, compute the set of valid (templateId, x, y) tuples by querying `RtsRoom.previewBuildPlacement()` or a lighter validity check.
 2. Pass the valid action mask to PPO so that the policy network's softmax is restricted to valid actions only.
 3. If computing the full valid action set is too expensive, use a coarse mask: filter by (a) affordability (can the team afford any template?), (b) territory (which macro-cells are in build zone?), (c) occupancy (which macro-cells have room?). The coarse mask removes 80%+ of invalid actions cheaply.
@@ -175,6 +179,7 @@ The headless match runner calls `room.tick()` in a tight synchronous loop to sim
 Training is single-threaded and slow. Cannot serve HTTP health checks, cannot collect metrics, cannot respond to shutdown signals during training. If using the same Node.js process for both training and a live server, the server becomes unresponsive during training batches.
 
 **Prevention:**
+
 1. Use `worker_threads` to run headless matches in parallel. Each worker gets its own V8 isolate with its own event loop. The main thread coordinates match assignment and result collection.
 2. Use a worker pool (e.g., `piscina` or a simple custom pool) sized to CPU core count minus 1.
 3. Each worker runs one match at a time synchronously (tight loop is fine inside a worker -- it does not block the main event loop).
@@ -201,6 +206,7 @@ The engine was designed for interactive play at 25 ticks/second where allocation
 Training throughput degrades over time as the Old Space fills with promoted short-lived objects. GC pauses of 50-200ms occur every few seconds, adding 10-30% overhead to total training time.
 
 **Prevention:**
+
 1. Pre-allocate and reuse `RoomTickResult`-like objects in the headless runner. The runner does not need the full `BuildOutcome[]` detail -- it only needs: did the match end? who won? what was the final state?
 2. Create a "training tick" variant that returns minimal data: `{ done: boolean, winner: number | null }` rather than full outcome arrays. The full outcome data is only needed for the final tick.
 3. Tune V8 GC for training processes: `node --max-semi-space-size=64` increases the young generation size, reducing premature promotion. This can reduce GC overhead by 50%+ for allocation-heavy workloads.
@@ -228,8 +234,9 @@ Dense reward shaping is recommended for RL training to provide learning signal b
 In this game specifically, the economy system rewards conservative play: generators produce steady income, blocks extend build radius, and the core has 500 HP. A bot that builds generators and blocks in safe positions earns high shaped rewards while never engaging with the Conway dynamics that determine victory.
 
 **Prevention:**
+
 1. Use sparse win/loss reward as the primary signal: +1 for win, -1 for loss, 0 for draw/timeout.
-2. Add a small shaped reward component (10x smaller than win/loss) for strategic milestones: first structure in enemy territory (+0.05), enemy core HP reduced (+0.1 * damage fraction), own core HP preserved (+0.02 per checkpoint).
+2. Add a small shaped reward component (10x smaller than win/loss) for strategic milestones: first structure in enemy territory (+0.05), enemy core HP reduced (+0.1 \* damage fraction), own core HP preserved (+0.02 per checkpoint).
 3. Penalize timeouts: if the match reaches maximum ticks without resolution, both sides get -0.5 (worse than a loss). This prevents the bot from learning to stall.
 4. Track shaped reward and win rate as separate metrics during training. If shaped reward increases but win rate plateaus, the shaped rewards are misaligned.
 
@@ -252,6 +259,7 @@ The intransitivity problem is critical: Structure A (defensive walls) beats Stru
 Balance analysis produces incorrect conclusions. Developers nerf/buff structures based on ratings that reflect bot policy quality rather than structure strength. The game becomes less balanced.
 
 **Prevention:**
+
 1. Rate structures via win-rate matrices, not scalar ratings. For N structure templates, compute an N x N win-rate matrix where entry (i,j) is the win rate of strategies that include structure i against strategies that include structure j.
 2. If scalar ratings are required, use Bradley-Terry model instead of Glicko-2. Bradley-Terry does not have time-decay or volatility mechanics that are inappropriate for static entities. It also produces more stable ratings from the same data.
 3. Control for confounding: when rating a structure, hold the bot policy constant. Compare games where both sides use the same policy but one side has access to Structure A and the other does not.
@@ -272,6 +280,7 @@ Developers use PPO defaults from Stable Baselines 3 or a tutorial (learning rate
 
 **Why it happens:**
 PPO is sensitive to hyperparameters. "Good results in RL generally depend on finding appropriate hyperparameters. Don't expect the default ones to work in every environment" (Stable Baselines 3 docs). This game has specific characteristics that interact badly with common defaults:
+
 - **Discrete, large action space**: requires smaller learning rates and more conservative clip values than continuous-action environments.
 - **Sparse rewards**: win/loss only at episode end means high variance in advantage estimates; requires larger batch sizes.
 - **Long episodes**: 500-tick matches with actions every N ticks means long trajectories; PPO's GAE lambda must be tuned for long horizons.
@@ -282,6 +291,7 @@ Training instability wastes compute. Developers add more shaped rewards to compe
 
 **Prevention:**
 Start with conservative hyperparameters for this domain:
+
 - Learning rate: 1e-4 (lower than default due to non-stationarity)
 - Clip range: 0.1-0.15 (tighter than default 0.2 for stability)
 - PPO epochs per update: 3-4 (fewer than default due to self-play non-stationarity)
@@ -311,6 +321,7 @@ Mark Glickman's recommendation: "the typical player is assumed to play at least 
 Ratings are either noisy (too-short periods) or unresponsive (too-long periods). The RD values are meaningless because they do not reflect actual uncertainty but rather misconfigured period boundaries.
 
 **Prevention:**
+
 1. For static entities (structures that do not change), use a single rating period containing all games. The Bradley-Terry model is more appropriate here since it processes all data at once without temporal assumptions.
 2. If using Glicko-2 for tracking how structure effectiveness changes across bot training iterations, use one rating period per training iteration (e.g., every 100 self-play games). This captures how structure value changes as the meta-strategy evolves.
 3. Ensure each structure appears in at least 10 games per rating period. If some structures are rarely selected by the bot, inject forced diversity: in 10% of training games, assign random structure loadouts.
@@ -332,6 +343,7 @@ During training, the bot's compute time does not matter -- the simulation waits 
 The server tick loop stalls, causing lag for all players in the match. If the bot decision takes 80ms, every other tick is delayed by 40ms, effectively halving the game speed.
 
 **Prevention:**
+
 1. Budget: the bot's total decision time (observe + infer + act) must be under 10ms to leave 30ms headroom for engine tick and network I/O.
 2. Use a small network: 2 hidden layers of 64-128 units. For this game's complexity, a larger network provides diminishing returns.
 3. Pre-compute observation features between ticks rather than assembling them on-demand. Cache the macro-cell density map and update it incrementally after each grid step.
@@ -358,6 +370,7 @@ In lockstep mode, the server broadcasts input events and the bot must respond wi
 The bot performs significantly worse in live play than in training. Actions that were optimal at tick T are suboptimal at tick T+2. Build placements that would succeed at tick T are rejected at tick T+2 because the grid state has changed (Conway evolution altered the territory). The bot's effective skill level drops by 100-300 Elo equivalent.
 
 **Prevention:**
+
 1. During training (Phase 3), add a configurable action delay (1-3 ticks) so the bot learns to account for latency. Train with delay=2 so the bot's policy is robust to stale observations.
 2. In the Socket.IO adapter, use the server-side bot integration pattern: the bot runs as a "virtual player" in the same process as the server, calling `room.queueBuildEvent()` directly rather than going through Socket.IO. This eliminates network latency entirely.
 3. If the bot must use Socket.IO (for testing or fairness), have it compute actions based on predicted future state (current state + 2 Conway steps) rather than current state. This requires running `Grid.step()` twice in the bot's observation encoder, which is cheap for a single grid.
@@ -401,9 +414,10 @@ Phase 4 (balance analysis).
 ### Pitfall 16: Structure combo ratings produce combinatorial explosion
 
 **What goes wrong:**
-With 6 structure templates, there are 2^6 - 1 = 63 possible structure combinations. Rating each combination via Glicko-2 requires sufficient games for each combo. With 63 combos, the pairwise matchup matrix has 63 * 62 / 2 = 1,953 entries. Getting 100 games per entry requires 195,300 games. Training at 5 matches/second takes 10+ hours just for rating convergence.
+With 6 structure templates, there are 2^6 - 1 = 63 possible structure combinations. Rating each combination via Glicko-2 requires sufficient games for each combo. With 63 combos, the pairwise matchup matrix has 63 \* 62 / 2 = 1,953 entries. Getting 100 games per entry requires 195,300 games. Training at 5 matches/second takes 10+ hours just for rating convergence.
 
 **Prevention:**
+
 1. Rate individual structures, not combinations. Use a linear model: combo strength = sum of individual structure strengths + interaction terms for known synergies.
 2. If combo ratings are essential, limit to top-K combos observed in self-play (typically 5-10 dominant combos emerge). Rate only those.
 3. Use Bayesian methods that share information across similar combos (hierarchical model) rather than rating each independently.
@@ -431,14 +445,14 @@ Phase 1 (headless match runner with worker threads).
 
 ## Phase-Specific Warnings
 
-| Phase Topic | Likely Pitfall | Mitigation |
-|---|---|---|
-| Phase 1: Headless runner | Event loop blocking (P6), WeakMap serialization (P17), Grid performance (P2) | Worker thread pool, create rooms in-worker, profile before optimizing |
-| Phase 2: Obs/Action design | Raw grid observation (P4), no action masking (P5) | Engineered features at reduced resolution, coarse-then-fine action mask |
-| Phase 3: PPO training | Mode collapse (P3), hyperparameter sensitivity (P10), reward misalignment (P8) | Opponent pool, conservative hyperparameters, sparse primary reward |
-| Phase 4: Balance analysis | Sample size (P15), self-play bias (P3) | Statistical significance tests, diverse opponent pool for evaluation |
-| Phase 5: Structure ratings | Glicko-2 misapplication (P9), rating periods (P11), combo explosion (P16) | Bradley-Terry over Glicko-2, hold policy constant, rate individuals not combos |
-| Phase 6: In-game bot | Tick budget (P12), latency mismatch (P13), validation bypass (P1) | Small network, server-side integration, action delay in training |
+| Phase Topic                | Likely Pitfall                                                                 | Mitigation                                                                     |
+| -------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| Phase 1: Headless runner   | Event loop blocking (P6), WeakMap serialization (P17), Grid performance (P2)   | Worker thread pool, create rooms in-worker, profile before optimizing          |
+| Phase 2: Obs/Action design | Raw grid observation (P4), no action masking (P5)                              | Engineered features at reduced resolution, coarse-then-fine action mask        |
+| Phase 3: PPO training      | Mode collapse (P3), hyperparameter sensitivity (P10), reward misalignment (P8) | Opponent pool, conservative hyperparameters, sparse primary reward             |
+| Phase 4: Balance analysis  | Sample size (P15), self-play bias (P3)                                         | Statistical significance tests, diverse opponent pool for evaluation           |
+| Phase 5: Structure ratings | Glicko-2 misapplication (P9), rating periods (P11), combo explosion (P16)      | Bradley-Terry over Glicko-2, hold policy constant, rate individuals not combos |
+| Phase 6: In-game bot       | Tick budget (P12), latency mismatch (P13), validation bypass (P1)              | Small network, server-side integration, action delay in training               |
 
 ---
 
@@ -458,15 +472,15 @@ Phase 1 (headless match runner with worker threads).
 
 ## Technical Debt Patterns
 
-| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|---|---|---|---|
-| Bot calls `Grid.setCell()` directly instead of `queueBuildEvent` | 10x faster training | Trained model is useless in live play | Never |
-| Raw 52x52 grid as observation | Simple implementation | Agent cannot learn; wasted compute | Never |
-| Negative rewards for invalid actions instead of masking | Simple implementation | 10-100x slower convergence | Never |
-| Single-threaded training (no workers) | Simple implementation | Training takes days instead of hours | Only for initial debugging (<100 games) |
-| Glicko-2 for static entity ratings | Familiar algorithm | Volatility/RD mechanics introduce noise | Only if treating as "good enough" approximation with documented limitations |
-| Bot makes decisions every tick | Maximum responsiveness | Exceeds tick budget; wastes inference compute | Never; decide every 5-10 ticks |
-| Self-play with only latest policy | Simple opponent selection | Mode collapse; brittle policy | Only for first 100 iterations to establish baseline |
+| Shortcut                                                         | Immediate Benefit         | Long-term Cost                                | When Acceptable                                                             |
+| ---------------------------------------------------------------- | ------------------------- | --------------------------------------------- | --------------------------------------------------------------------------- |
+| Bot calls `Grid.setCell()` directly instead of `queueBuildEvent` | 10x faster training       | Trained model is useless in live play         | Never                                                                       |
+| Raw 52x52 grid as observation                                    | Simple implementation     | Agent cannot learn; wasted compute            | Never                                                                       |
+| Negative rewards for invalid actions instead of masking          | Simple implementation     | 10-100x slower convergence                    | Never                                                                       |
+| Single-threaded training (no workers)                            | Simple implementation     | Training takes days instead of hours          | Only for initial debugging (<100 games)                                     |
+| Glicko-2 for static entity ratings                               | Familiar algorithm        | Volatility/RD mechanics introduce noise       | Only if treating as "good enough" approximation with documented limitations |
+| Bot makes decisions every tick                                   | Maximum responsiveness    | Exceeds tick budget; wastes inference compute | Never; decide every 5-10 ticks                                              |
+| Self-play with only latest policy                                | Simple opponent selection | Mode collapse; brittle policy                 | Only for first 100 iterations to establish baseline                         |
 
 ---
 

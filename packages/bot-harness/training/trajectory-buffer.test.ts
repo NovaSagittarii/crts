@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import type { TrajectoryStep, TrajectoryBatch } from './trajectory-buffer.js';
-import { computeGAE, TrajectoryBuffer } from './trajectory-buffer.js';
+import type { TrajectoryBatch, TrajectoryStep } from './trajectory-buffer.js';
+import { TrajectoryBuffer, computeGAE } from './trajectory-buffer.js';
 
 describe('computeGAE', () => {
   it('produces correct advantages for 3-step non-terminal trajectory', () => {
@@ -32,10 +32,7 @@ describe('computeGAE', () => {
     // to account for accumulated rounding in the backward pass
     expect(advantages[2]).toBeCloseTo(0.995, 3);
     expect(advantages[1]).toBeCloseTo(1.9310525, 3);
-    expect(advantages[0]).toBeCloseTo(
-      0.995 + 0.99 * 0.95 * 1.9310525,
-      3,
-    );
+    expect(advantages[0]).toBeCloseTo(0.995 + 0.99 * 0.95 * 1.9310525, 3);
 
     // returns[t] = advantages[t] + values[t]
     expect(returns[2]).toBeCloseTo(0.995 + 0.5, 3);
@@ -193,8 +190,12 @@ describe('TrajectoryBuffer', () => {
     expect(step.planes).toBeInstanceOf(Float32Array);
     expect(step.scalars).toBeInstanceOf(Float32Array);
     // No tf.Tensor properties exist
-    expect((step.planes as unknown as Record<string, unknown>)['dtype']).toBeUndefined();
-    expect((step.planes as unknown as Record<string, unknown>)['dataSync']).toBeUndefined();
+    expect(
+      (step.planes as unknown as Record<string, unknown>)['dtype'],
+    ).toBeUndefined();
+    expect(
+      (step.planes as unknown as Record<string, unknown>)['dataSync'],
+    ).toBeUndefined();
   });
 
   it('clear resets buffer state', () => {

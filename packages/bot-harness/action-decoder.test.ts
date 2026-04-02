@@ -1,10 +1,16 @@
-import { describe, it, expect } from 'vitest';
-import { RtsRoom, CORE_TEMPLATE_ID } from '#rts-engine';
+import { describe, expect, it } from 'vitest';
+
+import { CORE_TEMPLATE_ID, RtsRoom } from '#rts-engine';
 
 import { ActionDecoder } from './action-decoder.js';
 
 function createTestRoom(): RtsRoom {
-  const room = RtsRoom.create({ id: 'test', name: 'test', width: 20, height: 20 });
+  const room = RtsRoom.create({
+    id: 'test',
+    name: 'test',
+    width: 20,
+    height: 20,
+  });
   room.addPlayer('p1', 'T1');
   room.addPlayer('p2', 'T2');
   return room;
@@ -59,52 +65,64 @@ describe('ActionDecoder', () => {
     expect(result!.y).toBe(3);
   });
 
-  it('computeActionMask has mask[0] === 1 (no-op always valid)', { timeout: 15_000 }, () => {
-    const room = createTestRoom();
-    const decoder = new ActionDecoder(20, 20);
-    const mask = decoder.computeActionMask(room, 'p1', 1);
+  it(
+    'computeActionMask has mask[0] === 1 (no-op always valid)',
+    { timeout: 15_000 },
+    () => {
+      const room = createTestRoom();
+      const decoder = new ActionDecoder(20, 20);
+      const mask = decoder.computeActionMask(room, 'p1', 1);
 
-    expect(mask[0]).toBe(1);
-  });
+      expect(mask[0]).toBe(1);
+    },
+  );
 
-  it('every action index where mask[i] === 1 succeeds via previewBuildPlacement', { timeout: 30_000 }, () => {
-    const room = createTestRoom();
-    const decoder = new ActionDecoder(20, 20);
-    const mask = decoder.computeActionMask(room, 'p1', 1);
+  it(
+    'every action index where mask[i] === 1 succeeds via previewBuildPlacement',
+    { timeout: 30_000 },
+    () => {
+      const room = createTestRoom();
+      const decoder = new ActionDecoder(20, 20);
+      const mask = decoder.computeActionMask(room, 'p1', 1);
 
-    let validCount = 0;
-    for (let i = 1; i < mask.length; i++) {
-      if (mask[i] === 1) {
-        const payload = decoder.decode(i);
-        expect(payload).not.toBeNull();
-        const preview = room.previewBuildPlacement('p1', payload!);
-        expect(preview.accepted).toBe(true);
-        validCount++;
-      }
-    }
-    // There should be at least some valid actions (core has buildRadius 14.9)
-    expect(validCount).toBeGreaterThan(0);
-  });
-
-  it('sample of mask[i] === 0 actions are rejected by previewBuildPlacement', { timeout: 15_000 }, () => {
-    const room = createTestRoom();
-    const decoder = new ActionDecoder(20, 20);
-    const mask = decoder.computeActionMask(room, 'p1', 1);
-
-    let checkedCount = 0;
-    const maxChecks = 20;
-    for (let i = 1; i < mask.length && checkedCount < maxChecks; i++) {
-      if (mask[i] === 0) {
-        const payload = decoder.decode(i);
-        if (payload) {
-          const preview = room.previewBuildPlacement('p1', payload);
-          expect(preview.accepted).toBe(false);
-          checkedCount++;
+      let validCount = 0;
+      for (let i = 1; i < mask.length; i++) {
+        if (mask[i] === 1) {
+          const payload = decoder.decode(i);
+          expect(payload).not.toBeNull();
+          const preview = room.previewBuildPlacement('p1', payload!);
+          expect(preview.accepted).toBe(true);
+          validCount++;
         }
       }
-    }
-    expect(checkedCount).toBeGreaterThan(0);
-  });
+      // There should be at least some valid actions (core has buildRadius 14.9)
+      expect(validCount).toBeGreaterThan(0);
+    },
+  );
+
+  it(
+    'sample of mask[i] === 0 actions are rejected by previewBuildPlacement',
+    { timeout: 15_000 },
+    () => {
+      const room = createTestRoom();
+      const decoder = new ActionDecoder(20, 20);
+      const mask = decoder.computeActionMask(room, 'p1', 1);
+
+      let checkedCount = 0;
+      const maxChecks = 20;
+      for (let i = 1; i < mask.length && checkedCount < maxChecks; i++) {
+        if (mask[i] === 0) {
+          const payload = decoder.decode(i);
+          if (payload) {
+            const preview = room.previewBuildPlacement('p1', payload);
+            expect(preview.accepted).toBe(false);
+            checkedCount++;
+          }
+        }
+      }
+      expect(checkedCount).toBeGreaterThan(0);
+    },
+  );
 
   it('enumerateTerritoryPositions returns positions in row-major order', () => {
     const room = createTestRoom();
@@ -138,13 +156,17 @@ describe('ActionDecoder', () => {
     }
   });
 
-  it('computeActionMask is deterministic (same state produces same mask)', { timeout: 30_000 }, () => {
-    const room = createTestRoom();
-    const decoder = new ActionDecoder(20, 20);
-    const mask1 = decoder.computeActionMask(room, 'p1', 1);
-    const mask2 = decoder.computeActionMask(room, 'p1', 1);
+  it(
+    'computeActionMask is deterministic (same state produces same mask)',
+    { timeout: 30_000 },
+    () => {
+      const room = createTestRoom();
+      const decoder = new ActionDecoder(20, 20);
+      const mask1 = decoder.computeActionMask(room, 'p1', 1);
+      const mask2 = decoder.computeActionMask(room, 'p1', 1);
 
-    expect(mask1.length).toBe(mask2.length);
-    expect(mask1).toEqual(mask2);
-  });
+      expect(mask1.length).toBe(mask2.length);
+      expect(mask1).toEqual(mask2);
+    },
+  );
 });

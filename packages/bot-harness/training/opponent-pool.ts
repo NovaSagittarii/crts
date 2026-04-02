@@ -1,12 +1,12 @@
 import { join } from 'node:path';
 import type * as tf from '@tensorflow/tfjs';
 
-import { RandomBot } from '../random-bot.js';
-import { NoOpBot } from '../noop-bot.js';
 import type { BotStrategy } from '../bot-strategy.js';
-import type { SelfPlayConfig } from './training-config.js';
+import { NoOpBot } from '../noop-bot.js';
+import { RandomBot } from '../random-bot.js';
 import type { WeightData } from './ppo-network.js';
 import { loadWeightsFromDir, saveModelToDir } from './tfjs-file-io.js';
+import type { SelfPlayConfig } from './training-config.js';
 
 /**
  * The category of an opponent in the self-play pool.

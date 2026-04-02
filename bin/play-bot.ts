@@ -10,6 +10,9 @@
 import { parseArgs } from 'node:util';
 import { io } from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
+
+import { LiveBotStrategy, TickBudgetTracker, loadBotModel } from '#bot-harness';
+import type { FallbackStrategy } from '#bot-harness';
 import type {
   BuildQueueRejectedPayload,
   ClientToServerEvents,
@@ -20,12 +23,6 @@ import type {
   RoomStatePayload,
   ServerToClientEvents,
 } from '#rts-engine';
-import {
-  LiveBotStrategy,
-  TickBudgetTracker,
-  loadBotModel,
-} from '#bot-harness';
-import type { FallbackStrategy } from '#bot-harness';
 
 const DEFAULT_MAX_TICKS = 2000;
 
@@ -69,16 +66,16 @@ if (!values.room) {
   process.exit(1);
 }
 
-const serverUrl = values.server!;
+const serverUrl = values.server;
 const roomArg = values.room;
-const slotId = values.slot!;
+const slotId = values.slot;
 const modelPath = values.model;
-const runsDir = values['runs-dir']!;
+const runsDir = values['runs-dir'];
 const fallback = values.fallback as FallbackStrategy;
-const budgetMs = parseInt(values['budget-ms']!, 10);
-const singleMatch = values['single-match']!;
-const verbose = values.verbose!;
-const botName = values.name!;
+const budgetMs = parseInt(values['budget-ms'], 10);
+const singleMatch = values['single-match'];
+const verbose = values.verbose;
+const botName = values.name;
 
 async function main(): Promise<void> {
   // Load model (or fall back to random)
@@ -129,9 +126,7 @@ async function main(): Promise<void> {
   });
 
   socket.on('room:joined', (payload: RoomJoinedPayload) => {
-    console.error(
-      `Joined room ${payload.roomId} (code: ${payload.roomCode})`,
-    );
+    console.error(`Joined room ${payload.roomId} (code: ${payload.roomCode})`);
     teamId = payload.teamId;
     gridWidth = payload.state.width;
     gridHeight = payload.state.height;
@@ -203,17 +198,16 @@ async function main(): Promise<void> {
     inferring = false;
   });
 
-  socket.on(
-    'build:queue-rejected',
-    (payload: BuildQueueRejectedPayload) => {
-      if (verbose) {
-        console.error(`Build rejected: ${payload.reason}`);
-      }
-    },
-  );
+  socket.on('build:queue-rejected', (payload: BuildQueueRejectedPayload) => {
+    if (verbose) {
+      console.error(`Build rejected: ${payload.reason}`);
+    }
+  });
 
   socket.on('room:match-finished', (payload: MatchFinishedPayload) => {
-    console.error(`Match finished. Winner: team ${String(payload.winner.teamId)}`);
+    console.error(
+      `Match finished. Winner: team ${String(payload.winner.teamId)}`,
+    );
 
     const stats = budgetTracker.getStats();
     console.error(

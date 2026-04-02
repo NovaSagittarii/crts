@@ -74,7 +74,8 @@ export class LobbySlotListUi {
         return;
       }
 
-      const claimButton = target.closest<HTMLButtonElement>('[data-slot-claim]');
+      const claimButton =
+        target.closest<HTMLButtonElement>('[data-slot-claim]');
       if (claimButton && !claimButton.disabled) {
         const slotId = claimButton.dataset.slotClaim;
         if (slotId && this.claimHandler) {
@@ -83,8 +84,9 @@ export class LobbySlotListUi {
         return;
       }
 
-      const botButton =
-        target.closest<HTMLButtonElement>('[data-slot-add-bot]');
+      const botButton = target.closest<HTMLButtonElement>(
+        '[data-slot-add-bot]',
+      );
       if (botButton && !botButton.disabled) {
         const slotId = botButton.dataset.slotAddBot;
         if (slotId && this.botAddHandler) {

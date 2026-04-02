@@ -1,5 +1,5 @@
-import type { ClusterResult, StrategyFeatureVector } from './types.js';
 import { mean, stddev } from './stats.js';
+import type { ClusterResult, StrategyFeatureVector } from './types.js';
 
 /** Feature vector field order for array conversion */
 const FEATURE_KEYS: ReadonlyArray<keyof StrategyFeatureVector> = [
@@ -124,7 +124,12 @@ function runKMeans(
   k: number,
   initialCentroids: number[][],
   maxIterations: number,
-): { centroids: number[][]; assignments: number[]; iterations: number; wcss: number } {
+): {
+  centroids: number[][];
+  assignments: number[];
+  iterations: number;
+  wcss: number;
+} {
   const n = data.length;
   const dim = data[0].length;
   let centroids = initialCentroids.map((c) => [...c]);
@@ -251,7 +256,9 @@ export function featureVectorToArray(fv: StrategyFeatureVector): number[] {
  * Returns a 2D number array where each row is a normalized feature vector.
  * Features with zero stddev (constant) are set to 0 after normalization.
  */
-export function normalizeFeatures(vectors: StrategyFeatureVector[]): number[][] {
+export function normalizeFeatures(
+  vectors: StrategyFeatureVector[],
+): number[][] {
   if (vectors.length === 0) return [];
 
   const raw = vectors.map(featureVectorToArray);
@@ -269,8 +276,9 @@ export function normalizeFeatures(vectors: StrategyFeatureVector[]): number[][] 
   }
 
   // Z-score normalize
-  const result: number[][] = Array.from({ length: n }, () =>
-    new Array<number>(dim),
+  const result: number[][] = Array.from(
+    { length: n },
+    () => new Array<number>(dim),
   );
 
   for (let i = 0; i < n; i++) {

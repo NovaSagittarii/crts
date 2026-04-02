@@ -87,10 +87,43 @@ function makeParsedMatch(
     outcome: {
       type: 'outcome',
       totalTicks: 200,
-      winner: winnerId !== null ? { rank: 1, teamId: winnerId, outcome: 'winner', finalCoreHp: 100, coreState: 'intact', territoryCellCount: 0, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 } : null,
+      winner:
+        winnerId !== null
+          ? {
+              rank: 1,
+              teamId: winnerId,
+              outcome: 'winner',
+              finalCoreHp: 100,
+              coreState: 'intact',
+              territoryCellCount: 0,
+              queuedBuildCount: 0,
+              appliedBuildCount: 0,
+              rejectedBuildCount: 0,
+            }
+          : null,
       ranked: [
-        { rank: 1, teamId: 0, outcome: winnerId === 0 ? 'winner' : 'defeated', finalCoreHp: winnerId === 0 ? 100 : 0, coreState: winnerId === 0 ? 'intact' : 'destroyed', territoryCellCount: 0, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 },
-        { rank: 2, teamId: 1, outcome: winnerId === 1 ? 'winner' : 'defeated', finalCoreHp: winnerId === 1 ? 100 : 0, coreState: winnerId === 1 ? 'intact' : 'destroyed', territoryCellCount: 0, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 },
+        {
+          rank: 1,
+          teamId: 0,
+          outcome: winnerId === 0 ? 'winner' : 'defeated',
+          finalCoreHp: winnerId === 0 ? 100 : 0,
+          coreState: winnerId === 0 ? 'intact' : 'destroyed',
+          territoryCellCount: 0,
+          queuedBuildCount: 0,
+          appliedBuildCount: 0,
+          rejectedBuildCount: 0,
+        },
+        {
+          rank: 2,
+          teamId: 1,
+          outcome: winnerId === 1 ? 'winner' : 'defeated',
+          finalCoreHp: winnerId === 1 ? 100 : 0,
+          coreState: winnerId === 1 ? 'intact' : 'destroyed',
+          territoryCellCount: 0,
+          queuedBuildCount: 0,
+          appliedBuildCount: 0,
+          rejectedBuildCount: 0,
+        },
       ],
       isDraw: winnerId === null,
     },

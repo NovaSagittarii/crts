@@ -137,9 +137,7 @@ export function generateTrainingRunId(): string {
  *
  * Follows the same `node:util parseArgs` pattern as `bin/run-matches.ts`.
  */
-export function parseTrainingArgs(
-  argv?: string[],
-): TrainingConfig {
+export function parseTrainingArgs(argv?: string[]): TrainingConfig {
   const { values } = parseArgs({
     args: argv,
     options: {
@@ -186,45 +184,72 @@ export function parseTrainingArgs(
   };
 
   // PPO hyperparameters
-  if (values.episodes !== undefined) config.totalEpisodes = parseInt(values.episodes, 10);
+  if (values.episodes !== undefined)
+    config.totalEpisodes = parseInt(values.episodes, 10);
   if (values.lr !== undefined) config.learningRate = parseFloat(values.lr);
-  if (values['clip-epsilon'] !== undefined) config.clipEpsilon = parseFloat(values['clip-epsilon']);
+  if (values['clip-epsilon'] !== undefined)
+    config.clipEpsilon = parseFloat(values['clip-epsilon']);
   if (values.gamma !== undefined) config.gamma = parseFloat(values.gamma);
-  if (values['gae-lambda'] !== undefined) config.gaeLambda = parseFloat(values['gae-lambda']);
-  if (values['ppo-epochs'] !== undefined) config.ppoEpochs = parseInt(values['ppo-epochs'], 10);
-  if (values['mini-batch-size'] !== undefined) config.miniBatchSize = parseInt(values['mini-batch-size'], 10);
-  if (values['entropy-coeff'] !== undefined) config.entropyCoeff = parseFloat(values['entropy-coeff']);
-  if (values['value-loss-coeff'] !== undefined) config.valueLossCoeff = parseFloat(values['value-loss-coeff']);
-  if (values['max-grad-norm'] !== undefined) config.maxGradNorm = parseFloat(values['max-grad-norm']);
-  if (values['target-kl'] !== undefined) config.targetKl = parseFloat(values['target-kl']);
+  if (values['gae-lambda'] !== undefined)
+    config.gaeLambda = parseFloat(values['gae-lambda']);
+  if (values['ppo-epochs'] !== undefined)
+    config.ppoEpochs = parseInt(values['ppo-epochs'], 10);
+  if (values['mini-batch-size'] !== undefined)
+    config.miniBatchSize = parseInt(values['mini-batch-size'], 10);
+  if (values['entropy-coeff'] !== undefined)
+    config.entropyCoeff = parseFloat(values['entropy-coeff']);
+  if (values['value-loss-coeff'] !== undefined)
+    config.valueLossCoeff = parseFloat(values['value-loss-coeff']);
+  if (values['max-grad-norm'] !== undefined)
+    config.maxGradNorm = parseFloat(values['max-grad-norm']);
+  if (values['target-kl'] !== undefined)
+    config.targetKl = parseFloat(values['target-kl']);
 
   // Parallelism
-  if (values.workers !== undefined) config.workers = parseInt(values.workers, 10);
-  if (values['batch-episodes'] !== undefined) config.batchEpisodes = parseInt(values['batch-episodes'], 10);
+  if (values.workers !== undefined)
+    config.workers = parseInt(values.workers, 10);
+  if (values['batch-episodes'] !== undefined)
+    config.batchEpisodes = parseInt(values['batch-episodes'], 10);
 
   // I/O
-  if (values['output-dir'] !== undefined) config.outputDir = values['output-dir'];
+  if (values['output-dir'] !== undefined)
+    config.outputDir = values['output-dir'];
   if (values.resume !== undefined) config.resumeRunId = values.resume;
 
   // Network config
   if (values['conv-filters'] !== undefined) {
-    config.network.convFilters = values['conv-filters'].split(',').map((s) => parseInt(s.trim(), 10));
+    config.network.convFilters = values['conv-filters']
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10));
   }
   if (values['mlp-units'] !== undefined) {
-    config.network.mlpUnits = values['mlp-units'].split(',').map((s) => parseInt(s.trim(), 10));
+    config.network.mlpUnits = values['mlp-units']
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10));
   }
 
   // Self-play config
-  if (values['latest-ratio'] !== undefined) config.selfPlay.latestRatio = parseFloat(values['latest-ratio']);
-  if (values['historical-ratio'] !== undefined) config.selfPlay.historicalRatio = parseFloat(values['historical-ratio']);
-  if (values['random-ratio'] !== undefined) config.selfPlay.randomRatio = parseFloat(values['random-ratio']);
-  if (values['checkpoint-interval'] !== undefined) config.selfPlay.checkpointInterval = parseInt(values['checkpoint-interval'], 10);
-  if (values['max-pool-size'] !== undefined) config.selfPlay.maxPoolSize = parseInt(values['max-pool-size'], 10);
+  if (values['latest-ratio'] !== undefined)
+    config.selfPlay.latestRatio = parseFloat(values['latest-ratio']);
+  if (values['historical-ratio'] !== undefined)
+    config.selfPlay.historicalRatio = parseFloat(values['historical-ratio']);
+  if (values['random-ratio'] !== undefined)
+    config.selfPlay.randomRatio = parseFloat(values['random-ratio']);
+  if (values['checkpoint-interval'] !== undefined)
+    config.selfPlay.checkpointInterval = parseInt(
+      values['checkpoint-interval'],
+      10,
+    );
+  if (values['max-pool-size'] !== undefined)
+    config.selfPlay.maxPoolSize = parseInt(values['max-pool-size'], 10);
 
   // Grid / environment
-  if (values['grid-width'] !== undefined) config.gridWidth = parseInt(values['grid-width'], 10);
-  if (values['grid-height'] !== undefined) config.gridHeight = parseInt(values['grid-height'], 10);
-  if (values['max-ticks'] !== undefined) config.maxTicks = parseInt(values['max-ticks'], 10);
+  if (values['grid-width'] !== undefined)
+    config.gridWidth = parseInt(values['grid-width'], 10);
+  if (values['grid-height'] !== undefined)
+    config.gridHeight = parseInt(values['grid-height'], 10);
+  if (values['max-ticks'] !== undefined)
+    config.maxTicks = parseInt(values['max-ticks'], 10);
 
   // Display
   if (values['no-tui'] !== undefined) config.noTui = values['no-tui'];

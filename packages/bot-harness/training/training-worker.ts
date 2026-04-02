@@ -5,18 +5,16 @@
  * Worker loads frozen weights into a local model via getTf(), runs full episodes,
  * sends complete trajectories back via postMessage with transferable buffers.
  */
-
 import { parentPort, workerData } from 'node:worker_threads';
-import { getTf } from '../tf-backend.js';
-import type { TfModule } from '../tf-backend.js';
 import type * as tf from '@tensorflow/tfjs';
 
 import { BotEnvironment } from '../bot-environment.js';
 import type { BotAction, BotStrategy, BotView } from '../bot-strategy.js';
 import { NoOpBot } from '../noop-bot.js';
-import { RandomBot } from '../random-bot.js';
 import type { ObservationResult } from '../observation-encoder.js';
-
+import { RandomBot } from '../random-bot.js';
+import { getTf } from '../tf-backend.js';
+import type { TfModule } from '../tf-backend.js';
 import type { PPOModelConfig, WeightData } from './ppo-network.js';
 
 let _tf: TfModule;
@@ -202,7 +200,12 @@ class CheckpointBot implements BotStrategy {
   private readonly gridWidth: number;
   private readonly gridHeight: number;
 
-  constructor(model: tf.LayersModel, gridWidth: number, gridHeight: number, name?: string) {
+  constructor(
+    model: tf.LayersModel,
+    gridWidth: number,
+    gridHeight: number,
+    name?: string,
+  ) {
     this.model = model;
     this.gridWidth = gridWidth;
     this.gridHeight = gridHeight;
@@ -285,7 +288,11 @@ const state: WorkerState = {
 };
 
 // Environment config from workerData
-const envConfig = (workerData as { envConfig: { gridWidth: number; gridHeight: number; maxTicks: number } }).envConfig;
+const envConfig = (
+  workerData as {
+    envConfig: { gridWidth: number; gridHeight: number; maxTicks: number };
+  }
+).envConfig;
 
 // ---------------------------------------------------------------------------
 // Forward pass helpers
@@ -303,17 +310,14 @@ function forwardPass(
     const [channels, height, width] = state.modelConfig!.planeShape;
 
     // Reshape planes from flat [C*H*W] channel-first to [1, H, W, C] channel-last
-    const chw = _tf.tensor3d(
-      Array.from(obs.planes),
-      [channels, height, width],
-    );
+    const chw = _tf.tensor3d(Array.from(obs.planes), [channels, height, width]);
     const hwc = chw.transpose([1, 2, 0]);
     const planesTensor = hwc.expandDims(0);
 
-    const scalarsTensor = _tf.tensor2d(
-      Array.from(obs.scalars),
-      [1, obs.scalars.length],
-    );
+    const scalarsTensor = _tf.tensor2d(Array.from(obs.scalars), [
+      1,
+      obs.scalars.length,
+    ]);
 
     const outputs = model.predict([planesTensor, scalarsTensor]) as tf.Tensor[];
     const logits = outputs[0].dataSync() as Float32Array;
@@ -344,8 +348,11 @@ function sampleMaskedAction(
     );
 
     // Sample from categorical distribution
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-    const sampled = _tf.multinomial(maskedLogits.expandDims(0) as tf.Tensor2D, 1);
+
+    const sampled = _tf.multinomial(
+      maskedLogits.expandDims(0) as unknown as tf.Tensor2D,
+      1,
+    );
     const action = sampled.dataSync()[0];
 
     // Compute log probability
@@ -453,7 +460,8 @@ function collectEpisode(
 
     // Check for win
     if (terminated && stepResult.info.matchOutcome !== null) {
-      won = stepResult.info.matchOutcome.winner.teamId === stepResult.info.teamId;
+      won =
+        stepResult.info.matchOutcome.winner.teamId === stepResult.info.teamId;
     }
 
     // Update current observation
@@ -506,56 +514,62 @@ function collectEpisode(
 if (parentPort) {
   parentPort.on('message', (msg: WorkerMessage) => {
     void (async () => {
-    switch (msg.type) {
-      case 'init': {
-        _tf = await getTf();
-        state.modelConfig = msg.modelConfig;
-        state.workerId = msg.workerId;
-        state.model = buildWorkerModel(msg.modelConfig);
-        parentPort!.postMessage({ type: 'init-done', workerId: msg.workerId });
-        break;
-      }
-
-      case 'set-weights': {
-        if (state.model === null) {
-          throw new Error('Worker model not initialized');
+      switch (msg.type) {
+        case 'init': {
+          _tf = await getTf();
+          state.modelConfig = msg.modelConfig;
+          state.workerId = msg.workerId;
+          state.model = buildWorkerModel(msg.modelConfig);
+          parentPort!.postMessage({
+            type: 'init-done',
+            workerId: msg.workerId,
+          });
+          break;
         }
-        applyWeightsToModel(state.model, msg.weights);
-        parentPort!.postMessage({ type: 'weights-applied', workerId: state.workerId });
-        break;
-      }
 
-      case 'collect-episode': {
-        if (state.model === null) {
-          throw new Error('Worker model not initialized');
+        case 'set-weights': {
+          if (state.model === null) {
+            throw new Error('Worker model not initialized');
+          }
+          applyWeightsToModel(state.model, msg.weights);
+          parentPort!.postMessage({
+            type: 'weights-applied',
+            workerId: state.workerId,
+          });
+          break;
         }
-        const result = collectEpisode(
-          msg.seed,
-          msg.opponentType,
-          msg.opponentWeights,
-          msg.episodeNumber,
-        );
 
-        // Collect transferable ArrayBuffers for zero-copy postMessage
-        const transferables: ArrayBuffer[] = [
-          ...result.trajectory.planes,
-          ...result.trajectory.scalars,
-          ...result.trajectory.actionMasks,
-        ];
+        case 'collect-episode': {
+          if (state.model === null) {
+            throw new Error('Worker model not initialized');
+          }
+          const result = collectEpisode(
+            msg.seed,
+            msg.opponentType,
+            msg.opponentWeights,
+            msg.episodeNumber,
+          );
 
-        parentPort!.postMessage(result, transferables);
-        break;
-      }
+          // Collect transferable ArrayBuffers for zero-copy postMessage
+          const transferables: ArrayBuffer[] = [
+            ...result.trajectory.planes,
+            ...result.trajectory.scalars,
+            ...result.trajectory.actionMasks,
+          ];
 
-      case 'terminate': {
-        if (state.model !== null) {
-          state.model.dispose();
-          state.model = null;
+          parentPort!.postMessage(result, transferables);
+          break;
         }
-        process.exit(0);
-        break;
+
+        case 'terminate': {
+          if (state.model !== null) {
+            state.model.dispose();
+            state.model = null;
+          }
+          process.exit(0);
+          break;
+        }
       }
-    }
     })();
   });
 }

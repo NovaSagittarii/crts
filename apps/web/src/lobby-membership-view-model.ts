@@ -111,10 +111,7 @@ export function deriveLobbyMembershipViewModel(
         openSeatCount,
         canClaim: canClaimAnySlot && openSeatCount > 0,
         canAddBot:
-          isHost &&
-          payload.status === 'lobby' &&
-          openSeatCount > 0 &&
-          !hasBot,
+          isHost && payload.status === 'lobby' && openSeatCount > 0 && !hasBot,
         claimLabel: `Join ${getLobbySlotLabel(slotId)}`,
         members,
       } satisfies LobbySlotViewModel;

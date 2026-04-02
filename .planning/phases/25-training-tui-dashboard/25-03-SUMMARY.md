@@ -21,9 +21,9 @@ affects: []
 tech-stack:
   added: []
   patterns:
-    - "onReady callback prop pattern for exposing internal React handler refs to external callers"
-    - "Dynamic import for Ink/React in CLI to keep plain mode dependency-free"
-    - "TTY detection gate (process.stdout.isTTY && !config.noTui) for rendering mode selection"
+    - 'onReady callback prop pattern for exposing internal React handler refs to external callers'
+    - 'Dynamic import for Ink/React in CLI to keep plain mode dependency-free'
+    - 'TTY detection gate (process.stdout.isTTY && !config.noTui) for rendering mode selection'
 
 key-files:
   created:
@@ -36,12 +36,12 @@ key-files:
     - bin/train.ts
 
 key-decisions:
-  - "onReady prop added to Dashboard to bridge coordinator.onProgress to internal React handler ref without coupling"
-  - "Dynamic import for ink/react in TUI mode to keep plain mode lightweight and avoid loading React when not needed"
+  - 'onReady prop added to Dashboard to bridge coordinator.onProgress to internal React handler ref without coupling'
+  - 'Dynamic import for ink/react in TUI mode to keep plain mode lightweight and avoid loading React when not needed'
 
 patterns-established:
-  - "onReady callback: expose React component internal handlers to imperative callers"
-  - "Rendering mode gate: isTTY + noTui config for CLI output strategy selection"
+  - 'onReady callback: expose React component internal handlers to imperative callers'
+  - 'Rendering mode gate: isTTY + noTui config for CLI output strategy selection'
 
 requirements-completed: [TUI-03, TUI-04]
 
@@ -63,6 +63,7 @@ completed: 2026-04-02
 - **Files modified:** 6
 
 ## Accomplishments
+
 - Created attachPlainLogger for non-TTY fallback using existing formatLiveMetrics
 - Created TUI barrel exports making Dashboard, createProgressHandler, attachPlainLogger, HelpOverlay available from #bot-harness
 - Rewrote bin/train.ts with TTY/noTui gate: TUI mode renders Ink Dashboard with onReady wiring, plain mode prints startup banner and uses attachPlainLogger
@@ -76,6 +77,7 @@ Each task was committed atomically:
 2. **Task 2: Verify TUI dashboard renders correctly** - auto-approved (checkpoint:human-verify, all 27 tests pass)
 
 ## Files Created/Modified
+
 - `packages/bot-harness/training/tui/plain-logger.ts` - Non-TTY fallback logger using formatLiveMetrics
 - `packages/bot-harness/training/tui/plain-logger.test.ts` - 4 tests covering callback wiring and console output
 - `packages/bot-harness/training/tui/index.ts` - TUI barrel re-exporting Dashboard, createProgressHandler, attachPlainLogger, HelpOverlay, types
@@ -84,6 +86,7 @@ Each task was committed atomically:
 - `bin/train.ts` - Conditional TUI/plain rendering with signal handler updates
 
 ## Decisions Made
+
 - Added onReady prop to Dashboard component to bridge coordinator.onProgress to the Dashboard's internal batched rendering ref -- this avoids coupling the Dashboard to the TrainingCoordinator type while allowing imperative callers to wire the data pipeline
 - Used dynamic import for ink and react in TUI mode branch to keep the plain mode path lightweight and avoid requiring React when --no-tui is set
 
@@ -92,6 +95,7 @@ Each task was committed atomically:
 ### Auto-fixed Issues
 
 **1. [Rule 2 - Missing Critical] Added onReady prop to Dashboard for progress handler exposure**
+
 - **Found during:** Task 1 (bin/train.ts wiring)
 - **Issue:** Dashboard's internal handlerRef was not exposed to the caller, making it impossible to wire coordinator.onProgress to the dashboard's batched rendering pipeline
 - **Fix:** Added optional onReady prop to DashboardProps that is called with the progress handler during useEffect mount
@@ -105,12 +109,15 @@ Each task was committed atomically:
 **Impact on plan:** Essential for connecting coordinator data flow to dashboard rendering. Non-breaking addition (optional prop).
 
 ## Issues Encountered
+
 None
 
 ## User Setup Required
+
 None - no external service configuration required.
 
 ## Next Phase Readiness
+
 - Phase 25 (Training TUI Dashboard) is complete
 - TUI dashboard is fully wired and available via `#bot-harness` barrel exports
 - Ready for milestone validation or next phase
@@ -120,5 +127,6 @@ None - no external service configuration required.
 All created files verified present. Commit 7b39755 verified in git log.
 
 ---
-*Phase: 25-training-tui-dashboard*
-*Completed: 2026-04-02*
+
+_Phase: 25-training-tui-dashboard_
+_Completed: 2026-04-02_
