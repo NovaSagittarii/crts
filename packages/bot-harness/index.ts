@@ -13,5 +13,6 @@ export * from './model-loader.js';
 export * from './tick-budget.js';
 export * from './payload-observation-encoder.js';
 export * from './live-bot-strategy.js';
+export * from './tf-backend.js';
 export * from './training/index.js';
 export * from './analysis/index.js';
