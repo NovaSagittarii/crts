@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
-status: verifying
-stopped_at: Completed 24-02-PLAN.md
-last_updated: "2026-04-02T08:12:02.418Z"
+status: executing
+stopped_at: Completed 25-01-PLAN.md
+last_updated: "2026-04-02T09:28:57.402Z"
 last_activity: 2026-04-02
 progress:
   total_phases: 8
   completed_phases: 7
-  total_plans: 23
-  completed_plans: 23
+  total_plans: 26
+  completed_plans: 24
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-30)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 24 — tf-js-native-backend-with-dynamic-fallback
+**Current focus:** Phase 25 — training-tui-dashboard
 
 ## Current Position
 
-Phase: 24 (tf-js-native-backend-with-dynamic-fallback) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
+Phase: 25 (training-tui-dashboard) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
 Last activity: 2026-04-02
 
 Progress: [░░░░░░░░░░] 0% (v0.0.4)
@@ -110,6 +110,9 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 24]: @tensorflow/tfjs-node@4.22.0 pinned as optionalDependency; @tensorflow/tfjs remains at ^4.23.0-rc.0 in dependencies
 - [Phase 24]: Module-level _tf with initTfBackend() export pattern for lazy TF.js initialization across all bot-harness modules
 - [Phase 24]: Barrel re-exports use aliased names (initPpoNetworkTf, initPpoTrainerTf) to avoid initTfBackend collisions
+- [Phase 25]: Ink 6 + React 19 for TUI rendering framework
+- [Phase 25]: onProgress callback pattern (not EventEmitter) for coordinator-to-TUI data flow
+- [Phase 25]: Pause via 100ms polling loop in async training loop to avoid event loop blocking
 
 ### Pending Todos
 
@@ -126,6 +129,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-02T08:12:02.314Z
-**Stopped At:** Completed 24-02-PLAN.md
+**Last session:** 2026-04-02T09:28:57.279Z
+**Stopped At:** Completed 25-01-PLAN.md
 **Resume File:** None

@@ -182,9 +182,9 @@ Plans:
   2. Time-per-generation and throughput (episodes/sec) are displayed and updated each generation
   3. Dashboard degrades gracefully to plain log lines when stdout is not a TTY (e.g. CI, piped output)
   4. Training CLI `bin/train.ts` activates TUI by default with `--no-tui` flag to disable
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
-- [ ] 25-01-PLAN.md — Dependencies, TSX config, coordinator callback + pause/resume, --no-tui flag, TUI types
+- [x] 25-01-PLAN.md — Dependencies, TSX config, coordinator callback + pause/resume, --no-tui flag, TUI types
 - [ ] 25-02-PLAN.md — Ink TUI components: chart, progress panel, metrics panel, help overlay, dashboard
 - [ ] 25-03-PLAN.md — Plain logger fallback, barrel exports, bin/train.ts wiring, human verification

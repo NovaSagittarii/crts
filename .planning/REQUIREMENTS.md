@@ -43,11 +43,11 @@ Requirements for RL Bot Harness & Balance Analysis milestone.
 
 - [ ] **TUI-01**: Dashboard renders live-updating display with generation number, episode count, win rate, policy/value loss, entropy, and ETA
 - [ ] **TUI-02**: Time-per-generation and throughput (episodes/sec) are displayed and updated each generation
-- [ ] **TUI-03**: Dashboard degrades gracefully to plain log lines when stdout is not a TTY (e.g. CI, piped output)
-- [ ] **TUI-04**: Training CLI bin/train.ts activates TUI by default with --no-tui flag to disable
+- [x] **TUI-03**: Dashboard degrades gracefully to plain log lines when stdout is not a TTY (e.g. CI, piped output)
+- [x] **TUI-04**: Training CLI bin/train.ts activates TUI by default with --no-tui flag to disable
 - [ ] **TUI-05**: ASCII line charts render reward trends and policy/value loss in the dashboard
 - [ ] **TUI-06**: Keyboard input handles pause/resume (Space), graceful stop (q), view cycling (Tab), and help (h)
-- [ ] **TUI-07**: TrainingCoordinator emits per-episode progress data via callback mechanism
+- [x] **TUI-07**: TrainingCoordinator emits per-episode progress data via callback mechanism
 - [ ] **TUI-08**: Two-column layout activates at terminal width >= 100 columns
 - [ ] **TUI-09**: Single-column stacked layout used for terminal width < 100 columns
 
