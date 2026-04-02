@@ -138,7 +138,7 @@ export function extractWeights(model: tf.LayersModel): WeightData[] {
     const cloned = data.buffer.slice(0);
     result.push({
       shape: tensor.shape.slice(),
-      buffer: cloned,
+      buffer: cloned as ArrayBuffer,
     });
   }
 

@@ -343,7 +343,7 @@ function sampleMaskedAction(
     );
 
     // Sample from categorical distribution
-    const sampled = tf.multinomial(maskedLogits.expandDims(0), 1);
+    const sampled = tf.multinomial(maskedLogits.expandDims(0) as tf.Tensor2D, 1);
     const action = sampled.dataSync()[0];
 
     // Compute log probability
@@ -431,12 +431,12 @@ function collectEpisode(
     const { action, logProb } = sampleMaskedAction(logits, currentMask);
 
     // Record step data (clone buffers for transfer)
-    planes.push(currentObs.planes.buffer.slice(0));
-    scalars.push(currentObs.scalars.buffer.slice(0));
+    planes.push(currentObs.planes.buffer.slice(0) as ArrayBuffer);
+    scalars.push(currentObs.scalars.buffer.slice(0) as ArrayBuffer);
     actions.push(action);
     values.push(value);
     logProbs.push(logProb);
-    actionMasks.push(currentMask.buffer.slice(0));
+    actionMasks.push(currentMask.buffer.slice(0) as ArrayBuffer);
 
     // Take action
     const stepResult = env.step(action);

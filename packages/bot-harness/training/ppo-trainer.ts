@@ -170,7 +170,7 @@ export class PPOTrainer {
         });
       },
       true, // return cost
-      this.model.trainableWeights.map((w) => w.val),
+      this.model.trainableWeights.map((w) => (w as unknown as { val: tf.Variable }).val),
     );
 
     // Dispose intermediate tensors
@@ -254,7 +254,7 @@ export class PPOTrainer {
       );
 
       // Sample from categorical distribution
-      const sampled = tf.multinomial(maskedLogits.expandDims(0), 1);
+      const sampled = tf.multinomial(maskedLogits.expandDims(0) as tf.Tensor2D, 1);
       const action = sampled.dataSync()[0];
 
       // Compute log probability
@@ -297,14 +297,14 @@ export class PPOTrainer {
   /**
    * Get optimizer weights for checkpoint resume support (D-11).
    */
-  public async getOptimizerWeights(): Promise<tf.NamedTensor[]> {
+  public async getOptimizerWeights(): Promise<{ name: string; tensor: tf.Tensor }[]> {
     return this.optimizer.getWeights();
   }
 
   /**
    * Set optimizer weights for checkpoint resume support (D-11).
    */
-  public async setOptimizerWeights(weights: tf.NamedTensor[]): Promise<void> {
+  public async setOptimizerWeights(weights: { name: string; tensor: tf.Tensor }[]): Promise<void> {
     await this.optimizer.setWeights(weights as Parameters<typeof this.optimizer.setWeights>[0]);
   }
 
