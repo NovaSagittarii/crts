@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
+import type { RoomStatePayload } from '#rts-engine';
+
 import { LiveBotStrategy } from './live-bot-strategy.js';
 
 describe('LiveBotStrategy', () => {
@@ -54,34 +56,7 @@ describe('LiveBotStrategy', () => {
 function createMinimalPayload(
   width: number,
   height: number,
-): {
-  grid: ArrayBuffer;
-  tick: number;
-  roomId: string;
-  width: number;
-  height: number;
-  teams: Array<{
-    id: number;
-    resources: number;
-    income: number;
-    pendingBuilds: unknown[];
-    structures: Array<{
-      key: string;
-      templateId: string;
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-      hp: number;
-      buildRadius: number;
-      isCore: boolean;
-      footprint: Array<{ x: number; y: number }>;
-    }>;
-    playerIds: string[];
-    defeated: boolean;
-    baseTopLeft: { x: number; y: number };
-  }>;
-} {
+): RoomStatePayload {
   // Create an empty grid buffer (all zeros = all dead cells)
   const gridBytes = Math.ceil((width * height) / 8);
   const gridBuffer = new ArrayBuffer(gridBytes);
@@ -90,54 +65,72 @@ function createMinimalPayload(
     grid: gridBuffer,
     tick: 0,
     roomId: 'test-room',
+    roomName: 'test',
+    generation: 0,
     width,
     height,
     teams: [
       {
         id: 1,
+        name: 'Team 1',
         resources: 100,
         income: 5,
+        incomeBreakdown: { base: 5, structures: 0, total: 5, activeStructureCount: 0 },
         pendingBuilds: [],
+        pendingDestroys: [],
         structures: [
           {
             key: 'core-1',
             templateId: '__core__',
+            templateName: 'Core',
             x: 5,
             y: 5,
             width: 7,
             height: 7,
             hp: 500,
+            active: true,
             buildRadius: 8,
             isCore: true,
+            requiresDestroyConfirm: false,
+            transform: { operations: [], matrix: { xx: 1, xy: 0, yx: 0, yy: 1 } },
             footprint: [{ x: 5, y: 5 }],
           },
         ],
         playerIds: ['player-1'],
         defeated: false,
         baseTopLeft: { x: 5, y: 5 },
+        baseIntact: true,
       },
       {
         id: 2,
+        name: 'Team 2',
         resources: 100,
         income: 5,
+        incomeBreakdown: { base: 5, structures: 0, total: 5, activeStructureCount: 0 },
         pendingBuilds: [],
+        pendingDestroys: [],
         structures: [
           {
             key: 'core-2',
             templateId: '__core__',
+            templateName: 'Core',
             x: 40,
             y: 40,
             width: 7,
             height: 7,
             hp: 500,
+            active: true,
             buildRadius: 8,
             isCore: true,
+            requiresDestroyConfirm: false,
+            transform: { operations: [], matrix: { xx: 1, xy: 0, yx: 0, yy: 1 } },
             footprint: [{ x: 40, y: 40 }],
           },
         ],
         playerIds: ['player-2'],
         defeated: false,
         baseTopLeft: { x: 40, y: 40 },
+        baseIntact: true,
       },
     ],
   };

@@ -249,7 +249,7 @@ describe('resource management', () => {
 
 describe('createTickRecord templateId population', () => {
   function setupRoomWithTeams(): {
-    room: InstanceType<typeof RtsRoom>;
+    room: ReturnType<typeof RtsRoom.create>;
     teamAId: number;
     teamBId: number;
   } {

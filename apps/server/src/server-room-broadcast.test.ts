@@ -128,6 +128,7 @@ describe('RoomBroadcastService', () => {
       sessionCoordinator,
       roomChannel: (id) => `room:${id}`,
       listRooms: () => [room],
+      botSessionIds: new Set<string>(),
     });
 
     const payload = service.buildMembershipPayload(room);
@@ -175,6 +176,7 @@ describe('RoomBroadcastService', () => {
       sessionCoordinator,
       roomChannel: (id) => `room:${id}`,
       listRooms: () => [room],
+      botSessionIds: new Set<string>(),
     });
 
     const initialHash = service.buildMembershipHash(room);
@@ -213,6 +215,7 @@ describe('RoomBroadcastService', () => {
       sessionCoordinator,
       roomChannel: (id) => `room:${id}`,
       listRooms: () => [room10, room2],
+      botSessionIds: new Set<string>(),
     });
 
     service.emitRoomList();
@@ -244,6 +247,7 @@ describe('RoomBroadcastService', () => {
       sessionCoordinator,
       roomChannel: (id) => `room:${id}`,
       listRooms: () => [room],
+      botSessionIds: new Set<string>(),
     });
 
     service.emitMembership(room);
@@ -268,6 +272,7 @@ describe('RoomBroadcastService', () => {
       sessionCoordinator,
       roomChannel: (id) => `room:${id}`,
       listRooms: () => [room],
+      botSessionIds: new Set<string>(),
     });
 
     service.emitRoomState(room);
@@ -324,6 +329,7 @@ describe('RoomBroadcastService', () => {
       sessionCoordinator,
       roomChannel: (id) => `room:${id}`,
       listRooms: () => [room],
+      botSessionIds: new Set<string>(),
     });
 
     service.emitMatchFinished(room);
@@ -380,6 +386,7 @@ describe('RoomBroadcastService', () => {
       sessionCoordinator,
       roomChannel: (id) => `room:${id}`,
       listRooms: () => [room],
+      botSessionIds: new Set<string>(),
     });
 
     service.emitLockstepCheckpoint(room, {
