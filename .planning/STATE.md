@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
 status: verifying
-stopped_at: Completed 23-03-PLAN.md
-last_updated: "2026-04-01T23:46:37.529Z"
+stopped_at: Phase 25 context gathered
+last_updated: "2026-04-02T06:47:19.216Z"
 last_activity: 2026-04-01
 progress:
-  total_phases: 6
+  total_phases: 8
   completed_phases: 6
   total_plans: 21
   completed_plans: 21
@@ -121,6 +121,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-01T23:29:11.877Z
-**Stopped At:** Completed 23-03-PLAN.md
-**Resume File:** None
+**Last session:** 2026-04-02T06:47:18.890Z
+**Stopped At:** Phase 25 context gathered
+**Resume File:** .planning/phases/25-training-tui-dashboard/25-CONTEXT.md
