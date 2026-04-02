@@ -110,6 +110,10 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 - Optionally run `/gsd-audit-milestone` retroactively for `v0.0.2` to close audit debt.
 
+### Roadmap Evolution
+
+- Phase 24 added: TF.js Native Backend with Dynamic Fallback — dynamic import tfjs-node with pure JS fallback
+
 ### Blockers/Concerns
 
 (None for new milestone)
