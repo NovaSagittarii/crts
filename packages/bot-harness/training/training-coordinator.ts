@@ -35,6 +35,7 @@ import { TrajectoryBuffer } from './trajectory-buffer.js';
 import type { TrajectoryStep } from './trajectory-buffer.js';
 import type { TrainingConfig } from './training-config.js';
 import { generateTrainingRunId } from './training-config.js';
+import type { TrainingProgressData, TrainingProgressCallback } from './tui/types.js';
 import { TrainingLogger } from './training-logger.js';
 import type { SerializedTrajectory, EpisodeResultMessage } from './training-worker.js';
 
@@ -84,6 +85,12 @@ export class TrainingCoordinator {
   private runId: string;
   private wins: number = 0;
   private totalGames: number = 0;
+
+  /** Callback invoked after each episode with progress data for the TUI dashboard. */
+  public onProgress: TrainingProgressCallback | null = null;
+  private paused: boolean = false;
+  private stopRequested: boolean = false;
+  private generationCounter: number = 0;
 
   constructor(config: TrainingConfig) {
     this.config = config;
@@ -159,6 +166,14 @@ export class TrainingCoordinator {
     const totalEpisodes = this.config.totalEpisodes;
 
     while (this.episodeCounter < totalEpisodes) {
+      // D-12: Pause check
+      while (this.paused && !this.stopRequested) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      if (this.stopRequested) break;
+
+      const generationStartTime = Date.now();
+
       // (a) Extract current weights from model
       const weights = extractWeights(this.model);
 
@@ -217,6 +232,22 @@ export class TrainingCoordinator {
         };
 
         await this.logger.logEpisode(entry);
+
+        if (this.onProgress) {
+          this.onProgress({
+            entry,
+            generation: this.generationCounter,
+            totalEpisodes,
+            completedEpisodes: this.episodeCounter,
+            poolSize: this.opponentPool!.getPoolSize(),
+            latestCheckpointEpisode: this.getLatestCheckpointEpisode(),
+            selfPlayConfig: this.config.selfPlay,
+            startTime,
+            paused: this.paused,
+            generationStartTime,
+            generationEpisodeCount: batchSize,
+          });
+        }
       }
 
       // (h) Checkpoint if needed
@@ -226,6 +257,8 @@ export class TrainingCoordinator {
           join(this.logger.getCheckpointDir(), `checkpoint-${String(this.episodeCounter)}`),
         );
       }
+
+      this.generationCounter++;
 
       // Buffer is consumed, clear for next round
       buffer.clear();
@@ -265,9 +298,32 @@ export class TrainingCoordinator {
   }
 
   /**
+   * Toggle the paused state of the training loop.
+   */
+  public togglePause(): void {
+    this.paused = !this.paused;
+  }
+
+  /**
+   * Check if the training loop is currently paused.
+   */
+  public isPaused(): boolean {
+    return this.paused;
+  }
+
+  /**
+   * Request a graceful stop of the training loop.
+   * The loop will finish the current batch and then exit.
+   */
+  public requestStop(): void {
+    this.stopRequested = true;
+  }
+
+  /**
    * Clean up: terminate workers, dispose model.
    */
   public async cleanup(): Promise<void> {
+    this.stopRequested = true;
     await this.terminateWorkers();
     if (this.model) {
       this.model.dispose();
@@ -629,6 +685,24 @@ export class TrainingCoordinator {
     } catch {
       // No checkpoints to resume from -- start fresh
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Checkpoint helpers
+  // -------------------------------------------------------------------------
+
+  /**
+   * Parse the latest checkpoint path to extract the episode number.
+   * Returns null if no checkpoint exists yet.
+   */
+  private getLatestCheckpointEpisode(): number | null {
+    if (!this.opponentPool) return null;
+    const path = this.opponentPool.getLatestCheckpointPath();
+    if (path === null) return null;
+
+    const match = /checkpoint-(\d+)/.exec(path);
+    if (!match) return null;
+    return parseInt(match[1], 10);
   }
 
   // -------------------------------------------------------------------------

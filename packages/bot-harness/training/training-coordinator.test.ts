@@ -150,6 +150,34 @@ describe('TrainingCoordinator', () => {
     coordinator = null;
   }, 120_000);
 
+  it('onProgress is null by default', () => {
+    const config = makeTestConfig({ outputDir: '/tmp/unused' });
+    const coord = new TrainingCoordinator(config);
+    expect(coord.onProgress).toBeNull();
+  });
+
+  it('togglePause toggles the isPaused state', () => {
+    const config = makeTestConfig({ outputDir: '/tmp/unused' });
+    const coord = new TrainingCoordinator(config);
+    expect(coord.isPaused()).toBe(false);
+    coord.togglePause();
+    expect(coord.isPaused()).toBe(true);
+    coord.togglePause();
+    expect(coord.isPaused()).toBe(false);
+  });
+
+  it('requestStop sets the stop flag', () => {
+    const config = makeTestConfig({ outputDir: '/tmp/unused' });
+    const coord = new TrainingCoordinator(config);
+    // requestStop should not throw and isPaused should remain independent
+    expect(coord.isPaused()).toBe(false);
+    coord.requestStop();
+    expect(coord.isPaused()).toBe(false);
+    // Toggling pause after stop request still works
+    coord.togglePause();
+    expect(coord.isPaused()).toBe(true);
+  });
+
   it('resume support: model and episode counter restored from checkpoint', async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'train-resume-'));
     const config = makeTestConfig({
