@@ -40,6 +40,7 @@ function makeParsedMatch(
       type: 'header',
       seed: 42,
       config: {
+        seed: 42,
         gridWidth: 52,
         gridHeight: 52,
         maxTicks: 2000,
@@ -52,10 +53,10 @@ function makeParsedMatch(
     outcome: {
       type: 'outcome',
       totalTicks: 500,
-      winner: winnerId !== null ? { teamId: winnerId, coreHealth: 100 } : null,
+      winner: winnerId !== null ? { rank: 1, teamId: winnerId, outcome: 'winner', finalCoreHp: 100, coreState: 'intact', territoryCellCount: 0, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 } : null,
       ranked: [
-        { teamId: 0, coreHealth: winnerId === 0 ? 100 : 0 },
-        { teamId: 1, coreHealth: winnerId === 1 ? 100 : 0 },
+        { rank: 1, teamId: 0, outcome: winnerId === 0 ? 'winner' : 'defeated', finalCoreHp: winnerId === 0 ? 100 : 0, coreState: winnerId === 0 ? 'intact' : 'destroyed', territoryCellCount: 0, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 },
+        { rank: 2, teamId: 1, outcome: winnerId === 1 ? 'winner' : 'defeated', finalCoreHp: winnerId === 1 ? 100 : 0, coreState: winnerId === 1 ? 'intact' : 'destroyed', territoryCellCount: 0, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 },
       ],
       isDraw: winnerId === null,
     },

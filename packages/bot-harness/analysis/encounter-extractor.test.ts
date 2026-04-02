@@ -74,8 +74,8 @@ function makeOutcome(
       winner: null,
       isDraw: true,
       ranked: [
-        { teamId: 0, coreHealth: 50, territoryCount: 100 },
-        { teamId: 1, coreHealth: 50, territoryCount: 100 },
+        { rank: 1, teamId: 0, outcome: 'defeated', finalCoreHp: 50, coreState: 'intact', territoryCellCount: 100, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 },
+        { rank: 1, teamId: 1, outcome: 'defeated', finalCoreHp: 50, coreState: 'intact', territoryCellCount: 100, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 },
       ],
     };
   }
@@ -84,11 +84,11 @@ function makeOutcome(
   return {
     type: 'outcome',
     totalTicks,
-    winner: { teamId: winnerId, coreHealth: 100, territoryCount: 200 },
+    winner: { rank: 1, teamId: winnerId, outcome: 'winner', finalCoreHp: 100, coreState: 'intact', territoryCellCount: 200, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 },
     isDraw: false,
     ranked: [
-      { teamId: winnerId, coreHealth: 100, territoryCount: 200 },
-      { teamId: loserId, coreHealth: 0, territoryCount: 50 },
+      { rank: 1, teamId: winnerId, outcome: 'winner', finalCoreHp: 100, coreState: 'intact', territoryCellCount: 200, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 },
+      { rank: 2, teamId: loserId, outcome: 'defeated', finalCoreHp: 0, coreState: 'destroyed', territoryCellCount: 50, queuedBuildCount: 0, appliedBuildCount: 0, rejectedBuildCount: 0 },
     ],
   };
 }
