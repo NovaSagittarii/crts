@@ -39,6 +39,18 @@ Requirements for RL Bot Harness & Balance Analysis milestone.
 - [x] **PERF-02**: All training code (PPOTrainer, TrainingCoordinator, workers) uses the shared backend loader with no hardcoded @tensorflow/tfjs imports
 - [x] **PERF-03**: All inference code (LiveBotStrategy, model-loader) uses the shared backend loader with no hardcoded @tensorflow/tfjs imports
 
+### Training TUI Dashboard
+
+- [ ] **TUI-01**: Dashboard renders live-updating display with generation number, episode count, win rate, policy/value loss, entropy, and ETA
+- [ ] **TUI-02**: Time-per-generation and throughput (episodes/sec) are displayed and updated each generation
+- [ ] **TUI-03**: Dashboard degrades gracefully to plain log lines when stdout is not a TTY (e.g. CI, piped output)
+- [ ] **TUI-04**: Training CLI bin/train.ts activates TUI by default with --no-tui flag to disable
+- [ ] **TUI-05**: ASCII line charts render reward trends and policy/value loss in the dashboard
+- [ ] **TUI-06**: Keyboard input handles pause/resume (Space), graceful stop (q), view cycling (Tab), and help (h)
+- [ ] **TUI-07**: TrainingCoordinator emits per-episode progress data via callback mechanism
+- [ ] **TUI-08**: Two-column layout activates at terminal width >= 100 columns
+- [ ] **TUI-09**: Single-column stacked layout used for terminal width < 100 columns
+
 ## Future Requirements
 
 Deferred to future milestones.
@@ -80,15 +92,24 @@ Deferred to future milestones.
 | BAL-04 | Phase 22 | Complete |
 | BAL-05 | Phase 22 | Complete |
 | DEPLOY-01 | Phase 23 | Complete |
-| PERF-01 | Phase 24 | Planned |
-| PERF-02 | Phase 24 | Planned |
-| PERF-03 | Phase 24 | Planned |
+| PERF-01 | Phase 24 | Complete |
+| PERF-02 | Phase 24 | Complete |
+| PERF-03 | Phase 24 | Complete |
+| TUI-01 | Phase 25 | Planned |
+| TUI-02 | Phase 25 | Planned |
+| TUI-03 | Phase 25 | Planned |
+| TUI-04 | Phase 25 | Planned |
+| TUI-05 | Phase 25 | Planned |
+| TUI-06 | Phase 25 | Planned |
+| TUI-07 | Phase 25 | Planned |
+| TUI-08 | Phase 25 | Planned |
+| TUI-09 | Phase 25 | Planned |
 
 **Coverage:**
-- v0.0.4 requirements: 17 total
-- Mapped to phases: 17
+- v0.0.4 requirements: 26 total
+- Mapped to phases: 26
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-30*
-*Last updated: 2026-04-01 after Phase 24 planning*
+*Last updated: 2026-04-01 after Phase 25 planning*

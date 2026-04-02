@@ -176,13 +176,15 @@ Plans:
 
 **Goal**: Live terminal UI during PPO training showing generation progress, loss/reward curves, time per generation, ETA, opponent pool status, and key metrics at a glance
 **Depends on**: Phase 20 (training pipeline), Phase 24 (native backend)
-**Requirements**: TBD
+**Requirements**: TUI-01, TUI-02, TUI-03, TUI-04, TUI-05, TUI-06, TUI-07, TUI-08, TUI-09
 **Success Criteria** (what must be TRUE):
   1. TUI renders live-updating dashboard with generation number, episode count, win rate, policy/value loss, entropy, and ETA
   2. Time-per-generation and throughput (episodes/sec) are displayed and updated each generation
   3. Dashboard degrades gracefully to plain log lines when stdout is not a TTY (e.g. CI, piped output)
   4. Training CLI `bin/train.ts` activates TUI by default with `--no-tui` flag to disable
-**Plans:** 0 plans
+**Plans:** 3 plans
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 25 to break down)
+- [ ] 25-01-PLAN.md — Dependencies, TSX config, coordinator callback + pause/resume, --no-tui flag, TUI types
+- [ ] 25-02-PLAN.md — Ink TUI components: chart, progress panel, metrics panel, help overlay, dashboard
+- [ ] 25-03-PLAN.md — Plain logger fallback, barrel exports, bin/train.ts wiring, human verification
