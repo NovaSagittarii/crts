@@ -1,16 +1,22 @@
-import { beforeAll, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import type * as tfTypes from '@tensorflow/tfjs';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+
 import { getTf } from '../tf-backend.js';
 import type { TfModule } from '../tf-backend.js';
-import type * as tf from '@tensorflow/tfjs';
-
 import type { PPOModelConfig } from './ppo-network.js';
-import { buildPPOModel, initTfBackend as initPpoNetworkTf } from './ppo-network.js';
+import {
+  buildPPOModel,
+  initTfBackend as initPpoNetworkTf,
+} from './ppo-network.js';
 import type { TrainStepResult } from './ppo-trainer.js';
-import { PPOTrainer, initTfBackend as initPpoTrainerTf } from './ppo-trainer.js';
-import type { TrajectoryBatch } from './trajectory-buffer.js';
-import { TrajectoryBuffer } from './trajectory-buffer.js';
+import {
+  PPOTrainer,
+  initTfBackend as initPpoTrainerTf,
+} from './ppo-trainer.js';
 import type { TrainingConfig } from './training-config.js';
 import { DEFAULT_TRAINING_CONFIG } from './training-config.js';
+import type { TrajectoryBatch } from './trajectory-buffer.js';
+import { TrajectoryBuffer } from './trajectory-buffer.js';
 
 let tf: TfModule;
 
@@ -43,7 +49,10 @@ const TEST_TRAINING_CONFIG: TrainingConfig = {
   miniBatchSize: 4,
 };
 
-function makeSyntheticBatch(actionCount: number, size: number): TrajectoryBatch {
+function makeSyntheticBatch(
+  actionCount: number,
+  size: number,
+): TrajectoryBatch {
   // 4x4 grid, 2 channels -> planes have 2*4*4 = 32 elements
   const planes: Float32Array[] = [];
   const scalars: Float32Array[] = [];
@@ -72,11 +81,20 @@ function makeSyntheticBatch(actionCount: number, size: number): TrajectoryBatch 
     returns[i] = Math.random() * 2;
   }
 
-  return { planes, scalars, actions, oldLogProbs, advantages, returns, actionMasks, size };
+  return {
+    planes,
+    scalars,
+    actions,
+    oldLogProbs,
+    advantages,
+    returns,
+    actionMasks,
+    size,
+  };
 }
 
 describe('PPOTrainer', () => {
-  let model: tf.LayersModel;
+  let model: tfTypes.LayersModel;
   let trainer: PPOTrainer;
 
   beforeEach(() => {
@@ -163,7 +181,9 @@ describe('PPOTrainer', () => {
     const result = trainer.update(buffer);
 
     expect(result.epochsRun).toBeGreaterThanOrEqual(1);
-    expect(result.epochsRun).toBeLessThanOrEqual(TEST_TRAINING_CONFIG.ppoEpochs);
+    expect(result.epochsRun).toBeLessThanOrEqual(
+      TEST_TRAINING_CONFIG.ppoEpochs,
+    );
     expect(typeof result.meanPolicyLoss).toBe('number');
     expect(typeof result.meanValueLoss).toBe('number');
     expect(typeof result.meanEntropy).toBe('number');

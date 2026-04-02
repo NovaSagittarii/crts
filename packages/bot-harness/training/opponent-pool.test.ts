@@ -1,21 +1,21 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type * as tfTypes from '@tensorflow/tfjs';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { getTf } from '../tf-backend.js';
-import type { TfModule } from '../tf-backend.js';
-import type * as tf from '@tensorflow/tfjs';
 
+import { getTf } from '../tf-backend.js';
 import { OpponentPool } from './opponent-pool.js';
 import type { PPOModelConfig } from './ppo-network.js';
-import { buildPPOModel, initTfBackend as initPpoNetworkTf } from './ppo-network.js';
-import type { SelfPlayConfig } from './training-config.js';
+import {
+  buildPPOModel,
+  initTfBackend as initPpoNetworkTf,
+} from './ppo-network.js';
 import { initTfBackend as initTfjsFileIoTf } from './tfjs-file-io.js';
-
-let tf: TfModule;
+import type { SelfPlayConfig } from './training-config.js';
 
 beforeAll(async () => {
-  tf = await getTf();
+  await getTf();
   await initPpoNetworkTf();
   await initTfjsFileIoTf();
 }, 15_000);
@@ -34,7 +34,7 @@ function makeSelfPlayConfig(
 }
 
 /** Build a tiny model for testing. */
-function buildTinyModel(): tf.LayersModel {
+function buildTinyModel(): tfTypes.LayersModel {
   const config: PPOModelConfig = {
     planeShape: [2, 4, 4],
     scalarCount: 3,

@@ -1,8 +1,8 @@
+import type * as tfTypes from '@tensorflow/tfjs';
 import { beforeAll, describe, expect, it } from 'vitest';
+
 import { getTf } from '../tf-backend.js';
 import type { TfModule } from '../tf-backend.js';
-import type * as tf from '@tensorflow/tfjs';
-
 import {
   applyWeights,
   buildModelConfigFromEnv,
@@ -69,7 +69,10 @@ describe('buildPPOModel', () => {
     ]);
     const scalarInput = tf.randomNormal([batchSize, SMALL_CONFIG.scalarCount]);
 
-    const outputs = model.predict([planeInput, scalarInput]) as tf.Tensor[];
+    const outputs = model.predict([
+      planeInput,
+      scalarInput,
+    ]) as tfTypes.Tensor[];
     expect(outputs).toHaveLength(2);
 
     // Policy logits: [batch, actionCount]
@@ -98,7 +101,10 @@ describe('buildPPOModel', () => {
     const channelsLast = channelsFirst.transpose([0, 2, 3, 1]);
     const scalarInput = tf.randomNormal([1, SMALL_CONFIG.scalarCount]);
 
-    const outputs = model.predict([channelsLast, scalarInput]) as tf.Tensor[];
+    const outputs = model.predict([
+      channelsLast,
+      scalarInput,
+    ]) as tfTypes.Tensor[];
     expect(outputs[0].shape).toEqual([1, SMALL_CONFIG.actionCount]);
     expect(outputs[1].shape).toEqual([1, 1]);
 
@@ -159,8 +165,14 @@ describe('applyWeights', () => {
     ]);
     const scalarInput = tf.randomNormal([batchSize, SMALL_CONFIG.scalarCount]);
 
-    const outputsA = modelA.predict([planeInput, scalarInput]) as tf.Tensor[];
-    const outputsB = modelB.predict([planeInput, scalarInput]) as tf.Tensor[];
+    const outputsA = modelA.predict([
+      planeInput,
+      scalarInput,
+    ]) as tfTypes.Tensor[];
+    const outputsB = modelB.predict([
+      planeInput,
+      scalarInput,
+    ]) as tfTypes.Tensor[];
 
     const policyA = outputsA[0].dataSync();
     const policyB = outputsB[0].dataSync();
@@ -189,7 +201,10 @@ describe('buildModelConfigFromEnv', () => {
     // Minimal mock of BotEnvironment interface
     const fakeEnv = {
       observationSpace: {
-        planes: { shape: [5, 52, 52] as [number, number, number], dtype: 'float32' as const },
+        planes: {
+          shape: [5, 52, 52] as [number, number, number],
+          dtype: 'float32' as const,
+        },
         scalars: { shape: [7] as [number], dtype: 'float32' as const },
       },
       actionSpace: {
@@ -197,7 +212,13 @@ describe('buildModelConfigFromEnv', () => {
         n: 13521,
         numTemplates: 5,
         numPositions: 2704,
-        templateIds: ['block', 'eater-1', 'generator', 'glider', 'gosper'] as readonly string[],
+        templateIds: [
+          'block',
+          'eater-1',
+          'generator',
+          'glider',
+          'gosper',
+        ] as readonly string[],
       },
     };
 

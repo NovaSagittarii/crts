@@ -2,25 +2,31 @@
 // This test validates the PPO training pipeline end-to-end.
 // With pure JS TF.js backend (no native addon on Alpine musl), conv2d is slow
 // so we use a minimal model and few episodes to keep runtime practical.
-
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { beforeAll, describe, it, expect, afterAll } from 'vitest';
-import { getTf } from '../tf-backend.js';
-import type { TfModule } from '../tf-backend.js';
-import type * as tf from '@tensorflow/tfjs';
+import type * as tfTypes from '@tensorflow/tfjs';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { BotEnvironment } from '../bot-environment.js';
 import { RandomBot } from '../random-bot.js';
-
-import { buildPPOModel, buildModelConfigFromEnv, extractWeights, initTfBackend as initPpoNetworkTf } from './ppo-network.js';
+import { getTf } from '../tf-backend.js';
+import type { TfModule } from '../tf-backend.js';
+import {
+  buildModelConfigFromEnv,
+  buildPPOModel,
+  extractWeights,
+  initTfBackend as initPpoNetworkTf,
+} from './ppo-network.js';
 import type { PPOModelConfig } from './ppo-network.js';
-import { PPOTrainer, initTfBackend as initPpoTrainerTf } from './ppo-trainer.js';
-import { TrajectoryBuffer } from './trajectory-buffer.js';
-import type { TrajectoryStep } from './trajectory-buffer.js';
+import {
+  PPOTrainer,
+  initTfBackend as initPpoTrainerTf,
+} from './ppo-trainer.js';
 import type { NetworkConfig, TrainingConfig } from './training-config.js';
 import { DEFAULT_TRAINING_CONFIG } from './training-config.js';
+import { TrajectoryBuffer } from './trajectory-buffer.js';
+import type { TrajectoryStep } from './trajectory-buffer.js';
 
 let tf: TfModule;
 
@@ -56,7 +62,7 @@ const TINY_NETWORK: NetworkConfig = {
  * Collect a single episode in-process (no worker threads).
  */
 function collectEpisode(
-  model: tf.LayersModel,
+  model: tfTypes.LayersModel,
   trainer: PPOTrainer,
   modelConfig: PPOModelConfig,
   opponent: RandomBot,
@@ -84,17 +90,21 @@ function collectEpisode(
 
   while (!terminated && !truncated) {
     const { logits, value } = tf.tidy(() => {
-      const chw = tf.tensor3d(
-        Array.from(currentObs.planes),
-        [channels, height, width],
-      );
+      const chw = tf.tensor3d(Array.from(currentObs.planes), [
+        channels,
+        height,
+        width,
+      ]);
       const hwc = chw.transpose([1, 2, 0]);
       const planesTensor = hwc.expandDims(0);
-      const scalarsTensor = tf.tensor2d(
-        Array.from(currentObs.scalars),
-        [1, currentObs.scalars.length],
-      );
-      const outputs = model.predict([planesTensor, scalarsTensor]) as tf.Tensor[];
+      const scalarsTensor = tf.tensor2d(Array.from(currentObs.scalars), [
+        1,
+        currentObs.scalars.length,
+      ]);
+      const outputs = model.predict([
+        planesTensor,
+        scalarsTensor,
+      ]) as tfTypes.Tensor[];
       return {
         logits: tf.tensor1d(Array.from(outputs[0].dataSync() as Float32Array)),
         value: outputs[1].dataSync()[0],
@@ -124,7 +134,8 @@ function collectEpisode(
     steps[steps.length - 1].done = terminated || truncated;
 
     if (terminated && stepResult.info.matchOutcome !== null) {
-      won = stepResult.info.matchOutcome.winner.teamId === stepResult.info.teamId;
+      won =
+        stepResult.info.matchOutcome.winner.teamId === stepResult.info.teamId;
     }
 
     currentObs = stepResult.observation;
@@ -195,7 +206,10 @@ describe('convergence: PPO training pipeline validation', () => {
 
     // Capture initial weights
     const initialWeights = extractWeights(model);
-    const initialFirstWeight = new Float32Array(initialWeights[0].buffer).slice(0, 10);
+    const initialFirstWeight = new Float32Array(initialWeights[0].buffer).slice(
+      0,
+      10,
+    );
 
     // Collect episodes and train
     const opponent = new RandomBot();
@@ -250,7 +264,10 @@ describe('convergence: PPO training pipeline validation', () => {
 
     // Capture post-training weights
     const trainedWeights = extractWeights(model);
-    const trainedFirstWeight = new Float32Array(trainedWeights[0].buffer).slice(0, 10);
+    const trainedFirstWeight = new Float32Array(trainedWeights[0].buffer).slice(
+      0,
+      10,
+    );
 
     const winRate = totalWins / trainingConfig.totalEpisodes;
     console.log(
