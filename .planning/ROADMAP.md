@@ -155,4 +155,4 @@ Note: Phase 21 can begin alongside Phase 20 using early match data.
 | 20. PPO Training with Self-Play | v0.0.4 | 5/5 | Complete    | 2026-04-01 |
 | 21. Balance Analysis | v0.0.4 | 4/4 | Complete    | 2026-04-01 |
 | 22. Structure Strength Ratings | v0.0.4 | 3/3 | Complete    | 2026-04-01 |
-| 23. Playable In-Game Bot | v0.0.4 | 3/3 | Complete   | 2026-04-01 |
+| 23. Playable In-Game Bot | v0.0.4 | 3/3 | Complete    | 2026-04-01 |
