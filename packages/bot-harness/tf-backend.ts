@@ -3,10 +3,21 @@ import type * as tfTypes from '@tensorflow/tfjs';
 
 // Polyfill util.isNullOrUndefined — removed in modern Node.js but
 // referenced by @tensorflow/tfjs-node@4.22.0's native kernel backend.
-if (typeof (util as Record<string, unknown>).isNullOrUndefined !== 'function') {
-  (util as Record<string, unknown>).isNullOrUndefined = (
-    val: unknown,
-  ): val is null | undefined => val === null || val === undefined;
+// Use try/catch: on some Node versions the property exists but is
+// non-configurable (deprecated but present), on others it's gone entirely.
+try {
+  if (
+    typeof (util as Record<string, unknown>).isNullOrUndefined !== 'function'
+  ) {
+    Object.defineProperty(util, 'isNullOrUndefined', {
+      value: (val: unknown): val is null | undefined =>
+        val === null || val === undefined,
+      writable: true,
+      configurable: true,
+    });
+  }
+} catch {
+  // Property exists and is non-configurable — already functional, nothing to do.
 }
 
 export type TfModule = typeof tfTypes;
