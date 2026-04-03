@@ -51,6 +51,13 @@ Requirements for RL Bot Harness & Balance Analysis milestone.
 - [x] **TUI-08**: Two-column layout activates at terminal width >= 100 columns
 - [x] **TUI-09**: Single-column stacked layout used for terminal width < 100 columns
 
+### Training Pipeline CPU Utilization
+
+- [ ] **PIPE-01**: Workers begin collecting the next batch of episodes while the main thread runs PPO gradient updates on the current batch (double-buffering)
+- [ ] **PIPE-02**: Weight broadcast to workers overlaps with late-finishing episode collection from the previous batch
+- [ ] **PIPE-03**: Pipeline metrics (episodes/sec, pipeline efficiency) are computed per generation and reported via onProgress
+- [ ] **PIPE-04**: Training throughput (episodes/sec) measurably improves compared to the synchronous baseline
+
 ## Future Requirements
 
 Deferred to future milestones.
@@ -106,14 +113,18 @@ Deferred to future milestones.
 | TUI-07      | Phase 25 | Planned  |
 | TUI-08      | Phase 25 | Planned  |
 | TUI-09      | Phase 25 | Planned  |
+| PIPE-01     | Phase 26 | Planned  |
+| PIPE-02     | Phase 26 | Planned  |
+| PIPE-03     | Phase 26 | Planned  |
+| PIPE-04     | Phase 26 | Planned  |
 
 **Coverage:**
 
-- v0.0.4 requirements: 26 total
-- Mapped to phases: 26
+- v0.0.4 requirements: 30 total
+- Mapped to phases: 30
 - Unmapped: 0
 
 ---
 
 _Requirements defined: 2026-03-30_
-_Last updated: 2026-04-01 after Phase 25 planning_
+_Last updated: 2026-04-03 after Phase 26 planning_

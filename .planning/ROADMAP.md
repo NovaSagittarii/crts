@@ -215,13 +215,14 @@ Plans:
 
 **Goal**: Maximize CPU utilization during training by double-buffering episode collection with PPO updates, overlapping weight broadcast with late-finishing workers, and reducing idle gaps between generation cycles
 **Depends on**: Phase 20 (training coordinator), Phase 24 (backend loader)
-**Requirements**: TBD
+**Requirements**: PIPE-01, PIPE-02, PIPE-03, PIPE-04
 **Success Criteria** (what must be TRUE):
   1. Workers begin collecting the next batch of episodes while the main thread runs PPO gradient updates on the current batch (double-buffering)
   2. Weight broadcast to workers overlaps with late-finishing episode collection from the previous batch
-  3. CPU utilization stays above 80% during steady-state training (measured via process.cpuUsage or external profiling)
+  3. Pipeline metrics (episodes/sec, pipeline efficiency) are computed per generation and reported via onProgress
   4. Training throughput (episodes/sec) measurably improves compared to the synchronous baseline
-**Plans:** 0 plans
+**Plans:** 2 plans
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 26 to break down)
+- [ ] 26-01-PLAN.md — Pipeline metrics types, pipelined double-buffered run() loop with fire-and-forget I/O
+- [ ] 26-02-PLAN.md — Pipeline behavior verification tests (double-buffer, throughput, stop, ordering)
