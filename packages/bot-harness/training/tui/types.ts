@@ -2,6 +2,27 @@ import type { SelfPlayConfig } from '../training-config.js';
 import type { TrainingLogEntry } from '../training-logger.js';
 
 /**
+ * Pipeline performance metrics computed per generation.
+ *
+ * Measures the overlap between episode collection and PPO gradient
+ * updates to quantify the throughput benefit of the pipelined design.
+ */
+export interface PipelineMetrics {
+  /** Wall-clock time for the full generation cycle (ms). */
+  generationWallMs: number;
+  /** Wall-clock time workers spent collecting episodes (ms). */
+  collectWallMs: number;
+  /** Wall-clock time main thread spent processing (deser + GAE + PPO + log) (ms). */
+  processWallMs: number;
+  /** Time saved by overlapping collection with processing (ms). */
+  overlapMs: number;
+  /** Throughput: episodes completed per second. */
+  episodesPerSec: number;
+  /** Fraction of overlap achieved vs theoretical max (0.0 to 1.0). */
+  pipelineEfficiency: number;
+}
+
+/**
  * Progress data emitted by TrainingCoordinator after each episode.
  *
  * Contains the current episode metrics, generation info, and overall
@@ -30,6 +51,8 @@ export interface TrainingProgressData {
   generationStartTime: number;
   /** Number of episodes in the current generation/batch. */
   generationEpisodeCount: number;
+  /** Throughput: episodes completed per second (from pipeline metrics). */
+  episodesPerSec: number;
 }
 
 /**

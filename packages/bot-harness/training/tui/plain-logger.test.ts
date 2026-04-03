@@ -63,6 +63,7 @@ function createMockProgressData(
     paused: false,
     generationStartTime: Date.now() - 1000,
     generationEpisodeCount: 4,
+    episodesPerSec: 1.0,
     ...overrides,
   };
 }
