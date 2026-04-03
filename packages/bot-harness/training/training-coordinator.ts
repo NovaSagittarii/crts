@@ -10,6 +10,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { mkdir } from 'node:fs/promises';
 import { cpus } from 'node:os';
 import { join, resolve } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { Worker } from 'node:worker_threads';
 import type * as tf from '@tensorflow/tfjs';
 
@@ -36,7 +37,7 @@ import type {
 } from './training-worker.js';
 import { TrajectoryBuffer } from './trajectory-buffer.js';
 import type { TrajectoryStep } from './trajectory-buffer.js';
-import type { TrainingProgressCallback } from './tui/types.js';
+import type { PipelineMetrics, TrainingProgressCallback } from './tui/types.js';
 
 let _tf: TfModule;
 
@@ -159,7 +160,16 @@ export class TrainingCoordinator {
   }
 
   /**
-   * Main training loop: collect episodes -> PPO update -> checkpoint -> repeat.
+   * Main training loop with pipelined double-buffering.
+   *
+   * Workers collect the next batch of episodes while the main thread
+   * processes the current batch (deserialize + GAE + PPO update + logging).
+   * Checkpoint and log I/O are fire-and-forget, awaited at a safe sync point.
+   *
+   * Pipeline invariant: workers use at most stale-by-one generation weights.
+   * After processing batch N, new weights are extracted, the in-flight next
+   * batch (collected with gen N weights) is awaited, then new weights are
+   * broadcast before the following collection begins.
    */
   public async run(): Promise<void> {
     if (!this.model || !this.trainer || !this.logger || !this.opponentPool) {
@@ -169,51 +179,109 @@ export class TrainingCoordinator {
     const startTime = Date.now();
     const totalEpisodes = this.config.totalEpisodes;
 
-    while (this.episodeCounter < totalEpisodes) {
-      // D-12: Pause check
+    // --- Bootstrap (first generation): fully synchronous ---
+    {
+      // Pause/stop check
+      while (this.paused && !this.stopRequested) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (this.stopRequested) {
+        // Save final model even on early stop
+        const { saveModelToDir } = await import('./tfjs-file-io.js');
+        await saveModelToDir(this.model, this.logger.getFinalModelDir());
+        return;
+      }
+
+      if (this.episodeCounter >= totalEpisodes) {
+        const { saveModelToDir } = await import('./tfjs-file-io.js');
+        await saveModelToDir(this.model, this.logger.getFinalModelDir());
+        return;
+      }
+    }
+
+    // Extract initial weights and broadcast to workers
+    const initialWeights = extractWeights(this.model);
+    await this.broadcastWeights(initialWeights);
+
+    // Collect the first batch synchronously to prime the pipeline
+    const firstBatchSize = Math.min(
+      this.batchEpisodes,
+      totalEpisodes - this.episodeCounter,
+    );
+    let currentResults = await this.collectBatch(firstBatchSize);
+    let currentBatchSize = firstBatchSize;
+
+    // --- Steady-state pipelined loop ---
+    while (true) {
+      // Pause/stop check at loop top
       while (this.paused && !this.stopRequested) {
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
       if (this.stopRequested) break;
 
+      const genStartMs = performance.now();
       const generationStartTime = Date.now();
 
-      // (a) Extract current weights from model
-      const weights = extractWeights(this.model);
+      // Determine if we need another batch after the current one
+      const episodesAfterCurrent = this.episodeCounter + currentBatchSize;
+      const needsNextBatch = episodesAfterCurrent < totalEpisodes;
 
-      // (b) Send weights to all workers (D-17)
-      await this.broadcastWeights(weights);
+      // (1) Start next batch collection as a detached Promise
+      //     Workers still have current-gen weights (stale-by-one is acceptable).
+      //     .catch() prevents unhandled rejection.
+      let nextBatchPromise: Promise<EpisodeResult[]> | null = null;
+      let backgroundError: Error | null = null;
+      let nextBatchSize = 0;
+      let collectStartMs = 0;
+      let collectEndMs = 0;
 
-      // (c) Collect a batch of episodes
-      const batchSize = Math.min(
-        this.batchEpisodes,
-        totalEpisodes - this.episodeCounter,
-      );
-      const episodeResults = await this.collectBatch(batchSize);
+      if (needsNextBatch) {
+        nextBatchSize = Math.min(
+          this.batchEpisodes,
+          totalEpisodes - episodesAfterCurrent,
+        );
+        collectStartMs = performance.now();
+        nextBatchPromise = this.collectBatch(nextBatchSize).catch(
+          (err: unknown) => {
+            backgroundError =
+              err instanceof Error ? err : new Error(String(err));
+            return [] as EpisodeResult[];
+          },
+        );
+      }
 
-      // (d) Deserialize trajectories into TrajectoryBuffer
+      // (2) Process current batch on main thread
+      const processStartMs = performance.now();
+
+      // Deserialize trajectories into TrajectoryBuffer
       const buffer = new TrajectoryBuffer();
-      for (const result of episodeResults) {
+      for (const result of currentResults) {
         for (const step of result.trajectory) {
           buffer.add(step);
         }
       }
 
-      // (e) Finalize buffer (compute GAE)
-      // Use the average final value across episodes as the bootstrap
+      // Finalize buffer (compute GAE)
       const avgFinalValue =
-        episodeResults.reduce((sum, r) => sum + r.finalValue, 0) /
-        episodeResults.length;
+        currentResults.reduce((sum, r) => sum + r.finalValue, 0) /
+        currentResults.length;
       buffer.finalize(avgFinalValue, this.config.gamma, this.config.gaeLambda);
 
-      // (f) Run PPO update
+      // Run PPO update
       let updateResult: PPOUpdateResult | null = null;
       if (buffer.size() > 0) {
         updateResult = this.trainer.update(buffer);
       }
 
-      // (g) Log metrics for each episode in the batch
-      for (const result of episodeResults) {
+      // (2b) Log metrics and fire onProgress (fire-and-forget I/O)
+      const pendingIO: Promise<void>[] = [];
+
+      // Compute episodesPerSec so far for this generation
+      const processEndMs = performance.now();
+      const processMs = processEndMs - processStartMs;
+      const episodesPerSec = processMs > 0 ? (currentBatchSize / processMs) * 1000 : 0;
+
+      for (const result of currentResults) {
         this.episodeCounter++;
         this.totalGames++;
         if (result.won) this.wins++;
@@ -235,7 +303,8 @@ export class TrainingCoordinator {
           elapsedMs: Date.now() - startTime,
         };
 
-        await this.logger.logEpisode(entry);
+        // Fire-and-forget: push log I/O into pendingIO
+        pendingIO.push(this.logger.logEpisode(entry));
 
         if (this.onProgress) {
           this.onProgress({
@@ -249,31 +318,110 @@ export class TrainingCoordinator {
             startTime,
             paused: this.paused,
             generationStartTime,
-            generationEpisodeCount: batchSize,
+            generationEpisodeCount: currentBatchSize,
+            episodesPerSec,
           });
         }
       }
 
-      // (h) Checkpoint if needed
+      // (3) Fire-and-forget checkpointing
       if (this.opponentPool.shouldCheckpoint(this.episodeCounter)) {
-        await this.opponentPool.saveCheckpoint(this.model, this.episodeCounter);
-        await this.saveOptimizerState(
-          join(
-            this.logger.getCheckpointDir(),
-            `checkpoint-${String(this.episodeCounter)}`,
-          ),
+        pendingIO.push(
+          this.opponentPool
+            .saveCheckpoint(this.model, this.episodeCounter)
+            .then(() =>
+              this.saveOptimizerState(
+                join(
+                  this.logger.getCheckpointDir(),
+                  `checkpoint-${String(this.episodeCounter)}`,
+                ),
+              ),
+            ),
         );
       }
 
+      // (4) Extract new weights from the updated model
+      const newWeights = extractWeights(this.model);
+
+      // (5) Await the next batch Promise (workers are done or finishing)
+      let nextResults: EpisodeResult[] | null = null;
+      if (nextBatchPromise) {
+        nextResults = await nextBatchPromise;
+        collectEndMs = performance.now();
+        if (backgroundError !== null) {
+          const err: Error = backgroundError;
+          throw err;
+        }
+      }
+
+      // Pause/stop check after awaiting background batch
+      if (this.stopRequested) {
+        // Await pending I/O before breaking to prevent dangling Promises
+        await Promise.all(pendingIO);
+        break;
+      }
+
+      // (6) Broadcast new weights to all workers (they are idle now)
+      await this.broadcastWeights(newWeights);
+
+      // (7) Await any pending checkpoint/log I/O
+      await Promise.all(pendingIO);
+
+      // Compute pipeline metrics for this generation
+      const genEndMs = performance.now();
+      const collectMs = collectEndMs > collectStartMs ? collectEndMs - collectStartMs : 0;
+      this.computePipelineMetrics(
+        genStartMs,
+        genEndMs,
+        collectMs,
+        processMs,
+        currentBatchSize,
+      );
+
+      // (8) Clear the current batch's buffer
+      buffer.clear();
+
+      // (9) Increment generationCounter
       this.generationCounter++;
 
-      // Buffer is consumed, clear for next round
-      buffer.clear();
+      // (10) Advance to next batch or exit
+      if (nextResults && nextResults.length > 0) {
+        currentResults = nextResults;
+        currentBatchSize = nextBatchSize;
+      } else {
+        // No more episodes to process
+        break;
+      }
     }
 
     // Save final model
     const { saveModelToDir } = await import('./tfjs-file-io.js');
     await saveModelToDir(this.model, this.logger.getFinalModelDir());
+  }
+
+  /**
+   * Compute pipeline performance metrics for a generation.
+   */
+  private computePipelineMetrics(
+    genStartMs: number,
+    genEndMs: number,
+    collectMs: number,
+    processMs: number,
+    episodesInBatch: number,
+  ): PipelineMetrics {
+    const wallMs = genEndMs - genStartMs;
+    const overlapMs = Math.max(0, collectMs + processMs - wallMs);
+    return {
+      generationWallMs: wallMs,
+      collectWallMs: collectMs,
+      processWallMs: processMs,
+      overlapMs,
+      episodesPerSec: wallMs > 0 ? (episodesInBatch / wallMs) * 1000 : 0,
+      pipelineEfficiency:
+        Math.min(collectMs, processMs) > 0
+          ? overlapMs / Math.min(collectMs, processMs)
+          : 0,
+    };
   }
 
   /**
