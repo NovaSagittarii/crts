@@ -242,4 +242,138 @@ describe('TrainingCoordinator', () => {
     await coordinator.cleanup();
     coordinator = null;
   }, 120_000);
+
+  // ---- Pipeline behavior verification tests (Plan 26-02) ----
+
+  it('onProgress reports episodesPerSec as a positive number', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'train-eps-'));
+    const config = makeTestConfig({
+      outputDir: tempDir,
+      totalEpisodes: 4,
+      batchEpisodes: 2,
+      workers: 1,
+    });
+
+    coordinator = new TrainingCoordinator(config);
+    await coordinator.init();
+
+    const capturedRates: number[] = [];
+    coordinator.onProgress = (data) => {
+      capturedRates.push(data.episodesPerSec);
+    };
+
+    await coordinator.run();
+
+    // All captured episodesPerSec values should be positive finite numbers
+    expect(capturedRates.length).toBeGreaterThan(0);
+    for (const rate of capturedRates) {
+      expect(rate).toBeGreaterThan(0);
+      expect(Number.isFinite(rate)).toBe(true);
+    }
+
+    await coordinator.cleanup();
+    coordinator = null;
+  }, 120_000);
+
+  it('double-buffer: pipeline completes multiple generations with correct episode count', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'train-dblbuf-'));
+    const config = makeTestConfig({
+      outputDir: tempDir,
+      totalEpisodes: 8,
+      batchEpisodes: 2,
+      workers: 1,
+    });
+
+    coordinator = new TrainingCoordinator(config);
+    await coordinator.init();
+
+    const capturedGenerations: number[] = [];
+    const capturedCompleted: number[] = [];
+    coordinator.onProgress = (data) => {
+      capturedGenerations.push(data.generation);
+      capturedCompleted.push(data.completedEpisodes);
+    };
+
+    await coordinator.run();
+
+    // All 8 episodes completed
+    expect(coordinator.getEpisodeCounter()).toBe(8);
+
+    // Final completedEpisodes from onProgress should be 8
+    expect(capturedCompleted[capturedCompleted.length - 1]).toBe(8);
+
+    // At least 3 distinct generation numbers were seen (bootstrap + steady-state)
+    const distinctGenerations = new Set(capturedGenerations);
+    expect(distinctGenerations.size).toBeGreaterThanOrEqual(3);
+
+    await coordinator.cleanup();
+    coordinator = null;
+  }, 120_000);
+
+  it('requestStop during pipelined execution stops cleanly without hanging', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'train-stop-'));
+    const config = makeTestConfig({
+      outputDir: tempDir,
+      totalEpisodes: 20,
+      batchEpisodes: 2,
+      workers: 1,
+    });
+
+    coordinator = new TrainingCoordinator(config);
+    await coordinator.init();
+
+    coordinator.onProgress = (data) => {
+      if (data.completedEpisodes >= 4) {
+        coordinator!.requestStop();
+      }
+    };
+
+    // Race against a 60s timeout to detect hangs
+    const runPromise = coordinator.run();
+    const timeout = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('run() hung after requestStop')), 60_000);
+    });
+
+    await Promise.race([runPromise, timeout]);
+
+    // Stopped early: at least 4 episodes but fewer than 20
+    const count = coordinator.getEpisodeCounter();
+    expect(count).toBeGreaterThanOrEqual(4);
+    expect(count).toBeLessThan(20);
+
+    // Cleanup completes without hanging
+    await coordinator.cleanup();
+    coordinator = null;
+  }, 120_000);
+
+  it('episode numbers in onProgress are monotonically increasing', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'train-mono-'));
+    const config = makeTestConfig({
+      outputDir: tempDir,
+      totalEpisodes: 6,
+      batchEpisodes: 2,
+      workers: 1,
+    });
+
+    coordinator = new TrainingCoordinator(config);
+    await coordinator.init();
+
+    const episodeNumbers: number[] = [];
+    coordinator.onProgress = (data) => {
+      episodeNumbers.push(data.entry.episode);
+    };
+
+    await coordinator.run();
+
+    // Must have captured at least 6 episode numbers
+    expect(episodeNumbers.length).toBe(6);
+
+    // Each episode number must be strictly greater than the previous
+    for (let i = 1; i < episodeNumbers.length; i++) {
+      expect(episodeNumbers[i]).toBeGreaterThan(episodeNumbers[i - 1]);
+    }
+
+    await coordinator.cleanup();
+    coordinator = null;
+  }, 120_000);
 });
