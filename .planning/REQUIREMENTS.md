@@ -53,10 +53,10 @@ Requirements for RL Bot Harness & Balance Analysis milestone.
 
 ### Training Pipeline CPU Utilization
 
-- [ ] **PIPE-01**: Workers begin collecting the next batch of episodes while the main thread runs PPO gradient updates on the current batch (double-buffering)
-- [ ] **PIPE-02**: Weight broadcast to workers overlaps with late-finishing episode collection from the previous batch
-- [ ] **PIPE-03**: Pipeline metrics (episodes/sec, pipeline efficiency) are computed per generation and reported via onProgress
-- [ ] **PIPE-04**: Training throughput (episodes/sec) measurably improves compared to the synchronous baseline
+- [x] **PIPE-01**: Workers begin collecting the next batch of episodes while the main thread runs PPO gradient updates on the current batch (double-buffering)
+- [x] **PIPE-02**: Weight broadcast to workers overlaps with late-finishing episode collection from the previous batch
+- [x] **PIPE-03**: Pipeline metrics (episodes/sec, pipeline efficiency) are computed per generation and reported via onProgress
+- [x] **PIPE-04**: Training throughput (episodes/sec) measurably improves compared to the synchronous baseline
 
 ## Future Requirements
 

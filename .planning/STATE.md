@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
-status: verifying
-stopped_at: Completed 25-03-PLAN.md
-last_updated: '2026-04-02T10:26:29.349Z'
-last_activity: 2026-04-02
+status: executing
+stopped_at: Completed 26-01-PLAN.md
+last_updated: "2026-04-03T08:45:11.355Z"
+last_activity: 2026-04-03
 progress:
-  total_phases: 8
+  total_phases: 9
   completed_phases: 8
-  total_plans: 26
-  completed_plans: 26
+  total_plans: 28
+  completed_plans: 27
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-30)
 
 **Core value:** Two players can quickly get into a match and use Conway-based strategy to defend their safe cell and breach the opponent's.
-**Current focus:** Phase 25 — training-tui-dashboard
+**Current focus:** Phase 26 — training-pipeline-cpu-utilization-optimization
 
 ## Current Position
 
-Phase: 25 (training-tui-dashboard) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-04-02
+Phase: 26 (training-pipeline-cpu-utilization-optimization) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-04-03
 
 Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
@@ -118,6 +118,9 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 25]: Policy/value loss trend arrows derived from recentEpisodes in MetricsPanel
 - [Phase 25]: onReady prop added to Dashboard to bridge coordinator.onProgress to internal React handler ref without coupling
 - [Phase 25]: Dynamic import for ink/react in TUI mode to keep plain mode lightweight and avoid loading React when not needed
+- [Phase 26]: Bootstrap-then-pipeline: first generation collected synchronously, steady-state overlaps collection with processing
+- [Phase 26]: Preliminary episodesPerSec for onProgress uses process-time denominator; final metrics after full cycle
+- [Phase 26]: Fire-and-forget I/O pattern: push async ops into pendingIO array, await at safe sync point after batch
 
 ### Pending Todos
 
@@ -135,6 +138,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-02T10:26:29.244Z
-**Stopped At:** Completed 25-03-PLAN.md
+**Last session:** 2026-04-03T08:45:11.245Z
+**Stopped At:** Completed 26-01-PLAN.md
 **Resume File:** None
