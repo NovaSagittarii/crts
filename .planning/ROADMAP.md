@@ -210,3 +210,18 @@ Plans:
 - [x] 25-01-PLAN.md — Dependencies, TSX config, coordinator callback + pause/resume, --no-tui flag, TUI types
 - [x] 25-02-PLAN.md — Ink TUI components: chart, progress panel, metrics panel, help overlay, dashboard
 - [x] 25-03-PLAN.md — Plain logger fallback, barrel exports, bin/train.ts wiring, human verification
+
+### Phase 26: Training Pipeline CPU Utilization Optimization
+
+**Goal**: Maximize CPU utilization during training by double-buffering episode collection with PPO updates, overlapping weight broadcast with late-finishing workers, and reducing idle gaps between generation cycles
+**Depends on**: Phase 20 (training coordinator), Phase 24 (backend loader)
+**Requirements**: TBD
+**Success Criteria** (what must be TRUE):
+  1. Workers begin collecting the next batch of episodes while the main thread runs PPO gradient updates on the current batch (double-buffering)
+  2. Weight broadcast to workers overlaps with late-finishing episode collection from the previous batch
+  3. CPU utilization stays above 80% during steady-state training (measured via process.cpuUsage or external profiling)
+  4. Training throughput (episodes/sec) measurably improves compared to the synchronous baseline
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 26 to break down)

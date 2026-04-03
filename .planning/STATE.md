@@ -127,6 +127,7 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 - Phase 24 added: TF.js Native Backend with Dynamic Fallback — dynamic import tfjs-node with pure JS fallback
 - Phase 25 added: Training TUI Dashboard — live terminal dashboard for training metrics, generation timing, ETA
+- Phase 26 added: Training Pipeline CPU Utilization Optimization — double-buffer episodes with PPO updates, overlap weight broadcast
 
 ### Blockers/Concerns
 
