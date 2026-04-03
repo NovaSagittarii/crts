@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.0.4
 milestone_name: RL Bot Harness & Balance Analysis
-status: executing
-stopped_at: Completed 26-01-PLAN.md
-last_updated: "2026-04-03T08:45:11.355Z"
+status: verifying
+stopped_at: Completed 26-02-PLAN.md
+last_updated: "2026-04-03T08:59:15.957Z"
 last_activity: 2026-04-03
 progress:
   total_phases: 9
-  completed_phases: 8
+  completed_phases: 9
   total_plans: 28
-  completed_plans: 27
+  completed_plans: 28
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-30)
 
 Phase: 26 (training-pipeline-cpu-utilization-optimization) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-03
 
 Progress: [░░░░░░░░░░] 0% (v0.0.4)
@@ -121,6 +121,8 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 - [Phase 26]: Bootstrap-then-pipeline: first generation collected synchronously, steady-state overlaps collection with processing
 - [Phase 26]: Preliminary episodesPerSec for onProgress uses process-time denominator; final metrics after full cycle
 - [Phase 26]: Fire-and-forget I/O pattern: push async ops into pendingIO array, await at safe sync point after batch
+- [Phase 26]: All pipeline tests use 1 worker and small grids (15x15) to keep CI execution under 6 minutes while exercising real worker threads
+- [Phase 26]: Monotonic episode ordering test asserts exactly 6 callbacks (matching totalEpisodes) to catch dropped or duplicated onProgress calls
 
 ### Pending Todos
 
@@ -138,6 +140,6 @@ Progress: [░░░░░░░░░░] 0% (v0.0.4)
 
 ## Session Continuity
 
-**Last session:** 2026-04-03T08:45:11.245Z
-**Stopped At:** Completed 26-01-PLAN.md
+**Last session:** 2026-04-03T08:59:15.833Z
+**Stopped At:** Completed 26-02-PLAN.md
 **Resume File:** None

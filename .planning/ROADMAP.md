@@ -221,8 +221,8 @@ Plans:
   2. Weight broadcast to workers overlaps with late-finishing episode collection from the previous batch
   3. Pipeline metrics (episodes/sec, pipeline efficiency) are computed per generation and reported via onProgress
   4. Training throughput (episodes/sec) measurably improves compared to the synchronous baseline
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 26-01-PLAN.md — Pipeline metrics types, pipelined double-buffered run() loop with fire-and-forget I/O
-- [ ] 26-02-PLAN.md — Pipeline behavior verification tests (double-buffer, throughput, stop, ordering)
+- [x] 26-02-PLAN.md — Pipeline behavior verification tests (double-buffer, throughput, stop, ordering)
